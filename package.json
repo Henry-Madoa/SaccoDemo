@@ -1,0 +1,42 @@
+{
+  "name": "tier-one-sacco",
+  "version": "2.0.0",
+  "description": "Tier One SACCO — Core Banking & Management Information System",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node test/verify.ts",
+    "reset": "prisma migrate reset",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:migrate": "prisma migrate deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "cloudinary": "^2.10.0",
+    "next": "^15.5.4",
+    "pg": "^8.23.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^15.5.4",
+    "prisma": "^7.9.1",
+    "typescript": "^6.0.3"
+  }
+}

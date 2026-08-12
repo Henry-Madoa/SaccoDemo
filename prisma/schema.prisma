@@ -1,0 +1,448 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model accounting_period {
+  id         Int    @id @default(autoincrement())
+  code       String @unique
+  start_date String
+  end_date   String
+  status     String @default("OPEN")
+}
+
+model app_user {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  full_name     String
+  email         String?
+  phone         String?
+  password_hash String
+  role_id       Int
+  branch_id     Int?
+  status        String    @default("ACTIVE")
+  last_login_at String?
+  created_at    String?
+  branch        branch?   @relation(fields: [branch_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role          role      @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  session       session[]
+
+  @@index([role_id], map: "ix_user_role")
+}
+
+model approval_task {
+  id         Int     @id @default(autoincrement())
+  entity     String
+  entity_id  Int
+  action     String
+  amount     BigInt? @default(0)
+  maker      String
+  maker_at   String
+  checker    String?
+  checker_at String?
+  decision   String  @default("PENDING")
+  reason     String?
+  payload    String?
+
+  @@index([decision], map: "ix_task_decision")
+}
+
+model attachment {
+  id            Int     @id @default(autoincrement())
+  entity        String
+  entity_id     Int
+  public_id     String  @unique
+  url           String
+  filename      String
+  resource_type String  @default("image")
+  format        String?
+  bytes         Int     @default(0)
+  category      String?
+  uploaded_at   String
+  uploaded_by   String
+
+  @@index([entity, entity_id, id(sort: Desc)], map: "ix_attachment_entity")
+}
+
+model audit_log {
+  id        Int     @id @default(autoincrement())
+  at        String
+  user_id   Int?
+  username  String?
+  action    String
+  entity    String?
+  entity_id String?
+  detail    String?
+  ip        String?
+
+  @@index([at(sort: Desc)], map: "ix_audit_at")
+}
+
+model branch {
+  id             Int        @id @default(autoincrement())
+  code           String     @unique
+  name           String
+  town           String?
+  phone          String?
+  is_head_office Int        @default(0)
+  status         String     @default("ACTIVE")
+  created_at     String?
+  app_user       app_user[]
+  member         member[]
+}
+
+model gl_account {
+  id                                                             Int               @id @default(autoincrement())
+  code                                                           String            @unique
+  name                                                           String
+  type                                                           String
+  parent_code                                                    String?
+  is_postable                                                    Int               @default(1)
+  balance                                                        BigInt            @default(0)
+  status                                                         String            @default("ACTIVE")
+  journal_line                                                   journal_line[]
+  loan_product_loan_product_gl_fee_income_idTogl_account         loan_product[]    @relation("loan_product_gl_fee_income_idTogl_account")
+  loan_product_loan_product_gl_interest_income_idTogl_account    loan_product[]    @relation("loan_product_gl_interest_income_idTogl_account")
+  loan_product_loan_product_gl_penalty_income_idTogl_account     loan_product[]    @relation("loan_product_gl_penalty_income_idTogl_account")
+  loan_product_loan_product_gl_receivable_idTogl_account         loan_product[]    @relation("loan_product_gl_receivable_idTogl_account")
+  savings_product_savings_product_gl_control_idTogl_account      savings_product[] @relation("savings_product_gl_control_idTogl_account")
+  savings_product_savings_product_gl_fee_income_idTogl_account   savings_product[] @relation("savings_product_gl_fee_income_idTogl_account")
+  savings_product_savings_product_gl_interest_exp_idTogl_account savings_product[] @relation("savings_product_gl_interest_exp_idTogl_account")
+}
+
+model journal {
+  id                                            Int            @id @default(autoincrement())
+  journal_no                                    String         @unique
+  value_date                                    String
+  posted_at                                     String
+  source_module                                 String
+  event_type                                    String
+  description                                   String?
+  reference                                     String?
+  member_id                                     Int?
+  amount                                        BigInt
+  posted_by                                     String?
+  reverses_id                                   Int?
+  reversed_by_id                                Int?
+  idempotency_key                               String?        @unique
+  member                                        member?        @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal_journal_reversed_by_idTojournal       journal?       @relation("journal_reversed_by_idTojournal", fields: [reversed_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_journal_journal_reversed_by_idTojournal journal[]      @relation("journal_reversed_by_idTojournal")
+  journal_journal_reverses_idTojournal          journal?       @relation("journal_reverses_idTojournal", fields: [reverses_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_journal_journal_reverses_idTojournal    journal[]      @relation("journal_reverses_idTojournal")
+  journal_line                                  journal_line[]
+  txn                                           txn[]
+
+  @@index([value_date], map: "ix_journal_date")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model journal_line {
+  id            Int        @id @default(autoincrement())
+  journal_id    Int
+  line_no       Int
+  gl_account_id Int
+  debit         BigInt     @default(0)
+  credit        BigInt     @default(0)
+  narration     String?
+  gl_account    gl_account @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal       journal    @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([gl_account_id], map: "ix_jl_account")
+  @@index([journal_id], map: "ix_jl_journal")
+}
+
+model loan {
+  id                     Int              @id @default(autoincrement())
+  loan_no                String           @unique
+  member_id              Int
+  product_id             Int
+  principal              BigInt
+  interest_rate          Float
+  interest_method        String
+  term_months            Int
+  purpose                String?
+  status                 String           @default("PENDING")
+  applied_date           String?
+  approved_date          String?
+  approved_by            String?
+  rejected_reason        String?
+  disbursed_date         String?
+  first_due_date         String?
+  installment            BigInt           @default(0)
+  total_interest         BigInt           @default(0)
+  fees_charged           BigInt           @default(0)
+  principal_balance      BigInt           @default(0)
+  interest_balance       BigInt           @default(0)
+  penalty_balance        BigInt           @default(0)
+  principal_paid         BigInt           @default(0)
+  interest_paid          BigInt           @default(0)
+  arrears_amount         BigInt           @default(0)
+  days_in_arrears        Int              @default(0)
+  classification         String           @default("PERFORMING")
+  disburse_to_account_id Int?
+  created_by             String?
+  version                Int              @default(0)
+  savings_account        savings_account? @relation(fields: [disburse_to_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member                 member           @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_product           loan_product     @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_guarantor         loan_guarantor[]
+  loan_schedule          loan_schedule[]
+  txn                    txn[]
+
+  @@index([member_id], map: "ix_loan_member")
+  @@index([product_id], map: "ix_loan_product")
+  @@index([status], map: "ix_loan_status")
+}
+
+model loan_guarantor {
+  id        Int    @id @default(autoincrement())
+  loan_id   Int
+  member_id Int
+  amount    BigInt @default(0)
+  status    String @default("COMMITTED")
+  loan      loan   @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member    member @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([loan_id, member_id])
+  @@index([member_id], map: "ix_lg_member")
+}
+
+model loan_product {
+  id                                                        Int         @id @default(autoincrement())
+  code                                                      String      @unique
+  name                                                      String
+  interest_rate                                             Float       @default(12)
+  interest_method                                           String      @default("REDUCING")
+  max_term_months                                           Int         @default(48)
+  min_amount                                                BigInt      @default(0)
+  max_amount                                                BigInt      @default(500000000)
+  deposit_multiplier                                        Float       @default(3)
+  min_membership_months                                     Int         @default(6)
+  processing_fee_pct                                        Float       @default(1)
+  insurance_pct                                             Float       @default(0.5)
+  penalty_rate                                              Float       @default(1)
+  guarantors_required                                       Int         @default(2)
+  max_dsr_pct                                               Float       @default(66.7)
+  gl_receivable_id                                          Int?
+  gl_interest_income_id                                     Int?
+  gl_fee_income_id                                          Int?
+  gl_penalty_income_id                                      Int?
+  status                                                    String      @default("ACTIVE")
+  loan                                                      loan[]
+  gl_account_loan_product_gl_fee_income_idTogl_account      gl_account? @relation("loan_product_gl_fee_income_idTogl_account", fields: [gl_fee_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_loan_product_gl_interest_income_idTogl_account gl_account? @relation("loan_product_gl_interest_income_idTogl_account", fields: [gl_interest_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_loan_product_gl_penalty_income_idTogl_account  gl_account? @relation("loan_product_gl_penalty_income_idTogl_account", fields: [gl_penalty_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_loan_product_gl_receivable_idTogl_account      gl_account? @relation("loan_product_gl_receivable_idTogl_account", fields: [gl_receivable_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model loan_schedule {
+  id              Int    @id @default(autoincrement())
+  loan_id         Int
+  installment_no  Int
+  due_date        String
+  opening_balance BigInt @default(0)
+  principal_due   BigInt @default(0)
+  interest_due    BigInt @default(0)
+  principal_paid  BigInt @default(0)
+  interest_paid   BigInt @default(0)
+  status          String @default("DUE")
+  loan            loan   @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([loan_id, installment_no], map: "ix_ls_loan")
+}
+
+model member {
+  id                 Int               @id @default(autoincrement())
+  member_no          String            @unique
+  member_type        String            @default("INDIVIDUAL")
+  title              String?
+  first_name         String
+  middle_name        String?
+  last_name          String
+  national_id        String?           @unique(map: "ux_member_nid", where: raw("((national_id IS NOT NULL) AND (national_id <> ''::text))"))
+  kra_pin            String?
+  date_of_birth      String?
+  gender             String?
+  marital_status     String?
+  phone              String?
+  email              String?
+  postal_address     String?
+  physical_address   String?
+  county             String?
+  employer           String?
+  employment_status  String?
+  staff_no           String?
+  gross_income       BigInt            @default(0)
+  other_deductions   BigInt            @default(0)
+  nok_name           String?
+  nok_relationship   String?
+  nok_phone          String?
+  branch_id          Int?
+  status             String            @default("ACTIVE")
+  kyc_verified       Int               @default(0)
+  join_date          String?
+  photo              String?
+  front_id_image     String?
+  back_id_image      String?
+  signature_image    String?
+  fingerprint1_image String?
+  fingerprint2_image String?
+  notes              String?
+  created_at         String?
+  created_by         String?
+  journal            journal[]
+  loan               loan[]
+  loan_guarantor     loan_guarantor[]
+  branch             branch?           @relation(fields: [branch_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account    savings_account[]
+  txn                txn[]
+
+  @@index([last_name, first_name], map: "ix_member_name")
+  @@index([status], map: "ix_member_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model organisation {
+  id               Int     @id
+  name             String
+  short_name       String?
+  motto            String?
+  registration_no  String?
+  sasra_licence_no String?
+  kra_pin          String?
+  society_type     String? @default("Deposit Taking SACCO")
+  physical_address String?
+  postal_address   String?
+  city             String?
+  county           String?
+  country          String? @default("Kenya")
+  phone_primary    String?
+  phone_secondary  String?
+  email            String?
+  website          String?
+  paybill_no       String?
+  bank_name        String?
+  bank_account_no  String?
+  logo             String?
+  currency_code    String? @default("KES")
+  currency_symbol  String? @default("KSh")
+  locale           String? @default("en-KE")
+  timezone         String? @default("Africa/Nairobi")
+  date_format      String? @default("dd MMM yyyy")
+  fy_start_month   Int?    @default(1)
+  fy_start_day     Int?    @default(1)
+  statement_footer String?
+  updated_at       String?
+  updated_by       String?
+}
+
+model role {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  description String?
+  is_system   Int        @default(0)
+  permissions String     @default("[]")
+  app_user    app_user[]
+}
+
+model savings_account {
+  id              Int             @id @default(autoincrement())
+  account_no      String          @unique
+  member_id       Int
+  product_id      Int
+  balance         BigInt          @default(0)
+  hold_amount     BigInt          @default(0)
+  status          String          @default("ACTIVE")
+  opened_date     String?
+  last_activity   String?
+  version         Int             @default(0)
+  loan            loan[]
+  member          member          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_product savings_product @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  txn             txn[]
+
+  @@index([member_id], map: "ix_sa_member")
+  @@index([product_id], map: "ix_sa_product")
+}
+
+model savings_product {
+  id                                                        Int               @id @default(autoincrement())
+  code                                                      String            @unique
+  name                                                      String
+  category                                                  String            @default("SAVINGS")
+  min_balance                                               BigInt            @default(0)
+  min_opening                                               BigInt            @default(0)
+  interest_rate                                             Float             @default(0)
+  allow_withdrawal                                          Int               @default(1)
+  withdrawal_fee                                            BigInt            @default(0)
+  is_loanable_base                                          Int               @default(0)
+  withdrawal_notice_days                                    Int               @default(0)
+  gl_control_id                                             Int?
+  gl_interest_exp_id                                        Int?
+  gl_fee_income_id                                          Int?
+  status                                                    String            @default("ACTIVE")
+  savings_account                                           savings_account[]
+  gl_account_savings_product_gl_control_idTogl_account      gl_account?       @relation("savings_product_gl_control_idTogl_account", fields: [gl_control_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_savings_product_gl_fee_income_idTogl_account   gl_account?       @relation("savings_product_gl_fee_income_idTogl_account", fields: [gl_fee_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_savings_product_gl_interest_exp_idTogl_account gl_account?       @relation("savings_product_gl_interest_exp_idTogl_account", fields: [gl_interest_exp_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model sequence {
+  name    String @id
+  prefix  String @default("")
+  next_no Int    @default(1)
+  width   Int    @default(6)
+}
+
+model session {
+  token      String   @id
+  user_id    Int
+  created_at String?
+  expires_at String?
+  app_user   app_user @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model theme {
+  id         Int     @id
+  preset     String? @default("custom")
+  tokens     String
+  updated_at String?
+  updated_by String?
+}
+
+model txn {
+  id                 Int              @id @default(autoincrement())
+  txn_ref            String           @unique
+  value_date         String
+  created_at         String
+  module             String
+  txn_type           String
+  member_id          Int?
+  savings_account_id Int?
+  loan_id            Int?
+  amount             BigInt
+  running_balance    BigInt?
+  channel            String?          @default("TELLER")
+  description        String?
+  journal_id         Int?
+  created_by         String?
+  status             String           @default("POSTED")
+  reversal_of        Int?
+  journal            journal?         @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan               loan?            @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member             member?          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  txn                txn?             @relation("txnTotxn", fields: [reversal_of], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_txn          txn[]            @relation("txnTotxn")
+  savings_account    savings_account? @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([value_date], map: "ix_txn_date")
+  @@index([loan_id, id], map: "ix_txn_loan")
+  @@index([member_id, id(sort: Desc)], map: "ix_txn_member")
+  @@index([savings_account_id, id], map: "ix_txn_sa")
+}

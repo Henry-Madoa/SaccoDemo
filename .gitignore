@@ -1,0 +1,14 @@
+node_modules/
+*.log
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# TypeScript
+tsconfig.tsbuildinfo
+
+# Prisma / local env
+.env
+backup/

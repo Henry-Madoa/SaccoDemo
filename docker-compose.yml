@@ -1,0 +1,30 @@
+# PostgreSQL for local development.
+#
+#   docker compose up -d
+#
+# The data lives in a named volume, so `docker compose down` keeps the database
+# and `docker compose down -v` discards it.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: sacco-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sacco
+      POSTGRES_PASSWORD: sacco
+      POSTGRES_DB: sacco
+      # Deterministic collation so ORDER BY on member_no and account_no is
+      # stable regardless of the host's locale.
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    ports:
+      - '5432:5432'
+    volumes:
+      - sacco-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sacco -d sacco']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  sacco-pgdata:
