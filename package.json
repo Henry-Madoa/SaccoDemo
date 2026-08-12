@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node test/verify.ts",
+    "postinstall": "prisma generate",
     "reset": "prisma migrate reset",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
