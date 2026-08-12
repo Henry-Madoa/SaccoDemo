@@ -17,7 +17,7 @@ export interface ApplicationFormProps {
   onClose: () => void;
 }
 
-export function ApplicationForm({ members, products, presetMemberId, onClose }: ApplicationFormProps) {
+function ApplicationForm({ members, products, presetMemberId, onClose }: ApplicationFormProps) {
   const toast = useToast();
   const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);

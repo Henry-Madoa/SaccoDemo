@@ -19,7 +19,7 @@ import type { CloudinaryAsset, UploadSignature } from './types.ts';
 const FOLDER_ROOT = process.env.CLOUDINARY_FOLDER || 'sacco';
 
 /** Folders are fixed server-side so a client cannot write outside our namespace. */
-export const FOLDERS = {
+const FOLDERS = {
   logo: `${FOLDER_ROOT}/branding`,
   photo: `${FOLDER_ROOT}/member-photos`,
   attachment: `${FOLDER_ROOT}/attachments`,
@@ -37,7 +37,7 @@ const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'imag
 const DOC_TYPES = ['application/pdf', 'text/plain', 'text/csv',
   'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
 
-export const ACCEPTED: Record<UploadKind, string[]> = {
+const ACCEPTED: Record<UploadKind, string[]> = {
   logo: IMAGE_TYPES,
   photo: IMAGE_TYPES,
   attachment: [...IMAGE_TYPES, ...DOC_TYPES],
@@ -48,7 +48,7 @@ export const ACCEPTED: Record<UploadKind, string[]> = {
   fingerprint2: IMAGE_TYPES,
 };
 
-export const MAX_BYTES: Record<UploadKind, number> = {
+const MAX_BYTES: Record<UploadKind, number> = {
   logo: 1_500_000,
   photo: 3_000_000,
   attachment: 10_000_000,
@@ -209,7 +209,7 @@ const GRAVITY_CROPS = new Set(['fill', 'thumb', 'lfill', 'fill_pad', 'auto', 'au
  * A delivery URL with transformations applied.
  * Serving a 40px avatar from a 3 MB original is the whole point of doing this.
  */
-export function deliveryUrl(
+function deliveryUrl(
   publicId: string,
   opts: { width?: number; height?: number; crop?: string } = {},
 ): string {

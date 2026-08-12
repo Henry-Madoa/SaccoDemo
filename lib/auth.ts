@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { one, run, audit } from './db.ts';
 import type { Actor, AppUser, Permission, PermissionResource, SessionUser } from './types.ts';
 
-export const SESSION_HOURS = 12;
+const SESSION_HOURS = 12;
 export const SESSION_COOKIE = 'sacco_session';
 
 export function hashPassword(plain: string, salt?: string): string {
@@ -32,7 +32,7 @@ export const PERMISSIONS: Record<PermissionResource, string[]> = {
   ADMIN: ['ORG_MANAGE', 'THEME_MANAGE', 'USER_MANAGE', 'ROLE_MANAGE', 'PRODUCT_MANAGE', 'BRANCH_MANAGE', 'COA_MANAGE', 'AUDIT_VIEW'],
 };
 
-export async function createSession(user: Pick<AppUser, 'id'>): Promise<{ token: string; expiresAt: Date }> {
+async function createSession(user: Pick<AppUser, 'id'>): Promise<{ token: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString('hex');
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_HOURS * 3600 * 1000);

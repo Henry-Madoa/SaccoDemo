@@ -16,7 +16,7 @@ export interface MemberFormProps {
   onClose: () => void;
 }
 
-export function MemberForm({ member, branches, onClose }: MemberFormProps) {
+function MemberForm({ member, branches, onClose }: MemberFormProps) {
   const m = member ?? null;
 
   return (

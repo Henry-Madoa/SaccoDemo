@@ -25,7 +25,7 @@ function connect(): PrismaClient {
   return new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
 }
 
-export const db: PrismaClient = globalForDb.__saccoPrisma ?? (globalForDb.__saccoPrisma = connect());
+const db: PrismaClient = globalForDb.__saccoPrisma ?? (globalForDb.__saccoPrisma = connect());
 
 /** The client for the current call: the open transaction if there is one. */
 type RawClient = Pick<PrismaClient, '$queryRawUnsafe' | '$executeRawUnsafe'>;

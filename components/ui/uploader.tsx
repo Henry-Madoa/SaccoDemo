@@ -127,7 +127,7 @@ export interface UseUploadResult {
 }
 
 /** Signature -> validate -> direct upload. Errors are returned, never thrown. */
-export function useUpload(kind: UploadKind, entity?: AttachmentEntity): UseUploadResult {
+function useUpload(kind: UploadKind, entity?: AttachmentEntity): UseUploadResult {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');

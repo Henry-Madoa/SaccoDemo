@@ -154,7 +154,7 @@ export async function updateUser(
 }
 
 /* ---------------------------------------------------------- savings products */
-export const SAVINGS_PRODUCT_FIELDS = [
+const SAVINGS_PRODUCT_FIELDS = [
   'code', 'name', 'category', 'min_balance', 'min_opening', 'interest_rate', 'allow_withdrawal',
   'withdrawal_fee', 'is_loanable_base', 'withdrawal_notice_days', 'gl_control_id', 'gl_interest_exp_id',
   'gl_fee_income_id', 'status',
@@ -209,7 +209,7 @@ export async function updateSavingsProduct(
 }
 
 /* ------------------------------------------------------------- loan products */
-export const LOAN_PRODUCT_FIELDS = [
+const LOAN_PRODUCT_FIELDS = [
   'code', 'name', 'interest_rate', 'interest_method', 'max_term_months', 'min_amount', 'max_amount',
   'deposit_multiplier', 'min_membership_months', 'processing_fee_pct', 'insurance_pct', 'penalty_rate',
   'guarantors_required', 'max_dsr_pct', 'gl_receivable_id', 'gl_interest_income_id', 'gl_fee_income_id',

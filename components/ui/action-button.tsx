@@ -18,7 +18,7 @@ export interface RunActionOptions<T> {
  * the failure path here is the same shape everywhere and a business rule such
  * as "you cannot approve a loan you captured" reaches the user verbatim.
  */
-export function useAction() {
+function useAction() {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);

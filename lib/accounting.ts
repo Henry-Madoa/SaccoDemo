@@ -16,9 +16,7 @@ import type {
   JournalLine, PostJournalOptions, PostedJournal, TrialBalanceRow,
 } from './types.ts';
 
-export { PostingError };
-
-export const NATURAL_DEBIT: ReadonlySet<GlAccountType> = new Set<GlAccountType>(['ASSET', 'EXPENSE']);
+const NATURAL_DEBIT: ReadonlySet<GlAccountType> = new Set<GlAccountType>(['ASSET', 'EXPENSE']);
 
 async function resolveAccount(ref: number | string): Promise<GlAccount> {
   const row = typeof ref === 'number'

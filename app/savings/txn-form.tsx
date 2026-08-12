@@ -26,7 +26,7 @@ export interface TxnAccount {
 
 export type TxnKind = 'DEPOSIT' | 'WITHDRAWAL';
 
-export function TxnForm({ kind, account, onClose }: {
+function TxnForm({ kind, account, onClose }: {
   kind: TxnKind;
   account: TxnAccount;
   onClose: () => void;

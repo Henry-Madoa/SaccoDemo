@@ -18,8 +18,6 @@ export const CHANNEL_GL: Record<Channel, string> = {
   SYSTEM: '1020',
 };
 
-export { DEPOSIT_CHANNELS, WITHDRAWAL_CHANNELS } from './constants.ts';
-
 const today = (): IsoDate => new Date().toISOString().slice(0, 10);
 
 export function getAccount(id: number): Promise<SavingsAccountFull | undefined> {

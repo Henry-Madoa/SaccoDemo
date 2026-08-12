@@ -16,8 +16,6 @@ import type {
 
 const today = (): IsoDate => new Date().toISOString().slice(0, 10);
 
-export { LOAN_STATUSES, DISBURSE_CHANNELS, REPAY_CHANNELS } from './constants.ts';
-
 export function getLoan(id: number): Promise<LoanFull | undefined> {
   return one<LoanFull>(
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
@@ -77,7 +75,7 @@ export async function existingExposure(memberId: number): Promise<Cents> {
   ))!.s;
 }
 
-export async function monthlyObligations(memberId: number): Promise<Cents> {
+async function monthlyObligations(memberId: number): Promise<Cents> {
   return (await one<{ s: Cents }>(
     "SELECT COALESCE(SUM(installment),0) s FROM loan WHERE member_id = ? AND status = 'DISBURSED'",
     memberId,

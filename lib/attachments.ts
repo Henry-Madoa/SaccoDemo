@@ -12,12 +12,6 @@ export async function listAttachments(entity: AttachmentEntity, entityId: number
   return rows.map((r) => ({ ...r, url: signedAttachmentUrl(r.public_id, r.resource_type, r.format) || r.url }));
 }
 
-/** Count per entity, for badge-style summaries without loading the rows. */
-export const countAttachments = async (entity: AttachmentEntity, entityId: number): Promise<number> =>
-  (await one<{ c: number }>(
-    'SELECT COUNT(*) c FROM attachment WHERE entity = ? AND entity_id = ?', entity, entityId,
-  ))!.c;
-
 export interface RecordAttachmentInput {
   entity: AttachmentEntity;
   entityId: number;

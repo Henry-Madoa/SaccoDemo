@@ -6,7 +6,7 @@ import type {
   MemberWithBranch, SavingsAccountWithProduct, Txn,
 } from './types.ts';
 
-export const MEMBER_FIELDS = [
+const MEMBER_FIELDS = [
   'member_type', 'title', 'first_name', 'middle_name', 'last_name', 'national_id', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
   'county', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',

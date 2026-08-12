@@ -7,7 +7,7 @@ import type { ThemeTokens, TokenGroup } from './types.ts';
  * for colour-vision deficiency separation; the admin may override them.
  */
 
-export const BASE: ThemeTokens = {
+const BASE: ThemeTokens = {
   '--font-family': "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
   '--font-size': '14px',
   '--radius': '10px',

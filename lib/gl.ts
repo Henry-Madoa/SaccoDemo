@@ -7,10 +7,6 @@ import type {
   JournalLineWithAccount, JournalListRow, LedgerLine, PostedJournal, TrialBalanceRow,
 } from './types.ts';
 
-export { trialBalance };
-
-export { GL_ACCOUNT_TYPES };
-
 export interface TrialBalanceReport {
   rows: TrialBalanceRow[];
   totals: { debit: Cents; credit: Cents };

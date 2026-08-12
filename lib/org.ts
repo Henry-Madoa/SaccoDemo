@@ -6,7 +6,7 @@ import type { Actor, OrgBrand, Organisation, Theme, ThemePreset, ThemeTokens } f
 
 export { TOKEN_GROUPS };
 
-export const ORG_FIELDS = [
+const ORG_FIELDS = [
   'name', 'short_name', 'motto', 'registration_no', 'sasra_licence_no', 'kra_pin', 'society_type',
   'physical_address', 'postal_address', 'city', 'county', 'country', 'phone_primary', 'phone_secondary',
   'email', 'website', 'paybill_no', 'bank_name', 'bank_account_no', 'logo', 'currency_code',
