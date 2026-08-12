@@ -34,7 +34,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const [org, theme] = await Promise.all([getOrgBrand(), getTheme()]);
 
   return (
-    <html lang="en">
+    // The theme-mode script (below) sets data-mode on this element before
+    // React hydrates; suppressHydrationWarning stops React flagging that
+    // expected, script-driven mismatch as an error.
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/*
           Theme tokens are rendered into the first byte of the document rather
@@ -42,6 +45,19 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           sign-in screen already wears the society's colours.
         */}
         <style id="theme-tokens" dangerouslySetInnerHTML={{ __html: themeCss(theme.tokens) }} />
+        {/*
+          Light/dark mode is a per-user browser preference (see ThemeToggle),
+          separate from the org's brand preset above. Applied synchronously,
+          before first paint, so there is no flash of the wrong mode.
+        */}
+        <script
+          id="theme-mode-init"
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var m=localStorage.getItem('theme-mode');` +
+              `if(m!=='light'&&m!=='dark'){m=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}` +
+              `document.documentElement.dataset.mode=m;}catch(e){}})();`,
+          }}
+        />
       </head>
       <body>
         <FormatProvider org={org}>

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getOrgBrand } from '@/lib/org';
 import { getCurrentUser } from '@/lib/session';
 import { LoginForm } from './login-form';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 
 export default async function LoginPage() {
   if (await getCurrentUser()) redirect('/dashboard');
@@ -9,6 +10,7 @@ export default async function LoginPage() {
 
   return (
     <div className="login-wrap">
+      <div className="login-mode-toggle"><ThemeToggle /></div>
       <div className="login-brand">
         {org?.logo ? <img className="login-logo" src={org.logo} alt="" /> : null}
         <h1>{org?.name || 'SACCO Management System'}</h1>

@@ -18,13 +18,38 @@ html, body {
 
 :root { --sp: calc(8px * var(--density, 1)); }
 
+/* ------------------------------------------------------- light / dark mode
+   A per-user preference, set by the toggle in the top bar and independent of
+   the admin's brand colour preset (Admin Centre → Appearance). Only the
+   neutral surfaces and text invert; brand, status and chart colours stay as
+   configured. */
+:root[data-mode='dark'] {
+  --bg: #12171a;
+  --surface: #171c20;
+  --surface-2: #1d2429;
+  --border: #2b3439;
+  --text: #e7edf1;
+  --text-muted: #9aa6ae;
+  --topbar-bg: #171c20;
+  --topbar-fg: #e7edf1;
+  --brand-primary-soft: color-mix(in srgb, var(--brand-primary) 25%, var(--surface));
+}
+
+.theme-toggle {
+  flex: none; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: inherit; cursor: pointer; font-size: 15px; line-height: 1;
+}
+.theme-toggle:hover { background: var(--surface-2); border-color: var(--brand-primary); }
+
 a { color: var(--brand-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
 /* ------------------------------------------------------------------ login */
-.login-wrap { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+.login-wrap { position: relative; min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+.login-mode-toggle { position: absolute; top: 18px; right: 18px; z-index: 5; }
 .login-brand {
   background: var(--sidebar-bg); color: var(--sidebar-fg);
   display: flex; flex-direction: column; justify-content: center;

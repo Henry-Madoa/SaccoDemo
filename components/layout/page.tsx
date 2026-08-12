@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { initials } from '@/lib/format';
 import { SignOutButton } from './sign-out-button';
 import { NavToggle } from './nav-toggle';
+import { ThemeToggle } from './theme-toggle';
 import type { SessionUser } from '@/lib/types';
 
 export interface PageProps {
@@ -29,6 +30,7 @@ export function Page({ title, crumb, user, children }: PageProps) {
         </div>
         <div className="spacer" />
         <div className="usermenu">
+          <ThemeToggle />
           {/* Name and role are the first thing to go when width runs out —
               the avatar still identifies who is signed in. */}
           <div className="whoami">
