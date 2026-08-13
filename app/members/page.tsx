@@ -1,23 +1,22 @@
 import Link from 'next/link';
 import { requirePerm, currentCan } from '@/lib/session';
 import { listMembers, MEMBER_STATUSES } from '@/lib/members';
-import { listBranches } from '@/lib/admin';
+import { getDimensionCaptions } from '@/lib/org';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, EmptyState, Pill, TableWrap, Toolbar, Spacer } from '@/components/ui/primitives';
 import { SearchInput, SelectFilter } from '@/components/ui/filters';
 import { Money } from '@/components/ui/money';
-import { MemberFormButton } from './member-form';
 
 export default async function MembersPage({ searchParams }: {
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
   const user = await requirePerm('MEMBER:READ');
   const { q = '', status = '' } = await searchParams;
-  const [{ rows, total }, canCreate] = await Promise.all([
+  const [{ rows, total }, canCreate, { caption1, caption2 }] = await Promise.all([
     listMembers({ search: q, status }),
     currentCan('MEMBER:CREATE'),
+    getDimensionCaptions(),
   ]);
-  const branches = canCreate ? await listBranches() : [];
 
   return (
     <Page title="Members" crumb="Registry, KYC and member 360" user={user}>
@@ -26,7 +25,7 @@ export default async function MembersPage({ searchParams }: {
         <SelectFilter paramName="status" options={MEMBER_STATUSES} allLabel="All statuses" />
         <Spacer />
         {canCreate ? (
-          <MemberFormButton branches={branches}>Register member</MemberFormButton>
+          <Link href="/member-applications/new" className="btn">New member application</Link>
         ) : null}
       </Toolbar>
 
@@ -40,7 +39,8 @@ export default async function MembersPage({ searchParams }: {
             <TableWrap>
               <thead>
                 <tr>
-                  <th>Member no.</th><th>Name</th><th>National ID</th><th>Phone</th><th>Branch</th>
+                  <th>Member no.</th><th>Name</th><th>National ID</th><th>Phone</th>
+                  <th>{caption1}</th><th>{caption2}</th>
                   <th className="num">Savings</th><th className="num">Loan balance</th><th>Status</th>
                 </tr>
               </thead>
@@ -56,7 +56,8 @@ export default async function MembersPage({ searchParams }: {
                     </td>
                     <td className="mono">{m.national_id || '—'}</td>
                     <td>{m.phone || '—'}</td>
-                    <td>{m.branch_name || '—'}</td>
+                    <td>{m.global_dimension_1_name || '—'}</td>
+                    <td>{m.global_dimension_2_name || '—'}</td>
                     <td className="num"><Money cents={m.total_savings} decimals={0} /></td>
                     <td className="num">
                       {m.loan_balance ? <Money cents={m.loan_balance} decimals={0} /> : '—'}

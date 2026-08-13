@@ -38,15 +38,17 @@ export interface JournalLineDraft {
   narration: string;
   debit: string;
   credit: string;
+  globalDimension1Id: number | '';
+  globalDimension2Id: number | '';
 }
 
 export async function createJournal(
   values: FormValues,
   lines: JournalLineDraft[],
-): Promise<ActionResult<PostedJournal>> {
+): Promise<ActionResult<gl.CreateJournalResult>> {
   return actionResult(async () => {
     const user = await requirePerm('GL:JOURNAL_CREATE');
-    const journal = await gl.createJournal({
+    const result = await gl.createJournal({
       valueDate: String(values.valueDate || ''),
       description: String(values.description || ''),
       lines: lines.map((l): JournalLineInput => ({
@@ -54,11 +56,14 @@ export async function createJournal(
         narration: l.narration,
         debit: toCents(l.debit),
         credit: toCents(l.credit),
+        globalDimension1Id: l.globalDimension1Id || null,
+        globalDimension2Id: l.globalDimension2Id || null,
       })),
     }, user);
     revalidatePath('/accounting');
     revalidatePath('/reports');
-    return journal;
+    revalidatePath('/approvals');
+    return result;
   });
 }
 

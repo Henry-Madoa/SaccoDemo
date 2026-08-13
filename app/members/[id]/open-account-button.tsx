@@ -6,10 +6,10 @@ import { Field } from '@/components/ui/field';
 import { useFormat } from '@/components/ui/format-provider';
 import { openSavingsAccount } from '@/app/actions/savings';
 import { DEPOSIT_CHANNELS } from '@/lib/constants';
-import type { MemberWithBranch, SavingsProduct } from '@/lib/types';
+import type { MemberWithDimensions, SavingsProduct } from '@/lib/types';
 
 export function OpenAccountButton({ member, products }: {
-  member: MemberWithBranch;
+  member: MemberWithDimensions;
   products: SavingsProduct[];
 }) {
   const [open, setOpen] = useState(false);

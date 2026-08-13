@@ -20,10 +20,18 @@ const globalForBootstrap = globalThis as typeof globalThis & { __saccoSeeding?: 
 export function ensureSeeded(): Promise<void> {
   globalForBootstrap.__saccoSeeding ??= (async () => {
     const started = Date.now();
-    const result = await seedIfEmpty();
-    if (result.seeded) {
-      console.log(`  Seeded ${result.members} members and ${result.loans} disbursed loans in ${Date.now() - started} ms.`);
-      console.log('  Sign in as admin/admin123, manager/manager123, loans/loans123, teller/teller123, finance/finance123 or auditor/auditor123.');
+    try {
+      const result = await seedIfEmpty();
+      if (result.seeded) {
+        console.log(`  Seeded ${result.members} members and ${result.loans} disbursed loans in ${Date.now() - started} ms.`);
+        console.log('  Sign in as admin/admin123, manager/manager123, loans/loans123, teller/teller123, finance/finance123 or auditor/auditor123.');
+      }
+    } catch (err) {
+      // A transient failure (e.g. a cold-start timeout) must not wedge every
+      // later request behind the same cached rejection — clear it so the next
+      // call retries instead of replaying this one forever.
+      globalForBootstrap.__saccoSeeding = undefined;
+      throw err;
     }
   })();
   return globalForBootstrap.__saccoSeeding;

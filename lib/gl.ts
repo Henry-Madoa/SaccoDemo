@@ -1,7 +1,8 @@
-import { one, all, run, audit } from './db.ts';
+import { one, all, run, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { trialBalance, postJournal, reverseJournal, accountBalance } from './accounting.ts';
 import { GL_ACCOUNT_TYPES } from './constants.ts';
+import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import type {
   AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal, JournalLineInput,
   JournalLineWithAccount, JournalListRow, LedgerLine, PostedJournal, TrialBalanceRow,
@@ -25,8 +26,12 @@ export async function getTrialBalance(asOf?: IsoDate | null): Promise<TrialBalan
 
 export function listJournals(search = ''): Promise<JournalListRow[]> {
   return all<JournalListRow>(
-    `SELECT j.*, m.member_no, m.first_name, m.last_name
-     FROM journal j LEFT JOIN member m ON m.id = j.member_id
+    `SELECT j.*, m.member_no, m.first_name, m.last_name,
+            gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
+     FROM journal j
+     LEFT JOIN member m ON m.id = j.member_id
+     LEFT JOIN global_dimension_1_value gd1 ON gd1.id = j.global_dimension_1_id
+     LEFT JOIN global_dimension_2_value gd2 ON gd2.id = j.global_dimension_2_id
      WHERE j.journal_no LIKE @like OR j.description LIKE @like OR j.reference LIKE @like
      ORDER BY j.id DESC LIMIT 200`,
     { like: `%${String(search).trim()}%` },
@@ -44,8 +49,12 @@ export async function getJournal(id: number): Promise<JournalDetail | null> {
   return {
     journal,
     lines: await all<JournalLineWithAccount>(
-      `SELECT jl.*, a.code, a.name, a.type FROM journal_line jl
+      `SELECT jl.*, a.code, a.name, a.type,
+              gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
+       FROM journal_line jl
        JOIN gl_account a ON a.id = jl.gl_account_id
+       LEFT JOIN global_dimension_1_value gd1 ON gd1.id = jl.global_dimension_1_id
+       LEFT JOIN global_dimension_2_value gd2 ON gd2.id = jl.global_dimension_2_id
        WHERE jl.journal_id = ? ORDER BY jl.line_no`,
       id,
     ),
@@ -58,30 +67,61 @@ export interface CreateJournalInput {
   lines: JournalLineInput[];
 }
 
-export async function createJournal(
-  { valueDate, description, lines }: CreateJournalInput,
-  user: Actor,
-): Promise<PostedJournal> {
-  const clean = (lines || [])
+/** The actual posting — shared by an immediate manual entry and a workflow's finalize step. */
+export async function postManualJournal(input: CreateJournalInput, user: Actor): Promise<PostedJournal> {
+  const clean = (input.lines || [])
     .map((l) => ({
       account: l.account,
       debit: Math.round(Number(l.debit) || 0),
       credit: Math.round(Number(l.credit) || 0),
       narration: l.narration || null,
+      globalDimension1Id: l.globalDimension1Id ?? null,
+      globalDimension2Id: l.globalDimension2Id ?? null,
     }))
     .filter((l) => l.account && (l.debit || l.credit));
   if (clean.length < 2) throw new AppError('A journal needs at least two lines', 'NO_LINES');
 
   const j = await postJournal({
-    valueDate: valueDate || new Date().toISOString().slice(0, 10),
+    valueDate: input.valueDate || new Date().toISOString().slice(0, 10),
     module: 'GL',
     eventType: 'MANUAL',
-    description,
+    description: input.description,
     lines: clean,
     user,
   });
   await audit(user, 'GL_JOURNAL_CREATE', 'journal', j.id, { amount: j.amount });
   return j;
+}
+
+export type CreateJournalResult =
+  | { posted: true; journal: PostedJournal }
+  | { posted: false; taskId: number };
+
+/**
+ * Entry point for the manual-entry screen: posts immediately unless an
+ * admin-defined workflow matches, in which case the journal is held as a
+ * pending task's payload and only actually posted once every step approves.
+ */
+export async function createJournal(input: CreateJournalInput, user: Actor): Promise<CreateJournalResult> {
+  const amount = (input.lines || []).reduce((a, l) => a + Math.round(Number(l.debit) || 0), 0);
+  const gd1 = input.lines?.find((l) => l.globalDimension1Id != null)?.globalDimension1Id ?? null;
+  const gd2 = input.lines?.find((l) => l.globalDimension2Id != null)?.globalDimension2Id ?? null;
+
+  const matched = await findMatchingWorkflow('JOURNAL', {
+    amount, global_dimension_1_id: gd1, global_dimension_2_id: gd2,
+  });
+  if (!matched) {
+    return { posted: true, journal: await postManualJournal(input, user) };
+  }
+
+  // No journal exists yet to key the task on — mint a draft reference instead.
+  const draftNo = await nextSequence('JOURNAL_DRAFT');
+  const taskId = await startWorkflow(matched.workflow, matched.steps, {
+    documentType: 'JOURNAL', entityId: draftNo, requestedBy: user.username, amount,
+    payload: JSON.stringify(input),
+  });
+  await audit(user, 'GL_JOURNAL_SUBMIT', 'workflow_task', taskId, { amount, draftNo });
+  return { posted: false, taskId };
 }
 
 export async function reverseJournalEntry(id: number, reason: string, user: Actor): Promise<PostedJournal> {

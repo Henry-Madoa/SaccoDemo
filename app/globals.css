@@ -42,6 +42,36 @@ html, body {
 }
 .theme-toggle:hover { background: var(--surface-2); border-color: var(--brand-primary); }
 
+/* ------------------------------------------------------------ notifications */
+.notif-bell { position: relative; }
+.notif-dot {
+  position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 3px;
+  border-radius: 20px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
+  display: grid; place-items: center; line-height: 1;
+}
+.notif-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 320px; max-height: 420px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0,0,0,.18); z-index: 30;
+}
+.notif-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: calc(var(--sp)*1.25) calc(var(--sp)*1.5); border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 600;
+}
+.notif-list { display: flex; flex-direction: column; }
+.notif-item {
+  display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: calc(var(--sp)*1.25) calc(var(--sp)*1.5); border-bottom: 1px solid var(--border); color: inherit;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item:hover { background: var(--surface-2); }
+.notif-item.unread { background: var(--brand-primary-soft); }
+.notif-title { font-size: 12.5px; font-weight: 600; }
+.notif-body { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.notif-time { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.notif-empty { padding: calc(var(--sp)*2.5); text-align: center; font-size: 12.5px; color: var(--text-muted); }
+
 a { color: var(--brand-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
@@ -263,6 +293,10 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight
 .field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; color: var(--text); }
 .field .hint { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
 .field .req { color: var(--danger); }
+.pw-checklist {
+  list-style: none; margin: 4px 0 0; padding: 0; display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 12px; font-size: 11.5px; color: var(--text-muted);
+}
 input[type=text], input[type=password], input[type=number], input[type=date], input[type=email], select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); outline: none;

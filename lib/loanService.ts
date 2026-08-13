@@ -8,6 +8,7 @@ import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
 import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
+import { findMatchingWorkflow, startWorkflow, startLegacyTask } from './workflow.ts';
 import type {
   Actor, Appraisal, AppraisalFactor, Cents, Channel, GuarantorRow, IsoDate, JournalLineInput,
   LoanDetail, LoanFull, LoanListRow, LoanProduct, LoanScheduleRow, Member,
@@ -182,11 +183,14 @@ export async function apply({
         loanId, g.memberId, Math.round(g.amount || 0),
       );
     }
-    await run(
-      `INSERT INTO approval_task (entity, entity_id, action, amount, maker, maker_at)
-       VALUES ('loan', ?, 'APPROVE', ?, ?, ?)`,
-      loanId, principal, user.username, new Date().toISOString(),
-    );
+
+    // Route through an admin-defined workflow when one matches; otherwise keep a
+    // legacy (unrouted) task so the pending-approvals count and queue still see it.
+    const matched = await findMatchingWorkflow('LOAN', { principal, product_id: productId, term_months: termMonths });
+    const taskInput = { documentType: 'LOAN' as const, entityId: String(loanId), requestedBy: user.username, amount: principal };
+    if (matched) await startWorkflow(matched.workflow, matched.steps, taskInput);
+    else await startLegacyTask(taskInput);
+
     return loanId;
   });
 
@@ -224,11 +228,6 @@ export async function approve(
         user.username, today(), loanId,
       );
     }
-    await run(
-      `UPDATE approval_task SET decision = ?, checker = ?, checker_at = ?, reason = ?
-       WHERE entity='loan' AND entity_id=? AND decision='PENDING'`,
-      decision ? 'APPROVED' : 'REJECTED', user.username, new Date().toISOString(), reason, loanId,
-    );
   });
 
   await audit(user, decision ? 'LOAN_APPROVE' : 'LOAN_REJECT', 'loan', loanId, { reason });

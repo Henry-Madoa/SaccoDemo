@@ -46,6 +46,8 @@ export interface Organisation {
   fy_start_month: number;
   fy_start_day: number;
   statement_footer: string | null;
+  global_dimension_1_caption: string;
+  global_dimension_2_caption: string;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -94,15 +96,35 @@ export type PermissionResource = 'MEMBER' | 'SAVINGS' | 'LOAN' | 'GL' | 'REPORT'
 /** e.g. `LOAN:APPROVE`. Wildcards (`*`, `LOAN:*`) are valid stored values too. */
 export type Permission = string;
 
-export interface Branch {
+export interface County {
+  id: number;
+  name: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface CountyWithUsage extends County {
+  sub_counties: number;
+  members: number;
+}
+
+export interface SubCounty {
+  id: number;
+  county_id: number;
+  name: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+/** A value on the Global Dimension 1 or 2 pick list — both lists share this shape. */
+export interface DimensionValue {
   id: number;
   code: string;
   name: string;
-  town: string | null;
-  phone: string | null;
-  is_head_office: Flag;
-  status: 'ACTIVE' | 'CLOSED';
-  created_at: IsoDateTime | null;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface SubCountyWithUsage extends SubCounty {
+  county_name: string;
+  members: number;
 }
 
 export interface Role {
@@ -129,7 +151,6 @@ export interface AppUser {
   phone: string | null;
   password_hash: string;
   role_id: number;
-  branch_id: number | null;
   status: UserStatus;
   last_login_at: IsoDateTime | null;
   created_at: IsoDateTime | null;
@@ -142,7 +163,6 @@ export interface AppUser {
  */
 export interface SessionUser extends Omit<AppUser, 'password_hash'> {
   role_name: string;
-  branch_name: string | null;
   permissionList: Permission[];
 }
 
@@ -163,8 +183,6 @@ export interface UserListRow {
   created_at: IsoDateTime | null;
   role_name: string;
   role_id: number;
-  branch_name: string | null;
-  branch_id: number | null;
 }
 
 export interface AuditEntry {
@@ -181,12 +199,13 @@ export interface AuditEntry {
 
 /* ----------------------------------------------------------------- members */
 
-export type MemberStatus = 'APPLICATION' | 'ACTIVE' | 'DORMANT' | 'SUSPENDED' | 'EXITED';
+export type MemberStatus = 'NOT PAID UP' | 'ACTIVE' | 'INACTIVE'|'DORMANT' | 'WITHDRAWN'|   'DECEASED'| 'CLOSED' ;
 
 export interface Member {
   id: number;
   member_no: string;
   member_type: 'INDIVIDUAL' | 'CORPORATE' | 'GROUP';
+  member_category_id: number | null;
   title: string | null;
   first_name: string;
   middle_name: string | null;
@@ -200,16 +219,13 @@ export interface Member {
   email: string | null;
   postal_address: string | null;
   physical_address: string | null;
-  county: string | null;
+  county_id: number | null;
+  sub_county_id: number | null;
   employer: string | null;
   employment_status: string | null;
   staff_no: string | null;
   gross_income: Cents;
   other_deductions: Cents;
-  nok_name: string | null;
-  nok_relationship: string | null;
-  nok_phone: string | null;
-  branch_id: number | null;
   status: MemberStatus;
   kyc_verified: Flag;
   join_date: IsoDate | null;
@@ -220,28 +236,174 @@ export interface Member {
   fingerprint1_image: string | null;
   fingerprint2_image: string | null;
   notes: string | null;
+  /** Populated only for non-individual member categories (institution, group, joint account). */
+  group_name: string | null;
+  registration_no: string | null;
+  registration_date: IsoDate | null;
+  contact_person_name: string | null;
+  contact_person_phone: string | null;
+  contact_person_email: string | null;
+  member_count: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
   created_at: IsoDateTime | null;
   created_by: string | null;
 }
 
-export interface MemberWithBranch extends Member {
-  branch_name: string | null;
+export interface MemberWithDimensions extends Member {
+  county_name: string | null;
+  sub_county_name: string | null;
+  member_category_name: string | null;
+  member_category_type: MemberCategoryType | null;
+  global_dimension_1_code: string | null;
+  global_dimension_1_name: string | null;
+  global_dimension_2_code: string | null;
+  global_dimension_2_name: string | null;
 }
 
-export interface MemberListRow extends MemberWithBranch {
+export interface MemberListRow extends MemberWithDimensions {
   total_savings: Cents;
   loan_balance: Cents;
   /** Window-function total — the same on every row of the page. */
   total_count: number;
 }
 
+export interface MemberNextOfKin {
+  id: number;
+  member_id: number;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+}
+
+export interface MemberNominee {
+  id: number;
+  member_id: number;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+  percentage: number;
+  is_next_of_kin: Flag;
+}
+
 export interface MemberDetail {
-  member: MemberWithBranch;
+  member: MemberWithDimensions;
   accounts: SavingsAccountWithProduct[];
   loans: LoanWithProductName[];
   guaranteeing: GuarantorshipRow[];
   transactions: Txn[];
   appraisal: { deposits: Cents; exposure: Cents };
+  nextOfKin: MemberNextOfKin[];
+  nominees: MemberNominee[];
+}
+
+/* ----------------------------------------------------------- member applications */
+
+/**
+ * The workflow state of a staging document — shared vocabulary across whatever
+ * document types eventually reuse it, so not every value applies to every one.
+ * A member application only ever drives itself through a subset of these.
+ */
+export type DocumentStatus =
+  | 'Open' | 'Closed' | 'Pending Approval' | 'Approved' | 'Pending Prepayment' | 'Rejected' | 'Reversed'
+  | 'Archived' | 'Committed' | 'Fulfilled' | 'Running' | 'Terminated' | 'Bounced' | 'Cleared' | 'Received';
+
+/** A staged membership, captured with every field member.createMember() will need once approved. */
+export interface MemberApplication {
+  no: string;
+  member_type: 'INDIVIDUAL' | 'CORPORATE' | 'GROUP';
+  member_category_id: number | null;
+  title: string | null;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  national_id: string | null;
+  kra_pin: string | null;
+  date_of_birth: IsoDate | null;
+  gender: string | null;
+  marital_status: string | null;
+  phone: string | null;
+  email: string | null;
+  postal_address: string | null;
+  physical_address: string | null;
+  county_id: number | null;
+  sub_county_id: number | null;
+  employer: string | null;
+  employment_status: string | null;
+  staff_no: string | null;
+  gross_income: Cents;
+  other_deductions: Cents;
+  kyc_verified: Flag;
+  join_date: IsoDate | null;
+  photo: string | null;
+  front_id_image: string | null;
+  back_id_image: string | null;
+  signature_image: string | null;
+  fingerprint1_image: string | null;
+  fingerprint2_image: string | null;
+  notes: string | null;
+  /** Populated only for non-individual member categories (institution, group, joint account). */
+  group_name: string | null;
+  registration_no: string | null;
+  registration_date: IsoDate | null;
+  contact_person_name: string | null;
+  contact_person_phone: string | null;
+  contact_person_email: string | null;
+  member_count: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  /** The approval workflow state. Captioned "Status" in the UI. */
+  status: DocumentStatus;
+  decision_reason: string | null;
+  member_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface MemberApplicationWithDimensions extends MemberApplication {
+  county_name: string | null;
+  sub_county_name: string | null;
+  member_category_name: string | null;
+  /** Drives the Basic-information-vs-Group/Corporate-information tab choice on the application card. */
+  member_category_type: MemberCategoryType | null;
+  /** Set once processed — the member number the application became. */
+  member_no: string | null;
+  global_dimension_1_code: string | null;
+  global_dimension_1_name: string | null;
+  global_dimension_2_code: string | null;
+  global_dimension_2_name: string | null;
+}
+
+export interface MemberApplicationNextOfKin {
+  id: number;
+  application_no: string;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+}
+
+export interface MemberApplicationNominee {
+  id: number;
+  application_no: string;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+  percentage: number;
+  is_next_of_kin: Flag;
+}
+
+export interface MemberApplicationAttachment {
+  id: number;
+  application_no: string;
+  public_id: string;
+  url: string;
+  filename: string;
+  resource_type: string;
+  format: string | null;
+  bytes: number;
+  category: string | null;
+  uploaded_at: IsoDateTime;
+  uploaded_by: string;
 }
 
 /* -------------------------------------------------------- chart of accounts */
@@ -289,12 +451,16 @@ export interface Journal {
   reverses_id: number | null;
   reversed_by_id: number | null;
   idempotency_key: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
 }
 
 export interface JournalListRow extends Journal {
   member_no: string | null;
   first_name: string | null;
   last_name: string | null;
+  global_dimension_1_code: string | null;
+  global_dimension_2_code: string | null;
 }
 
 export interface JournalLine {
@@ -305,12 +471,16 @@ export interface JournalLine {
   debit: Cents;
   credit: Cents;
   narration: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
 }
 
 export interface JournalLineWithAccount extends JournalLine {
   code: string;
   name: string;
   type: GlAccountType;
+  global_dimension_1_code: string | null;
+  global_dimension_2_code: string | null;
 }
 
 /** A journal line as supplied to postJournal, before it is resolved and stored. */
@@ -320,6 +490,9 @@ export interface JournalLineInput {
   debit?: Cents;
   credit?: Cents;
   narration?: string | null;
+  /** Explicit per-line override — falls back to the header default (see PostJournalOptions) when omitted. */
+  globalDimension1Id?: number | null;
+  globalDimension2Id?: number | null;
 }
 
 export interface PostJournalOptions {
@@ -329,6 +502,9 @@ export interface PostJournalOptions {
   description?: string | null;
   reference?: string | null;
   memberId?: number | null;
+  /** Explicit header default. When omitted and memberId is set, resolved from the member's own dimensions. */
+  globalDimension1Id?: number | null;
+  globalDimension2Id?: number | null;
   lines: JournalLineInput[];
   user?: Actor | null;
   idempotencyKey?: string | null;
@@ -386,6 +562,40 @@ export interface SavingsProductWithUsage extends SavingsProduct {
   gl_control_name: string | null;
   accounts: number;
   portfolio: Cents;
+}
+
+/* ---------------------------------------------------------- member categories */
+
+export type MemberCategoryType =
+  | 'INDIVIDUAL' | 'INSTITUTION' | 'MICRO_FINANCE' | 'GROUP_MEMBER' | 'JOINT_ACCOUNT';
+
+export interface MemberCategory {
+  id: number;
+  code: string;
+  description: string;
+  category_type: MemberCategoryType;
+  registration_fee: Cents;
+  registration_fee_account_id: number | null;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface MemberCategoryWithUsage extends MemberCategory {
+  registration_fee_account_code: string | null;
+  registration_fee_account_name: string | null;
+  default_accounts: number;
+  members: number;
+}
+
+export interface MemberCategoryDefaultAccount {
+  id: number;
+  member_category_id: number;
+  savings_product_id: number;
+  description: string;
+}
+
+export interface MemberCategoryDefaultAccountRow extends MemberCategoryDefaultAccount {
+  savings_product_code: string;
+  savings_product_name: string;
 }
 
 export interface SavingsAccount {
@@ -639,29 +849,114 @@ export interface TxnWithMember extends Txn {
 
 /* --------------------------------------------------------------- workflow */
 
-export interface ApprovalTask {
+export type WorkflowDocumentType = 'MEMBER_APPLICATION' | 'LOAN' | 'JOURNAL';
+export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
+export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
+export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export interface Workflow {
   id: number;
-  entity: string;
-  entity_id: number;
-  action: string;
+  name: string;
+  document_type: WorkflowDocumentType;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface WorkflowCondition {
+  id: number;
+  workflow_id: number;
+  field: string;
+  operator: WorkflowConditionOperator;
+  value: string;
+  value2: string | null;
+}
+
+export interface WorkflowStep {
+  id: number;
+  workflow_id: number;
+  step_no: number;
+  approver_type: WorkflowApproverType;
+  approver_user_id: number | null;
+  approver_group_id: number | null;
+  notify_email: Flag;
+}
+
+/** A workflow with its condition and step child rows, as edited/displayed as one unit. */
+export interface WorkflowWithDetail extends Workflow {
+  conditions: WorkflowCondition[];
+  steps: WorkflowStep[];
+}
+
+export interface WorkflowUserGroup {
+  id: number;
+  name: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface WorkflowUserGroupWithUsage extends WorkflowUserGroup {
+  members: number;
+}
+
+export interface ApprovalUserSetup {
+  id: number;
+  user_id: number;
+  approver_id: number | null;
+  substitute_id: number | null;
+  is_approval_administrator: Flag;
+}
+
+/** One row of the Approval User Setup grid — the user plus their configured setup, if any. */
+export interface ApprovalUserSetupRow {
+  user_id: number;
+  username: string;
+  full_name: string;
+  approver_id: number | null;
+  approver_name: string | null;
+  substitute_id: number | null;
+  substitute_name: string | null;
+  is_approval_administrator: Flag;
+}
+
+export interface WorkflowTask {
+  id: number;
+  workflow_id: number | null;
+  workflow_step_id: number | null;
+  step_no: number;
+  document_type: WorkflowDocumentType;
+  entity_id: string;
+  assigned_to_user_id: number | null;
+  assigned_to_group_id: number | null;
+  status: WorkflowTaskStatus;
+  requested_by: string;
+  requested_at: IsoDateTime;
+  decided_by: string | null;
+  decided_at: IsoDateTime | null;
+  comment: string | null;
   amount: Cents;
-  maker: string;
-  maker_at: IsoDateTime;
-  checker: string | null;
-  checker_at: IsoDateTime | null;
-  decision: 'PENDING' | 'APPROVED' | 'REJECTED';
-  reason: string | null;
   payload: string | null;
 }
 
-export interface ApprovalTaskRow extends ApprovalTask {
-  loan_no: string | null;
-  principal: Cents | null;
-  term_months: number | null;
-  loan_status: LoanStatus | null;
-  member_no: string | null;
-  first_name: string | null;
-  last_name: string | null;
+/** A task row as shown in the "My Approvals" worklist — with display labels resolved. */
+export interface WorkflowTaskRow extends WorkflowTask {
+  workflow_name: string | null;
+  /** A short human label for the document (loan no., application no., journal no.). */
+  document_label: string;
+  /** Where "Review" / clicking the row should navigate. */
+  link: string;
+}
+
+export type NotificationType = 'WORKFLOW_PENDING' | 'WORKFLOW_APPROVED' | 'WORKFLOW_REJECTED';
+
+export interface AppNotification {
+  id: number;
+  user_id: number;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  link: string | null;
+  is_read: Flag;
+  created_at: IsoDateTime;
 }
 
 /* ---------------------------------------------------------------- reports */

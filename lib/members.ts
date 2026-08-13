@@ -1,18 +1,22 @@
 import { one, all, run, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { loanableDeposits, existingExposure } from './loanService.ts';
+import { listNextOfKin, listNominees } from './nominees.ts';
 import type {
   Actor, GuarantorshipRow, LoanWithProductName, Member, MemberDetail, MemberListRow,
-  MemberWithBranch, SavingsAccountWithProduct, Txn,
+  MemberWithDimensions, SavingsAccountWithProduct, Txn,
 } from './types.ts';
 
 const MEMBER_FIELDS = [
-  'member_type', 'title', 'first_name', 'middle_name', 'last_name', 'national_id', 'kra_pin',
+  'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'national_id', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
-  'county', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
-  'nok_name', 'nok_relationship', 'nok_phone', 'branch_id', 'status', 'kyc_verified', 'join_date',
+  'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
+  'status', 'kyc_verified', 'join_date',
   'notes', 'photo', 'front_id_image', 'back_id_image', 'signature_image',
   'fingerprint1_image', 'fingerprint2_image',
+  'group_name', 'registration_no', 'registration_date',
+  'contact_person_name', 'contact_person_phone', 'contact_person_email', 'member_count',
+  'global_dimension_1_id', 'global_dimension_2_id',
 ] as const satisfies readonly (keyof Member)[];
 
 export type MemberField = (typeof MEMBER_FIELDS)[number];
@@ -37,12 +41,20 @@ export async function listMembers(
   { search = '', status = '', limit = 200, offset = 0 }: ListMembersOptions = {},
 ): Promise<{ rows: MemberListRow[]; total: number }> {
   const rows = await all<MemberListRow>(
-    `SELECT m.*, b.name AS branch_name,
+    `SELECT m.*, c.name AS county_name, sc.name AS sub_county_name,
+            mc.description AS member_category_name,
+            gd1.code AS global_dimension_1_code, gd1.name AS global_dimension_1_name,
+            gd2.code AS global_dimension_2_code, gd2.name AS global_dimension_2_name,
             (SELECT COALESCE(SUM(sa.balance),0) FROM savings_account sa WHERE sa.member_id = m.id) AS total_savings,
             (SELECT COALESCE(SUM(l.principal_balance + l.interest_balance),0) FROM loan l
               WHERE l.member_id = m.id AND l.status='DISBURSED') AS loan_balance,
             COUNT(*) OVER () AS total_count
-     FROM member m LEFT JOIN branch b ON b.id = m.branch_id
+     FROM member m
+     LEFT JOIN county c ON c.id = m.county_id
+     LEFT JOIN sub_county sc ON sc.id = m.sub_county_id
+     LEFT JOIN member_category mc ON mc.id = m.member_category_id
+     LEFT JOIN global_dimension_1_value gd1 ON gd1.id = m.global_dimension_1_id
+     LEFT JOIN global_dimension_2_value gd2 ON gd2.id = m.global_dimension_2_id
      WHERE (m.member_no LIKE @like OR m.first_name LIKE @like OR m.last_name LIKE @like
             OR m.national_id LIKE @like OR m.phone LIKE @like)
        ${status ? 'AND m.status = @status' : ''}
@@ -58,9 +70,19 @@ export const listActiveMembers = () =>
     "SELECT id, member_no, first_name, last_name FROM member WHERE status = 'ACTIVE' ORDER BY member_no",
   );
 
-export const getMember = (id: number): Promise<MemberWithBranch | undefined> =>
-  one<MemberWithBranch>(
-    'SELECT m.*, b.name AS branch_name FROM member m LEFT JOIN branch b ON b.id = m.branch_id WHERE m.id = ?',
+export const getMember = (id: number): Promise<MemberWithDimensions | undefined> =>
+  one<MemberWithDimensions>(
+    `SELECT m.*, c.name AS county_name, sc.name AS sub_county_name,
+            mc.description AS member_category_name, mc.category_type AS member_category_type,
+            gd1.code AS global_dimension_1_code, gd1.name AS global_dimension_1_name,
+            gd2.code AS global_dimension_2_code, gd2.name AS global_dimension_2_name
+     FROM member m
+     LEFT JOIN county c ON c.id = m.county_id
+     LEFT JOIN sub_county sc ON sc.id = m.sub_county_id
+     LEFT JOIN member_category mc ON mc.id = m.member_category_id
+     LEFT JOIN global_dimension_1_value gd1 ON gd1.id = m.global_dimension_1_id
+     LEFT JOIN global_dimension_2_value gd2 ON gd2.id = m.global_dimension_2_id
+     WHERE m.id = ?`,
     id,
   );
 
@@ -70,7 +92,7 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
   if (!member) return null;
 
   // Independent reads — one round trip's worth of latency instead of six.
-  const [accounts, loans, guaranteeing, transactions, deposits, exposure] = await Promise.all([
+  const [accounts, loans, guaranteeing, transactions, deposits, exposure, nextOfKin, nominees] = await Promise.all([
     all<SavingsAccountWithProduct>(
       `SELECT sa.*, p.name AS product_name, p.code AS product_code, p.category, p.min_balance, p.allow_withdrawal
        FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
@@ -92,6 +114,8 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
     all<Txn>('SELECT * FROM txn WHERE member_id = ? ORDER BY id DESC LIMIT 40', id),
     loanableDeposits(id),
     existingExposure(id),
+    listNextOfKin(id),
+    listNominees(id),
   ]);
 
   return {
@@ -101,10 +125,12 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
     guaranteeing,
     transactions,
     appraisal: { deposits, exposure },
+    nextOfKin,
+    nominees,
   };
 }
 
-export async function createMember(body: MemberInput, user: Actor): Promise<MemberWithBranch> {
+export async function createMember(body: MemberInput, user: Actor): Promise<MemberWithDimensions> {
   if (!body.first_name || !body.last_name) {
     throw new AppError('First and last name are required', 'VALIDATION');
   }
@@ -131,7 +157,7 @@ export async function createMember(body: MemberInput, user: Actor): Promise<Memb
   return (await getMember(Number(info.lastInsertRowid)))!;
 }
 
-export async function updateMember(id: number, body: MemberInput, user: Actor): Promise<MemberWithBranch> {
+export async function updateMember(id: number, body: MemberInput, user: Actor): Promise<MemberWithDimensions> {
   const cols = MEMBER_FIELDS.filter((f) => body[f] !== undefined);
   if (cols.length) {
     await run(

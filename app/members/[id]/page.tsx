@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePerm, currentCan } from '@/lib/session';
 import { getMemberDetail } from '@/lib/members';
-import { listBranches, listActiveSavingsProducts } from '@/lib/admin';
+import { listActiveSavingsProducts } from '@/lib/admin';
+import { getDimensionCaptions } from '@/lib/org';
 import { listAttachments } from '@/lib/attachments';
 import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { formatDate } from '@/lib/format';
@@ -11,7 +12,7 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money, SignedMoney } from '@/components/ui/money';
-import { MemberFormButton } from '../member-form';
+import { NomineeFormButton, NextOfKinFormButton } from './nominee-form';
 import { OpenAccountButton } from './open-account-button';
 import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
@@ -23,10 +24,13 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   const detail = await getMemberDetail(Number(id));
   if (!detail) notFound();
 
-  const { member: m, accounts, loans, guaranteeing, transactions, appraisal } = detail;
-  const [canUpdate, canOpen, canCreateLoan, attachments, branches, savingsProducts] = await Promise.all([
+  const { member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees } = detail;
+  const [
+    canUpdate, canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 },
+  ] = await Promise.all([
     currentCan('MEMBER:UPDATE'), currentCan('SAVINGS:OPEN'), currentCan('LOAN:CREATE'),
-    listAttachments('member', m.id), listBranches(), listActiveSavingsProducts(),
+    listAttachments('member', m.id), listActiveSavingsProducts(),
+    getDimensionCaptions(),
   ]);
   const mediaEnabled = isConfigured();
 
@@ -37,15 +41,12 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   return (
     <Page
       title={`${m.first_name} ${m.last_name}`}
-      crumb={`${m.member_no} · ${m.branch_name || 'Head Office'}`}
+      crumb={m.member_no}
       user={user}
     >
       <Toolbar>
         <Link href="/members" className="btn ghost sm">← All members</Link>
         <Spacer />
-        {canUpdate ? (
-          <MemberFormButton member={m} branches={branches} className="btn ghost">Edit profile</MemberFormButton>
-        ) : null}
         {canOpen ? <OpenAccountButton member={m} products={savingsProducts} /> : null}
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
@@ -81,18 +82,29 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
               </div>
             </div>
             <DefinitionList items={[
+              ['Category', m.member_category_name || '—'],
               ['National ID', <span className="mono" key="nid">{m.national_id || '—'}</span>],
               ['KRA PIN', <span className="mono" key="pin">{m.kra_pin || '—'}</span>],
               ['Date of birth', formatDate(m.date_of_birth)],
               ['Gender', m.gender || '—'],
-              ['Phone', m.phone || '—'],
-              ['Email', m.email || '—'],
-              ['Postal', m.postal_address || '—'],
-              ['County', m.county || '—'],
               ['Joined', formatDate(m.join_date)],
               ['KYC', m.kyc_verified
                 ? <Pill tone="ok" key="kyc">VERIFIED</Pill>
                 : <Pill tone="warn" key="kyc">PENDING</Pill>],
+              [caption1, m.global_dimension_1_name || '—'],
+              [caption2, m.global_dimension_2_name || '—'],
+            ]} />
+          </Card>
+
+          <Card>
+            <h3>Contact and Address</h3>
+            <DefinitionList items={[
+              ['Phone', m.phone || '—'],
+              ['Email', m.email || '—'],
+              ['Postal address', m.postal_address || '—'],
+              ['Physical address', m.physical_address || '—'],
+              ['County', m.county_name || '—'],
+              ['Sub-county', m.sub_county_name || '—'],
             ]} />
           </Card>
 
@@ -121,13 +133,77 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             ]} />
           </Card>
 
+          {m.member_category_type && m.member_category_type !== 'INDIVIDUAL' ? (
+            <Card>
+              <h3>Group/Corporate information</h3>
+              <div className="card-sub">Entity and contact-person details</div>
+              <DefinitionList items={[
+                ['Group / entity name', m.group_name || '—'],
+                ['Registration no.', <span className="mono" key="rn">{m.registration_no || '—'}</span>],
+                ['Registration date', formatDate(m.registration_date)],
+                ['Number of members', m.member_count ?? '—'],
+                ['Contact person', m.contact_person_name || '—'],
+                ['Contact phone', m.contact_person_phone || '—'],
+                ['Contact email', m.contact_person_email || '—'],
+              ]} />
+            </Card>
+          ) : null}
+
           <Card>
-            <h3>Next of kin</h3>
-            <DefinitionList items={[
-              ['Name', m.nok_name || '—'],
-              ['Relationship', m.nok_relationship || '—'],
-              ['Phone', m.nok_phone || '—'],
-            ]} />
+            <CardHead title="Next of kin" sub="A member can have more than one">
+              {canUpdate ? (
+                <NextOfKinFormButton memberId={m.id} nextOfKin={nextOfKin} className="btn sm ghost">
+                  Manage
+                </NextOfKinFormButton>
+              ) : null}
+            </CardHead>
+            {nextOfKin.length ? (
+              <TableWrap>
+                <thead>
+                  <tr><th>Name</th><th>Relationship</th><th>Phone</th></tr>
+                </thead>
+                <tbody>
+                  {nextOfKin.map((n) => (
+                    <tr key={n.id}>
+                      <td><b>{n.name}</b></td>
+                      <td>{n.relationship || '—'}</td>
+                      <td>{n.phone || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            ) : <EmptyState icon="👪" title="No next of kin on file" />}
+          </Card>
+
+          <Card>
+            <CardHead title="Nominees & beneficiaries" sub="Shares of benefit on the member's account">
+              {canUpdate ? (
+                <NomineeFormButton memberId={m.id} nominees={nominees} className="btn sm ghost">
+                  Manage
+                </NomineeFormButton>
+              ) : null}
+            </CardHead>
+            {nominees.length ? (
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <th>Name</th><th>Relationship</th><th>Phone</th>
+                    <th className="num">Share</th><th>Also NOK</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nominees.map((n) => (
+                    <tr key={n.id}>
+                      <td><b>{n.name}</b></td>
+                      <td>{n.relationship || '—'}</td>
+                      <td>{n.phone || '—'}</td>
+                      <td className="num">{n.percentage}%</td>
+                      <td>{n.is_next_of_kin ? <Pill tone="info">YES</Pill> : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            ) : <EmptyState icon="🎗" title="No nominees on file" />}
           </Card>
         </div>
 

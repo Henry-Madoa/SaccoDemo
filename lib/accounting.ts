@@ -36,11 +36,27 @@ async function assertPeriodOpen(valueDate: IsoDate): Promise<void> {
   }
 }
 
+/**
+ * The member's own Global Dimension 1/2 — the default source when a posting
+ * doesn't say otherwise, mirroring Business Central's default-dimension copy
+ * from a master record onto the transactions that reference it.
+ */
+async function resolveMemberDimensions(
+  memberId: number | null,
+): Promise<{ gd1: number | null; gd2: number | null }> {
+  if (!memberId) return { gd1: null, gd2: null };
+  const row = await one<{ global_dimension_1_id: number | null; global_dimension_2_id: number | null }>(
+    'SELECT global_dimension_1_id, global_dimension_2_id FROM member WHERE id = ?', memberId,
+  );
+  return { gd1: row?.global_dimension_1_id ?? null, gd2: row?.global_dimension_2_id ?? null };
+}
+
 /** Post a balanced double-entry journal. */
 export async function postJournal(opts: PostJournalOptions): Promise<PostedJournal> {
   const {
     valueDate, module: sourceModule, eventType, description,
     reference = null, memberId = null, lines = [], user = null, idempotencyKey = null,
+    globalDimension1Id = null, globalDimension2Id = null,
   } = opts;
 
   if (!valueDate) throw new PostingError('valueDate is required', 'NO_VALUE_DATE');
@@ -55,11 +71,25 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
 
   await assertPeriodOpen(valueDate);
 
+  // Business-Central-style default dimensions: an explicit header value always
+  // wins; anything left unset is filled from the member the journal is for, so
+  // every existing caller that already passes memberId gets this for free.
+  let headerGd1 = globalDimension1Id;
+  let headerGd2 = globalDimension2Id;
+  if (memberId && (headerGd1 == null || headerGd2 == null)) {
+    const memberDims = await resolveMemberDimensions(memberId);
+    headerGd1 = headerGd1 ?? memberDims.gd1;
+    headerGd2 = headerGd2 ?? memberDims.gd2;
+  }
+
   let totalDebit = 0;
   let totalCredit = 0;
   // Sequential rather than Promise.all: the line validations must report the
   // first offending line, not whichever lookup happens to reject first.
-  const prepared: { lineNo: number; acct: GlAccount; debit: Cents; credit: Cents; narration: string | null }[] = [];
+  const prepared: {
+    lineNo: number; acct: GlAccount; debit: Cents; credit: Cents; narration: string | null;
+    gd1: number | null; gd2: number | null;
+  }[] = [];
   for (const [i, l] of lines.entries()) {
     const acct = await resolveAccount(l.account);
     const debit = Math.round(l.debit || 0);
@@ -69,7 +99,10 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
     if (debit === 0 && credit === 0) throw new PostingError('A journal line must carry an amount', 'ZERO_LINE');
     totalDebit += debit;
     totalCredit += credit;
-    prepared.push({ lineNo: i + 1, acct, debit, credit, narration: l.narration || description || null });
+    prepared.push({
+      lineNo: i + 1, acct, debit, credit, narration: l.narration || description || null,
+      gd1: l.globalDimension1Id ?? headerGd1, gd2: l.globalDimension2Id ?? headerGd2,
+    });
   }
 
   if (totalDebit !== totalCredit) {
@@ -84,20 +117,23 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
   const now = new Date().toISOString();
   const info = await run(
     `INSERT INTO journal (journal_no, value_date, posted_at, source_module, event_type,
-      description, reference, member_id, amount, posted_by, idempotency_key)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      description, reference, member_id, amount, posted_by, idempotency_key,
+      global_dimension_1_id, global_dimension_2_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     journalNo, valueDate, now, sourceModule, eventType,
     description || null, reference, memberId, totalDebit,
     user ? user.username : 'system', idempotencyKey,
+    headerGd1, headerGd2,
   );
   const journalId = Number(info.lastInsertRowid);
 
-  const INS_LINE = `INSERT INTO journal_line (journal_id, line_no, gl_account_id, debit, credit, narration)
-     VALUES (?,?,?,?,?,?)`;
+  const INS_LINE = `INSERT INTO journal_line
+     (journal_id, line_no, gl_account_id, debit, credit, narration, global_dimension_1_id, global_dimension_2_id)
+     VALUES (?,?,?,?,?,?,?,?)`;
   const UPD_BAL = 'UPDATE gl_account SET balance = balance + ? WHERE id = ?';
 
   for (const p of prepared) {
-    await run(INS_LINE, journalId, p.lineNo, p.acct.id, p.debit, p.credit, p.narration);
+    await run(INS_LINE, journalId, p.lineNo, p.acct.id, p.debit, p.credit, p.narration, p.gd1, p.gd2);
     const signed = NATURAL_DEBIT.has(p.acct.type) ? p.debit - p.credit : p.credit - p.debit;
     await run(UPD_BAL, signed, p.acct.id);
   }
@@ -126,12 +162,16 @@ export async function reverseJournal(
     description: `Reversal of ${original.journal_no} — ${reason || 'no reason given'}`,
     reference: original.journal_no,
     memberId: original.member_id,
+    globalDimension1Id: original.global_dimension_1_id,
+    globalDimension2Id: original.global_dimension_2_id,
     user,
     lines: lines.map((l) => ({
       account: l.gl_account_id,
       debit: l.credit,
       credit: l.debit,
       narration: `Reversal of ${original.journal_no}: ${reason || ''}`.trim(),
+      globalDimension1Id: l.global_dimension_1_id,
+      globalDimension2Id: l.global_dimension_2_id,
     })),
   });
 

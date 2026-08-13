@@ -11,6 +11,7 @@ const ORG_FIELDS = [
   'physical_address', 'postal_address', 'city', 'county', 'country', 'phone_primary', 'phone_secondary',
   'email', 'website', 'paybill_no', 'bank_name', 'bank_account_no', 'logo', 'currency_code',
   'currency_symbol', 'locale', 'timezone', 'date_format', 'fy_start_month', 'fy_start_day', 'statement_footer',
+  'global_dimension_1_caption', 'global_dimension_2_caption',
 ] as const satisfies readonly (keyof Organisation)[];
 
 export type OrgField = (typeof ORG_FIELDS)[number];
@@ -37,6 +38,15 @@ export async function getOrgBrand(): Promise<OrgBrand | null> {
     currency_code: o.currency_code, currency_symbol: o.currency_symbol,
     locale: o.locale, timezone: o.timezone, website: o.website,
     phone_primary: o.phone_primary, email: o.email, sasra_licence_no: o.sasra_licence_no,
+  };
+}
+
+/** The two Global Dimension field labels, admin-renameable — falls back to the schema defaults. */
+export async function getDimensionCaptions(): Promise<{ caption1: string; caption2: string }> {
+  const o = await getOrg();
+  return {
+    caption1: o?.global_dimension_1_caption || 'Global Dimension 1 Code',
+    caption2: o?.global_dimension_2_caption || 'Global Dimension 2 Code',
   };
 }
 

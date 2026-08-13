@@ -89,6 +89,11 @@ const STATUS_TONE: Record<string, Tone> = {
   SUBSTANDARD: 'warn', REFERRED: 'warn',
   REJECTED: 'bad', REVERSED: 'bad', SUSPENDED: 'bad', FROZEN: 'bad', DOUBTFUL: 'bad', LOSS: 'bad',
   WRITTEN_OFF: 'bad', EXITED: 'bad', DISABLED: 'bad',
+  // "Document Status" values (e.g. member_application.status) are Title Case, not SCREAMING_CASE.
+  Open: 'ok', Approved: 'ok', Committed: 'ok', Fulfilled: 'ok', Cleared: 'ok', Received: 'ok',
+  'Pending Approval': 'warn', 'Pending Prepayment': 'warn', Running: 'warn',
+  Rejected: 'bad', Reversed: 'bad', Terminated: 'bad', Bounced: 'bad',
+  Closed: '', Archived: '',
 };
 
 /** Maps a domain status to the pill tone. */

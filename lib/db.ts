@@ -1,7 +1,18 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { setDefaultResultOrder } from 'node:dns';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import type { Actor } from './types.ts';
+
+/*
+ * Neon resolves to both IPv4 and IPv6 addresses. On networks where the IPv6
+ * route is dead rather than simply refused (as seen in local dev on Windows),
+ * every new connection races Node's default DNS order, loses tens of seconds
+ * to the unreachable IPv6 candidates, and only then falls back to IPv4 —
+ * surfacing as a spurious ETIMEDOUT on the first query of a request. Since
+ * Neon is only ever reached over IPv4 here, skip the race entirely.
+ */
+setDefaultResultOrder('ipv4first');
 
 /*
  * PostgreSQL access, over Prisma's raw interface.
@@ -34,7 +45,7 @@ const client = (): RawClient => txStore.getStore() ?? db;
 
 /* ------------------------------------------------------------- translation */
 
-const NO_IDENTITY = /\binto\s+"?(session|sequence)"?\b/i;
+const NO_IDENTITY = /\binto\s+"?(session|sequence|member_application)"?\b/i;
 
 /**
  * Rewrite the legacy `?` and `@named` placeholders into PostgreSQL's positional form.

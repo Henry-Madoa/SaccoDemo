@@ -6,6 +6,7 @@ import { actionResult, AppError } from '@/lib/errors';
 import { signUpload, verifyUpload, destroyAsset, type UploadKind } from '@/lib/cloudinary';
 import { updateOrg, getOrg } from '@/lib/org';
 import { updateMember, getMember } from '@/lib/members';
+import { updateMemberApplication, getMemberApplication } from '@/lib/memberApplications';
 import {
   recordAttachment, deleteAttachment, listAttachments,
 } from '@/lib/attachments';
@@ -128,6 +129,32 @@ export async function saveMemberBiometric(
       await destroyAsset(previous);
     }
     revalidatePath(`/members/${memberId}`);
+    return { [field]: value };
+  });
+}
+
+/** Same slots, captured while the applicant is still a staged application. */
+export async function saveMemberApplicationBiometric(
+  applicationNo: string,
+  kind: BiometricKind,
+  file: UploadedFile | null,
+): Promise<ActionResult<Record<string, string | null>>> {
+  return actionResult(async () => {
+    const user = await requirePerm('MEMBER:UPDATE');
+    const field = BIOMETRIC_FIELD[kind];
+    const previous = (await getMemberApplication(applicationNo))?.[field] ?? null;
+
+    let value: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, kind, file.resourceType);
+      value = asset.public_id;
+    }
+
+    await updateMemberApplication(applicationNo, { [field]: value }, user);
+    if (previous && previous !== value && !previous.startsWith('data:')) {
+      await destroyAsset(previous);
+    }
+    revalidatePath(`/member-applications/view/${applicationNo}`);
     return { [field]: value };
   });
 }

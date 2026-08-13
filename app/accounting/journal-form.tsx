@@ -6,21 +6,43 @@ import { Field } from '@/components/ui/field';
 import { useFormat } from '@/components/ui/format-provider';
 import { createJournal, type JournalLineDraft } from '@/app/actions/gl';
 import { today, toCents } from '@/lib/format';
-import type { GlAccount } from '@/lib/types';
+import type { DimensionValue, GlAccount } from '@/lib/types';
 
-const emptyLine = (): JournalLineDraft => ({ account: '', narration: '', debit: '', credit: '' });
+const emptyLine = (): JournalLineDraft =>
+  ({ account: '', narration: '', debit: '', credit: '', globalDimension1Id: '', globalDimension2Id: '' });
 
-export function NewJournalButton({ accounts }: { accounts: GlAccount[] }) {
+export interface NewJournalButtonProps {
+  accounts: GlAccount[];
+  globalDimension1Values: DimensionValue[];
+  globalDimension2Values: DimensionValue[];
+  caption1: string;
+  caption2: string;
+}
+
+export function NewJournalButton({
+  accounts, globalDimension1Values, globalDimension2Values, caption1, caption2,
+}: NewJournalButtonProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className="btn" onClick={() => setOpen(true)}>New journal</button>
-      {open ? <JournalForm accounts={accounts} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <JournalForm
+          accounts={accounts}
+          globalDimension1Values={globalDimension1Values}
+          globalDimension2Values={globalDimension2Values}
+          caption1={caption1}
+          caption2={caption2}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
     </>
   );
 }
 
-function JournalForm({ accounts, onClose }: { accounts: GlAccount[]; onClose: () => void }) {
+function JournalForm({
+  accounts, globalDimension1Values, globalDimension2Values, caption1, caption2, onClose,
+}: NewJournalButtonProps & { onClose: () => void }) {
   const { cur } = useFormat();
   const [lines, setLines] = useState<JournalLineDraft[]>([emptyLine(), emptyLine()]);
 
@@ -43,8 +65,8 @@ function JournalForm({ accounts, onClose }: { accounts: GlAccount[]; onClose: ()
       onClose={onClose}
       onSubmit={(values) => createJournal(values, lines.filter((l) => l.account && (l.debit || l.credit)))}
       submitLabel="Post journal"
-      successTitle="Journal posted"
-      successDetail={(j) => j.journal_no}
+      successTitle="Journal submitted"
+      successDetail={(r) => (r.posted ? `Posted as ${r.journal.journal_no}` : 'Submitted for approval — not yet posted')}
     >
       <div className="grid g2">
         <Field name="valueDate" label="Value date" type="date" defaultValue={today()} required />
@@ -54,10 +76,12 @@ function JournalForm({ accounts, onClose }: { accounts: GlAccount[]; onClose: ()
       <table style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
         <thead>
           <tr>
-            <th style={{ width: '38%' }}>Account</th>
+            <th style={{ width: '26%' }}>Account</th>
             <th>Narration</th>
-            <th className="num" style={{ width: 130 }}>Debit</th>
-            <th className="num" style={{ width: 130 }}>Credit</th>
+            <th style={{ width: '14%' }}>{caption1}</th>
+            <th style={{ width: '14%' }}>{caption2}</th>
+            <th className="num" style={{ width: 120 }}>Debit</th>
+            <th className="num" style={{ width: 120 }}>Credit</th>
             <th style={{ width: 40 }} />
           </tr>
         </thead>
@@ -76,6 +100,24 @@ function JournalForm({ accounts, onClose }: { accounts: GlAccount[]; onClose: ()
               <td>
                 <input type="text" placeholder="Narration" value={line.narration} aria-label="Narration"
                   onChange={(e) => update(i, { narration: e.target.value })} />
+              </td>
+              <td>
+                <select value={line.globalDimension1Id} aria-label={caption1}
+                  onChange={(e) => update(i, { globalDimension1Id: e.target.value ? Number(e.target.value) : '' })}>
+                  <option value="">—</option>
+                  {globalDimension1Values.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+              </td>
+              <td>
+                <select value={line.globalDimension2Id} aria-label={caption2}
+                  onChange={(e) => update(i, { globalDimension2Id: e.target.value ? Number(e.target.value) : '' })}>
+                  <option value="">—</option>
+                  {globalDimension2Values.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
               </td>
               <td>
                 <input type="number" step="0.01" min="0" className="num" value={line.debit} aria-label="Debit"

@@ -56,18 +56,20 @@ export interface OpenAccountInput {
   openingBalance?: Cents;
   channel?: Channel;
   user?: Actor | null;
+  /** Set false to provision an unfunded account (e.g. a category default opened at registration, before any teller deposit) without the minimum-opening-deposit rule. */
+  enforceMinOpening?: boolean;
 }
 
 export async function openAccount({
-  memberId, productId, openingBalance = 0, channel = 'TELLER', user = null,
+  memberId, productId, openingBalance = 0, channel = 'TELLER', user = null, enforceMinOpening = true,
 }: OpenAccountInput): Promise<SavingsAccountFull> {
   const member = await one<Member>('SELECT * FROM member WHERE id = ?', memberId);
   if (!member) throw new PostingError('Member not found', 'MEMBER_NOT_FOUND');
-  if (member.status === 'EXITED') throw new PostingError('Member has exited the society', 'MEMBER_EXITED');
+  if (member.status === 'WITHDRAWN') throw new PostingError('Member has exited the society', 'MEMBER_EXITED');
   const product = await one<SavingsProduct>('SELECT * FROM savings_product WHERE id = ?', productId);
   if (!product) throw new PostingError('Savings product not found', 'PRODUCT_NOT_FOUND');
   if (product.status !== 'ACTIVE') throw new PostingError('Savings product is not active', 'PRODUCT_INACTIVE');
-  if (openingBalance < product.min_opening) {
+  if (enforceMinOpening && openingBalance < product.min_opening) {
     throw new PostingError(
       `Opening deposit must be at least ${product.min_opening / 100} for ${product.name}`, 'BELOW_MIN_OPENING',
     );

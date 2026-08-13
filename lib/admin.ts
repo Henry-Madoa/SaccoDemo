@@ -1,46 +1,11 @@
 import { one, all, run, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { hashPassword } from './auth.ts';
+import { passwordStrengthError } from './password.ts';
 import type {
-  Actor, AuditEntry, Branch, LoanProduct, LoanProductWithUsage, Permission, Role,
+  Actor, AuditEntry, LoanProduct, LoanProductWithUsage, Permission, Role,
   RoleWithUsage, SavingsProduct, SavingsProductWithUsage, UserListRow, UserStatus,
 } from './types.ts';
-
-/* ------------------------------------------------------------------ branches */
-export const listBranches = (): Promise<Branch[]> =>
-  all<Branch>('SELECT * FROM branch ORDER BY is_head_office DESC, name');
-
-export interface BranchInput {
-  code?: string;
-  name?: string;
-  town?: string | null;
-  phone?: string | null;
-  status?: string | null;
-}
-
-export async function createBranch({ code, name, town, phone }: BranchInput, user: Actor): Promise<Branch> {
-  if (!code || !name) throw new AppError('Code and name are required', 'VALIDATION');
-  const info = await run(
-    'INSERT INTO branch (code, name, town, phone, created_at) VALUES (?,?,?,?,?)',
-    String(code).toUpperCase(), name, town || null, phone || null, new Date().toISOString(),
-  );
-  await audit(user, 'BRANCH_CREATE', 'branch', info.lastInsertRowid, { code, name });
-  return (await one<Branch>('SELECT * FROM branch WHERE id = ?', Number(info.lastInsertRowid)))!;
-}
-
-export async function updateBranch(
-  id: number,
-  { name, town, phone, status }: BranchInput,
-  user: Actor,
-): Promise<Branch> {
-  await run(
-    `UPDATE branch SET name=COALESCE(?,name), town=COALESCE(?,town),
-      phone=COALESCE(?,phone), status=COALESCE(?,status) WHERE id=?`,
-    name ?? null, town ?? null, phone ?? null, status ?? null, id,
-  );
-  await audit(user, 'BRANCH_UPDATE', 'branch', id, { name, town, phone, status });
-  return (await one<Branch>('SELECT * FROM branch WHERE id = ?', id))!;
-}
 
 /* --------------------------------------------------------------------- roles */
 /*
@@ -94,8 +59,8 @@ export async function updateRole(
 export const listUsers = (): Promise<UserListRow[]> =>
   all<UserListRow>(
     `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at,
-            r.name AS role_name, r.id AS role_id, b.name AS branch_name, b.id AS branch_id
-     FROM app_user u JOIN role r ON r.id = u.role_id LEFT JOIN branch b ON b.id = u.branch_id
+            r.name AS role_name, r.id AS role_id
+     FROM app_user u JOIN role r ON r.id = u.role_id
      ORDER BY u.full_name`,
   );
 
@@ -106,26 +71,26 @@ export interface UserInput {
   phone?: string | null;
   password?: string | null;
   role_id?: number | null;
-  branch_id?: number | null;
   status?: UserStatus | null;
 }
 
 export async function createUser(
-  { username, full_name, email, phone, password, role_id, branch_id }: UserInput,
+  { username, full_name, email, phone, password, role_id }: UserInput,
   user: Actor,
 ): Promise<{ id: number }> {
   if (!username || !full_name || !password || !role_id) {
     throw new AppError('Username, name, password and role are required', 'VALIDATION');
   }
-  if (String(password).length < 8) throw new AppError('Password must be at least 8 characters', 'WEAK_PASSWORD');
+  const pwError = passwordStrengthError(String(password), { username });
+  if (pwError) throw new AppError(pwError, 'WEAK_PASSWORD');
   if (await one('SELECT 1 FROM app_user WHERE username = ?', username)) {
     throw new AppError('That username is already taken', 'DUPLICATE');
   }
   const info = await run(
-    `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, branch_id, created_at)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, created_at)
+     VALUES (?,?,?,?,?,?,?)`,
     username, full_name, email || null, phone || null, hashPassword(password),
-    role_id, branch_id || null, new Date().toISOString(),
+    role_id, new Date().toISOString(),
   );
   await audit(user, 'USER_CREATE', 'app_user', info.lastInsertRowid, { username, role_id });
   return { id: Number(info.lastInsertRowid) };
@@ -133,20 +98,22 @@ export async function createUser(
 
 export async function updateUser(
   id: number,
-  { full_name, email, phone, role_id, branch_id, status, password }: UserInput,
+  { full_name, email, phone, role_id, status, password }: UserInput,
   user: Actor,
 ): Promise<{ updated: true }> {
   if (Number(id) === user.id && status && status !== 'ACTIVE') {
     throw new AppError('You cannot deactivate your own account', 'SELF_LOCKOUT');
   }
-  if (password && String(password).length < 8) {
-    throw new AppError('Password must be at least 8 characters', 'WEAK_PASSWORD');
+  if (password) {
+    const existing = await one<{ username: string }>('SELECT username FROM app_user WHERE id = ?', id);
+    const pwError = passwordStrengthError(String(password), { username: existing?.username });
+    if (pwError) throw new AppError(pwError, 'WEAK_PASSWORD');
   }
   await run(
     `UPDATE app_user SET full_name=COALESCE(?,full_name), email=COALESCE(?,email), phone=COALESCE(?,phone),
-      role_id=COALESCE(?,role_id), branch_id=COALESCE(?,branch_id), status=COALESCE(?,status),
+      role_id=COALESCE(?,role_id), status=COALESCE(?,status),
       password_hash=COALESCE(?,password_hash) WHERE id=?`,
-    full_name ?? null, email ?? null, phone ?? null, role_id ?? null, branch_id ?? null, status ?? null,
+    full_name ?? null, email ?? null, phone ?? null, role_id ?? null, status ?? null,
     password ? hashPassword(password) : null, id,
   );
   await audit(user, 'USER_UPDATE', 'app_user', id, { role_id, status, passwordReset: !!password });

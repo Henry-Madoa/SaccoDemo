@@ -6,15 +6,24 @@
  * lib/members.ts or lib/savings.ts dragged the database client into the browser
  * bundle, and webpack failed the build on its `require('fs')`.
  */
-import type { Channel, GlAccountType, InterestMethod, LoanStatus, MemberStatus, SavingsCategory, UserStatus } from './types.ts';
+import type {
+  Channel, DocumentStatus, GlAccountType, InterestMethod, LoanStatus, MemberCategoryType, MemberStatus,
+  SavingsCategory, UserStatus,
+} from './types.ts';
 
 export const MEMBER_STATUSES: MemberStatus[] =
-  ['ACTIVE', 'DORMANT', 'APPLICATION', 'SUSPENDED', 'EXITED'];
+  [ 'NOT PAID UP' , 'ACTIVE' , 'INACTIVE','DORMANT', 'WITHDRAWN',  'DECEASED', 'CLOSED'];
 
+  
 export const MEMBER_TITLES = ['', 'Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
 export const GENDERS = ['', 'MALE', 'FEMALE'];
 export const MARITAL_STATUSES = ['', 'SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'];
 export const EMPLOYMENT_STATUSES = ['', 'PERMANENT', 'CONTRACT', 'SELF_EMPLOYED', 'RETIRED'];
+
+/** Relationship options for next-of-kin and nominee records. */
+export const RELATIONSHIPS = [
+  '', 'Spouse', 'Son', 'Daughter', 'Father', 'Mother', 'Brother', 'Sister', 'Guardian', 'Other',
+];
 
 export const DEPOSIT_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK', 'CHECKOFF'];
 export const WITHDRAWAL_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK'];
@@ -23,6 +32,15 @@ export const REPAY_CHANNELS: Channel[] = ['TELLER', 'CHECKOFF', 'MPESA', 'BANK']
 
 export const SAVINGS_CATEGORIES: SavingsCategory[] = ['SHARE', 'SAVINGS', 'DEPOSIT', 'FIXED'];
 export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE'];
+
+export const MEMBER_CATEGORY_TYPES: { value: MemberCategoryType; label: string }[] = [
+  { value: 'INDIVIDUAL', label: 'Individual' },
+  { value: 'INSTITUTION', label: 'Institution' },
+  { value: 'MICRO_FINANCE', label: 'Micro-finance group' },
+  { value: 'GROUP_MEMBER', label: 'Group member' },
+  { value: 'JOINT_ACCOUNT', label: 'Joint account' },
+];
+export const MEMBER_CATEGORY_STATUSES = ['ACTIVE', 'INACTIVE'];
 
 export const LOAN_STATUSES: LoanStatus[] = ['PENDING', 'APPROVED', 'DISBURSED', 'CLOSED', 'REJECTED'];
 export const INTEREST_METHODS: InterestMethod[] = ['REDUCING', 'FLAT'];
@@ -34,7 +52,6 @@ export const GL_ACCOUNT_TYPES: GlAccountType[] =
 export const NATURAL_DEBIT_TYPES: GlAccountType[] = ['ASSET', 'EXPENSE'];
 
 export const USER_STATUSES: UserStatus[] = ['ACTIVE', 'SUSPENDED', 'DISABLED'];
-export const BRANCH_STATUSES = ['ACTIVE', 'CLOSED'];
 
 export const SOCIETY_TYPES = [
   'Deposit Taking SACCO',
@@ -47,6 +64,12 @@ export const SOCIETY_TYPES = [
 export const ATTACHMENT_CATEGORIES = [
   'KYC document', 'National ID', 'Payslip', 'Bank statement',
   'Loan application', 'Security / collateral', 'Correspondence', 'Other',
+];
+
+/** The full "Document Status" vocabulary — a member application only drives itself through some of these. */
+export const DOCUMENT_STATUSES: DocumentStatus[] = [
+  'Open', 'Closed', 'Pending Approval', 'Approved', 'Pending Prepayment', 'Rejected', 'Reversed',
+  'Archived', 'Committed', 'Fulfilled', 'Running', 'Terminated', 'Bounced', 'Cleared', 'Received',
 ];
 
 export const MONTH_NAMES = [

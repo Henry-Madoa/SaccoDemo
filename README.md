@@ -223,7 +223,7 @@ app/
     approvals/            Maker-checker queue
     accounting/[[...tab]] Trial balance, journals, chart of accounts, periods
     reports/[[...tab]]    Balance sheet, income statement, PAR
-    admin/[[...tab]]      Company, theme, users, roles, branches, products, audit
+    admin/[[...tab]]      Company, theme, users, roles, setup pool, products, audit
   actions/                Server Actions — the only mutation entry points
 components/
   ui/                     Card, Stat, Pill, Modal, Field, Toast, filters, Money

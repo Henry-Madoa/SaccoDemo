@@ -17,9 +17,13 @@ export interface FieldProps {
   placeholder?: string;
   step?: string;
   min?: number | string;
+  maxLength?: number;
   rows?: number;
   disabled?: boolean;
   className?: string;
+  /** Visually uppercases what the user types; the value itself is normalised server-side. */
+  uppercase?: boolean;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
 }
 
 /**
@@ -29,7 +33,7 @@ export interface FieldProps {
  */
 export function Field({
   name, label, type = 'text', defaultValue = '', options, hint, required,
-  placeholder, step, min, rows, disabled, className,
+  placeholder, step, min, maxLength, rows, disabled, className, uppercase, onChange,
 }: FieldProps) {
   const id = `f_${name}`;
 
@@ -45,7 +49,8 @@ export function Field({
   let control;
   if (type === 'select') {
     control = (
-      <select id={id} name={name} defaultValue={defaultValue ?? ''} required={required} disabled={disabled}>
+      <select id={id} name={name} defaultValue={defaultValue ?? ''} required={required} disabled={disabled}
+        onChange={onChange}>
         {(options || []).map((o) => {
           const value = typeof o === 'object' && o !== null ? o.value : o;
           const text = typeof o === 'object' && o !== null ? o.label : o;
@@ -56,12 +61,14 @@ export function Field({
   } else if (type === 'textarea') {
     control = (
       <textarea id={id} name={name} rows={rows || 3} defaultValue={defaultValue ?? ''}
-        placeholder={placeholder} disabled={disabled} />
+        placeholder={placeholder} maxLength={maxLength} disabled={disabled} />
     );
   } else {
     control = (
       <input id={id} name={name} type={type} defaultValue={defaultValue ?? ''} required={required}
-        placeholder={placeholder} step={step} min={min} disabled={disabled} />
+        placeholder={placeholder} step={step} min={min} maxLength={maxLength} disabled={disabled}
+        onChange={onChange} style={uppercase ? { textTransform: 'uppercase' } : undefined}
+        autoComplete={type === 'password' ? 'new-password' : undefined} />
     );
   }
 

@@ -1,10 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requirePerm, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as loanSvc from '@/lib/loanService';
 import { getMemberDetail } from '@/lib/members';
+import { findPendingRoutedTask, decideWorkflowTask, recordLegacyDecision } from '@/lib/workflow';
 import { toCents } from '@/lib/format';
 import type {
   ActionResult, Appraisal, Channel, FormValues, LoanFull, SavingsAccountWithProduct,
@@ -52,18 +53,34 @@ export async function applyForLoan(values: FormValues): Promise<ActionResult<Loa
   });
 }
 
+/**
+ * Delegates to whichever approval path actually governs this loan: if a
+ * workflow routed it to a specific approver, only that assignee may decide it
+ * (via decideWorkflowTask); otherwise this falls back to the original
+ * LOAN:APPROVE-gated behavior, unchanged.
+ */
 export async function decideLoan(
   loanId: number,
   approve: boolean,
   reason: string,
-): Promise<ActionResult<LoanFull>> {
+): Promise<ActionResult<LoanFull | { decided: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('LOAN:APPROVE');
-    const loan = await loanSvc.approve({ loanId, user, approve, reason });
+    const routed = await findPendingRoutedTask('LOAN', String(loanId));
+    let result: LoanFull | { decided: true };
+    if (routed) {
+      const user = await requireUser();
+      await decideWorkflowTask(routed.id, approve, reason || null, user);
+      result = { decided: true };
+    } else {
+      const user = await requirePerm('LOAN:APPROVE');
+      const loan = await loanSvc.approve({ loanId, user, approve, reason });
+      await recordLegacyDecision('LOAN', String(loanId), approve, reason || null, user);
+      result = loan;
+    }
     revalidatePath('/loans');
     revalidatePath(`/loans/${loanId}`);
     revalidatePath('/approvals');
-    return loan;
+    return result;
   });
 }
 

@@ -61,7 +61,7 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
         </nav>
 
         <div className="sidebar-foot">
-          Signed in as {user.username}<br />{user.branch_name || 'Head Office'}
+          Signed in as {user.username}<br />{user.role_name}
         </div>
       </aside>
     </>

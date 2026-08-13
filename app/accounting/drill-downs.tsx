@@ -80,20 +80,23 @@ function LedgerModal({ code, onClose }: { code: string; onClose: () => void }) {
 }
 
 /** Clickable journal row that opens the posting and offers a reversal. */
-export function JournalLink({ id, canReverse, children }: {
-  id: number; canReverse: boolean; children: React.ReactNode;
+export function JournalLink({ id, canReverse, caption1, caption2, children }: {
+  id: number; canReverse: boolean; caption1: string; caption2: string; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className="linklike" onClick={() => setOpen(true)}>{children}</button>
-      {open ? <JournalModal id={id} canReverse={canReverse} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <JournalModal id={id} canReverse={canReverse} caption1={caption1} caption2={caption2}
+          onClose={() => setOpen(false)} />
+      ) : null}
     </>
   );
 }
 
-function JournalModal({ id, canReverse, onClose }: {
-  id: number; canReverse: boolean; onClose: () => void;
+function JournalModal({ id, canReverse, caption1, caption2, onClose }: {
+  id: number; canReverse: boolean; caption1: string; caption2: string; onClose: () => void;
 }) {
   const { cur, fdate, fdatetime } = useFormat();
   const [data, setData] = useState<JournalDetail | null>(null);
@@ -156,6 +159,7 @@ function JournalModal({ id, canReverse, onClose }: {
               <thead>
                 <tr>
                   <th className="num">#</th><th>Account</th><th>Narration</th>
+                  <th>{caption1}</th><th>{caption2}</th>
                   <th className="num">Debit</th><th className="num">Credit</th>
                 </tr>
               </thead>
@@ -165,6 +169,8 @@ function JournalModal({ id, canReverse, onClose }: {
                     <td className="num">{l.line_no}</td>
                     <td><span className="mono">{l.code}</span> {l.name}</td>
                     <td className="muted-cell">{l.narration || ''}</td>
+                    <td>{l.global_dimension_1_code || '—'}</td>
+                    <td>{l.global_dimension_2_code || '—'}</td>
                     <td className="num">{l.debit ? cur(l.debit, { showSymbol: false }) : ''}</td>
                     <td className="num">{l.credit ? cur(l.credit, { showSymbol: false }) : ''}</td>
                   </tr>
@@ -172,7 +178,7 @@ function JournalModal({ id, canReverse, onClose }: {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={3}>Totals</td>
+                  <td colSpan={5}>Totals</td>
                   <td className="num">{cur(totals.d, { showSymbol: false })}</td>
                   <td className="num">{cur(totals.c, { showSymbol: false })}</td>
                 </tr>

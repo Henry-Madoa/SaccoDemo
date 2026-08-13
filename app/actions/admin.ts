@@ -7,7 +7,7 @@ import * as admin from '@/lib/admin';
 import { updateOrg, updateTheme } from '@/lib/org';
 import { toCents } from '@/lib/format';
 import type {
-  ActionResult, Branch, FormValues, Organisation, Permission, Role, SavingsProduct,
+  ActionResult, FormValues, Organisation, Permission, Role, SavingsProduct,
   LoanProduct, Theme, ThemeTokens, UserStatus,
 } from '@/lib/types';
 
@@ -49,7 +49,6 @@ export async function saveUser(id: number | null, values: FormValues): Promise<A
       email: String(values.email || '') || null,
       phone: String(values.phone || '') || null,
       role_id: Number(values.role_id) || null,
-      branch_id: Number(values.branch_id) || null,
       status: (values.status as UserStatus) || null,
       // An empty box means "leave the password alone", not "set it to empty".
       password: String(values.password || '') || null,
@@ -76,23 +75,6 @@ export async function saveRole(
     const result = id ? await admin.updateRole(id, body, user) : await admin.createRole(body, user);
     revalidatePath('/admin/roles');
     return result;
-  });
-}
-
-/* --------------------------------------------------------------- branches */
-export async function saveBranch(id: number | null, values: FormValues): Promise<ActionResult<Branch>> {
-  return actionResult(async () => {
-    const user = await requirePerm('ADMIN:BRANCH_MANAGE');
-    const body = {
-      code: String(values.code || ''),
-      name: String(values.name || ''),
-      town: String(values.town || '') || null,
-      phone: String(values.phone || '') || null,
-      status: values.status ? String(values.status) : null,
-    };
-    const branch = id ? await admin.updateBranch(id, body, user) : await admin.createBranch(body, user);
-    revalidatePath('/admin/branches');
-    return branch;
   });
 }
 

@@ -29,7 +29,7 @@ export const PERMISSIONS: Record<PermissionResource, string[]> = {
   LOAN: ['READ', 'CREATE', 'APPROVE', 'DISBURSE', 'REPAY', 'WRITE_OFF'],
   GL: ['READ', 'JOURNAL_CREATE', 'JOURNAL_APPROVE', 'PERIOD_CLOSE'],
   REPORT: ['VIEW', 'EXPORT'],
-  ADMIN: ['ORG_MANAGE', 'THEME_MANAGE', 'USER_MANAGE', 'ROLE_MANAGE', 'PRODUCT_MANAGE', 'BRANCH_MANAGE', 'COA_MANAGE', 'AUDIT_VIEW'],
+  ADMIN: ['ORG_MANAGE', 'THEME_MANAGE', 'USER_MANAGE', 'ROLE_MANAGE', 'PRODUCT_MANAGE', 'COA_MANAGE', 'POOL_MANAGE', 'AUDIT_VIEW', 'WORKFLOW_MANAGE'],
 };
 
 async function createSession(user: Pick<AppUser, 'id'>): Promise<{ token: string; expiresAt: Date }> {
@@ -59,10 +59,9 @@ export async function userFromToken(token: string | undefined): Promise<SessionU
     return null;
   }
 
-  const row = await one<AppUser & { role_name: string; permissions: string; branch_name: string | null }>(
-    `SELECT u.*, r.name AS role_name, r.permissions AS permissions, b.name AS branch_name
-     FROM app_user u JOIN role r ON r.id = u.role_id
-     LEFT JOIN branch b ON b.id = u.branch_id WHERE u.id = ?`,
+  const row = await one<AppUser & { role_name: string; permissions: string }>(
+    `SELECT u.*, r.name AS role_name, r.permissions AS permissions
+     FROM app_user u JOIN role r ON r.id = u.role_id WHERE u.id = ?`,
     session.user_id,
   );
   if (!row || row.status !== 'ACTIVE') return null;

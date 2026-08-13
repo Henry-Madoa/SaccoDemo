@@ -3,6 +3,8 @@ import { requirePerm, currentCan } from '@/lib/session';
 import {
   getTrialBalance, listJournals, listGlAccounts, listPeriods, listPostableAccounts,
 } from '@/lib/gl';
+import { listActiveDimensionValues } from '@/lib/pool';
+import { getDimensionCaptions } from '@/lib/org';
 import { formatDate } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
@@ -92,18 +94,28 @@ async function TrialBalanceTab() {
 }
 
 async function JournalsTab({ search }: { search: string }) {
-  const [rows, canCreate, canReverse, postableAccounts] = await Promise.all([
-    listJournals(search),
-    currentCan('GL:JOURNAL_CREATE'), currentCan('GL:JOURNAL_APPROVE'),
-    listPostableAccounts(),
-  ]);
+  const [rows, canCreate, canReverse, postableAccounts, gd1Values, gd2Values, { caption1, caption2 }] =
+    await Promise.all([
+      listJournals(search),
+      currentCan('GL:JOURNAL_CREATE'), currentCan('GL:JOURNAL_APPROVE'),
+      listPostableAccounts(),
+      listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
+    ]);
 
   return (
     <>
       <Toolbar>
         <SearchInput placeholder="Search journal number, description or reference…" />
         <Spacer />
-        {canCreate ? <NewJournalButton accounts={postableAccounts} /> : null}
+        {canCreate ? (
+          <NewJournalButton
+            accounts={postableAccounts}
+            globalDimension1Values={gd1Values}
+            globalDimension2Values={gd2Values}
+            caption1={caption1}
+            caption2={caption2}
+          />
+        ) : null}
       </Toolbar>
       <Card>
         {rows.length ? (
@@ -111,7 +123,8 @@ async function JournalsTab({ search }: { search: string }) {
             <thead>
               <tr>
                 <th>Journal</th><th>Value date</th><th>Source</th><th>Event</th>
-                <th>Description</th><th>Member</th><th className="num">Amount</th>
+                <th>Description</th><th>Member</th><th>{caption1}</th><th>{caption2}</th>
+                <th className="num">Amount</th>
                 <th>Posted by</th><th />
               </tr>
             </thead>
@@ -119,13 +132,17 @@ async function JournalsTab({ search }: { search: string }) {
               {rows.map((j) => (
                 <tr key={j.id} className={j.reversed_by_id ? 'muted' : undefined}>
                   <td className="mono">
-                    <JournalLink id={j.id} canReverse={canReverse}>{j.journal_no}</JournalLink>
+                    <JournalLink id={j.id} canReverse={canReverse} caption1={caption1} caption2={caption2}>
+                      {j.journal_no}
+                    </JournalLink>
                   </td>
                   <td>{formatDate(j.value_date)}</td>
                   <td>{j.source_module}</td>
                   <td><Pill status={j.event_type} /></td>
                   <td>{j.description || ''}</td>
                   <td>{j.member_no ? `${j.first_name} ${j.last_name}` : '—'}</td>
+                  <td>{j.global_dimension_1_code || '—'}</td>
+                  <td>{j.global_dimension_2_code || '—'}</td>
                   <td className="num"><Money cents={j.amount} /></td>
                   <td className="muted-cell">{j.posted_by || ''}</td>
                   <td>

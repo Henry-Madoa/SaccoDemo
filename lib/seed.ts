@@ -2,7 +2,7 @@
  * Seeds the organisation, chart of accounts, products, RBAC, members and a
  * year of realistic transaction history. Idempotent: skips if already seeded.
  */
-import { one, run, tx, nextSequence } from './db.ts';
+import { one, all, run, tx, nextSequence } from './db.ts';
 import { hashPassword } from './auth.ts';
 import { PRESETS } from './themes.ts';
 import { postJournal } from './accounting.ts';
@@ -114,9 +114,11 @@ const COUNTIES = ['Nakuru', 'Nairobi', 'Kiambu', 'Uasin Gishu', 'Kisumu', 'Macha
 async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<void> {
   const INS_SEQ = 'INSERT INTO sequence (name, prefix, next_no, width) VALUES (?,?,?,?)';
   await run(INS_SEQ, 'MEMBER', 'M', 1001, 5);
+  await run(INS_SEQ, 'MEMBER_APPLICATION', 'APP', 1, 6);
   await run(INS_SEQ, 'SAVINGS_ACCOUNT', 'SA', 100001, 7);
   await run(INS_SEQ, 'LOAN', 'LN', 5001, 6);
   await run(INS_SEQ, 'JOURNAL', 'JV', 1, 8);
+  await run(INS_SEQ, 'JOURNAL_DRAFT', 'JVD', 1, 6);
   await run(INS_SEQ, 'TXN', 'TX', 1, 9);
 
   await run(
@@ -141,12 +143,6 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     'emerald-standard', JSON.stringify(PRESETS['emerald-standard'].tokens), now, 'system',
   );
 
-  const INS_BRANCH = 'INSERT INTO branch (code, name, town, phone, is_head_office, created_at) VALUES (?,?,?,?,?,?)';
-  await run(INS_BRANCH, 'HQ', 'Head Office', 'Nakuru', '+254 700 000 100', 1, now);
-  await run(INS_BRANCH, 'NKR', 'Nakuru Branch', 'Nakuru', '+254 700 000 101', 0, now);
-  await run(INS_BRANCH, 'NBI', 'Nairobi Branch', 'Nairobi', '+254 700 000 102', 0, now);
-  await run(INS_BRANCH, 'ELD', 'Eldoret Branch', 'Eldoret', '+254 700 000 103', 0, now);
-
   const INS_ACC = 'INSERT INTO gl_account (code, name, type, parent_code, is_postable) VALUES (?,?,?,?,?)';
   for (const [code, name, type, parent, postable] of CHART) {
     await run(INS_ACC, code, name, type, parent, postable);
@@ -162,18 +158,28 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     (await one<{ id: number }>('SELECT id FROM role WHERE name = ?', n))!.id;
 
   const INS_USER =
-    `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, branch_id, created_at)
-     VALUES (?,?,?,?,?,?,?,?)`;
-  const users: [string, string, string, string, number, string][] = [
-    ['admin', 'Cosmas Rono', 'admin@tieronesacco.co.ke', 'System Administrator', 1, 'admin123'],
-    ['manager', 'Beatrice Njeri', 'manager@tieronesacco.co.ke', 'Branch Manager', 2, 'manager123'],
-    ['loans', 'Dennis Kiptoo', 'loans@tieronesacco.co.ke', 'Loans Officer', 2, 'loans123'],
-    ['teller', 'Purity Wanjiku', 'teller@tieronesacco.co.ke', 'Teller', 2, 'teller123'],
-    ['finance', 'Samuel Otieno', 'finance@tieronesacco.co.ke', 'Finance Officer', 1, 'finance123'],
-    ['auditor', 'Grace Achieng', 'auditor@tieronesacco.co.ke', 'Internal Auditor', 1, 'auditor123'],
+    `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, created_at)
+     VALUES (?,?,?,?,?,?,?)`;
+  const users: [string, string, string, string, string][] = [
+    ['admin', 'Cosmas Rono', 'admin@tieronesacco.co.ke', 'System Administrator', 'admin123'],
+    ['manager', 'Beatrice Njeri', 'manager@tieronesacco.co.ke', 'Branch Manager', 'manager123'],
+    ['loans', 'Dennis Kiptoo', 'loans@tieronesacco.co.ke', 'Loans Officer', 'loans123'],
+    ['teller', 'Purity Wanjiku', 'teller@tieronesacco.co.ke', 'Teller', 'teller123'],
+    ['finance', 'Samuel Otieno', 'finance@tieronesacco.co.ke', 'Finance Officer', 'finance123'],
+    ['auditor', 'Grace Achieng', 'auditor@tieronesacco.co.ke', 'Internal Auditor', 'auditor123'],
   ];
-  for (const [un, fn, em, role, br, pw] of users) {
-    await run(INS_USER, un, fn, em, '+254 7' + int(10000000, 99999999), hashPassword(pw), await roleId(role), br, now);
+  for (const [un, fn, em, role, pw] of users) {
+    await run(INS_USER, un, fn, em, '+254 7' + int(10000000, 99999999), hashPassword(pw), await roleId(role), now);
+  }
+
+  // A "Requester's approver" workflow step falls back to whoever is flagged an
+  // Approval Administrator when the requester has no approver configured —
+  // give a new install a working fallback out of the box.
+  const adminId = await one<{ id: number }>('SELECT id FROM app_user WHERE username = ?', 'admin');
+  if (adminId) {
+    await run(
+      'INSERT INTO approval_user_setup (user_id, is_approval_administrator) VALUES (?,1)', adminId.id,
+    );
   }
 
   // accounting periods (25 months back through 2 ahead, all open)
@@ -246,12 +252,18 @@ async function seedMembersAndHistory(
     loanProductId('NORM'), loanProductId('EMER'), loanProductId('DEV'),
   ]);
 
+  const countyByName = Object.fromEntries(
+    (await all<{ id: number; name: string }>('SELECT id, name FROM county')).map((c) => [c.name, c.id]),
+  );
+
   const INS_MEMBER =
     `INSERT INTO member (member_no, member_type, title, first_name, middle_name, last_name, national_id, kra_pin,
-      date_of_birth, gender, marital_status, phone, email, postal_address, physical_address, county, employer,
-      employment_status, staff_no, gross_income, other_deductions, nok_name, nok_relationship, nok_phone,
-      branch_id, status, kyc_verified, join_date, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+      date_of_birth, gender, marital_status, phone, email, postal_address, physical_address, county_id, employer,
+      employment_status, staff_no, gross_income, other_deductions,
+      status, kyc_verified, join_date, created_at, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const INS_NOK =
+    'INSERT INTO member_next_of_kin (member_id, name, relationship, phone) VALUES (?,?,?,?)';
 
   const memberIds: { id: number; joinDate: IsoDate; income: Cents }[] = [];
   for (let i = 0; i < 120; i++) {
@@ -268,20 +280,24 @@ async function seedMembersAndHistory(
       addMonths(todayIso, -int(22, 55) * 12), female ? 'FEMALE' : 'MALE',
       pick(['SINGLE', 'MARRIED', 'MARRIED', 'WIDOWED']),
       '+2547' + int(10000000, 99999999), `${fn.toLowerCase()}.${ln.toLowerCase()}@example.co.ke`,
-      'P.O. Box ' + int(100, 9999) + '–20100', pick(COUNTIES) + ' Town', pick(COUNTIES), pick(EMPLOYERS),
+      'P.O. Box ' + int(100, 9999) + '–20100', pick(COUNTIES) + ' Town', countyByName[pick(COUNTIES)], pick(EMPLOYERS),
       pick(['PERMANENT', 'PERMANENT', 'CONTRACT', 'SELF_EMPLOYED']), 'EMP' + int(1000, 9999),
       income, K(int(0, 15) * 1000),
-      pick(FIRST_F) + ' ' + ln, pick(['Spouse', 'Parent', 'Sibling', 'Child']), '+2547' + int(10000000, 99999999),
-      int(1, 4), i < 112 ? 'ACTIVE' : pick(['DORMANT', 'APPLICATION', 'SUSPENDED']), i < 115 ? 1 : 0,
+      i < 112 ? 'ACTIVE' : pick(['DORMANT', 'WITHDRAWN', 'INACTIVE']), i < 115 ? 1 : 0,
       joinDate, now, 'system',
     );
-    memberIds.push({ id: Number(info.lastInsertRowid), joinDate, income });
+    const memberId = Number(info.lastInsertRowid);
+    await run(
+      INS_NOK, memberId, pick(FIRST_F) + ' ' + ln,
+      pick(['Spouse', 'Parent', 'Sibling', 'Child']), '+2547' + int(10000000, 99999999),
+    );
+    memberIds.push({ id: memberId, joinDate, income });
   }
 
   // Share capital + deposits + FOSA activity
   for (const m of memberIds) {
     const mem = (await one<Pick<Member, 'status'>>('SELECT status FROM member WHERE id = ?', m.id))!;
-    if (mem.status === 'APPLICATION') continue;
+    if (mem.status === 'WITHDRAWN') continue;
 
     await savings.openAccount({ memberId: m.id, productId: shareP, openingBalance: K(int(5, 20) * 1000), channel: 'BANK', user: sys });
     const bosa = await savings.openAccount({ memberId: m.id, productId: bosaP, openingBalance: K(int(25, 70) * 1000), channel: 'CHECKOFF', user: sys });

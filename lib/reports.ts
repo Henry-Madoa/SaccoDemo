@@ -1,10 +1,13 @@
 import { one, all } from './db.ts';
 import { trialBalance, accountBalances } from './accounting.ts';
 import { PROVISION_RATE, CLASSIFICATION_ORDER } from './loans.ts';
+import { pendingWorkflowTaskCount as pendingApprovalCount } from './workflow.ts';
 import type {
-  ApprovalTaskRow, BalanceSheet, Cents, DashboardData, IncomeStatement, IsoDate,
+  BalanceSheet, Cents, DashboardData, IncomeStatement, IsoDate,
   ParRow, PortfolioAtRisk, ReportLine, TxnWithMember,
 } from './types.ts';
+
+export { pendingApprovalCount };
 
 const DEPOSIT_CODES = ['2010', '2020', '2030', '2040'] as const;
 const CASH_CODES = ['1010', '1020', '1030'] as const;
@@ -83,9 +86,6 @@ export async function getDashboard(): Promise<DashboardData> {
   };
 }
 
-export const pendingApprovalCount = async (): Promise<number> =>
-  (await one<{ c: number }>("SELECT COUNT(*) c FROM approval_task WHERE decision='PENDING'"))!.c;
-
 export async function getBalanceSheet(asOf?: IsoDate | null): Promise<BalanceSheet> {
   const rows = await trialBalance(asOf);
   const group = (t: string): ReportLine[] =>
@@ -161,12 +161,3 @@ export async function getPortfolioAtRisk(): Promise<PortfolioAtRisk> {
   };
 }
 
-export const listApprovalTasks = (): Promise<ApprovalTaskRow[]> =>
-  all<ApprovalTaskRow>(
-    `SELECT t.*, l.loan_no, l.principal, l.term_months, l.status AS loan_status,
-            m.member_no, m.first_name, m.last_name
-     FROM approval_task t
-     LEFT JOIN loan l ON l.id = t.entity_id AND t.entity='loan'
-     LEFT JOIN member m ON m.id = l.member_id
-     ORDER BY t.decision='PENDING' DESC, t.id DESC LIMIT 200`,
-  );
