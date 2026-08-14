@@ -305,8 +305,29 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand-primary); 
 input[type=color] { width: 46px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
 textarea { min-height: 74px; resize: vertical; }
 .inline { display: flex; gap: var(--sp); align-items: center; flex-wrap: wrap; }
-.checkline { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
-.checkline label { margin: 0; }
+.checkline { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 6px; }
+.checkline label { margin: 0; cursor: pointer; }
+
+/* Every boolean field is a real <input type=checkbox> under the hood (keyboard
+   support, form data and accessibility all come for free); this just restyles
+   it as a sliding toggle instead of the native box. */
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none;
+  width: 38px; height: 21px; min-width: 38px; flex: none;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2);
+  position: relative; cursor: pointer; vertical-align: middle;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+input[type=checkbox]::before {
+  content: ''; position: absolute; top: 1px; left: 1px; width: 17px; height: 17px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  transition: transform .15s ease;
+}
+input[type=checkbox]:checked { background: var(--brand-primary); border-color: var(--brand-primary); }
+input[type=checkbox]:checked::before { transform: translateX(17px); }
+input[type=checkbox]:hover:not(:disabled) { border-color: var(--brand-primary); }
+input[type=checkbox]:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 .section-title { font-size: 13px; margin: calc(var(--sp) * 2) 0 calc(var(--sp) * 1.5); }
 
 /* A table cell that opens a drill-down, styled as a link but semantically a button. */
@@ -343,6 +364,10 @@ textarea { min-height: 74px; resize: vertical; }
 
 /* modal */
 .modal-back { position: fixed; inset: 0; background: rgba(10,15,20,.5); display: grid; place-items: center; z-index: 100; padding: 20px; overflow-y: auto; }
+/* Above 900px the sidebar is a permanent 248px column (see .shell), not an overlay — since the
+   modal is portaled to <body> and centers across the full viewport, it has to give that column
+   back or a wide modal's centered position drifts left under the sidebar. */
+@media (min-width: 901px) { .modal-back { padding-left: calc(248px + 20px); } }
 .modal { background: var(--surface); border-radius: var(--radius); width: 100%; max-width: 620px; max-height: 92vh; overflow-y: auto;
          box-shadow: 0 18px 50px rgba(0,0,0,.28); border: 1px solid var(--border); }
 .modal.wide { max-width: 900px; }

@@ -5,15 +5,28 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { saveWorkflow } from '@/app/actions/workflows';
 import {
-  DOCUMENT_FIELDS, DOCUMENT_TYPE_LABELS, CONDITION_OPERATORS, APPROVER_TYPES,
+  DOCUMENT_TYPE_LABELS, CONDITION_OPERATORS, APPROVER_TYPES,
 } from '@/lib/workflowConstants';
-import { PRODUCT_STATUSES } from '@/lib/constants';
+import type { DocumentFieldDef, DocumentFieldRelation } from '@/lib/workflowConstants';
 import type {
   UserListRow, WorkflowUserGroupWithUsage, WorkflowWithDetail, WorkflowDocumentType,
-  WorkflowConditionOperator, WorkflowApproverType,
+  WorkflowConditionOperator, WorkflowApproverType, MemberCategory, County, DimensionValue, LoanProduct,
 } from '@/lib/types';
 
 const DOCUMENT_TYPES = Object.keys(DOCUMENT_TYPE_LABELS) as WorkflowDocumentType[];
+
+/** One option list per `DocumentFieldRelation` — whichever rows the caller has on hand for
+ *  that lookup table. Missing/empty lists just fall back to a plain text input. */
+interface RelationOptions {
+  memberCategory?: MemberCategory[];
+  county?: County[];
+  globalDimension1?: DimensionValue[];
+  globalDimension2?: DimensionValue[];
+  loanProduct?: LoanProduct[];
+}
+
+const relationLabel = (relation: DocumentFieldRelation, row: { code?: string; name?: string; description?: string }) =>
+  ('code' in row && row.code ? `${row.code} — ` : '') + (row.name ?? row.description ?? '');
 
 interface ConditionRow {
   field: string;
@@ -29,21 +42,41 @@ interface StepRow {
   notify_email: boolean;
 }
 
-const emptyCondition = (documentType: WorkflowDocumentType): ConditionRow => ({
-  field: DOCUMENT_FIELDS[documentType][0]?.key || '', operator: '>', value: '', value2: '',
+const emptyCondition = (fields: DocumentFieldDef[]): ConditionRow => ({
+  field: fields[0]?.key || '', operator: '>', value: '', value2: '',
 });
 const emptyStep = (): StepRow => ({ approver_type: 'USER', approver_user_id: '', approver_group_id: '', notify_email: true });
 
-export function WorkflowFormButton({ workflow, users, groups, className = 'btn', children }: {
+export function WorkflowFormButton({
+  workflow, users, groups, memberCategory, county, globalDimension1, globalDimension2, loanProduct,
+  documentFields, dimensionCaption1 = 'Global Dimension 1', dimensionCaption2 = 'Global Dimension 2',
+  className = 'btn', children,
+}: {
   workflow?: WorkflowWithDetail | null;
   users: UserListRow[];
   groups: WorkflowUserGroupWithUsage[];
+  /** The condition fields available per document type — read off the real tables server-side
+   *  by lib/workflow.ts's listConditionFieldDefs(), not hardcoded here. */
+  documentFields: Record<WorkflowDocumentType, DocumentFieldDef[]>;
+  /** The org's own labels for the two dimension slots (e.g. "Branch", "Cost Centre") — falls
+   *  back to the generic name if the caller doesn't have them on hand. */
+  dimensionCaption1?: string;
+  dimensionCaption2?: string;
   className?: string;
   children: React.ReactNode;
-}) {
+} & RelationOptions) {
+  const relationOptions: Record<DocumentFieldRelation, RelationOptions[DocumentFieldRelation]> = {
+    memberCategory, county, globalDimension1, globalDimension2, loanProduct,
+  };
+  const fieldLabel = (f: { label: string; relation?: DocumentFieldRelation }) => (
+    f.relation === 'globalDimension1' ? dimensionCaption1
+      : f.relation === 'globalDimension2' ? dimensionCaption2
+        : f.label
+  );
   const [open, setOpen] = useState(false);
   const w = workflow ?? null;
   const [documentType, setDocumentType] = useState<WorkflowDocumentType>(w?.document_type || 'MEMBER_APPLICATION');
+  const fields = documentFields[documentType];
   const [conditions, setConditions] = useState<ConditionRow[]>(() =>
     (w?.conditions || []).map((c) => ({
       field: c.field, operator: c.operator, value: c.value, value2: c.value2 || '',
@@ -100,10 +133,10 @@ export function WorkflowFormButton({ workflow, users, groups, className = 'btn',
               defaultValue={documentType}
               options={DOCUMENT_TYPES.map((t) => ({ value: t, label: DOCUMENT_TYPE_LABELS[t] }))}
               onChange={(e) => setDocumentType(e.target.value as WorkflowDocumentType)} />
-            {w ? (
-              <Field name="status" label="Status" type="select" defaultValue={w.status} options={PRODUCT_STATUSES} />
-            ) : null}
           </div>
+          {w ? (
+            <Field name="enabled" label="Enabled" type="checkbox" defaultValue={w.enabled} />
+          ) : null}
 
           <h4 className="section-title">Conditions</h4>
           <div className="card-sub">
@@ -116,43 +149,67 @@ export function WorkflowFormButton({ workflow, users, groups, className = 'btn',
               </tr>
             </thead>
             <tbody>
-              {conditions.map((row, i) => (
-                <tr key={i}>
-                  <td>
-                    <select value={row.field} aria-label="Field"
-                      onChange={(e) => updateCondition(i, { field: e.target.value })}>
-                      {DOCUMENT_FIELDS[documentType].map((f) => (
-                        <option key={f.key} value={f.key}>{f.label}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <select value={row.operator} aria-label="Operator"
-                      onChange={(e) => updateCondition(i, { operator: e.target.value as WorkflowConditionOperator })}>
-                      {CONDITION_OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <input type="text" value={row.value} aria-label="Value"
-                      onChange={(e) => updateCondition(i, { value: e.target.value })} />
-                  </td>
-                  <td>
-                    {row.operator === 'BETWEEN' ? (
-                      <input type="text" value={row.value2} aria-label="Value 2"
-                        onChange={(e) => updateCondition(i, { value2: e.target.value })} />
-                    ) : null}
-                  </td>
-                  <td>
-                    <button type="button" className="btn sm ghost" onClick={() => removeCondition(i)}
-                      aria-label="Remove condition">×</button>
-                  </td>
-                </tr>
-              ))}
+              {conditions.map((row, i) => {
+                const relation = fields.find((f) => f.key === row.field)?.relation;
+                const options = relation ? relationOptions[relation] : undefined;
+                return (
+                  <tr key={i}>
+                    <td>
+                      <select value={row.field} aria-label="Field"
+                        onChange={(e) => updateCondition(i, { field: e.target.value, value: '', value2: '' })}>
+                        {fields.map((f) => (
+                          <option key={f.key} value={f.key}>{fieldLabel(f)}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select value={row.operator} aria-label="Operator"
+                        onChange={(e) => updateCondition(i, { operator: e.target.value as WorkflowConditionOperator })}>
+                        {CONDITION_OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      {options ? (
+                        <select value={row.value} aria-label="Value"
+                          onChange={(e) => updateCondition(i, { value: e.target.value })}>
+                          <option value="">Select…</option>
+                          {options.map((o) => (
+                            <option key={o.id} value={o.id}>{relation ? relationLabel(relation, o) : ''}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input type="text" value={row.value} aria-label="Value"
+                          onChange={(e) => updateCondition(i, { value: e.target.value })} />
+                      )}
+                    </td>
+                    <td>
+                      {row.operator === 'BETWEEN' ? (
+                        options ? (
+                          <select value={row.value2} aria-label="Value 2"
+                            onChange={(e) => updateCondition(i, { value2: e.target.value })}>
+                            <option value="">Select…</option>
+                            {options.map((o) => (
+                              <option key={o.id} value={o.id}>{relation ? relationLabel(relation, o) : ''}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input type="text" value={row.value2} aria-label="Value 2"
+                            onChange={(e) => updateCondition(i, { value2: e.target.value })} />
+                        )
+                      ) : null}
+                    </td>
+                    <td>
+                      <button type="button" className="btn sm ghost" onClick={() => removeCondition(i)}
+                        aria-label="Remove condition">×</button>
+                    </td>
+                  </tr>
+                );
+              })}
               {!conditions.length ? <tr><td colSpan={5} className="tiny">Applies to every submission.</td></tr> : null}
             </tbody>
           </table>
           <div className="inline" style={{ marginTop: 10 }}>
-            <button type="button" className="btn ghost sm" onClick={() => setConditions((c) => [...c, emptyCondition(documentType)])}>
+            <button type="button" className="btn ghost sm" onClick={() => setConditions((c) => [...c, emptyCondition(fields)])}>
               Add condition
             </button>
           </div>

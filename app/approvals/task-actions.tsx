@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
-import { decideMyTask } from '@/app/actions/workflows';
+import { decideMyTask, delegateMyTask } from '@/app/actions/workflows';
 
-/** Inline approve/reject for a task assigned to me — no modal, just a comment box. */
+/** Inline approve/reject/delegate for a task assigned to me — no modal, just a comment box. */
 export function TaskActions({ taskId }: { taskId: number }) {
   const router = useRouter();
   const toast = useToast();
@@ -27,9 +27,22 @@ export function TaskActions({ taskId }: { taskId: number }) {
     }
   };
 
+  const delegate = async () => {
+    setBusy(true);
+    try {
+      const res = await delegateMyTask(taskId);
+      if (!res.ok) { toast('Could not delegate', res.error, 'err'); return; }
+      toast('Delegated to your substitute', undefined, 'ok');
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!mode) {
     return (
       <div className="inline" style={{ justifyContent: 'flex-end' }}>
+        <button type="button" className="btn sm ghost" disabled={busy} onClick={delegate}>Delegate</button>
         <button type="button" className="btn sm ghost" onClick={() => setMode('reject')}>Reject</button>
         <button type="button" className="btn sm" onClick={() => setMode('approve')}>Approve</button>
       </div>

@@ -2,12 +2,13 @@ import { one, all, run, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { loanableDeposits, existingExposure } from './loanService.ts';
 import { listNextOfKin, listNominees } from './nominees.ts';
+import { listSignatories } from './signatories.ts';
 import type {
   Actor, GuarantorshipRow, LoanWithProductName, Member, MemberDetail, MemberListRow,
   MemberWithDimensions, SavingsAccountWithProduct, Txn,
 } from './types.ts';
 
-const MEMBER_FIELDS = [
+export const MEMBER_FIELDS = [
   'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'national_id', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
   'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
@@ -92,7 +93,9 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
   if (!member) return null;
 
   // Independent reads — one round trip's worth of latency instead of six.
-  const [accounts, loans, guaranteeing, transactions, deposits, exposure, nextOfKin, nominees] = await Promise.all([
+  const [
+    accounts, loans, guaranteeing, transactions, deposits, exposure, nextOfKin, nominees, signatories,
+  ] = await Promise.all([
     all<SavingsAccountWithProduct>(
       `SELECT sa.*, p.name AS product_name, p.code AS product_code, p.category, p.min_balance, p.allow_withdrawal
        FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
@@ -116,6 +119,7 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
     existingExposure(id),
     listNextOfKin(id),
     listNominees(id),
+    listSignatories(id),
   ]);
 
   return {
@@ -127,6 +131,7 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
     appraisal: { deposits, exposure },
     nextOfKin,
     nominees,
+    signatories,
   };
 }
 

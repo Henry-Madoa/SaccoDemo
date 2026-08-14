@@ -286,6 +286,18 @@ export interface MemberNominee {
   is_next_of_kin: Flag;
 }
 
+/** An office bearer authorised to act on a non-individual (group/corporate) member's account. */
+export interface MemberSignatory {
+  id: number;
+  member_id: number;
+  identification_no: string | null;
+  name: string;
+  designation: string | null;
+  date_of_birth: IsoDate | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export interface MemberDetail {
   member: MemberWithDimensions;
   accounts: SavingsAccountWithProduct[];
@@ -295,6 +307,7 @@ export interface MemberDetail {
   appraisal: { deposits: Cents; exposure: Cents };
   nextOfKin: MemberNextOfKin[];
   nominees: MemberNominee[];
+  signatories: MemberSignatory[];
 }
 
 /* ----------------------------------------------------------- member applications */
@@ -374,6 +387,86 @@ export interface MemberApplicationWithDimensions extends MemberApplication {
   global_dimension_2_name: string | null;
 }
 
+/* ----------------------------------------------------------------- member edits */
+
+/** A staged set of changes to an existing member, carrying a full snapshot of every
+ *  editable field (not just the ones actually changed) plus its own approval workflow —
+ *  mirrors MemberApplication, except member_id is always set from creation. */
+export interface MemberEditRequest {
+  no: string;
+  member_id: number;
+  member_type: 'INDIVIDUAL' | 'CORPORATE' | 'GROUP';
+  member_category_id: number | null;
+  title: string | null;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  national_id: string | null;
+  kra_pin: string | null;
+  date_of_birth: IsoDate | null;
+  gender: string | null;
+  marital_status: string | null;
+  phone: string | null;
+  email: string | null;
+  postal_address: string | null;
+  physical_address: string | null;
+  county_id: number | null;
+  sub_county_id: number | null;
+  employer: string | null;
+  employment_status: string | null;
+  staff_no: string | null;
+  gross_income: Cents;
+  other_deductions: Cents;
+  kyc_verified: Flag;
+  join_date: IsoDate | null;
+  photo: string | null;
+  front_id_image: string | null;
+  back_id_image: string | null;
+  signature_image: string | null;
+  fingerprint1_image: string | null;
+  fingerprint2_image: string | null;
+  notes: string | null;
+  group_name: string | null;
+  registration_no: string | null;
+  registration_date: IsoDate | null;
+  contact_person_name: string | null;
+  contact_person_phone: string | null;
+  contact_person_email: string | null;
+  member_count: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  /** The approval workflow state. Captioned "Status" in the UI. */
+  status: DocumentStatus;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface MemberEditRequestWithDimensions extends MemberEditRequest {
+  county_name: string | null;
+  sub_county_name: string | null;
+  member_category_name: string | null;
+  /** Drives the Basic-information-vs-Group/Corporate-information tab choice on the card. */
+  member_category_type: MemberCategoryType | null;
+  /** The target member's own number/name — this always exists, unlike an application's. */
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  global_dimension_1_code: string | null;
+  global_dimension_1_name: string | null;
+  global_dimension_2_code: string | null;
+  global_dimension_2_name: string | null;
+}
+
+/** One field that differs between an edit request's stored value and the member's
+ *  live value — powers the "What's changing" summary on the request's view page. */
+export interface MemberEditFieldDiff {
+  field: string;
+  label: string;
+  from: string | number | null;
+  to: string | number | null;
+}
+
 export interface MemberApplicationNextOfKin {
   id: number;
   application_no: string;
@@ -390,6 +483,18 @@ export interface MemberApplicationNominee {
   phone: string | null;
   percentage: number;
   is_next_of_kin: Flag;
+}
+
+/** An office bearer authorised to act on the eventual non-individual (group/corporate) member's account. */
+export interface MemberApplicationSignatory {
+  id: number;
+  application_no: string;
+  identification_no: string | null;
+  name: string;
+  designation: string | null;
+  date_of_birth: IsoDate | null;
+  email: string | null;
+  phone: string | null;
 }
 
 export interface MemberApplicationAttachment {
@@ -849,7 +954,7 @@ export interface TxnWithMember extends Txn {
 
 /* --------------------------------------------------------------- workflow */
 
-export type WorkflowDocumentType = 'MEMBER_APPLICATION' | 'LOAN' | 'JOURNAL';
+export type WorkflowDocumentType = 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -858,7 +963,7 @@ export interface Workflow {
   id: number;
   name: string;
   document_type: WorkflowDocumentType;
-  status: 'ACTIVE' | 'INACTIVE';
+  enabled: Flag;
   created_at: IsoDateTime | null;
   created_by: string | null;
 }
@@ -888,6 +993,29 @@ export interface WorkflowWithDetail extends Workflow {
   steps: WorkflowStep[];
 }
 
+/** Registers the one DB table backing a document type's workflow conditions — admin-managed
+ *  under Admin Centre → Workflow Management → Table Relations. `table_name` always mirrors
+ *  DOCUMENT_TABLE[document_type] (lib/workflowConstants.ts); it is never freely editable, since
+ *  that's the only table the document's own submission code actually fetches condition values from. */
+export interface WorkflowTableRelation {
+  id: number;
+  document_type: WorkflowDocumentType;
+  table_name: string;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+/** One column of a table relation's table that's enabled as a workflow condition field. */
+export interface WorkflowTableRelationField {
+  id: number;
+  table_relation_id: number;
+  field_name: string;
+}
+
+export interface WorkflowTableRelationWithFields extends WorkflowTableRelation {
+  fields: WorkflowTableRelationField[];
+}
+
 export interface WorkflowUserGroup {
   id: number;
   name: string;
@@ -896,6 +1024,12 @@ export interface WorkflowUserGroup {
 
 export interface WorkflowUserGroupWithUsage extends WorkflowUserGroup {
   members: number;
+}
+
+/** One member of an approval user group, with the sequence level they approve at. */
+export interface WorkflowUserGroupMemberRow {
+  user_id: number;
+  sequence: number;
 }
 
 export interface ApprovalUserSetup {
@@ -927,6 +1061,11 @@ export interface WorkflowTask {
   entity_id: string;
   assigned_to_user_id: number | null;
   assigned_to_group_id: number | null;
+  /** The group's currently-pending sequence level; null when assigned to a single user. */
+  current_sequence: number | null;
+  /** Set when the current approver hands this task to their substitute. */
+  delegated_by_user_id: number | null;
+  delegated_to_user_id: number | null;
   status: WorkflowTaskStatus;
   requested_by: string;
   requested_at: IsoDateTime;

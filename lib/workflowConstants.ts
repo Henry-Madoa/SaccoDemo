@@ -7,34 +7,32 @@
  */
 import type { WorkflowApproverType, WorkflowConditionOperator, WorkflowDocumentType } from './types.ts';
 
-export interface DocumentFieldDef { key: string; label: string }
+/** Keys into the option lists a workflow-form.tsx caller supplies (see `RelationOptions`
+ *  there) — lets a condition field that stores a foreign key render a picklist of the
+ *  actual related rows instead of asking the admin to type a raw id. */
+export type DocumentFieldRelation = 'memberCategory' | 'county' | 'globalDimension1' | 'globalDimension2' | 'loanProduct';
 
-/** The fields each document type exposes to a workflow's conditions — kept as a
- *  small hardcoded catalogue rather than reflecting the table, since only a few
- *  fields make sense to route approvals on. */
-export const DOCUMENT_FIELDS: Record<WorkflowDocumentType, DocumentFieldDef[]> = {
-  MEMBER_APPLICATION: [
-    { key: 'gross_income', label: 'Gross income (cents)' },
-    { key: 'other_deductions', label: 'Other deductions (cents)' },
-    { key: 'member_category_id', label: 'Member category (id)' },
-    { key: 'global_dimension_1_id', label: 'Global Dimension 1 (id)' },
-    { key: 'global_dimension_2_id', label: 'Global Dimension 2 (id)' },
-    { key: 'county_id', label: 'County (id)' },
-  ],
-  LOAN: [
-    { key: 'principal', label: 'Principal (cents)' },
-    { key: 'product_id', label: 'Loan product (id)' },
-    { key: 'term_months', label: 'Term (months)' },
-  ],
-  JOURNAL: [
-    { key: 'amount', label: 'Amount (cents)' },
-    { key: 'global_dimension_1_id', label: 'Global Dimension 1 (id)' },
-    { key: 'global_dimension_2_id', label: 'Global Dimension 2 (id)' },
-  ],
+/** A condition field as shown in the admin UI — `label` and `relation` are read off the
+ *  real table/column metadata by `listConditionFieldDefs()` in lib/workflow.ts, not hand-typed. */
+export interface DocumentFieldDef { key: string; label: string; relation?: DocumentFieldRelation }
+
+/** The DB table backing each document type — the parent row `listWorkflowTableRelations()`
+ *  registers per document type, and what `listConditionFieldDefs()` introspects for columns
+ *  and foreign keys. Never admin-editable: it's the only table the document's own submission
+ *  code (lib/memberApplications.ts, lib/loanService.ts, lib/gl.ts) actually fetches condition
+ *  values from, so letting it be freely set would let an admin configure fields that silently
+ *  never match. Which of that table's columns are actually enabled for conditioning is the
+ *  admin-managed part — see Admin Centre → Workflow Management → Table Relations. */
+export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
+  MEMBER_APPLICATION: 'member_application',
+  MEMBER_EDIT: 'member_edit_request',
+  LOAN: 'loan',
+  JOURNAL: 'journal',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   MEMBER_APPLICATION: 'Member Application',
+  MEMBER_EDIT: 'Member Detail Edit',
   LOAN: 'Loan',
   JOURNAL: 'Journal',
 };
@@ -57,6 +55,7 @@ export const APPROVER_TYPES: { value: WorkflowApproverType; label: string }[] = 
 
 export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => string> = {
   MEMBER_APPLICATION: (id) => `/member-applications/view/${id}`,
+  MEMBER_EDIT: (id) => `/member-edits/view/${id}`,
   LOAN: (id) => `/loans/${id}`,
   JOURNAL: () => '/approvals',
 };

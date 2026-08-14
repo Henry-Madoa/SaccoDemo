@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePerm, currentCan } from '@/lib/session';
 import { getMemberDetail } from '@/lib/members';
+import { getOpenMemberEditRequest } from '@/lib/memberEdits';
 import { listActiveSavingsProducts } from '@/lib/admin';
 import { getDimensionCaptions } from '@/lib/org';
 import { listAttachments } from '@/lib/attachments';
@@ -12,10 +13,10 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money, SignedMoney } from '@/components/ui/money';
-import { NomineeFormButton, NextOfKinFormButton } from './nominee-form';
 import { OpenAccountButton } from './open-account-button';
 import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
+import { MemberEditButton } from './member-edit-button';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,13 +25,15 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   const detail = await getMemberDetail(Number(id));
   if (!detail) notFound();
 
-  const { member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees } = detail;
+  const {
+    member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees, signatories,
+  } = detail;
   const [
-    canUpdate, canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 },
+    canUpdate, canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 }, openEditRequest,
   ] = await Promise.all([
     currentCan('MEMBER:UPDATE'), currentCan('SAVINGS:OPEN'), currentCan('LOAN:CREATE'),
     listAttachments('member', m.id), listActiveSavingsProducts(),
-    getDimensionCaptions(),
+    getDimensionCaptions(), getOpenMemberEditRequest(m.id),
   ]);
   const mediaEnabled = isConfigured();
 
@@ -47,6 +50,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
       <Toolbar>
         <Link href="/members" className="btn ghost sm">← All members</Link>
         <Spacer />
+        {canUpdate ? <MemberEditButton memberId={m.id} openRequest={openEditRequest ?? null} /> : null}
         {canOpen ? <OpenAccountButton member={m} products={savingsProducts} /> : null}
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
@@ -71,7 +75,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 memberId={m.id}
                 name={`${m.first_name} ${m.last_name}`}
                 photoSrc={imageSrc(m.photo, { width: 104, height: 104 })}
-                canEdit={canUpdate}
+                canEdit={false}
                 mediaEnabled={mediaEnabled}
               />
               <div>
@@ -117,7 +121,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
               fingerprint1: imageSrc(m.fingerprint1_image, { width: 140, height: 140, crop: 'fit' }),
               fingerprint2: imageSrc(m.fingerprint2_image, { width: 140, height: 140, crop: 'fit' }),
             }}
-            canEdit={canUpdate}
+            canEdit={false}
             mediaEnabled={mediaEnabled}
           />
 
@@ -149,14 +153,36 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             </Card>
           ) : null}
 
+          {m.member_category_type && m.member_category_type !== 'INDIVIDUAL' ? (
+            <Card>
+              <CardHead title="Signatories" sub="Office bearers authorised to act on this account" />
+              {signatories.length ? (
+                <TableWrap>
+                  <thead>
+                    <tr>
+                      <th>Identification No</th><th>Name</th><th>Designation</th>
+                      <th>Date of birth</th><th>Email</th><th>Phone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {signatories.map((s) => (
+                      <tr key={s.id}>
+                        <td className="mono">{s.identification_no || '—'}</td>
+                        <td><b>{s.name}</b></td>
+                        <td>{s.designation || '—'}</td>
+                        <td>{formatDate(s.date_of_birth)}</td>
+                        <td>{s.email || '—'}</td>
+                        <td>{s.phone || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              ) : <EmptyState icon="✍" title="No signatories on file" />}
+            </Card>
+          ) : null}
+
           <Card>
-            <CardHead title="Next of kin" sub="A member can have more than one">
-              {canUpdate ? (
-                <NextOfKinFormButton memberId={m.id} nextOfKin={nextOfKin} className="btn sm ghost">
-                  Manage
-                </NextOfKinFormButton>
-              ) : null}
-            </CardHead>
+            <CardHead title="Next of kin" sub="A member can have more than one" />
             {nextOfKin.length ? (
               <TableWrap>
                 <thead>
@@ -176,13 +202,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
           </Card>
 
           <Card>
-            <CardHead title="Nominees & beneficiaries" sub="Shares of benefit on the member's account">
-              {canUpdate ? (
-                <NomineeFormButton memberId={m.id} nominees={nominees} className="btn sm ghost">
-                  Manage
-                </NomineeFormButton>
-              ) : null}
-            </CardHead>
+            <CardHead title="Nominees & beneficiaries" sub="Shares of benefit on the member's account" />
             {nominees.length ? (
               <TableWrap>
                 <thead>

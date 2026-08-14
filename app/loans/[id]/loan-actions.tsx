@@ -1,23 +1,47 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useFormat } from '@/components/ui/format-provider';
+import { useToast } from '@/components/ui/toast';
 import { decideLoan, disburseLoan, repayLoan } from '@/app/actions/loans';
+import { delegateMyTask } from '@/app/actions/workflows';
 import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
 import { today, toUnits } from '@/lib/format';
 import type { LoanFull, SavingsAccountWithProduct } from '@/lib/types';
 
-/** Approve / reject, with the maker-checker rule enforced server-side. */
-export function DecideButtons({ loan }: { loan: LoanFull }) {
+/** Approve / reject / delegate, with the maker-checker rule enforced server-side. */
+export function DecideButtons({ loan, routedTaskId }: { loan: LoanFull; routedTaskId: number | null }) {
   const [decision, setDecision] = useState<'approve' | 'reject' | null>(null);
   const { cur } = useFormat();
+  const router = useRouter();
+  const toast = useToast();
+  const [delegating, setDelegating] = useState(false);
   const approving = decision === 'approve';
+
+  const delegate = async () => {
+    if (!routedTaskId) return;
+    setDelegating(true);
+    try {
+      const res = await delegateMyTask(routedTaskId);
+      if (!res.ok) { toast('Could not delegate', res.error, 'err'); return; }
+      toast('Delegated to your substitute', undefined, 'ok');
+      router.refresh();
+    } finally {
+      setDelegating(false);
+    }
+  };
 
   return (
     <>
+      {routedTaskId ? (
+        <button type="button" className="btn ghost" disabled={delegating} onClick={delegate}>
+          {delegating ? 'Working…' : 'Delegate'}
+        </button>
+      ) : null}
       <button type="button" className="btn ghost" onClick={() => setDecision('reject')}>Reject</button>
       <button type="button" className="btn" onClick={() => setDecision('approve')}>Approve</button>
 

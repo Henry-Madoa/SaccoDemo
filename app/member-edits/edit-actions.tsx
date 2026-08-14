@@ -6,8 +6,9 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { useToast } from '@/components/ui/toast';
 import {
-  submitApplication, cancelApprovalRequest, approveApplication, rejectApplication, processApplication,
-} from '@/app/actions/memberApplications';
+  submitMemberEdit, cancelMemberEditApproval, approveMemberEditRequest, rejectMemberEditRequest,
+  processMemberEditRequest,
+} from '@/app/actions/memberEdits';
 import { delegateMyTask } from '@/app/actions/workflows';
 
 /** Shared shape for the simple one-click workflow actions. */
@@ -37,7 +38,7 @@ export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; c
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => submitApplication(no), 'Sent for approval')}>
+      onClick={() => run(() => submitMemberEdit(no), 'Sent for approval')}>
       {busy ? 'Working…' : 'Send for approval'}
     </button>
   );
@@ -48,7 +49,7 @@ export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: s
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => cancelApprovalRequest(no), 'Approval request cancelled — back to Open')}>
+      onClick={() => run(() => cancelMemberEditApproval(no), 'Approval request cancelled — back to Open')}>
       {busy ? 'Working…' : 'Cancel approval request'}
     </button>
   );
@@ -69,7 +70,7 @@ export function ApproveButton({ no, className = 'btn sm' }: { no: string; classN
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => approveApplication(no), 'Application approved')}>
+      onClick={() => run(() => approveMemberEditRequest(no), 'Edit request approved')}>
       {busy ? 'Working…' : 'Approve'}
     </button>
   );
@@ -82,12 +83,12 @@ export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; c
       <button type="button" className={className} onClick={() => setOpen(true)}>Reject</button>
       {open ? (
         <FormModal
-          title="Reject application"
+          title="Reject edit request"
           onClose={() => setOpen(false)}
-          onSubmit={(values) => rejectApplication(no, String(values.reason || ''))}
+          onSubmit={(values) => rejectMemberEditRequest(no, String(values.reason || ''))}
           submitLabel="Reject"
           submitClass="btn danger"
-          successTitle="Application rejected"
+          successTitle="Edit request rejected"
         >
           <Field name="reason" label="Reason" type="textarea" required />
         </FormModal>
@@ -104,9 +105,9 @@ export function ProcessButton({ no, className = 'btn sm' }: { no: string; classN
   const process = async () => {
     setBusy(true);
     try {
-      const res = await processApplication(no);
-      if (!res.ok) { toast('Could not create member', res.error, 'err'); return; }
-      toast('Member created', undefined, 'ok');
+      const res = await processMemberEditRequest(no);
+      if (!res.ok) { toast('Could not apply changes', res.error, 'err'); return; }
+      toast('Changes applied to the member', undefined, 'ok');
       router.push(`/members/${res.data.memberId}`);
     } finally {
       setBusy(false);
@@ -115,7 +116,7 @@ export function ProcessButton({ no, className = 'btn sm' }: { no: string; classN
 
   return (
     <button type="button" className={className} disabled={busy} onClick={process}>
-      {busy ? 'Working…' : 'Create member'}
+      {busy ? 'Working…' : 'Apply changes'}
     </button>
   );
 }

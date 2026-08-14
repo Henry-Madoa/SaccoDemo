@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePerm, currentCan } from '@/lib/session';
 import { getLoanDetail } from '@/lib/loanService';
+import { findPendingRoutedTask, isEligibleApprover } from '@/lib/workflow';
 import { getMemberDetail } from '@/lib/members';
 import { listAttachments } from '@/lib/attachments';
 import { isConfigured } from '@/lib/cloudinary';
@@ -25,6 +26,12 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
     currentCan('LOAN:APPROVE'), currentCan('LOAN:DISBURSE'), currentCan('LOAN:REPAY'),
     currentCan('LOAN:CREATE'), listAttachments('loan', l.id),
   ]);
+
+  // Approve/Reject are only ever shown to whoever can actually decide this specific
+  // loan: the routed task's current approver (or their substitute/delegate); a loan
+  // with no matching workflow falls back to the coarse LOAN:APPROVE permission.
+  const routedTask = l.status === 'PENDING' ? await findPendingRoutedTask('LOAN', String(l.id)) : null;
+  const canDecideThis = routedTask ? await isEligibleApprover(routedTask, user.id) : canApprove;
 
   // Only the repayment modal needs the member's accounts, so fetch them lazily.
   const repayAccounts = l.status === 'DISBURSED' && canRepay
@@ -54,7 +61,9 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
         <Link href="/loans" className="btn ghost sm">← All loans</Link>
         <Link href={`/members/${l.member_id}`} className="btn ghost sm">Member 360</Link>
         <Spacer />
-        {l.status === 'PENDING' && canApprove ? <DecideButtons loan={l} /> : null}
+        {l.status === 'PENDING' && canDecideThis ? (
+          <DecideButtons loan={l} routedTaskId={routedTask?.id ?? null} />
+        ) : null}
         {l.status === 'APPROVED' && canDisburse ? <DisburseButton loan={l} /> : null}
         {l.status === 'DISBURSED' && canRepay ? <RepayButton loan={l} accounts={repayAccounts} /> : null}
       </Toolbar>

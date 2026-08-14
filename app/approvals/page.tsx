@@ -72,7 +72,7 @@ export default async function ApprovalsPage() {
       </div>
 
       <Card>
-        <CardHead title="Assigned to me" sub="Routed by a workflow — only you (or your substitute/group) may decide these" />
+        <CardHead title="Assigned to me" sub="Routed by a workflow — only you (or your substitute/group) may decide these, or delegate to your substitute" />
         {myTasks.length
           ? <TaskTable rows={myTasks} decideable showDecision={false} />
           : <EmptyState icon="✔" title="Nothing routed to you right now" />}

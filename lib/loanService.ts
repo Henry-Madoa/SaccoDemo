@@ -8,7 +8,7 @@ import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
 import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
-import { findMatchingWorkflow, startWorkflow, startLegacyTask } from './workflow.ts';
+import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import type {
   Actor, Appraisal, AppraisalFactor, Cents, Channel, GuarantorRow, IsoDate, JournalLineInput,
   LoanDetail, LoanFull, LoanListRow, LoanProduct, LoanScheduleRow, Member,
@@ -165,6 +165,13 @@ export async function apply({
     throw new PostingError(`Term must be between 1 and ${product.max_term_months} months`, 'INVALID_TERM');
   }
 
+  // Applying always requires routing through an admin-defined, enabled workflow —
+  // there's no falling back to a flat permission check for a fresh application. Keys here
+  // must match RUNTIME_FIELD_CAP.LOAN (lib/workflow.ts) — that cap is what stops an admin
+  // from enabling a Table Relation field here that would never actually match.
+  const matched = await findMatchingWorkflow('LOAN', { principal, product_id: productId, term_months: termMonths });
+  if (!matched) throw new PostingError('There is no enabled workflow for this document', 'NO_WORKFLOW');
+
   const id = await tx(async () => {
     const loanNo = await nextSequence('LOAN');
     const info = await run(
@@ -184,12 +191,9 @@ export async function apply({
       );
     }
 
-    // Route through an admin-defined workflow when one matches; otherwise keep a
-    // legacy (unrouted) task so the pending-approvals count and queue still see it.
-    const matched = await findMatchingWorkflow('LOAN', { principal, product_id: productId, term_months: termMonths });
-    const taskInput = { documentType: 'LOAN' as const, entityId: String(loanId), requestedBy: user.username, amount: principal };
-    if (matched) await startWorkflow(matched.workflow, matched.steps, taskInput);
-    else await startLegacyTask(taskInput);
+    await startWorkflow(matched.workflow, matched.steps, {
+      documentType: 'LOAN', entityId: String(loanId), requestedBy: user.username, amount: principal,
+    });
 
     return loanId;
   });

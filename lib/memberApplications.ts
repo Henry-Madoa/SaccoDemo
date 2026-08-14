@@ -2,7 +2,8 @@ import { one, all, run, tx, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { createMember, type MemberInput } from './members.ts';
 import { listApplicationNextOfKin, listApplicationNominees } from './applicationNominees.ts';
-import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
+import { listApplicationSignatories } from './applicationSignatories.ts';
+import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { getMemberCategoryDefaultAccounts } from './pool.ts';
 import { openAccount } from './savings.ts';
 import type {
@@ -114,24 +115,23 @@ export async function submitMemberApplication(no: string, user: Actor): Promise<
   if (app.status !== 'Open') {
     throw new AppError('Only an open application can be submitted for approval', 'VALIDATION');
   }
-  await run("UPDATE member_application SET status = 'Pending Approval' WHERE no = ?", no);
-  await audit(user, 'MEMBER_APPLICATION_SUBMIT', 'member_application', no, {});
 
-  // Route through an admin-defined workflow when one matches; otherwise this
-  // stays exactly as before — anyone holding MEMBER:APPROVE can decide it.
-  const matched = await findMatchingWorkflow('MEMBER_APPLICATION', {
-    gross_income: app.gross_income,
-    other_deductions: app.other_deductions,
-    member_category_id: app.member_category_id,
-    global_dimension_1_id: app.global_dimension_1_id,
-    global_dimension_2_id: app.global_dimension_2_id,
-    county_id: app.county_id,
-  });
-  if (matched) {
+  // Submitting always requires routing through an admin-defined, enabled workflow —
+  // there's no falling back to a flat permission check for a fresh submission.
+  const matched = await findMatchingWorkflow(
+    'MEMBER_APPLICATION', await pickConditionFields('MEMBER_APPLICATION', app),
+  );
+  if (!matched) {
+    throw new AppError('There is no enabled workflow for this document', 'NO_WORKFLOW');
+  }
+
+  await tx(async () => {
+    await run("UPDATE member_application SET status = 'Pending Approval' WHERE no = ?", no);
+    await audit(user, 'MEMBER_APPLICATION_SUBMIT', 'member_application', no, {});
     await startWorkflow(matched.workflow, matched.steps, {
       documentType: 'MEMBER_APPLICATION', entityId: no, requestedBy: user.username, amount: app.gross_income,
     });
-  }
+  });
 }
 
 /**
@@ -139,13 +139,21 @@ export async function submitMemberApplication(no: string, user: Actor): Promise<
  *
  * Only valid while still "Pending Approval" — the single-step approve action
  * moves an application straight to "Approved", so being in "Pending Approval"
- * already means no approver has acted on it yet.
+ * already means no approver has acted on it yet. Only whoever actually sent it
+ * for approval may cancel the request — not just anyone who can create applications.
  */
 export async function cancelApplicationApproval(no: string, user: Actor): Promise<void> {
-  const app = await one<MemberApplication>('SELECT status FROM member_application WHERE no = ?', no);
+  const app = await one<Pick<MemberApplication, 'status' | 'created_by'>>(
+    'SELECT status, created_by FROM member_application WHERE no = ?', no,
+  );
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Pending Approval') {
     throw new AppError('Only an application pending approval can have its approval request cancelled', 'VALIDATION');
+  }
+  const routed = await findPendingRoutedTask('MEMBER_APPLICATION', no);
+  const requestedBy = routed?.requested_by ?? app.created_by;
+  if (requestedBy !== user.username) {
+    throw new AppError('Only the person who submitted this application for approval can cancel the request', 'NOT_REQUESTER');
   }
   await run("UPDATE member_application SET status = 'Open' WHERE no = ?", no);
   await audit(user, 'MEMBER_APPLICATION_CANCEL_APPROVAL', 'member_application', no, {});
@@ -211,8 +219,8 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
 
     // Raw rows — not the re-signed ones listApplicationAttachments() returns for display,
     // since a signed (expiring) url must never be the one persisted to storage.
-    const [nextOfKin, nominees, attachments] = await Promise.all([
-      listApplicationNextOfKin(no), listApplicationNominees(no),
+    const [nextOfKin, nominees, signatories, attachments] = await Promise.all([
+      listApplicationNextOfKin(no), listApplicationNominees(no), listApplicationSignatories(no),
       all<MemberApplicationAttachment>('SELECT * FROM member_application_attachment WHERE application_no = ?', no),
     ]);
     for (const n of nextOfKin) {
@@ -226,6 +234,13 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
         `INSERT INTO member_nominee (member_id, name, relationship, phone, percentage, is_next_of_kin)
          VALUES (?,?,?,?,?,?)`,
         member.id, n.name, n.relationship, n.phone, n.percentage, n.is_next_of_kin,
+      );
+    }
+    for (const s of signatories) {
+      await run(
+        `INSERT INTO member_signatory (member_id, identification_no, name, designation, date_of_birth, email, phone)
+         VALUES (?,?,?,?,?,?,?)`,
+        member.id, s.identification_no, s.name, s.designation, s.date_of_birth, s.email, s.phone,
       );
     }
     for (const a of attachments) {

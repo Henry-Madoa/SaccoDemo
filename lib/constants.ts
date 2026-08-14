@@ -25,6 +25,11 @@ export const RELATIONSHIPS = [
   '', 'Spouse', 'Son', 'Daughter', 'Father', 'Mother', 'Brother', 'Sister', 'Guardian', 'Other',
 ];
 
+/** Designation options for a non-individual member's signatories. */
+export const SIGNATORY_DESIGNATIONS = [
+  '', 'Chairman', 'Vice Chairman', 'Treasurer', 'Vice Treasurer', 'Secretary', 'Vice Secretary', 'Member', 'Other',
+];
+
 export const DEPOSIT_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK', 'CHECKOFF'];
 export const WITHDRAWAL_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK'];
 export const DISBURSE_CHANNELS: Channel[] = ['BANK', 'MPESA', 'TELLER'];

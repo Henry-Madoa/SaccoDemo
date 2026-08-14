@@ -38,14 +38,14 @@ model workflow {
   id             Int               @id @default(autoincrement())
   name           String
   document_type  String
-  status         String            @default("ACTIVE")
+  enabled        Int               @default(1)
   created_at     String?
   created_by     String?
   workflow_condition workflow_condition[]
   workflow_step  workflow_step[]
   workflow_task  workflow_task[]
 
-  @@index([document_type, status], map: "ix_workflow_doctype")
+  @@index([document_type, enabled], map: "ix_workflow_doctype")
 }
 
 model workflow_condition {
@@ -74,6 +74,28 @@ model workflow_step {
   @@index([workflow_id, step_no], map: "ix_step_workflow")
 }
 
+/// Registers the one table backing a document type's workflow conditions (admin-managed
+/// under Admin Centre → Workflow Management → Table Relations), and via
+/// workflow_table_relation_field, which of that table's columns are enabled as condition
+/// fields — one table relation has many fields.
+model workflow_table_relation {
+  id             Int                             @id @default(autoincrement())
+  document_type  String                          @unique
+  table_name     String
+  created_at     String?
+  created_by     String?
+  field          workflow_table_relation_field[]
+}
+
+model workflow_table_relation_field {
+  id                Int                     @id @default(autoincrement())
+  table_relation_id Int
+  field_name        String
+  table_relation    workflow_table_relation @relation(fields: [table_relation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([table_relation_id, field_name], map: "ux_table_relation_field")
+}
+
 model workflow_user_group {
   id     Int                          @id @default(autoincrement())
   name   String                       @unique
@@ -82,10 +104,14 @@ model workflow_user_group {
   workflow_task workflow_task[]
 }
 
+/// Members approve in ascending sequence order — any member who approves at the
+/// current (lowest pending) sequence clears that level for the rest of that level
+/// and moves the task on to the next one. Members sharing a sequence are alternates.
 model workflow_user_group_member {
   id       Int                 @id @default(autoincrement())
   group_id Int
   user_id  Int
+  sequence Int                 @default(1)
   group    workflow_user_group @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user     app_user            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -119,6 +145,15 @@ model workflow_task {
   entity_id           String
   assigned_to_user_id Int?
   assigned_to_group_id Int?
+  /// Which sequence level of a group-assigned task is currently pending — null for
+  /// a task assigned to a single user. Advances within this same row as members at
+  /// each level approve, before the task's step itself ever moves on.
+  current_sequence    Int?
+  /// Set when the current approver hands this task off: delegated_by loses
+  /// eligibility, delegated_to gains it, until the task is decided or (for a
+  /// sequenced group) its level advances and the delegation is cleared.
+  delegated_by_user_id Int?
+  delegated_to_user_id Int?
   status              String               @default("PENDING")
   requested_by        String
   requested_at        String
@@ -187,6 +222,7 @@ model county {
   sub_county         sub_county[]
   member             member[]
   member_application member_application[]
+  member_edit_request member_edit_request[]
 }
 
 model global_dimension_1_value {
@@ -196,6 +232,7 @@ model global_dimension_1_value {
   status             String               @default("ACTIVE")
   member             member[]
   member_application member_application[]
+  member_edit_request member_edit_request[]
   journal            journal[]
   journal_line       journal_line[]
 }
@@ -207,6 +244,7 @@ model global_dimension_2_value {
   status             String               @default("ACTIVE")
   member             member[]
   member_application member_application[]
+  member_edit_request member_edit_request[]
   journal            journal[]
   journal_line       journal_line[]
 }
@@ -219,6 +257,7 @@ model sub_county {
   county              county               @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member              member[]
   member_application  member_application[]
+  member_edit_request member_edit_request[]
 
   @@unique([county_id, name])
   @@index([county_id], map: "ix_sub_county_county")
@@ -256,6 +295,7 @@ model member_category {
   member_category_default_account member_category_default_account[]
   member                          member[]
   member_application              member_application[]
+  member_edit_request             member_edit_request[]
 }
 
 model member_category_default_account {
@@ -448,6 +488,22 @@ model member_nominee {
   @@index([member_id], map: "ix_nominee_member")
 }
 
+/// Signatories for a non-individual (group/corporate) member — the office bearers
+/// authorised to act on the member account.
+model member_signatory {
+  id                Int     @id @default(autoincrement())
+  member_id         Int
+  identification_no String?
+  name              String
+  designation       String?
+  date_of_birth     String?
+  email             String?
+  phone             String?
+  member            member  @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_signatory_member")
+}
+
 /// The staging table a membership goes through before member.createMember() runs — carries
 /// every field the resulting member record will have, plus its own approval workflow.
 model member_application {
@@ -507,6 +563,7 @@ model member_application {
   member_application_attachment  member_application_attachment[]
   member_application_next_of_kin member_application_next_of_kin[]
   member_application_nominee     member_application_nominee[]
+  member_application_signatory   member_application_signatory[]
 
   @@index([status], map: "ix_app_status")
   @@index([county_id], map: "ix_app_county")
@@ -555,6 +612,90 @@ model member_application_nominee {
   member_application  member_application  @relation(fields: [application_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([application_no], map: "ix_app_nominee_no")
+}
+
+/// Signatories for a non-individual (group/corporate) applicant — the office bearers
+/// authorised to act on the eventual member account.
+model member_application_signatory {
+  id                  Int                 @id @default(autoincrement())
+  application_no      String
+  identification_no   String?
+  name                String
+  designation         String?
+  date_of_birth       String?
+  email               String?
+  phone               String?
+  member_application  member_application  @relation(fields: [application_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([application_no], map: "ix_app_signatory_no")
+}
+
+/// The staging table an existing member's detail changes go through before member.updateMember()
+/// applies them on approval — mirrors member_application's shape (every editable member field,
+/// plus its own approval workflow), except member_id is required from creation: an edit always
+/// targets an existing member, never null-then-filled the way an application's is.
+model member_edit_request {
+  no                    String            @id
+  member_id             Int
+  member_type           String            @default("INDIVIDUAL")
+  member_category_id    Int?
+  title                 String?
+  first_name            String
+  middle_name           String?
+  last_name             String
+  national_id           String?
+  kra_pin               String?
+  date_of_birth         String?
+  gender                String?
+  marital_status        String?
+  phone                 String?
+  email                 String?
+  postal_address        String?
+  physical_address      String?
+  county_id             Int?
+  sub_county_id         Int?
+  employer              String?
+  employment_status     String?
+  staff_no              String?
+  gross_income          BigInt            @default(0)
+  other_deductions      BigInt            @default(0)
+  kyc_verified          Int               @default(0)
+  join_date             String?
+  photo                 String?
+  front_id_image        String?
+  back_id_image         String?
+  signature_image       String?
+  fingerprint1_image    String?
+  fingerprint2_image    String?
+  notes                 String?
+  group_name            String?
+  registration_no       String?
+  registration_date     String?
+  contact_person_name   String?
+  contact_person_phone  String?
+  contact_person_email  String?
+  member_count          Int?
+  global_dimension_1_id Int?
+  global_dimension_2_id Int?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status                String            @default("Open")
+  decision_reason       String?
+  created_at            String?
+  created_by            String?
+  member                    member                    @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member_category           member_category?          @relation(fields: [member_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  county                    county?                   @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_county                sub_county?               @relation(fields: [sub_county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  global_dimension_1_value  global_dimension_1_value? @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  global_dimension_2_value  global_dimension_2_value? @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_edit_member")
+  @@index([status], map: "ix_edit_status")
+  @@index([county_id], map: "ix_edit_county")
+  @@index([sub_county_id], map: "ix_edit_sub_county")
+  @@index([member_category_id], map: "ix_edit_category")
+  @@index([global_dimension_1_id], map: "ix_edit_gd1")
+  @@index([global_dimension_2_id], map: "ix_edit_gd2")
 }
 
 model member {
@@ -613,7 +754,9 @@ model member {
   global_dimension_2_value global_dimension_2_value? @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member_next_of_kin member_next_of_kin[]
   member_nominee     member_nominee[]
+  member_signatory   member_signatory[]
   member_application member_application[]
+  member_edit_request member_edit_request[]
   savings_account    savings_account[]
   txn                txn[]
 

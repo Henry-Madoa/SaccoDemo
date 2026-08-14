@@ -4,17 +4,19 @@ import { can, PERMISSIONS } from '@/lib/auth';
 import { getOrg, getTheme, themePresets, TOKEN_GROUPS } from '@/lib/org';
 import {
   listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog,
-  listActiveSavingsProducts,
+  listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
 import { listPostableAccounts } from '@/lib/gl';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
-  listDimensionValues,
+  listDimensionValues, listActiveMemberCategories, listActiveCounties, listActiveDimensionValues,
 } from '@/lib/pool';
 import {
   listWorkflows, listWorkflowUserGroups, listWorkflowUserGroupMembers, listApprovalUserSetup,
-  DOCUMENT_TYPE_LABELS,
+  listConditionFieldDefs, listWorkflowTableRelations, listAddableTableColumns,
+  DOCUMENT_TYPE_LABELS, DOCUMENT_TABLE,
 } from '@/lib/workflow';
+import type { DocumentFieldDef } from '@/lib/workflow';
 import { getDimensionCaptions } from '@/lib/org';
 import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { formatDateTime } from '@/lib/format';
@@ -35,8 +37,9 @@ import { DimensionValueFormButton } from '../dimension-value-form';
 import { DimensionCaptionForm } from '../dimension-caption-form';
 import { WorkflowFormButton } from '../workflow-form';
 import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
+import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
 import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
-import type { Permission } from '@/lib/types';
+import type { Permission, WorkflowDocumentType } from '@/lib/types';
 
 interface AdminTab extends TabDefinition {
   /** A tab shows up once the user holds any one of these — Setup Pool merges the perms of everything nested under it. */
@@ -76,6 +79,7 @@ const WORKFLOW_TABS: AdminTab[] = [
   { key: 'definitions', label: 'Workflows', perm: 'ADMIN:WORKFLOW_MANAGE' },
   { key: 'groups', label: 'Approval User Groups', perm: 'ADMIN:WORKFLOW_MANAGE' },
   { key: 'setup', label: 'Approval User Setup', perm: 'ADMIN:WORKFLOW_MANAGE' },
+  { key: 'tables', label: 'Table Relations', perm: 'ADMIN:WORKFLOW_MANAGE' },
 ];
 
 /** System Security's own sub-navigation. */
@@ -160,6 +164,7 @@ export default async function AdminPage({ params, searchParams }: {
           {workflowTab === 'definitions' ? <WorkflowsTab /> : null}
           {workflowTab === 'groups' ? <WorkflowGroupsTab /> : null}
           {workflowTab === 'setup' ? <ApprovalUserSetupTab /> : null}
+          {workflowTab === 'tables' ? <TableRelationsTab /> : null}
         </>
       ) : null}
       {tab === 'security' ? (
@@ -497,21 +502,36 @@ function DimensionValuesCard({ slot, caption, values }: {
   );
 }
 
+const WORKFLOW_DOCUMENT_TYPES = Object.keys(DOCUMENT_TYPE_LABELS) as WorkflowDocumentType[];
+
 async function WorkflowsTab() {
-  const [workflows, users, groups] = await Promise.all([listWorkflows(), listUsers(), listWorkflowUserGroups()]);
+  const [
+    workflows, users, groups, memberCategory, county, globalDimension1, globalDimension2, loanProduct,
+    captions, documentFieldEntries,
+  ] = await Promise.all([
+    listWorkflows(), listUsers(), listWorkflowUserGroups(),
+    listActiveMemberCategories(), listActiveCounties(), listActiveDimensionValues(1), listActiveDimensionValues(2),
+    listActiveLoanProducts(), getDimensionCaptions(),
+    Promise.all(WORKFLOW_DOCUMENT_TYPES.map(async (t) => [t, await listConditionFieldDefs(t)] as const)),
+  ]);
+  const documentFields = Object.fromEntries(documentFieldEntries) as Record<WorkflowDocumentType, DocumentFieldDef[]>;
+  const relationProps = {
+    memberCategory, county, globalDimension1, globalDimension2, loanProduct, documentFields,
+    dimensionCaption1: captions.caption1, dimensionCaption2: captions.caption2,
+  };
 
   return (
     <>
       <Toolbar>
         <Spacer />
-        <WorkflowFormButton users={users} groups={groups}>Add workflow</WorkflowFormButton>
+        <WorkflowFormButton users={users} groups={groups} {...relationProps}>Add workflow</WorkflowFormButton>
       </Toolbar>
       <Card>
         <CardHead title="Workflows" sub="Route approvals by document field values instead of a flat permission" />
         {workflows.length ? (
           <TableWrap>
             <thead>
-              <tr><th>Name</th><th>Document type</th><th className="num">Steps</th><th>Status</th><th className="num" /></tr>
+              <tr><th>Name</th><th>Document type</th><th className="num">Steps</th><th>Enabled</th><th className="num" /></tr>
             </thead>
             <tbody>
               {workflows.map((w) => (
@@ -519,9 +539,11 @@ async function WorkflowsTab() {
                   <td><b>{w.name}</b></td>
                   <td>{DOCUMENT_TYPE_LABELS[w.document_type]}</td>
                   <td className="num">{w.steps.length}</td>
-                  <td><Pill status={w.status} /></td>
+                  <td>{w.enabled ? <Pill tone="ok">ENABLED</Pill> : <Pill tone="bad">DISABLED</Pill>}</td>
                   <td className="num">
-                    <WorkflowFormButton workflow={w} users={users} groups={groups} className="btn sm ghost">Edit</WorkflowFormButton>
+                    <WorkflowFormButton workflow={w} users={users} groups={groups} {...relationProps} className="btn sm ghost">
+                      Edit
+                    </WorkflowFormButton>
                   </td>
                 </tr>
               ))}
@@ -559,7 +581,7 @@ async function WorkflowGroupsTab() {
                   <td className="num">{g.members}</td>
                   <td><Pill status={g.status} /></td>
                   <td className="num">
-                    <WorkflowUserGroupFormButton group={g} memberUserIds={membersByGroup[g.id]} users={users} className="btn sm ghost">
+                    <WorkflowUserGroupFormButton group={g} members={membersByGroup[g.id]} users={users} className="btn sm ghost">
                       Edit
                     </WorkflowUserGroupFormButton>
                   </td>
@@ -570,6 +592,51 @@ async function WorkflowGroupsTab() {
         ) : <EmptyState icon="👥" title="No approval user groups yet" />}
       </Card>
     </>
+  );
+}
+
+async function TableRelationsTab() {
+  const [relations, addableColumns, dimensionCaptions] = await Promise.all([
+    listWorkflowTableRelations(),
+    Promise.all(WORKFLOW_DOCUMENT_TYPES.map(async (t) => [t, await listAddableTableColumns(t)] as const)),
+    getDimensionCaptions(),
+  ]);
+  const relationByType = new Map(relations.map((r) => [r.document_type, r]));
+  const addableByType = Object.fromEntries(addableColumns) as Record<WorkflowDocumentType, string[]>;
+
+  return (
+    <Card>
+      <CardHead
+        title="Table relations"
+        sub="Which table backs each document type, and which of its fields a workflow's conditions may route approvals on"
+      />
+      <TableWrap>
+        <thead>
+          <tr><th>Document type</th><th>Table</th><th className="num">Fields enabled</th><th className="num" /></tr>
+        </thead>
+        <tbody>
+          {WORKFLOW_DOCUMENT_TYPES.map((t) => {
+            const relation = relationByType.get(t) ?? null;
+            return (
+              <tr key={t}>
+                <td><b>{DOCUMENT_TYPE_LABELS[t]}</b></td>
+                <td className="mono">{DOCUMENT_TABLE[t]}</td>
+                <td className="num">{relation?.fields.length ?? 0}</td>
+                <td className="num">
+                  <WorkflowTableRelationFormButton
+                    documentType={t} documentTypeLabel={DOCUMENT_TYPE_LABELS[t]} tableName={DOCUMENT_TABLE[t]}
+                    relation={relation} availableColumns={addableByType[t] ?? []} className="btn sm ghost"
+                    dimensionCaption1={dimensionCaptions.caption1} dimensionCaption2={dimensionCaptions.caption2}
+                  >
+                    Configure fields
+                  </WorkflowTableRelationFormButton>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </TableWrap>
+    </Card>
   );
 }
 

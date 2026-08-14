@@ -107,6 +107,8 @@ export async function createJournal(input: CreateJournalInput, user: Actor): Pro
   const gd1 = input.lines?.find((l) => l.globalDimension1Id != null)?.globalDimension1Id ?? null;
   const gd2 = input.lines?.find((l) => l.globalDimension2Id != null)?.globalDimension2Id ?? null;
 
+  // Keys here must match RUNTIME_FIELD_CAP.JOURNAL (lib/workflow.ts) — that cap is what stops
+  // an admin from enabling a Table Relation field here that would never actually match.
   const matched = await findMatchingWorkflow('JOURNAL', {
     amount, global_dimension_1_id: gd1, global_dimension_2_id: gd2,
   });

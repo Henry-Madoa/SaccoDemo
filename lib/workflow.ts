@@ -14,14 +14,178 @@ import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { sendMail, approvalRequestedEmail, approvalDecidedEmail } from './mailer.ts';
 import { notify } from './notifications.ts';
-import { DOCUMENT_LINK, documentLabel } from './workflowConstants.ts';
+import { DOCUMENT_LINK, documentLabel, DOCUMENT_TABLE } from './workflowConstants.ts';
+import type { DocumentFieldDef, DocumentFieldRelation } from './workflowConstants.ts';
 import type {
-  Actor, ApprovalUserSetupRow, Cents, Workflow, WorkflowApproverType, WorkflowCondition,
-  WorkflowConditionOperator, WorkflowDocumentType, WorkflowStep, WorkflowTask, WorkflowTaskRow,
+  Actor, ApprovalUserSetupRow, Cents, Flag, Workflow, WorkflowApproverType, WorkflowCondition,
+  WorkflowConditionOperator, WorkflowDocumentType, WorkflowStep, WorkflowTableRelationField,
+  WorkflowTableRelationWithFields, WorkflowTask, WorkflowTaskRow, WorkflowUserGroupMemberRow,
   WorkflowUserGroupWithUsage, WorkflowWithDetail,
 } from './types.ts';
 
 export * from './workflowConstants.ts';
+
+/* -------------------------------------------------------- condition field catalogue */
+
+/**
+ * For document types whose submission code doesn't forward a full table row into
+ * findMatchingWorkflow() — LOAN and JOURNAL are matched before/without ever fetching their own
+ * row back (see lib/loanService.ts and lib/gl.ts) — the admin's field picker is capped to
+ * exactly the columns that call already forwards, so every field an admin enables is guaranteed
+ * to actually be evaluated. MEMBER_APPLICATION forwards its whole row (pickConditionFields()
+ * below, called from lib/memberApplications.ts) so it carries no cap.
+ */
+const RUNTIME_FIELD_CAP: Partial<Record<WorkflowDocumentType, readonly string[]>> = {
+  LOAN: ['principal', 'product_id', 'term_months'],
+  JOURNAL: ['amount', 'global_dimension_1_id', 'global_dimension_2_id'],
+};
+
+/** Which relation-option list (see workflow-form.tsx's `RelationOptions`) a foreign key
+ *  pointing at this table should be rendered with. */
+const RELATION_BY_TABLE: Record<string, DocumentFieldRelation> = {
+  member_category: 'memberCategory',
+  county: 'county',
+  global_dimension_1_value: 'globalDimension1',
+  global_dimension_2_value: 'globalDimension2',
+  loan_product: 'loanProduct',
+};
+
+const humanize = (identifier: string): string => identifier
+  .replace(/_id$/, '')
+  .replace(/_/g, ' ')
+  .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Real columns and FK targets of `table`, as introspected from Postgres itself. */
+async function tableSchema(table: string): Promise<{ columns: Set<string>; referencedTableByColumn: Map<string, string> }> {
+  const [columns, foreignKeys] = await Promise.all([
+    all<{ column_name: string }>(
+      'SELECT column_name FROM information_schema.columns WHERE table_name = ?', table,
+    ),
+    all<{ column_name: string; referenced_table: string }>(
+      `SELECT kcu.column_name, ccu.table_name AS referenced_table
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+       WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = ?`,
+      table,
+    ),
+  ]);
+  return {
+    columns: new Set(columns.map((c) => c.column_name)),
+    referencedTableByColumn: new Map(foreignKeys.map((fk) => [fk.column_name, fk.referenced_table])),
+  };
+}
+
+function fieldDef(key: string, referencedTableByColumn: Map<string, string>): DocumentFieldDef {
+  const referencedTable = referencedTableByColumn.get(key);
+  const relation = referencedTable ? RELATION_BY_TABLE[referencedTable] : undefined;
+  return { key, label: humanize(referencedTable ?? key), relation };
+}
+
+/* ------------------------------------------------------ admin: table relations */
+
+/** Every configured table relation, fields included — the admin listing for
+ *  Admin Centre → Workflow Management → Table Relations. */
+export async function listWorkflowTableRelations(): Promise<WorkflowTableRelationWithFields[]> {
+  const relations = await all<WorkflowTableRelationWithFields>(
+    'SELECT * FROM workflow_table_relation ORDER BY document_type',
+  );
+  const fields = await all<WorkflowTableRelationField>('SELECT * FROM workflow_table_relation_field ORDER BY field_name');
+  const byRelation = new Map<number, WorkflowTableRelationField[]>();
+  for (const f of fields) byRelation.set(f.table_relation_id, [...(byRelation.get(f.table_relation_id) ?? []), f]);
+  return relations.map((r) => ({ ...r, fields: byRelation.get(r.id) ?? [] }));
+}
+
+/** The real columns of a document type's table that are still available to add as a condition
+ *  field — real columns that exist, aren't already enabled, and (for LOAN/JOURNAL) fall inside
+ *  the runtime cap above, so nothing offered here could ever silently fail to match. */
+export async function listAddableTableColumns(documentType: WorkflowDocumentType): Promise<string[]> {
+  const { columns } = await tableSchema(DOCUMENT_TABLE[documentType]);
+  const cap = RUNTIME_FIELD_CAP[documentType];
+  const already = new Set(await listConditionFieldKeys(documentType));
+  return [...columns]
+    .filter((c) => !already.has(c) && (!cap || cap.includes(c)))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/** The field keys currently enabled for a document type's conditions — empty until an admin
+ *  has configured (or re-configured) that document type's table relation. */
+export async function listConditionFieldKeys(documentType: WorkflowDocumentType): Promise<string[]> {
+  const relation = await one<{ id: number }>(
+    'SELECT id FROM workflow_table_relation WHERE document_type = ?', documentType,
+  );
+  if (!relation) return [];
+  const rows = await all<{ field_name: string }>(
+    'SELECT field_name FROM workflow_table_relation_field WHERE table_relation_id = ?', relation.id,
+  );
+  return rows.map((r) => r.field_name);
+}
+
+/**
+ * Replaces the enabled field set for a document type's table relation, creating the relation
+ * row (table_name always DOCUMENT_TABLE[documentType] — never admin-supplied) the first time a
+ * document type is configured. Every field name is re-validated against the real table and the
+ * runtime cap server-side, since a client payload can't be trusted to have respected either.
+ */
+export async function saveWorkflowTableRelationFields(
+  documentType: WorkflowDocumentType, fieldNames: string[], user: Actor,
+): Promise<void> {
+  const table = DOCUMENT_TABLE[documentType];
+  const { columns } = await tableSchema(table);
+  const cap = RUNTIME_FIELD_CAP[documentType];
+  const valid = [...new Set(fieldNames)].filter((f) => columns.has(f) && (!cap || cap.includes(f)));
+
+  await tx(async () => {
+    const existing = await one<{ id: number }>(
+      'SELECT id FROM workflow_table_relation WHERE document_type = ?', documentType,
+    );
+    const relationId = existing
+      ? existing.id
+      : Number((await run(
+        'INSERT INTO workflow_table_relation (document_type, table_name, created_at, created_by) VALUES (?,?,?,?)',
+        documentType, table, new Date().toISOString(), user.username,
+      )).lastInsertRowid);
+
+    await run('DELETE FROM workflow_table_relation_field WHERE table_relation_id = ?', relationId);
+    for (const field of valid) {
+      await run(
+        'INSERT INTO workflow_table_relation_field (table_relation_id, field_name) VALUES (?,?)', relationId, field,
+      );
+    }
+    await audit(user, 'WORKFLOW_TABLE_RELATION_SAVE', 'workflow_table_relation', relationId, { document_type: documentType, fields: valid });
+  });
+}
+
+/**
+ * The condition fields available for a document type, read off the real table and the admin's
+ * enabled field list: which of the currently-enabled keys still exist as columns (a
+ * renamed/dropped column just disappears from the picker), plus, for any that are foreign keys,
+ * which table they reference — so the admin form can offer a picklist of that table's actual
+ * rows instead of a raw id, and dimension fields inherit the org's own captions.
+ */
+export async function listConditionFieldDefs(documentType: WorkflowDocumentType): Promise<DocumentFieldDef[]> {
+  const keys = await listConditionFieldKeys(documentType);
+  if (!keys.length) return [];
+  const { columns, referencedTableByColumn } = await tableSchema(DOCUMENT_TABLE[documentType]);
+  return keys.filter((key) => columns.has(key)).map((key) => fieldDef(key, referencedTableByColumn));
+}
+
+/** Lifts the admin-enabled condition fields off a document row, for handing to
+ *  `findMatchingWorkflow()` — keeps that call in lockstep with the admin field catalogue above
+ *  instead of duplicating the key list at the call site. Only meaningful for a document type
+ *  whose service fetches its own full row before matching (MEMBER_APPLICATION); LOAN and
+ *  JOURNAL build their fields object by hand from local variables instead. */
+export async function pickConditionFields(
+  documentType: WorkflowDocumentType, row: object,
+): Promise<Record<string, number | string | null>> {
+  const keys = await listConditionFieldKeys(documentType);
+  const source = row as Record<string, number | string | null | undefined>;
+  const out: Record<string, number | string | null> = {};
+  for (const key of keys) out[key] = source[key] ?? null;
+  return out;
+}
 
 /* ----------------------------------------------------------- condition match */
 
@@ -47,7 +211,7 @@ export async function findMatchingWorkflow(
   fields: Record<string, number | string | null>,
 ): Promise<{ workflow: Workflow; steps: WorkflowStep[] } | null> {
   const workflows = await all<Workflow>(
-    "SELECT * FROM workflow WHERE document_type = ? AND status = 'ACTIVE' ORDER BY id", documentType,
+    'SELECT * FROM workflow WHERE document_type = ? AND enabled = 1 ORDER BY id', documentType,
   );
   for (const wf of workflows) {
     const conditions = await all<WorkflowCondition>(
@@ -65,14 +229,32 @@ export async function findMatchingWorkflow(
 
 /* -------------------------------------------------------------- routing */
 
+/** The lowest sequence a group has any member at — the level a fresh task starts on. */
+async function lowestGroupSequence(groupId: number): Promise<number | null> {
+  const row = await one<{ seq: number | null }>(
+    'SELECT MIN(sequence) AS seq FROM workflow_user_group_member WHERE group_id = ?', groupId,
+  );
+  return row?.seq ?? null;
+}
+
+/** The next sequence above `afterSequence` a group has a member at, or null if that was the last one. */
+async function nextGroupSequence(groupId: number, afterSequence: number): Promise<number | null> {
+  const row = await one<{ seq: number | null }>(
+    'SELECT MIN(sequence) AS seq FROM workflow_user_group_member WHERE group_id = ? AND sequence > ?',
+    groupId, afterSequence,
+  );
+  return row?.seq ?? null;
+}
+
 async function resolveApprover(
   step: WorkflowStep, requestedByUsername: string,
-): Promise<{ userIds: number[]; groupId: number | null }> {
+): Promise<{ userIds: number[]; groupId: number | null; sequence: number | null }> {
   if (step.approver_type === 'USER') {
-    return { userIds: step.approver_user_id ? [step.approver_user_id] : [], groupId: null };
+    return { userIds: step.approver_user_id ? [step.approver_user_id] : [], groupId: null, sequence: null };
   }
   if (step.approver_type === 'USER_GROUP') {
-    return { userIds: [], groupId: step.approver_group_id };
+    const sequence = step.approver_group_id ? await lowestGroupSequence(step.approver_group_id) : null;
+    return { userIds: [], groupId: step.approver_group_id, sequence };
   }
 
   // DIRECT_APPROVER: the requester's configured approver, falling back to
@@ -85,12 +267,12 @@ async function resolveApprover(
   const setup = await one<{ approver_id: number | null }>(
     'SELECT approver_id FROM approval_user_setup WHERE user_id = ?', requester.id,
   );
-  if (setup?.approver_id) return { userIds: [setup.approver_id], groupId: null };
+  if (setup?.approver_id) return { userIds: [setup.approver_id], groupId: null, sequence: null };
 
   const admins = await all<{ user_id: number }>(
     'SELECT user_id FROM approval_user_setup WHERE is_approval_administrator = 1',
   );
-  if (admins.length) return { userIds: admins.map((a) => a.user_id), groupId: null };
+  if (admins.length) return { userIds: admins.map((a) => a.user_id), groupId: null, sequence: null };
 
   throw new AppError(
     'No approver is configured for this request. Ask an administrator to set up an Approver in '
@@ -99,9 +281,18 @@ async function resolveApprover(
   );
 }
 
-/** Every user who may currently act on a task: the assignee, their substitute, or a group's members. */
+/**
+ * Every user who may currently act on a task: the assignee, their substitute, or —
+ * for a group assigned by sequence — only the members sitting at the task's current
+ * (lowest still-pending) sequence level, not the whole group. A user this task was
+ * explicitly delegated away from loses eligibility; whoever it was delegated to gains it.
+ */
 async function eligibleUserIds(
-  task: Pick<WorkflowTask, 'assigned_to_user_id' | 'assigned_to_group_id'>,
+  task: Pick<
+    WorkflowTask,
+    'assigned_to_user_id' | 'assigned_to_group_id' | 'current_sequence'
+    | 'delegated_by_user_id' | 'delegated_to_user_id'
+  >,
 ): Promise<number[]> {
   const ids: number[] = [];
   if (task.assigned_to_user_id) {
@@ -111,13 +302,30 @@ async function eligibleUserIds(
     );
     if (setup?.substitute_id) ids.push(setup.substitute_id);
   }
-  if (task.assigned_to_group_id) {
+  if (task.assigned_to_group_id && task.current_sequence != null) {
     const members = await all<{ user_id: number }>(
-      'SELECT user_id FROM workflow_user_group_member WHERE group_id = ?', task.assigned_to_group_id,
+      'SELECT user_id FROM workflow_user_group_member WHERE group_id = ? AND sequence = ?',
+      task.assigned_to_group_id, task.current_sequence,
     );
     ids.push(...members.map((m) => m.user_id));
   }
-  return ids;
+  const withDelegation = task.delegated_by_user_id != null
+    ? ids.filter((id) => id !== task.delegated_by_user_id)
+    : ids;
+  if (task.delegated_to_user_id != null) withDelegation.push(task.delegated_to_user_id);
+  return [...new Set(withDelegation)];
+}
+
+/** Whether `userId` may currently decide this specific pending, routed task. */
+export async function isEligibleApprover(
+  task: Pick<
+    WorkflowTask,
+    'assigned_to_user_id' | 'assigned_to_group_id' | 'current_sequence'
+    | 'delegated_by_user_id' | 'delegated_to_user_id'
+  >,
+  userId: number,
+): Promise<boolean> {
+  return (await eligibleUserIds(task)).includes(userId);
 }
 
 export interface StartWorkflowInput {
@@ -130,27 +338,17 @@ export interface StartWorkflowInput {
   payload?: string | null;
 }
 
-async function createTaskForStep(workflowId: number, step: WorkflowStep, input: StartWorkflowInput): Promise<number> {
-  const { userIds, groupId } = await resolveApprover(step, input.requestedBy);
-  const primaryUserId = userIds[0] ?? null;
-
-  const info = await run(
-    `INSERT INTO workflow_task
-       (workflow_id, workflow_step_id, step_no, document_type, entity_id, assigned_to_user_id,
-        assigned_to_group_id, status, requested_by, requested_at, amount, payload)
-     VALUES (?,?,?,?,?,?,?,'PENDING',?,?,?,?)`,
-    workflowId, step.id, step.step_no, input.documentType, input.entityId, primaryUserId,
-    groupId, input.requestedBy, new Date().toISOString(), input.amount, input.payload ?? null,
-  );
-  const taskId = Number(info.lastInsertRowid);
-
-  const recipients = await eligibleUserIds({ assigned_to_user_id: primaryUserId, assigned_to_group_id: groupId });
-  const label = documentLabel(input.documentType, input.entityId);
-  const link = DOCUMENT_LINK[input.documentType](input.entityId);
+/** Notifies (in-app, plus email when requested) whoever can currently act on a pending task. */
+async function notifyApprovers(
+  documentType: WorkflowDocumentType, entityId: string, requestedBy: string,
+  recipients: number[], notifyEmail: boolean,
+): Promise<void> {
+  const label = documentLabel(documentType, entityId);
+  const link = DOCUMENT_LINK[documentType](entityId);
   for (const uid of recipients) {
-    await notify(uid, 'WORKFLOW_PENDING', `Approval needed: ${label}`, `Requested by ${input.requestedBy}`, link);
+    await notify(uid, 'WORKFLOW_PENDING', `Approval needed: ${label}`, `Requested by ${requestedBy}`, link);
   }
-  if (step.notify_email && recipients.length) {
+  if (notifyEmail && recipients.length) {
     const rows = await all<{ email: string | null }>(
       `SELECT email FROM app_user WHERE id IN (${recipients.map(() => '?').join(',')})`, ...recipients,
     );
@@ -159,10 +357,31 @@ async function createTaskForStep(workflowId: number, step: WorkflowStep, input: 
       await sendMail({
         to: r.email,
         subject: `Approval needed: ${label}`,
-        html: approvalRequestedEmail(label, input.requestedBy, link),
+        html: approvalRequestedEmail(label, requestedBy, link),
       });
     }
   }
+}
+
+async function createTaskForStep(workflowId: number, step: WorkflowStep, input: StartWorkflowInput): Promise<number> {
+  const { userIds, groupId, sequence } = await resolveApprover(step, input.requestedBy);
+  const primaryUserId = userIds[0] ?? null;
+
+  const info = await run(
+    `INSERT INTO workflow_task
+       (workflow_id, workflow_step_id, step_no, document_type, entity_id, assigned_to_user_id,
+        assigned_to_group_id, current_sequence, status, requested_by, requested_at, amount, payload)
+     VALUES (?,?,?,?,?,?,?,?,'PENDING',?,?,?,?)`,
+    workflowId, step.id, step.step_no, input.documentType, input.entityId, primaryUserId,
+    groupId, sequence, input.requestedBy, new Date().toISOString(), input.amount, input.payload ?? null,
+  );
+  const taskId = Number(info.lastInsertRowid);
+
+  const recipients = await eligibleUserIds({
+    assigned_to_user_id: primaryUserId, assigned_to_group_id: groupId, current_sequence: sequence,
+    delegated_by_user_id: null, delegated_to_user_id: null,
+  });
+  await notifyApprovers(input.documentType, input.entityId, input.requestedBy, recipients, !!step.notify_email);
   return taskId;
 }
 
@@ -174,21 +393,11 @@ export async function startWorkflow(
 }
 
 /**
- * A document type with no matching workflow keeps its old, static-permission
- * behavior — but loans have always kept a task row for the dashboard/queue
- * count, so this preserves that bookkeeping without routing to anyone specific.
+ * Record a decision made through the old static-permission path (no assignee to
+ * check) — kept only for loans that already have a legacy (unrouted) task from
+ * before every LOAN/MEMBER_APPLICATION submission started requiring a matched,
+ * enabled workflow.
  */
-export async function startLegacyTask(input: StartWorkflowInput): Promise<number> {
-  const info = await run(
-    `INSERT INTO workflow_task
-       (workflow_id, workflow_step_id, step_no, document_type, entity_id, status, requested_by, requested_at, amount, payload)
-     VALUES (NULL,NULL,1,?,?,'PENDING',?,?,?,?)`,
-    input.documentType, input.entityId, input.requestedBy, new Date().toISOString(), input.amount, input.payload ?? null,
-  );
-  return Number(info.lastInsertRowid);
-}
-
-/** Record a decision made through the old static-permission path (no assignee to check). */
 export async function recordLegacyDecision(
   documentType: WorkflowDocumentType, entityId: string, approved: boolean, reason: string | null, user: Actor,
 ): Promise<void> {
@@ -205,6 +414,12 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       const svc = await import('./memberApplications.ts');
       if (approved) await svc.approveMemberApplication(task.entity_id, decidedBy);
       else await svc.rejectMemberApplication(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'MEMBER_EDIT': {
+      const svc = await import('./memberEdits.ts');
+      if (approved) await svc.approveMemberEdit(task.entity_id, decidedBy);
+      else await svc.rejectMemberEdit(task.entity_id, reason, decidedBy);
       break;
     }
     case 'LOAN': {
@@ -264,11 +479,38 @@ export async function decideWorkflowTask(
   if (!task) throw new AppError('Approval task not found', 'NOT_FOUND');
   if (task.status !== 'PENDING') throw new AppError('This item has already been decided', 'BAD_STATUS');
   if (!task.workflow_id) throw new AppError('This item is not routed through a workflow', 'NOT_ROUTED');
-  if (!(await eligibleUserIds(task)).includes(actingUser.id)) {
+  if (!(await isEligibleApprover(task, actingUser.id))) {
     throw new AppError('You are not the assigned approver for this item', 'NOT_ASSIGNED');
   }
 
   return tx(async () => {
+    // A group task with more sequence levels above this one: this approval only
+    // clears the current level — the rest of that level drops out, and the task
+    // stays PENDING for the next level's members. The step itself doesn't move.
+    // Any delegation was specific to the level that just cleared, so it lapses too.
+    if (decision && task.assigned_to_group_id && task.current_sequence != null) {
+      const nextSequenceLevel = await nextGroupSequence(task.assigned_to_group_id, task.current_sequence);
+      if (nextSequenceLevel != null) {
+        await run(
+          'UPDATE workflow_task SET current_sequence = ?, delegated_by_user_id = NULL, delegated_to_user_id = NULL WHERE id = ?',
+          nextSequenceLevel, taskId,
+        );
+        await audit(
+          actingUser, 'WORKFLOW_TASK_LEVEL_APPROVE', task.document_type, task.entity_id,
+          { comment, sequence: nextSequenceLevel },
+        );
+        const nextRecipients = await eligibleUserIds({
+          assigned_to_user_id: null, assigned_to_group_id: task.assigned_to_group_id, current_sequence: nextSequenceLevel,
+          delegated_by_user_id: null, delegated_to_user_id: null,
+        });
+        const step = task.workflow_step_id
+          ? await one<{ notify_email: number }>('SELECT notify_email FROM workflow_step WHERE id = ?', task.workflow_step_id)
+          : null;
+        await notifyApprovers(task.document_type, task.entity_id, task.requested_by, nextRecipients, !!step?.notify_email);
+        return { finalized: false, approved: true };
+      }
+    }
+
     await run(
       'UPDATE workflow_task SET status=?, decided_by=?, decided_at=?, comment=? WHERE id=?',
       decision ? 'APPROVED' : 'REJECTED', actingUser.username, new Date().toISOString(), comment, taskId,
@@ -298,6 +540,42 @@ export async function decideWorkflowTask(
   });
 }
 
+/**
+ * Hands a pending task off from the current approver to their own configured
+ * substitute (Approval User Setup). Only someone currently eligible to decide the
+ * task may delegate it, and only to their own substitute — not anyone else's.
+ * The delegator loses eligibility on this task; the substitute gains it, until the
+ * task is decided or (for a sequenced group) its level moves on.
+ */
+export async function delegateWorkflowTask(taskId: number, actingUser: Actor): Promise<void> {
+  const task = await one<WorkflowTask>('SELECT * FROM workflow_task WHERE id = ?', taskId);
+  if (!task) throw new AppError('Approval task not found', 'NOT_FOUND');
+  if (task.status !== 'PENDING') throw new AppError('This item has already been decided', 'BAD_STATUS');
+  if (!task.workflow_id) throw new AppError('This item is not routed through a workflow', 'NOT_ROUTED');
+  if (!(await isEligibleApprover(task, actingUser.id))) {
+    throw new AppError('You are not the assigned approver for this item', 'NOT_ASSIGNED');
+  }
+
+  const setup = await one<{ substitute_id: number | null }>(
+    'SELECT substitute_id FROM approval_user_setup WHERE user_id = ?', actingUser.id,
+  );
+  if (!setup?.substitute_id) {
+    throw new AppError(
+      'No substitute is configured for you. Ask an administrator to set one up in Approval User Setup.',
+      'NO_SUBSTITUTE',
+    );
+  }
+
+  await run(
+    'UPDATE workflow_task SET delegated_by_user_id = ?, delegated_to_user_id = ? WHERE id = ?',
+    actingUser.id, setup.substitute_id, taskId,
+  );
+  await audit(
+    actingUser, 'WORKFLOW_TASK_DELEGATE', task.document_type, task.entity_id, { to: setup.substitute_id },
+  );
+  await notifyApprovers(task.document_type, task.entity_id, actingUser.username, [setup.substitute_id], true);
+}
+
 /* --------------------------------------------------------------- worklists */
 
 async function decorateTasks(rows: WorkflowTask[]): Promise<WorkflowTaskRow[]> {
@@ -321,11 +599,13 @@ export async function listMyWorkflowTasks(userId: number): Promise<WorkflowTaskR
   const rows = await all<WorkflowTask>(
     `SELECT DISTINCT t.* FROM workflow_task t
      LEFT JOIN approval_user_setup su ON su.user_id = t.assigned_to_user_id AND su.substitute_id = ?
-     LEFT JOIN workflow_user_group_member gm ON gm.group_id = t.assigned_to_group_id AND gm.user_id = ?
+     LEFT JOIN workflow_user_group_member gm
+       ON gm.group_id = t.assigned_to_group_id AND gm.user_id = ? AND gm.sequence = t.current_sequence
      WHERE t.status = 'PENDING' AND t.workflow_id IS NOT NULL
-       AND (t.assigned_to_user_id = ? OR su.user_id IS NOT NULL OR gm.user_id IS NOT NULL)
+       AND t.delegated_by_user_id IS DISTINCT FROM ?
+       AND (t.assigned_to_user_id = ? OR su.user_id IS NOT NULL OR gm.user_id IS NOT NULL OR t.delegated_to_user_id = ?)
      ORDER BY t.requested_at`,
-    userId, userId, userId,
+    userId, userId, userId, userId, userId,
   );
   return decorateTasks(rows);
 }
@@ -355,7 +635,7 @@ export const pendingWorkflowTaskCount = async (): Promise<number> =>
 export interface WorkflowInput {
   name?: string;
   document_type?: WorkflowDocumentType;
-  status?: string | null;
+  enabled?: Flag | null;
 }
 
 export interface ConditionDraft {
@@ -411,14 +691,31 @@ async function replaceConditionsAndSteps(
   }
 }
 
+/** The steps replaceConditionsAndSteps() will actually persist — anything short of a fully
+ *  picked approver is silently dropped there, so an "enabled" workflow whose only step is
+ *  incomplete would otherwise save with zero real steps. */
+const validStepCount = (steps: StepDraft[]): number => steps.filter((s) => (
+  s.approver_type
+  && !(s.approver_type === 'USER' && !s.approver_user_id)
+  && !(s.approver_type === 'USER_GROUP' && !s.approver_group_id)
+)).length;
+
+const requireStepsIfEnabled = (enabled: Flag, steps: StepDraft[]): void => {
+  if (enabled && !validStepCount(steps)) {
+    throw new AppError('An enabled workflow needs at least one approval step', 'VALIDATION');
+  }
+};
+
 export async function createWorkflow(
   body: WorkflowInput, conditions: ConditionDraft[], steps: StepDraft[], user: Actor,
 ): Promise<{ id: number }> {
   if (!body.name || !body.document_type) throw new AppError('Name and document type are required', 'VALIDATION');
+  const enabled = body.enabled ?? 1;
+  requireStepsIfEnabled(enabled, steps);
   return tx(async () => {
     const info = await run(
-      'INSERT INTO workflow (name, document_type, status, created_at, created_by) VALUES (?,?,?,?,?)',
-      body.name, body.document_type, body.status || 'ACTIVE', new Date().toISOString(), user.username,
+      'INSERT INTO workflow (name, document_type, enabled, created_at, created_by) VALUES (?,?,?,?,?)',
+      body.name, body.document_type, enabled, new Date().toISOString(), user.username,
     );
     const id = Number(info.lastInsertRowid);
     await replaceConditionsAndSteps(id, conditions, steps);
@@ -431,9 +728,11 @@ export async function updateWorkflow(
   id: number, body: WorkflowInput, conditions: ConditionDraft[], steps: StepDraft[], user: Actor,
 ): Promise<{ id: number }> {
   return tx(async () => {
+    const enabled = body.enabled ?? (await one<Workflow>('SELECT enabled FROM workflow WHERE id = ?', id))?.enabled ?? 0;
+    requireStepsIfEnabled(enabled, steps);
     await run(
-      'UPDATE workflow SET name=COALESCE(?,name), document_type=COALESCE(?,document_type), status=COALESCE(?,status) WHERE id=?',
-      body.name ?? null, body.document_type ?? null, body.status ?? null, id,
+      'UPDATE workflow SET name=COALESCE(?,name), document_type=COALESCE(?,document_type), enabled=COALESCE(?,enabled) WHERE id=?',
+      body.name ?? null, body.document_type ?? null, body.enabled ?? null, id,
     );
     await replaceConditionsAndSteps(id, conditions, steps);
     await audit(user, 'WORKFLOW_UPDATE', 'workflow', id, { name: body.name });
@@ -450,24 +749,33 @@ export const listWorkflowUserGroups = (): Promise<WorkflowUserGroupWithUsage[]> 
      GROUP BY g.id ORDER BY g.name`,
   );
 
-export const listWorkflowUserGroupMembers = (groupId: number): Promise<number[]> =>
-  all<{ user_id: number }>('SELECT user_id FROM workflow_user_group_member WHERE group_id = ?', groupId)
-    .then((rows) => rows.map((r) => r.user_id));
+export const listWorkflowUserGroupMembers = (groupId: number): Promise<WorkflowUserGroupMemberRow[]> =>
+  all<WorkflowUserGroupMemberRow>(
+    'SELECT user_id, sequence FROM workflow_user_group_member WHERE group_id = ? ORDER BY sequence, user_id', groupId,
+  );
 
 export interface WorkflowUserGroupInput {
   name?: string;
   status?: string | null;
 }
 
-async function replaceGroupMembers(groupId: number, userIds: number[]): Promise<void> {
+export interface GroupMemberDraft {
+  user_id: number;
+  sequence?: number;
+}
+
+async function replaceGroupMembers(groupId: number, members: GroupMemberDraft[]): Promise<void> {
   await run('DELETE FROM workflow_user_group_member WHERE group_id = ?', groupId);
-  for (const userId of [...new Set(userIds)]) {
-    await run('INSERT INTO workflow_user_group_member (group_id, user_id) VALUES (?,?)', groupId, userId);
+  const byUser = new Map(members.map((m) => [m.user_id, m.sequence || 1]));
+  for (const [userId, sequence] of byUser) {
+    await run(
+      'INSERT INTO workflow_user_group_member (group_id, user_id, sequence) VALUES (?,?,?)', groupId, userId, sequence,
+    );
   }
 }
 
 export async function createWorkflowUserGroup(
-  body: WorkflowUserGroupInput, memberUserIds: number[], user: Actor,
+  body: WorkflowUserGroupInput, members: GroupMemberDraft[], user: Actor,
 ): Promise<{ id: number }> {
   if (!body.name) throw new AppError('Group name is required', 'VALIDATION');
   return tx(async () => {
@@ -478,21 +786,21 @@ export async function createWorkflowUserGroup(
       'INSERT INTO workflow_user_group (name, status) VALUES (?,?)', body.name, body.status || 'ACTIVE',
     );
     const id = Number(info.lastInsertRowid);
-    await replaceGroupMembers(id, memberUserIds);
+    await replaceGroupMembers(id, members);
     await audit(user, 'WORKFLOW_GROUP_CREATE', 'workflow_user_group', id, { name: body.name });
     return { id };
   });
 }
 
 export async function updateWorkflowUserGroup(
-  id: number, body: WorkflowUserGroupInput, memberUserIds: number[], user: Actor,
+  id: number, body: WorkflowUserGroupInput, members: GroupMemberDraft[], user: Actor,
 ): Promise<{ id: number }> {
   return tx(async () => {
     await run(
       'UPDATE workflow_user_group SET name=COALESCE(?,name), status=COALESCE(?,status) WHERE id=?',
       body.name ?? null, body.status ?? null, id,
     );
-    await replaceGroupMembers(id, memberUserIds);
+    await replaceGroupMembers(id, members);
     await audit(user, 'WORKFLOW_GROUP_UPDATE', 'workflow_user_group', id, { name: body.name });
     return { id };
   });

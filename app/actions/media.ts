@@ -7,6 +7,7 @@ import { signUpload, verifyUpload, destroyAsset, type UploadKind } from '@/lib/c
 import { updateOrg, getOrg } from '@/lib/org';
 import { updateMember, getMember } from '@/lib/members';
 import { updateMemberApplication, getMemberApplication } from '@/lib/memberApplications';
+import { updateMemberEditRequest, getMemberEditRequest } from '@/lib/memberEdits';
 import {
   recordAttachment, deleteAttachment, listAttachments,
 } from '@/lib/attachments';
@@ -155,6 +156,55 @@ export async function saveMemberApplicationBiometric(
       await destroyAsset(previous);
     }
     revalidatePath(`/member-applications/view/${applicationNo}`);
+    return { [field]: value };
+  });
+}
+
+/** Same slots, captured while a member's changes are still a staged edit request. */
+export async function saveMemberEditPhoto(
+  editNo: string,
+  file: UploadedFile | null,
+): Promise<ActionResult<{ photo: string | null }>> {
+  return actionResult(async () => {
+    const user = await requirePerm('MEMBER:UPDATE');
+    const previous = (await getMemberEditRequest(editNo))?.photo ?? null;
+
+    let photo: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, 'photo', file.resourceType);
+      photo = asset.public_id;
+    }
+
+    await updateMemberEditRequest(editNo, { photo }, user);
+    if (previous && previous !== photo && !previous.startsWith('data:')) {
+      await destroyAsset(previous);
+    }
+    revalidatePath(`/member-edits/view/${editNo}`);
+    return { photo };
+  });
+}
+
+export async function saveMemberEditBiometric(
+  editNo: string,
+  kind: BiometricKind,
+  file: UploadedFile | null,
+): Promise<ActionResult<Record<string, string | null>>> {
+  return actionResult(async () => {
+    const user = await requirePerm('MEMBER:UPDATE');
+    const field = BIOMETRIC_FIELD[kind];
+    const previous = (await getMemberEditRequest(editNo))?.[field] ?? null;
+
+    let value: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, kind, file.resourceType);
+      value = asset.public_id;
+    }
+
+    await updateMemberEditRequest(editNo, { [field]: value }, user);
+    if (previous && previous !== value && !previous.startsWith('data:')) {
+      await destroyAsset(previous);
+    }
+    revalidatePath(`/member-edits/view/${editNo}`);
     return { [field]: value };
   });
 }
