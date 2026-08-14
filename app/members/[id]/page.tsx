@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePerm, currentCan } from '@/lib/session';
 import { getMemberDetail } from '@/lib/members';
-import { getOpenMemberEditRequest } from '@/lib/memberEdits';
 import { listActiveSavingsProducts } from '@/lib/admin';
 import { getDimensionCaptions } from '@/lib/org';
 import { listAttachments } from '@/lib/attachments';
@@ -10,13 +9,13 @@ import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { formatDate } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
-  Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
+  Card, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money, SignedMoney } from '@/components/ui/money';
 import { OpenAccountButton } from './open-account-button';
 import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
-import { MemberEditButton } from './member-edit-button';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -29,11 +28,11 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
     member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees, signatories,
   } = detail;
   const [
-    canUpdate, canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 }, openEditRequest,
+    canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 },
   ] = await Promise.all([
-    currentCan('MEMBER:UPDATE'), currentCan('SAVINGS:OPEN'), currentCan('LOAN:CREATE'),
+    currentCan('SAVINGS:OPEN'), currentCan('LOAN:CREATE'),
     listAttachments('member', m.id), listActiveSavingsProducts(),
-    getDimensionCaptions(), getOpenMemberEditRequest(m.id),
+    getDimensionCaptions(),
   ]);
   const mediaEnabled = isConfigured();
 
@@ -50,7 +49,6 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
       <Toolbar>
         <Link href="/members" className="btn ghost sm">← All members</Link>
         <Spacer />
-        {canUpdate ? <MemberEditButton memberId={m.id} openRequest={openEditRequest ?? null} /> : null}
         {canOpen ? <OpenAccountButton member={m} products={savingsProducts} /> : null}
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
@@ -87,7 +85,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             </div>
             <DefinitionList items={[
               ['Category', m.member_category_name || '—'],
-              ['National ID', <span className="mono" key="nid">{m.national_id || '—'}</span>],
+              ['Identification No.', <span className="mono" key="nid">{m.national_id || '—'}</span>],
               ['KRA PIN', <span className="mono" key="pin">{m.kra_pin || '—'}</span>],
               ['Date of birth', formatDate(m.date_of_birth)],
               ['Gender', m.gender || '—'],
@@ -100,8 +98,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             ]} />
           </Card>
 
-          <Card>
-            <h3>Contact and Address</h3>
+          <CollapsibleCard title="Contact and Address">
             <DefinitionList items={[
               ['Phone', m.phone || '—'],
               ['Email', m.email || '—'],
@@ -110,7 +107,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
               ['County', m.county_name || '—'],
               ['Sub-county', m.sub_county_name || '—'],
             ]} />
-          </Card>
+          </CollapsibleCard>
 
           <BiometricPanel
             memberId={m.id}
@@ -125,9 +122,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             mediaEnabled={mediaEnabled}
           />
 
-          <Card>
-            <h3>Employment</h3>
-            <div className="card-sub">Drives the affordability test</div>
+          <CollapsibleCard title="Employment" sub="Drives the affordability test">
             <DefinitionList items={[
               ['Employer', m.employer || '—'],
               ['Status', m.employment_status || '—'],
@@ -135,12 +130,10 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
               ['Gross income', <Money cents={m.gross_income} key="gi" />],
               ['Other deductions', <Money cents={m.other_deductions} key="od" />],
             ]} />
-          </Card>
+          </CollapsibleCard>
 
           {m.member_category_type && m.member_category_type !== 'INDIVIDUAL' ? (
-            <Card>
-              <h3>Group/Corporate information</h3>
-              <div className="card-sub">Entity and contact-person details</div>
+            <CollapsibleCard title="Group/Corporate information" sub="Entity and contact-person details">
               <DefinitionList items={[
                 ['Group / entity name', m.group_name || '—'],
                 ['Registration no.', <span className="mono" key="rn">{m.registration_no || '—'}</span>],
@@ -150,12 +143,11 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 ['Contact phone', m.contact_person_phone || '—'],
                 ['Contact email', m.contact_person_email || '—'],
               ]} />
-            </Card>
+            </CollapsibleCard>
           ) : null}
 
           {m.member_category_type && m.member_category_type !== 'INDIVIDUAL' ? (
-            <Card>
-              <CardHead title="Signatories" sub="Office bearers authorised to act on this account" />
+            <CollapsibleCard title="Signatories" sub="Office bearers authorised to act on this account">
               {signatories.length ? (
                 <TableWrap>
                   <thead>
@@ -178,11 +170,10 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                   </tbody>
                 </TableWrap>
               ) : <EmptyState icon="✍" title="No signatories on file" />}
-            </Card>
+            </CollapsibleCard>
           ) : null}
 
-          <Card>
-            <CardHead title="Next of kin" sub="A member can have more than one" />
+          <CollapsibleCard title="Next of kin" sub="A member can have more than one">
             {nextOfKin.length ? (
               <TableWrap>
                 <thead>
@@ -199,10 +190,9 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="👪" title="No next of kin on file" />}
-          </Card>
+          </CollapsibleCard>
 
-          <Card>
-            <CardHead title="Nominees & beneficiaries" sub="Shares of benefit on the member's account" />
+          <CollapsibleCard title="Nominees & beneficiaries" sub="Shares of benefit on the member's account">
             {nominees.length ? (
               <TableWrap>
                 <thead>
@@ -224,12 +214,11 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="🎗" title="No nominees on file" />}
-          </Card>
+          </CollapsibleCard>
         </div>
 
         <div>
-          <Card>
-            <CardHead title="Savings & deposit accounts" sub="Balances derived from posted transactions" />
+          <CollapsibleCard title="Savings & deposit accounts" sub="Balances derived from posted transactions">
             {accounts.length ? (
               <TableWrap>
                 <thead>
@@ -252,10 +241,9 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="💰" title="No savings accounts yet" />}
-          </Card>
+          </CollapsibleCard>
 
-          <Card>
-            <CardHead title="Loans" sub="Applications and running facilities" />
+          <CollapsibleCard title="Loans" sub="Applications and running facilities">
             {loans.length ? (
               <TableWrap>
                 <thead>
@@ -283,11 +271,10 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="📄" title="No loans on file" />}
-          </Card>
+          </CollapsibleCard>
 
           {guaranteeing.length ? (
-            <Card>
-              <CardHead title="Guarantorship exposure" sub="Loans this member has guaranteed for others" />
+            <CollapsibleCard title="Guarantorship exposure" sub="Loans this member has guaranteed for others">
               <TableWrap>
                 <thead>
                   <tr>
@@ -307,19 +294,19 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                   ))}
                 </tbody>
               </TableWrap>
-            </Card>
+            </CollapsibleCard>
           ) : null}
 
           <AttachmentPanel
             entity="member"
             entityId={m.id}
             attachments={attachments}
-            canManage={canUpdate}
+            // KYC documents are edited through a member edit request, not directly here.
+            canManage={false}
             mediaEnabled={mediaEnabled}
           />
 
-          <Card>
-            <CardHead title="Recent activity" sub="Last 40 postings across all accounts" />
+          <CollapsibleCard title="Recent activity" sub="Last 40 postings across all accounts">
             {transactions.length ? (
               <TableWrap>
                 <thead>
@@ -345,7 +332,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="🧾" title="No transactions yet" />}
-          </Card>
+          </CollapsibleCard>
         </div>
       </div>
     </Page>

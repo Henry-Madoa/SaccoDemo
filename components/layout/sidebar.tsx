@@ -1,11 +1,14 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { initials } from '@/lib/format';
 import { NAV } from '@/lib/nav';
 import { useNav } from './nav-context';
 import type { OrgBrand, SessionUser } from '@/lib/types';
+
+const COLLAPSED_GROUPS_KEY = 'nav-collapsed-groups';
 
 export interface SidebarProps {
   org: OrgBrand;
@@ -20,6 +23,26 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
   const pathname = usePathname();
   const { open, close } = useNav();
   const name = org.short_name || org.name || 'SACCO';
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  // Server render can't know a returning user's preference — it always starts
+  // fully expanded, then this reconciles from localStorage right after mount.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(COLLAPSED_GROUPS_KEY);
+      if (saved) setCollapsed(new Set(JSON.parse(saved)));
+    } catch { /* ignore malformed/unavailable storage */ }
+  }, []);
+
+  const toggleGroup = (group: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   return (
     <>
@@ -40,21 +63,30 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
           {NAV.map((group) => {
             const items = group.items.filter((i) => allowedPaths.includes(i.path));
             if (!items.length) return null;
+            const isCollapsed = collapsed.has(group.group);
+            const bodyId = `nav-group-${group.group.replace(/\s+/g, '-').toLowerCase()}`;
             return (
               <div key={group.group}>
-                <div className="nav-group">{group.group}</div>
-                {items.map((item) => {
-                  const active = pathname === item.path || pathname.startsWith(`${item.path}/`);
-                  const badge = item.badge ? badges[item.badge] : 0;
-                  return (
-                    <Link key={item.path} href={item.path} className={active ? 'active' : ''}
-                      aria-current={active ? 'page' : undefined}>
-                      <span className="ico" aria-hidden="true">{item.icon}</span>
-                      {item.label}
-                      {badge ? <span className="badge">{badge}</span> : null}
-                    </Link>
-                  );
-                })}
+                <button type="button" className="nav-group" aria-expanded={!isCollapsed} aria-controls={bodyId}
+                  onClick={() => toggleGroup(group.group)}>
+                  {group.group}
+                </button>
+                <div id={bodyId} className={`nav-group-body ${isCollapsed ? 'collapsed' : ''}`}>
+                  <div className="nav-group-body-inner">
+                    {items.map((item) => {
+                      const active = pathname === item.path || pathname.startsWith(`${item.path}/`);
+                      const badge = item.badge ? badges[item.badge] : 0;
+                      return (
+                        <Link key={item.path} href={item.path} className={active ? 'active' : ''}
+                          aria-current={active ? 'page' : undefined}>
+                          <span className="ico" aria-hidden="true">{item.icon}</span>
+                          {item.label}
+                          {badge ? <span className="badge">{badge}</span> : null}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             );
           })}

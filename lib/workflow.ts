@@ -469,6 +469,17 @@ export async function findPendingRoutedTask(
   return task || null;
 }
 
+/** Every task a document has ever been routed through, oldest first — a multi-step
+ *  workflow produces one row per step, each with its own sender and (once acted on)
+ *  its own decider. A document's Audit Trail tab renders this as its approval history. */
+export const listWorkflowTasksForDocument = (
+  documentType: WorkflowDocumentType, entityId: string,
+): Promise<WorkflowTask[]> =>
+  all<WorkflowTask>(
+    'SELECT * FROM workflow_task WHERE document_type=? AND entity_id=? ORDER BY requested_at, id',
+    documentType, String(entityId),
+  );
+
 export interface DecideResult { finalized: boolean; approved: boolean }
 
 /** Act on a routed (workflow_id set) task — authorization is by assignment, not a raw permission. */

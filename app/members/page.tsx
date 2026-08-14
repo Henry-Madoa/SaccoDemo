@@ -39,7 +39,7 @@ export default async function MembersPage({ searchParams }: {
             <TableWrap>
               <thead>
                 <tr>
-                  <th>Member no.</th><th>Name</th><th>National ID</th><th>Phone</th>
+                  <th>Member no.</th><th>Name</th><th>Identification No.</th><th>Phone</th>
                   <th>{caption1}</th><th>{caption2}</th>
                   <th className="num">Savings</th><th className="num">Loan balance</th><th>Status</th>
                 </tr>

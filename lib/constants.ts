@@ -73,8 +73,7 @@ export const ATTACHMENT_CATEGORIES = [
 
 /** The full "Document Status" vocabulary — a member application only drives itself through some of these. */
 export const DOCUMENT_STATUSES: DocumentStatus[] = [
-  'Open', 'Closed', 'Pending Approval', 'Approved', 'Pending Prepayment', 'Rejected', 'Reversed',
-  'Archived', 'Committed', 'Fulfilled', 'Running', 'Terminated', 'Bounced', 'Cleared', 'Received',
+  'Open', 'Pending Approval', 'Approved', 'Posted'
 ];
 
 export const MONTH_NAMES = [

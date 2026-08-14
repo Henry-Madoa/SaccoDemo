@@ -6,6 +6,7 @@ import {
   listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog,
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
+import { listChangeLogSetup, listChangeLogEntries, listAvailableChangeLogTables } from '@/lib/changeLog';
 import { listPostableAccounts } from '@/lib/gl';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
@@ -39,6 +40,7 @@ import { WorkflowFormButton } from '../workflow-form';
 import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
 import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
 import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
+import { ChangeLogSetupTable } from '../change-log-setup-table';
 import type { Permission, WorkflowDocumentType } from '@/lib/types';
 
 interface AdminTab extends TabDefinition {
@@ -57,7 +59,7 @@ const TABS: AdminTab[] = [
   { key: 'workflows', label: 'Workflow Management', perm: 'ADMIN:WORKFLOW_MANAGE' },
   {
     key: 'security', label: 'System Security',
-    perm: ['ADMIN:USER_MANAGE', 'ADMIN:ROLE_MANAGE', 'ADMIN:AUDIT_VIEW'],
+    perm: ['ADMIN:USER_MANAGE', 'ADMIN:ROLE_MANAGE', 'ADMIN:AUDIT_VIEW', 'ADMIN:CHANGE_LOG_MANAGE'],
   },
 ];
 
@@ -87,6 +89,7 @@ const SECURITY_TABS: AdminTab[] = [
   { key: 'users', label: 'Users', perm: 'ADMIN:USER_MANAGE' },
   { key: 'roles', label: 'Roles & Permissions', perm: 'ADMIN:ROLE_MANAGE' },
   { key: 'audit', label: 'Audit Trail', perm: 'ADMIN:AUDIT_VIEW' },
+  { key: 'changelog', label: 'Change Log Management', perm: 'ADMIN:CHANGE_LOG_MANAGE' },
 ];
 
 export default async function AdminPage({ params, searchParams }: {
@@ -173,6 +176,7 @@ export default async function AdminPage({ params, searchParams }: {
           {securityTab === 'users' ? <UsersTab /> : null}
           {securityTab === 'roles' ? <RolesTab /> : null}
           {securityTab === 'audit' ? <AuditTab search={q} /> : null}
+          {securityTab === 'changelog' ? <ChangeLogTab search={q} /> : null}
         </>
       ) : null}
     </Page>
@@ -699,6 +703,58 @@ async function AuditTab({ search }: { search: string }) {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="📋" title="No audit entries match" />}
+      </Card>
+    </>
+  );
+}
+
+/**
+ * Field-level change tracking, modelled on Business Central's Change Log Management —
+ * nothing is recorded for a table until it's checked in below, unlike the always-on
+ * Audit Trail tab.
+ */
+async function ChangeLogTab({ search }: { search: string }) {
+  const [setup, entries, available] = await Promise.all([
+    listChangeLogSetup(), listChangeLogEntries({ search }), listAvailableChangeLogTables(),
+  ]);
+
+  return (
+    <>
+      <Card>
+        <CardHead title="Change Log Setup" sub="Only the tables checked here get field-level change tracking" />
+        <ChangeLogSetupTable setup={setup} available={available} />
+      </Card>
+
+      <Toolbar>
+        <SearchInput placeholder="Filter by record, field or user…" />
+        <Spacer />
+      </Toolbar>
+      <Card>
+        <CardHead title="Change Log Entries" sub="Every logged field change, newest first" />
+        {entries.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>When</th><th>User</th><th>Table</th><th>Record</th>
+                <th>Field</th><th>Old value</th><th>New value</th><th>Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(e.changed_at)}</td>
+                  <td>{e.username}</td>
+                  <td>{e.table_caption}</td>
+                  <td className="mono tiny">{e.record_id}</td>
+                  <td>{e.field_name}</td>
+                  <td className="mono tiny">{e.old_value ?? '—'}</td>
+                  <td className="mono tiny">{e.new_value ?? '—'}</td>
+                  <td><Pill status={e.type} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="📜" title="No change log entries yet" />}
       </Card>
     </>
   );

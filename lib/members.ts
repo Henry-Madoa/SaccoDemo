@@ -145,7 +145,7 @@ export async function createMember(body: MemberInput, user: Actor): Promise<Memb
     );
     if (dup) {
       throw new AppError(
-        `National ID already registered to ${dup.member_no} — ${dup.first_name} ${dup.last_name}`,
+        `Identification No. already registered to ${dup.member_no} — ${dup.first_name} ${dup.last_name}`,
         'DUPLICATE_MEMBER',
       );
     }

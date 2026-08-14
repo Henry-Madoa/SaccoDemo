@@ -1,5 +1,5 @@
-import { all, run, tx, audit } from './db.ts';
-import type { Actor, MemberApplicationSignatory } from './types.ts';
+import { all, run, tx } from './db.ts';
+import type { MemberApplicationSignatory } from './types.ts';
 
 export const listApplicationSignatories = (applicationNo: string): Promise<MemberApplicationSignatory[]> =>
   all<MemberApplicationSignatory>(
@@ -16,9 +16,7 @@ export interface SignatoryDraft {
 }
 
 /** Replaces an application's full signatory list with the submitted rows — nothing else references these rows. */
-export async function replaceApplicationSignatories(
-  applicationNo: string, rows: SignatoryDraft[], user: Actor,
-): Promise<void> {
+export async function replaceApplicationSignatories(applicationNo: string, rows: SignatoryDraft[]): Promise<void> {
   const clean = rows.map((r) => ({ ...r, name: String(r.name || '').trim() })).filter((r) => r.name);
 
   await tx(async () => {
@@ -32,6 +30,5 @@ export async function replaceApplicationSignatories(
         r.date_of_birth || null, r.email || null, r.phone || null,
       );
     }
-    await audit(user, 'APPLICATION_SIGNATORIES_UPDATE', 'member_application', applicationNo, { count: clean.length });
   });
 }

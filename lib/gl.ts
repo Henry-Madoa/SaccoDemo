@@ -2,6 +2,7 @@ import { one, all, run, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { trialBalance, postJournal, reverseJournal, accountBalance } from './accounting.ts';
 import { GL_ACCOUNT_TYPES } from './constants.ts';
+import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import type {
   AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal, JournalLineInput,
@@ -182,7 +183,48 @@ export async function createGlAccount(
     code, name, type, parent_code || null, is_postable ? 1 : 0,
   );
   await audit(user, 'GL_ACCOUNT_CREATE', 'gl_account', info.lastInsertRowid, { code, name, type });
+  await logTableChange('gl_account', code, 'Insertion', [
+    { field: 'code', oldValue: null, newValue: code },
+    { field: 'name', oldValue: null, newValue: name },
+    { field: 'type', oldValue: null, newValue: type },
+    { field: 'parent_code', oldValue: null, newValue: parent_code || null },
+    { field: 'is_postable', oldValue: null, newValue: is_postable ? 1 : 0 },
+  ], user);
   return { id: Number(info.lastInsertRowid) };
+}
+
+export interface UpdateGlAccountInput {
+  name: string;
+  type: GlAccountType;
+  parent_code?: string | null;
+  is_postable?: number;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
+/** Code is the natural key referenced throughout the ledger and by other admin
+ *  screens (products' GL mappings) — it's set at creation and never renamed here. */
+export async function updateGlAccount(
+  code: string, { name, type, parent_code = null, is_postable = 1, status = 'ACTIVE' }: UpdateGlAccountInput,
+  user: Actor,
+): Promise<GlAccount> {
+  const before = await one<GlAccount>('SELECT * FROM gl_account WHERE code = ?', code);
+  if (!before) throw new AppError('Account not found', 'NOT_FOUND');
+  if (!name || !type) throw new AppError('Name and type are required', 'VALIDATION');
+  if (!GL_ACCOUNT_TYPES.includes(type)) throw new AppError('Invalid account type', 'VALIDATION');
+
+  const patch = {
+    name, type, parent_code: parent_code || null, is_postable: is_postable ? 1 : 0, status,
+  };
+  await run(
+    'UPDATE gl_account SET name=?, type=?, parent_code=?, is_postable=?, status=? WHERE code=?',
+    patch.name, patch.type, patch.parent_code, patch.is_postable, patch.status, code,
+  );
+  const changes = diffFields(before as unknown as Record<string, unknown>, patch);
+  await logTableChange('gl_account', code, 'Modification', changes, user);
+  if (changes.length) {
+    await audit(user, 'GL_ACCOUNT_UPDATE', 'gl_account', before.id, { code, fields: changes.map((c) => c.field) });
+  }
+  return (await one<GlAccount>('SELECT * FROM gl_account WHERE code = ?', code))!;
 }
 
 export const listPeriods = (): Promise<AccountingPeriod[]> =>

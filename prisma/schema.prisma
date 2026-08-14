@@ -215,6 +215,36 @@ model audit_log {
   @@index([at(sort: Desc)], map: "ix_audit_at")
 }
 
+/// Which tables get field-level change tracking — mirrors Business Central's Change Log
+/// Setup: nothing is logged for a table until an admin opts it into Insertion/Modification/
+/// Deletion here. Rows are seeded by migration, not created at runtime.
+model change_log_setup {
+  table_name       String  @id
+  table_caption    String
+  log_insertion    Int     @default(0)
+  log_modification Int     @default(0)
+  log_deletion     Int     @default(0)
+}
+
+/// One row per changed field, written only for a table/change-type enabled in
+/// change_log_setup — mirrors Business Central's Change Log Entries.
+model change_log_entry {
+  id            Int     @id @default(autoincrement())
+  table_name    String
+  table_caption String
+  record_id     String
+  field_name    String
+  old_value     String?
+  new_value     String?
+  type          String
+  changed_at    String
+  user_id       Int?
+  username      String
+
+  @@index([table_name, record_id], map: "ix_change_log_entry_record")
+  @@index([changed_at(sort: Desc)], map: "ix_change_log_entry_at")
+}
+
 model county {
   id                 Int                  @id @default(autoincrement())
   name               String               @unique
@@ -511,9 +541,9 @@ model member_application {
   member_type         String            @default("INDIVIDUAL")
   member_category_id  Int?
   title               String?
-  first_name          String
+  first_name          String?
   middle_name         String?
-  last_name           String
+  last_name           String?
   national_id         String?
   kra_pin             String?
   date_of_birth       String?
@@ -554,6 +584,8 @@ model member_application {
   member_id           Int?
   created_at          String?
   created_by          String?
+  processed_at        String?
+  processed_by        String?
   member_category     member_category?  @relation(fields: [member_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   county              county?           @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sub_county          sub_county?       @relation(fields: [sub_county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -682,12 +714,18 @@ model member_edit_request {
   decision_reason       String?
   created_at            String?
   created_by            String?
+  processed_at          String?
+  processed_by          String?
   member                    member                    @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member_category           member_category?          @relation(fields: [member_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   county                    county?                   @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sub_county                sub_county?               @relation(fields: [sub_county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   global_dimension_1_value  global_dimension_1_value? @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   global_dimension_2_value  global_dimension_2_value? @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member_edit_attachment    member_edit_attachment[]
+  member_edit_next_of_kin   member_edit_next_of_kin[]
+  member_edit_nominee       member_edit_nominee[]
+  member_edit_signatory     member_edit_signatory[]
 
   @@index([member_id], map: "ix_edit_member")
   @@index([status], map: "ix_edit_status")
@@ -696,6 +734,63 @@ model member_edit_request {
   @@index([member_category_id], map: "ix_edit_category")
   @@index([global_dimension_1_id], map: "ix_edit_gd1")
   @@index([global_dimension_2_id], map: "ix_edit_gd2")
+}
+
+model member_edit_attachment {
+  id                  Int                 @id @default(autoincrement())
+  edit_no             String
+  public_id           String              @unique
+  url                 String
+  filename            String
+  resource_type       String              @default("image")
+  format              String?
+  bytes               Int                 @default(0)
+  category            String?
+  uploaded_at         String
+  uploaded_by         String
+  member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([edit_no], map: "ix_edit_attachment_no")
+}
+
+model member_edit_next_of_kin {
+  id                  Int                 @id @default(autoincrement())
+  edit_no             String
+  name                String
+  relationship        String?
+  phone               String?
+  member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([edit_no], map: "ix_edit_nok_no")
+}
+
+model member_edit_nominee {
+  id                  Int                 @id @default(autoincrement())
+  edit_no             String
+  name                String
+  relationship        String?
+  phone               String?
+  percentage          Float               @default(0)
+  is_next_of_kin      Int                 @default(0)
+  member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([edit_no], map: "ix_edit_nominee_no")
+}
+
+/// Signatories for a non-individual (group/corporate) member's edit request — mirrors
+/// member_application_signatory, staged until the request is processed onto member_signatory.
+model member_edit_signatory {
+  id                  Int                 @id @default(autoincrement())
+  edit_no             String
+  identification_no   String?
+  name                String
+  designation         String?
+  date_of_birth       String?
+  email               String?
+  phone               String?
+  member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([edit_no], map: "ix_edit_signatory_no")
 }
 
 model member {

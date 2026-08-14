@@ -4,30 +4,30 @@ import { revalidatePath } from 'next/cache';
 import { requirePerm } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
-  replaceApplicationNextOfKin, replaceApplicationNominees, type NextOfKinDraft, type NomineeDraft,
-} from '@/lib/applicationNominees';
+  replaceEditNextOfKin, replaceEditNominees, type NextOfKinDraft, type NomineeDraft,
+} from '@/lib/editNominees';
 import type { ActionResult } from '@/lib/types';
 
-export async function saveApplicationNextOfKin(
-  applicationNo: string,
+export async function saveEditNextOfKin(
+  editNo: string,
   rows: NextOfKinDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
     await requirePerm('MEMBER:UPDATE');
-    await replaceApplicationNextOfKin(applicationNo, rows);
-    revalidatePath(`/member-applications/view/${applicationNo}`);
+    await replaceEditNextOfKin(editNo, rows);
+    revalidatePath(`/member-edits/view/${editNo}`);
     return { updated: true };
   });
 }
 
-export async function saveApplicationNominees(
-  applicationNo: string,
+export async function saveEditNominees(
+  editNo: string,
   rows: NomineeDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
     await requirePerm('MEMBER:UPDATE');
-    await replaceApplicationNominees(applicationNo, rows);
-    revalidatePath(`/member-applications/view/${applicationNo}`);
+    await replaceEditNominees(editNo, rows);
+    revalidatePath(`/member-edits/view/${editNo}`);
     return { updated: true };
   });
 }

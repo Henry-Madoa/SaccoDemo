@@ -33,13 +33,13 @@ export async function removeApplicationAttachment(
   attachmentId: number,
 ): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    await requirePerm('MEMBER:UPDATE');
     // Confirm the attachment really belongs to the application named in the URL,
     // so an id from another application's file cannot be deleted through this page.
     const owned = (await listApplicationAttachments(applicationNo)).some((a) => a.id === attachmentId);
     if (!owned) throw new AppError('Attachment not found on this application', 'NOT_FOUND');
 
-    const result = await deleteApplicationAttachment(attachmentId, user);
+    const result = await deleteApplicationAttachment(attachmentId);
     revalidatePath(`/member-applications/view/${applicationNo}`);
     return result;
   });

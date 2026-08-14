@@ -49,7 +49,7 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
           <TableWrap>
             <thead>
               <tr>
-                <th>No.</th><th>Name</th><th>National ID</th><th>Phone</th>
+                <th>No.</th><th>Name</th><th>Identification No.</th><th>Phone</th>
                 <th>Status</th><th className="num" />
               </tr>
             </thead>

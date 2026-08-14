@@ -2,13 +2,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePerm, currentCan } from '@/lib/session';
 import { listMemberEditRequests, type MemberEditView } from '@/lib/memberEdits';
+import { listActiveMembers } from '@/lib/members';
 import { Page } from '@/components/layout/page';
 import {
   Card, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
 } from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
 import {
-  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ProcessButton,
+  NewEditRequestButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ProcessButton,
 } from '../edit-actions';
 
 const TABS: TabDefinition[] = [
@@ -30,9 +31,10 @@ export default async function MemberEditsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as MemberEditView;
 
-  const [requests, canUpdate, canApprove] = await Promise.all([
+  const [requests, canUpdate, canApprove, members] = await Promise.all([
     listMemberEditRequests({ view: tab, search: q }),
     currentCan('MEMBER:UPDATE'), currentCan('MEMBER:APPROVE'),
+    listActiveMembers(),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function MemberEditsPage({ params, searchParams }: {
       <Toolbar>
         <SearchInput placeholder="Search member name, no. or request no.…" />
         <Spacer />
+        {canUpdate ? <NewEditRequestButton members={members} /> : null}
       </Toolbar>
 
       <Card>

@@ -1,14 +1,17 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePerm, currentCan } from '@/lib/session';
-import { getMemberEditRequest, listEditAuditTrail, diffMemberEditFields } from '@/lib/memberEdits';
+import { getMemberEditRequest, diffMemberEditFields } from '@/lib/memberEdits';
 import { getMember } from '@/lib/members';
-import { findPendingRoutedTask, isEligibleApprover } from '@/lib/workflow';
+import { listEditNextOfKin, listEditNominees } from '@/lib/editNominees';
+import { listEditSignatories } from '@/lib/editSignatories';
+import { listEditAttachments } from '@/lib/editAttachments';
+import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import {
   listActiveCounties, listActiveSubCounties, listActiveMemberCategories, listActiveDimensionValues,
 } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
-import { isConfigured } from '@/lib/cloudinary';
+import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, Toolbar, Spacer } from '@/components/ui/primitives';
 import { ClientTabs } from '@/components/ui/client-tabs';
@@ -17,25 +20,37 @@ import {
 } from '../../edit-actions';
 import { MemberEditPhoto } from './photo-panel';
 import { EditRequestBiometricPanel } from './biometric-panel';
-import { GeneralInfoCard, BasicInfoCard, GroupInfoCard } from './info-cards';
+import { EditAttachmentPanel } from './attachment-panel';
+import { EditNextOfKinPanel, EditNomineePanel } from './nok-nominee-form';
+import { EditSignatoryPanel } from './signatory-form';
+import {
+  GeneralInfoCard, BasicInfoCard, GroupInfoCard, ContactInfoCard,
+} from './info-cards';
 import { ChangesSummary } from './changes-summary';
 import { AuditTrail } from './audit-trail';
 
-export default async function MemberEditDetailPage({ params }: { params: Promise<{ no: string }> }) {
+export default async function MemberEditDetailPage({ params, searchParams }: {
+  params: Promise<{ no: string }>;
+  searchParams: Promise<{ edit?: string }>;
+}) {
   const user = await requirePerm('MEMBER:READ');
   const { no } = await params;
+  const { edit } = await searchParams;
+  const startEditing = edit === '1';
   const request = await getMemberEditRequest(no);
   if (!request) notFound();
 
   const [
-    canUpdate, canApprove, currentMember, auditTrail,
+    canUpdate, canApprove, currentMember,
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 },
+    nextOfKin, nominees, signatories, attachments, tasks,
   ] = await Promise.all([
     currentCan('MEMBER:UPDATE'), currentCan('MEMBER:APPROVE'),
     getMember(request.member_id),
-    listEditAuditTrail(no),
     listActiveCounties(), listActiveSubCounties(), listActiveMemberCategories(),
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
+    listEditNextOfKin(no), listEditNominees(no), listEditSignatories(no), listEditAttachments(no),
+    listWorkflowTasksForDocument('MEMBER_EDIT', no),
   ]);
   if (!currentMember) notFound();
 
@@ -61,8 +76,6 @@ export default async function MemberEditDetailPage({ params }: { params: Promise
   const generalPanel = (
     <GeneralInfoCard
       request={request}
-      counties={counties}
-      subCounties={subCounties}
       memberCategories={memberCategories}
       globalDimension1Values={gd1Values}
       globalDimension2Values={gd2Values}
@@ -72,17 +85,40 @@ export default async function MemberEditDetailPage({ params }: { params: Promise
     />
   );
 
-  const basicPanel = <BasicInfoCard request={request} canEdit={canEditFields} />;
-  const groupPanel = <GroupInfoCard request={request} canEdit={canEditFields} />;
+  const basicPanel = (
+    <BasicInfoCard request={request} canEdit={canEditFields} startEditing={startEditing} />
+  );
+  const groupPanel = (
+    <GroupInfoCard request={request} canEdit={canEditFields} startEditing={startEditing} />
+  );
+
+  const contactPanel = (
+    <ContactInfoCard
+      request={request} counties={counties} subCounties={subCounties} isIndividual={isIndividual}
+      canEdit={canEditFields} startEditing={startEditing}
+    />
+  );
 
   const photoPanel = (
     <MemberEditPhoto
       editNo={no}
       name={`${request.first_name} ${request.last_name}`}
-      photoSrc={request.photo}
+      photoSrc={imageSrc(request.photo, { width: 104, height: 104 })}
       canEdit={canEditFields}
       mediaEnabled={mediaEnabled}
     />
+  );
+
+  const nomineePanel = (
+    <EditNomineePanel editNo={no} nominees={nominees} canManage={canUpdate && isOpen} />
+  );
+
+  const nokPanel = (
+    <EditNextOfKinPanel editNo={no} nextOfKin={nextOfKin} canManage={canUpdate && isOpen} />
+  );
+
+  const signatoryPanel = (
+    <EditSignatoryPanel editNo={no} signatories={signatories} canManage={canUpdate && isOpen} />
   );
 
   return (
@@ -112,16 +148,22 @@ export default async function MemberEditDetailPage({ params }: { params: Promise
       <ChangesSummary diffs={diffs} />
 
       <ClientTabs
-        initial="general"
+        initial={startEditing && canEditFields ? 'basic' : 'general'}
         tabs={[
           { key: 'general', label: 'General Information' },
           { key: 'basic', label: isIndividual ? 'Basic Information' : 'Group/Corporate Information' },
+          { key: 'contact', label: 'Contact & Addresses' },
           { key: 'photo', label: 'Photo & Biometrics' },
+          { key: 'kyc', label: 'KYC Attachments' },
+          { key: 'nominee', label: 'Nominee' },
+          { key: 'nok', label: 'Next Of Kin' },
+          ...(isIndividual ? [] : [{ key: 'signatory', label: 'Signatories' }]),
           { key: 'audit', label: 'Audit Trail' },
         ]}
         panels={{
           general: generalPanel,
           basic: isIndividual ? basicPanel : groupPanel,
+          contact: contactPanel,
           photo: (
             <div>
               <Card>
@@ -131,16 +173,29 @@ export default async function MemberEditDetailPage({ params }: { params: Promise
               <EditRequestBiometricPanel
                 editNo={no}
                 images={{
-                  id_front: request.front_id_image, id_back: request.back_id_image,
-                  signature: request.signature_image,
-                  fingerprint1: request.fingerprint1_image, fingerprint2: request.fingerprint2_image,
+                  id_front: imageSrc(request.front_id_image, { width: 220, height: 140, crop: 'fit' }),
+                  id_back: imageSrc(request.back_id_image, { width: 220, height: 140, crop: 'fit' }),
+                  signature: imageSrc(request.signature_image, { width: 180, height: 100, crop: 'fit' }),
+                  fingerprint1: imageSrc(request.fingerprint1_image, { width: 140, height: 140, crop: 'fit' }),
+                  fingerprint2: imageSrc(request.fingerprint2_image, { width: 140, height: 140, crop: 'fit' }),
                 }}
                 canEdit={canEditFields}
                 mediaEnabled={mediaEnabled}
               />
             </div>
           ),
-          audit: <AuditTrail request={request} trail={auditTrail} />,
+          kyc: (
+            <EditAttachmentPanel
+              editNo={no}
+              attachments={attachments}
+              canManage={canUpdate && isOpen}
+              mediaEnabled={mediaEnabled}
+            />
+          ),
+          nominee: nomineePanel,
+          nok: nokPanel,
+          ...(isIndividual ? {} : { signatory: signatoryPanel }),
+          audit: <AuditTrail request={request} tasks={tasks} />,
         }}
       />
     </Page>

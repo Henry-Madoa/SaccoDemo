@@ -1,13 +1,14 @@
-import { one, all, run, tx, nextSequence, audit } from './db.ts';
+import { one, all, run, tx, nextSequence } from './db.ts';
 import { AppError } from './errors.ts';
 import { createMember, type MemberInput } from './members.ts';
 import { listApplicationNextOfKin, listApplicationNominees } from './applicationNominees.ts';
 import { listApplicationSignatories } from './applicationSignatories.ts';
+import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { getMemberCategoryDefaultAccounts } from './pool.ts';
 import { openAccount } from './savings.ts';
 import type {
-  Actor, AuditEntry, MemberApplication, MemberApplicationAttachment, MemberApplicationWithDimensions,
+  Actor, MemberApplication, MemberApplicationAttachment, MemberApplicationWithDimensions,
 } from './types.ts';
 
 const APPLICATION_FIELDS = [
@@ -68,18 +69,9 @@ export const listMemberApplications = (
 export const getMemberApplication = (no: string): Promise<MemberApplicationWithDimensions | undefined> =>
   one<MemberApplicationWithDimensions>(`${SELECT_APPLICATION} WHERE a.no = ?`, no);
 
-/** Every audit_log entry recorded against this application, newest first. */
-export const listApplicationAuditTrail = (no: string): Promise<AuditEntry[]> =>
-  all<AuditEntry>(
-    "SELECT * FROM audit_log WHERE entity = 'member_application' AND entity_id = ? ORDER BY id DESC", no,
-  );
-
 export async function createMemberApplication(
   body: MemberApplicationInput, user: Actor,
 ): Promise<{ no: string }> {
-  if (!body.first_name || !body.last_name) {
-    throw new AppError('First and last name are required', 'VALIDATION');
-  }
   const no = await nextSequence('MEMBER_APPLICATION');
   const cols = APPLICATION_FIELDS.filter((f) => body[f] !== undefined);
   await run(
@@ -87,14 +79,16 @@ export async function createMemberApplication(
      VALUES (?,?,?${cols.map(() => ',?').join('')})`,
     no, new Date().toISOString(), user.username, ...cols.map((c) => body[c]!),
   );
-  await audit(user, 'MEMBER_APPLICATION_CREATE', 'member_application', no, {});
+  await logTableChange(
+    'member_application', no, 'Insertion', cols.map((c) => ({ field: c, oldValue: null, newValue: body[c] })), user,
+  );
   return { no };
 }
 
 export async function updateMemberApplication(
   no: string, body: MemberApplicationInput, user: Actor,
 ): Promise<MemberApplicationWithDimensions> {
-  const app = await one<MemberApplication>('SELECT status FROM member_application WHERE no = ?', no);
+  const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Open') throw new AppError('Only an open application can be edited', 'VALIDATION');
 
@@ -104,8 +98,11 @@ export async function updateMemberApplication(
       `UPDATE member_application SET ${cols.map((c) => `${c}=?`).join(',')} WHERE no=?`,
       ...cols.map((c) => body[c]!), no,
     );
+    const changes = diffFields(
+      app as unknown as Record<string, unknown>, Object.fromEntries(cols.map((c) => [c, body[c]])),
+    );
+    await logTableChange('member_application', no, 'Modification', changes, user);
   }
-  await audit(user, 'MEMBER_APPLICATION_UPDATE', 'member_application', no, { fields: cols });
   return (await getMemberApplication(no))!;
 }
 
@@ -127,7 +124,10 @@ export async function submitMemberApplication(no: string, user: Actor): Promise<
 
   await tx(async () => {
     await run("UPDATE member_application SET status = 'Pending Approval' WHERE no = ?", no);
-    await audit(user, 'MEMBER_APPLICATION_SUBMIT', 'member_application', no, {});
+    await logTableChange(
+      'member_application', no, 'Modification',
+      [{ field: 'status', oldValue: app.status, newValue: 'Pending Approval' }], user,
+    );
     await startWorkflow(matched.workflow, matched.steps, {
       documentType: 'MEMBER_APPLICATION', entityId: no, requestedBy: user.username, amount: app.gross_income,
     });
@@ -156,27 +156,35 @@ export async function cancelApplicationApproval(no: string, user: Actor): Promis
     throw new AppError('Only the person who submitted this application for approval can cancel the request', 'NOT_REQUESTER');
   }
   await run("UPDATE member_application SET status = 'Open' WHERE no = ?", no);
-  await audit(user, 'MEMBER_APPLICATION_CANCEL_APPROVAL', 'member_application', no, {});
+  await logTableChange(
+    'member_application', no, 'Modification', [{ field: 'status', oldValue: app.status, newValue: 'Open' }], user,
+  );
 }
 
 export async function approveMemberApplication(no: string, user: Actor): Promise<void> {
-  const app = await one<MemberApplication>('SELECT status FROM member_application WHERE no = ?', no);
+  const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Pending Approval') {
     throw new AppError('Only an application pending approval can be approved', 'VALIDATION');
   }
   await run("UPDATE member_application SET status = 'Approved', decision_reason = NULL WHERE no = ?", no);
-  await audit(user, 'MEMBER_APPLICATION_APPROVE', 'member_application', no, {});
+  const changes = diffFields(
+    app as unknown as Record<string, unknown>, { status: 'Approved', decision_reason: null },
+  );
+  await logTableChange('member_application', no, 'Modification', changes, user);
 }
 
 export async function rejectMemberApplication(no: string, reason: string | null, user: Actor): Promise<void> {
-  const app = await one<MemberApplication>('SELECT status FROM member_application WHERE no = ?', no);
+  const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Pending Approval') {
     throw new AppError('Only an application pending approval can be rejected', 'VALIDATION');
   }
   await run("UPDATE member_application SET status = 'Rejected', decision_reason = ? WHERE no = ?", reason || null, no);
-  await audit(user, 'MEMBER_APPLICATION_REJECT', 'member_application', no, { reason });
+  const changes = diffFields(
+    app as unknown as Record<string, unknown>, { status: 'Rejected', decision_reason: reason || null },
+  );
+  await logTableChange('member_application', no, 'Modification', changes, user);
 }
 
 /** Approved -> a real member.createMember() call, linked back onto the application as "Committed". */
@@ -207,7 +215,11 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
       global_dimension_1_id: app.global_dimension_1_id, global_dimension_2_id: app.global_dimension_2_id,
     };
     const member = await createMember(body, user);
-    await run("UPDATE member_application SET member_id = ?, status = 'Committed' WHERE no = ?", member.id, no);
+    await run(
+      `UPDATE member_application
+       SET member_id = ?, status = 'Committed', processed_at = ?, processed_by = ? WHERE no = ?`,
+      member.id, new Date().toISOString(), user.username, no,
+    );
 
     // Open the savings accounts the member's category defaults to (e.g. a mandatory shares account).
     if (app.member_category_id) {
@@ -253,7 +265,10 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
       );
     }
 
-    await audit(user, 'MEMBER_APPLICATION_PROCESS', 'member_application', no, { memberId: member.id });
+    const changes = diffFields(
+      app as unknown as Record<string, unknown>, { member_id: member.id, status: 'Committed' },
+    );
+    await logTableChange('member_application', no, 'Modification', changes, user);
     return { memberId: member.id };
   });
 }

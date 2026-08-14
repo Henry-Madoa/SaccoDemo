@@ -2,27 +2,27 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { EmptyState, Pill, TableWrap } from '@/components/ui/primitives';
-import { CollapsibleCard } from '@/components/ui/collapsible-card';
+import { Card, CardHead, EmptyState, Pill, TableWrap } from '@/components/ui/primitives';
 import { FilePicker } from '@/components/ui/uploader';
 import { useToast } from '@/components/ui/toast';
-import { addAttachment, removeAttachment } from '@/app/actions/media';
+import { addEditAttachment, removeEditAttachment } from '@/app/actions/editAttachments';
 import { ATTACHMENT_CATEGORIES } from '@/lib/constants';
 import { formatBytes, formatDateTime } from '@/lib/format';
-import type { Attachment, AttachmentEntity, UploadedFile } from '@/lib/types';
+import type { MemberEditAttachment, UploadedFile } from '@/lib/types';
 
-export interface AttachmentPanelProps {
-  entity: AttachmentEntity;
-  entityId: number;
-  attachments: Attachment[];
+export interface EditAttachmentPanelProps {
+  editNo: string;
+  attachments: MemberEditAttachment[];
   /** Whether this user may add or remove files. Viewing needs only READ. */
   canManage: boolean;
   mediaEnabled: boolean;
+  /** Called after a successful attach/remove, for callers holding their own copy of the list. */
+  onChanged?: () => void;
 }
 
-export function AttachmentPanel({
-  entity, entityId, attachments, canManage, mediaEnabled,
-}: AttachmentPanelProps) {
+export function EditAttachmentPanel({
+  editNo, attachments, canManage, mediaEnabled, onChanged,
+}: EditAttachmentPanelProps) {
   const router = useRouter();
   const toast = useToast();
   const [category, setCategory] = useState(ATTACHMENT_CATEGORIES[0]);
@@ -31,21 +31,23 @@ export function AttachmentPanel({
   const attach = async (file: UploadedFile) => {
     setBusy(true);
     try {
-      const res = await addAttachment(entity, entityId, file, category);
+      const res = await addEditAttachment(editNo, file, category);
       if (!res.ok) { toast('Could not attach', res.error, 'err'); return; }
       toast('File attached', res.data.filename, 'ok');
+      onChanged?.();
       router.refresh();
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (a: Attachment) => {
+  const remove = async (a: MemberEditAttachment) => {
     setBusy(true);
     try {
-      const res = await removeAttachment(entity, entityId, a.id);
+      const res = await removeEditAttachment(editNo, a.id);
       if (!res.ok) { toast('Could not remove', res.error, 'err'); return; }
       toast('File removed', a.filename, 'ok');
+      onChanged?.();
       router.refresh();
     } finally {
       setBusy(false);
@@ -53,10 +55,12 @@ export function AttachmentPanel({
   };
 
   return (
-    <CollapsibleCard
-      title="Documents"
-      sub={`${attachments.length} file${attachments.length === 1 ? '' : 's'} held against this record`}
-    >
+    <Card>
+      <CardHead
+        title="KYC attachments"
+        sub={`${attachments.length} file${attachments.length === 1 ? '' : 's'} held against this request`}
+      />
+
       {canManage ? (
         mediaEnabled ? (
           <div className="attach-add">
@@ -68,7 +72,6 @@ export function AttachmentPanel({
             </label>
             <FilePicker
               kind="attachment"
-              entity={entity}
               accept="image/*,.pdf,.doc,.docx,.txt,.csv"
               label="Attach a document"
               disabled={busy}
@@ -94,7 +97,6 @@ export function AttachmentPanel({
             {attachments.map((a) => (
               <tr key={a.id}>
                 <td>
-                  {/* Opens in a new tab; Cloudinary serves the original bytes. */}
                   <a href={a.url} target="_blank" rel="noopener noreferrer">{a.filename}</a>
                   {a.format ? <span className="tiny mono"> .{a.format}</span> : null}
                 </td>
@@ -118,6 +120,6 @@ export function AttachmentPanel({
         <EmptyState icon="📎" title="No documents attached"
           sub={canManage ? 'Attach KYC papers, payslips or security documents' : undefined} />
       )}
-    </CollapsibleCard>
+    </Card>
   );
 }

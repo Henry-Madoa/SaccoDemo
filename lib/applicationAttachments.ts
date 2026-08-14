@@ -1,4 +1,4 @@
-import { one, all, run, audit } from './db.ts';
+import { one, all, run } from './db.ts';
 import { AppError } from './errors.ts';
 import { destroyAsset, signedAttachmentUrl } from './cloudinary.ts';
 import type { Actor, MemberApplicationAttachment, CloudinaryAsset } from './types.ts';
@@ -37,9 +37,6 @@ export async function recordApplicationAttachment(
     applicationNo, asset.public_id, asset.url, filename, asset.resource_type,
     asset.format, asset.bytes, category || null, new Date().toISOString(), user.username,
   );
-  await audit(user, 'APPLICATION_ATTACHMENT_ADD', 'member_application', applicationNo, {
-    filename, public_id: asset.public_id, bytes: asset.bytes,
-  });
   return (await one<MemberApplicationAttachment>(
     'SELECT * FROM member_application_attachment WHERE id = ?', Number(info.lastInsertRowid),
   ))!;
@@ -50,14 +47,11 @@ export async function recordApplicationAttachment(
  * The row goes first: an orphaned Cloudinary file is recoverable, a row
  * pointing at a deleted asset is a broken link on the application's file.
  */
-export async function deleteApplicationAttachment(id: number, user: Actor): Promise<{ deleted: true }> {
+export async function deleteApplicationAttachment(id: number): Promise<{ deleted: true }> {
   const row = await one<MemberApplicationAttachment>('SELECT * FROM member_application_attachment WHERE id = ?', id);
   if (!row) throw new AppError('Attachment not found', 'NOT_FOUND');
 
   await run('DELETE FROM member_application_attachment WHERE id = ?', id);
-  await audit(user, 'APPLICATION_ATTACHMENT_DELETE', 'member_application', row.application_no, {
-    filename: row.filename, public_id: row.public_id,
-  });
   await destroyAsset(row.public_id, row.resource_type);
   return { deleted: true };
 }

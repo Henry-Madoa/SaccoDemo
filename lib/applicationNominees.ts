@@ -1,6 +1,6 @@
-import { one, all, run, tx, audit } from './db.ts';
+import { one, all, run, tx } from './db.ts';
 import { AppError } from './errors.ts';
-import type { Actor, MemberApplicationNextOfKin, MemberApplicationNominee } from './types.ts';
+import type { MemberApplicationNextOfKin, MemberApplicationNominee } from './types.ts';
 
 /* ------------------------------------------------------------------- next of kin */
 export const listApplicationNextOfKin = (applicationNo: string): Promise<MemberApplicationNextOfKin[]> =>
@@ -15,9 +15,7 @@ export interface NextOfKinDraft {
 }
 
 /** Replaces an application's full next-of-kin list with the submitted rows — nothing else references these rows. */
-export async function replaceApplicationNextOfKin(
-  applicationNo: string, rows: NextOfKinDraft[], user: Actor,
-): Promise<void> {
+export async function replaceApplicationNextOfKin(applicationNo: string, rows: NextOfKinDraft[]): Promise<void> {
   const clean = rows.map((r) => ({ ...r, name: String(r.name || '').trim() })).filter((r) => r.name);
 
   await tx(async () => {
@@ -28,7 +26,6 @@ export async function replaceApplicationNextOfKin(
         applicationNo, r.name, r.relationship || null, r.phone || null,
       );
     }
-    await audit(user, 'APPLICATION_NOK_UPDATE', 'member_application', applicationNo, { count: clean.length });
   });
 }
 
@@ -55,9 +52,7 @@ export interface NomineeDraft {
  * a next-of-kin entry too, skipping it if one with the same name already exists
  * so re-saving the form doesn't pile up duplicates.
  */
-export async function replaceApplicationNominees(
-  applicationNo: string, rows: NomineeDraft[], user: Actor,
-): Promise<void> {
+export async function replaceApplicationNominees(applicationNo: string, rows: NomineeDraft[]): Promise<void> {
   const clean = rows
     .map((r) => ({ ...r, name: String(r.name || '').trim(), percentage: Number(r.percentage) || 0 }))
     .filter((r) => r.name);
@@ -90,6 +85,5 @@ export async function replaceApplicationNominees(
         }
       }
     }
-    await audit(user, 'APPLICATION_NOMINEES_UPDATE', 'member_application', applicationNo, { count: clean.length });
   });
 }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card, CardHead, DefinitionList, Pill } from '@/components/ui/primitives';
 import { Field, readForm } from '@/components/ui/field';
 import { useToast } from '@/components/ui/toast';
+import { useBeforeNext, useContinueEditing, useGoNext } from '@/components/ui/client-tabs';
 import { Money } from '@/components/ui/money';
 import { saveMemberEditRequest } from '@/app/actions/memberEdits';
 import { formatDate, toUnits } from '@/lib/format';
@@ -15,33 +16,39 @@ import type {
   County, DimensionValue, MemberCategory, MemberEditRequestWithDimensions, SubCounty,
 } from '@/lib/types';
 
-/** Shared edit-toggle plumbing for an inline-editable request card. */
-function useInlineEdit(no: string) {
+/** Shared edit-toggle plumbing for an inline-editable request card. Registers with the
+ *  tab bar so its Next button saves a card mid-edit before advancing, instead of discarding it. */
+function useInlineEdit(no: string, startEditing = false) {
   const router = useRouter();
   const toast = useToast();
   const formRef = useRef<HTMLFormElement>(null);
-  const [editing, setEditing] = useState(false);
+  const continueEditing = useContinueEditing();
+  const [editing, setEditing] = useState(startEditing || continueEditing);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const form = formRef.current;
-    if (!form || !form.reportValidity()) return;
+    if (!form || !form.reportValidity()) return false;
     setBusy(true);
     setError('');
     try {
       const values = readForm(form);
       const res = await saveMemberEditRequest(no, values);
-      if (!res.ok) { setError(res.error || 'Could not save'); return; }
+      if (!res.ok) { setError(res.error || 'Could not save'); return false; }
       toast('Changes saved', undefined, 'ok');
       setEditing(false);
       router.refresh();
+      return true;
     } finally {
       setBusy(false);
     }
   };
 
-  return { formRef, editing, setEditing, busy, error, setError, save };
+  useBeforeNext(editing ? save : null);
+  const goNext = useGoNext();
+
+  return { formRef, editing, setEditing, busy, error, setError, save, goNext };
 }
 
 function EditActions({ busy, error, onCancel, onSave }: {
@@ -60,8 +67,6 @@ function EditActions({ busy, error, onCancel, onSave }: {
 
 export interface GeneralInfoCardProps {
   request: MemberEditRequestWithDimensions;
-  counties: County[];
-  subCounties: SubCounty[];
   memberCategories: MemberCategory[];
   globalDimension1Values: DimensionValue[];
   globalDimension2Values: DimensionValue[];
@@ -71,11 +76,10 @@ export interface GeneralInfoCardProps {
 }
 
 export function GeneralInfoCard({
-  request: a, counties, subCounties, memberCategories,
+  request: a, memberCategories,
   globalDimension1Values, globalDimension2Values, caption1, caption2, canEdit,
 }: GeneralInfoCardProps) {
-  const { formRef, editing, setEditing, busy, error, save } = useInlineEdit(a.no);
-  const [countyId, setCountyId] = useState<number | ''>(a.county_id ?? '');
+  const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no);
 
   return (
     <Card>
@@ -90,8 +94,6 @@ export function GeneralInfoCard({
           ['Request no.', <span className="mono" key="no">{a.no}</span>],
           ['Status', <Pill status={a.status} key="status" />],
           ['Member category', a.member_category_name || '—'],
-          ['County', a.county_name || '—'],
-          ['Sub-county', a.sub_county_name || '—'],
           ['Join date', formatDate(a.join_date)],
           ['KYC verified', a.kyc_verified
             ? <Pill tone="ok" key="kyc">VERIFIED</Pill>
@@ -109,14 +111,6 @@ export function GeneralInfoCard({
                   { value: '', label: 'Select category…' },
                   ...memberCategories.map((c) => ({ value: c.id, label: c.description })),
                 ]} />
-              <Field name="county_id" label="County" type="select" defaultValue={a.county_id}
-                options={[{ value: '', label: 'Select county…' }, ...counties.map((c) => ({ value: c.id, label: c.name }))]}
-                onChange={(e) => setCountyId(e.target.value ? Number(e.target.value) : '')} />
-              <Field key={countyId} name="sub_county_id" label="Sub-county" type="select" defaultValue={a.sub_county_id}
-                options={[
-                  { value: '', label: countyId ? 'Select sub-county…' : 'Select a county first' },
-                  ...subCounties.filter((s) => s.county_id === countyId).map((s) => ({ value: s.id, label: s.name })),
-                ]} />
               <Field name="join_date" label="Date joined" type="date" defaultValue={a.join_date} />
               <Field name="global_dimension_1_id" label={caption1} type="select" defaultValue={a.global_dimension_1_id}
                 options={[
@@ -131,7 +125,7 @@ export function GeneralInfoCard({
             </div>
             <Field name="kyc_verified" label="KYC documents verified" type="checkbox" defaultValue={a.kyc_verified} />
           </form>
-          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={save} />
+          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />
         </>
       )}
     </Card>
@@ -141,10 +135,11 @@ export function GeneralInfoCard({
 export interface BasicInfoCardProps {
   request: MemberEditRequestWithDimensions;
   canEdit: boolean;
+  startEditing?: boolean;
 }
 
-export function BasicInfoCard({ request: a, canEdit }: BasicInfoCardProps) {
-  const { formRef, editing, setEditing, busy, error, save } = useInlineEdit(a.no);
+export function BasicInfoCard({ request: a, canEdit, startEditing = false }: BasicInfoCardProps) {
+  const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no, canEdit && startEditing);
 
   return (
     <Card>
@@ -158,15 +153,11 @@ export function BasicInfoCard({ request: a, canEdit }: BasicInfoCardProps) {
         <>
           <DefinitionList items={[
             ['Name', [a.title, a.first_name, a.middle_name, a.last_name].filter(Boolean).join(' ')],
-            ['National ID', <span className="mono" key="nid">{a.national_id || '—'}</span>],
+            ['Identification No.', <span className="mono" key="nid">{a.national_id || '—'}</span>],
             ['KRA PIN', <span className="mono" key="pin">{a.kra_pin || '—'}</span>],
             ['Date of birth', formatDate(a.date_of_birth)],
             ['Gender', a.gender || '—'],
             ['Marital status', a.marital_status || '—'],
-            ['Phone', a.phone || '—'],
-            ['Email', a.email || '—'],
-            ['Postal address', a.postal_address || '—'],
-            ['Physical address', a.physical_address || '—'],
           ]} />
           <h4 className="section-title">Employment &amp; affordability</h4>
           <DefinitionList items={[
@@ -185,16 +176,12 @@ export function BasicInfoCard({ request: a, canEdit }: BasicInfoCardProps) {
               <Field name="first_name" label="First name" defaultValue={a.first_name} required />
               <Field name="last_name" label="Last name" defaultValue={a.last_name} required />
               <Field name="middle_name" label="Middle name" defaultValue={a.middle_name} />
-              <Field name="national_id" label="National ID" defaultValue={a.national_id} />
+              <Field name="national_id" label="Identification No." defaultValue={a.national_id} />
               <Field name="kra_pin" label="KRA PIN" defaultValue={a.kra_pin} />
               <Field name="date_of_birth" label="Date of birth" type="date" defaultValue={a.date_of_birth} />
               <Field name="gender" label="Gender" type="select" defaultValue={a.gender} options={GENDERS} />
               <Field name="marital_status" label="Marital status" type="select" defaultValue={a.marital_status}
                 options={MARITAL_STATUSES} />
-              <Field name="phone" label="Phone" defaultValue={a.phone} required />
-              <Field name="email" label="Email" type="email" defaultValue={a.email} />
-              <Field name="postal_address" label="Postal address" defaultValue={a.postal_address} />
-              <Field name="physical_address" label="Physical address" defaultValue={a.physical_address} />
             </div>
             <h4 className="section-title">Employment &amp; affordability</h4>
             <div className="grid g3">
@@ -208,7 +195,7 @@ export function BasicInfoCard({ request: a, canEdit }: BasicInfoCardProps) {
                 defaultValue={a.other_deductions ? toUnits(a.other_deductions) : ''} />
             </div>
           </form>
-          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={save} />
+          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />
         </>
       )}
     </Card>
@@ -218,10 +205,11 @@ export function BasicInfoCard({ request: a, canEdit }: BasicInfoCardProps) {
 export interface GroupInfoCardProps {
   request: MemberEditRequestWithDimensions;
   canEdit: boolean;
+  startEditing?: boolean;
 }
 
-export function GroupInfoCard({ request: a, canEdit }: GroupInfoCardProps) {
-  const { formRef, editing, setEditing, busy, error, save } = useInlineEdit(a.no);
+export function GroupInfoCard({ request: a, canEdit, startEditing = false }: GroupInfoCardProps) {
+  const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no, canEdit && startEditing);
 
   return (
     <Card>
@@ -237,12 +225,6 @@ export function GroupInfoCard({ request: a, canEdit }: GroupInfoCardProps) {
           ['Registration no.', <span className="mono" key="rn">{a.registration_no || '—'}</span>],
           ['Registration date', formatDate(a.registration_date)],
           ['Number of members', a.member_count ?? '—'],
-          ['Contact person', a.contact_person_name || '—'],
-          ['Contact phone', a.contact_person_phone || '—'],
-          ['Contact email', a.contact_person_email || '—'],
-          ['Phone', a.phone || '—'],
-          ['Email', a.email || '—'],
-          ['Physical address', a.physical_address || '—'],
         ]} />
       ) : (
         <>
@@ -252,15 +234,79 @@ export function GroupInfoCard({ request: a, canEdit }: GroupInfoCardProps) {
               <Field name="registration_no" label="Registration no." defaultValue={a.registration_no} />
               <Field name="registration_date" label="Registration date" type="date" defaultValue={a.registration_date} />
               <Field name="member_count" label="Number of members" type="number" defaultValue={a.member_count} />
-              <Field name="contact_person_name" label="Contact person" defaultValue={a.contact_person_name} />
-              <Field name="contact_person_phone" label="Contact phone" defaultValue={a.contact_person_phone} />
-              <Field name="contact_person_email" label="Contact email" type="email" defaultValue={a.contact_person_email} />
-              <Field name="phone" label="Phone" defaultValue={a.phone} required />
-              <Field name="email" label="Email" type="email" defaultValue={a.email} />
-              <Field name="physical_address" label="Physical address" defaultValue={a.physical_address} />
             </div>
           </form>
-          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={save} />
+          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />
+        </>
+      )}
+    </Card>
+  );
+}
+
+export interface ContactInfoCardProps {
+  request: MemberEditRequestWithDimensions;
+  counties: County[];
+  subCounties: SubCounty[];
+  isIndividual: boolean;
+  canEdit: boolean;
+  startEditing?: boolean;
+}
+
+export function ContactInfoCard({
+  request: a, counties, subCounties, isIndividual, canEdit, startEditing = false,
+}: ContactInfoCardProps) {
+  const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no, canEdit && startEditing);
+  const [countyId, setCountyId] = useState<number | ''>(a.county_id ?? '');
+
+  return (
+    <Card>
+      <CardHead title="Contact &amp; addresses" sub="How to reach the member">
+        {canEdit && !editing ? (
+          <button type="button" className="btn sm ghost" onClick={() => setEditing(true)}>Edit</button>
+        ) : null}
+      </CardHead>
+
+      {!editing ? (
+        <DefinitionList items={[
+          !isIndividual ? ['Contact person', a.contact_person_name || '—'] : null,
+          !isIndividual ? ['Contact phone', a.contact_person_phone || '—'] : null,
+          !isIndividual ? ['Contact email', a.contact_person_email || '—'] : null,
+          ['Phone', a.phone || '—'],
+          ['Email', a.email || '—'],
+          isIndividual ? ['Postal address', a.postal_address || '—'] : null,
+          ['Physical address', a.physical_address || '—'],
+          ['County', a.county_name || '—'],
+          ['Sub-county', a.sub_county_name || '—'],
+        ]} />
+      ) : (
+        <>
+          <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
+            <div className="grid g3">
+              {!isIndividual ? (
+                <>
+                  <Field name="contact_person_name" label="Contact person" defaultValue={a.contact_person_name} />
+                  <Field name="contact_person_phone" label="Contact phone" defaultValue={a.contact_person_phone} />
+                  <Field name="contact_person_email" label="Contact email" type="email"
+                    defaultValue={a.contact_person_email} />
+                </>
+              ) : null}
+              <Field name="phone" label="Phone" defaultValue={a.phone} required />
+              <Field name="email" label="Email" type="email" defaultValue={a.email} />
+              {isIndividual ? (
+                <Field name="postal_address" label="Postal address" defaultValue={a.postal_address} />
+              ) : null}
+              <Field name="physical_address" label="Physical address" defaultValue={a.physical_address} />
+              <Field name="county_id" label="County" type="select" defaultValue={a.county_id}
+                options={[{ value: '', label: 'Select county…' }, ...counties.map((c) => ({ value: c.id, label: c.name }))]}
+                onChange={(e) => setCountyId(e.target.value ? Number(e.target.value) : '')} />
+              <Field key={countyId} name="sub_county_id" label="Sub-county" type="select" defaultValue={a.sub_county_id}
+                options={[
+                  { value: '', label: countyId ? 'Select sub-county…' : 'Select a county first' },
+                  ...subCounties.filter((s) => s.county_id === countyId).map((s) => ({ value: s.id, label: s.name })),
+                ]} />
+            </div>
+          </form>
+          <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />
         </>
       )}
     </Card>

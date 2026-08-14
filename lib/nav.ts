@@ -24,11 +24,17 @@ export const NAV: NavGroup[] = [
     items: [
       { path: '/dashboard', label: 'Dashboard', icon: '▤', perms: ['REPORT:VIEW'] },
       { path: '/approvals', label: 'Approvals', icon: '✔', perms: ['LOAN:READ', 'MEMBER:READ', 'GL:READ'], badge: 'pendingApprovals' },
-      { path: '/member-applications', label: 'Member Application', icon: '📝', perms: ['MEMBER:READ'] },
-      {  path: '/members', label: 'Members', icon: '👥', perms: ['MEMBER:READ'] },
       { path: '/savings', label: 'Savings & FOSA', icon: '💰', perms: ['SAVINGS:READ'] },
       { path: '/loans', label: 'Loans', icon: '📄', perms: ['LOAN:READ'] },
        ],
+  },
+  {
+    group: 'Client Relationship Mgmt',
+    items: [
+      { path: '/member-applications', label: 'Member Application', icon: '📝', perms: ['MEMBER:READ'] },
+      { path: '/members', label: 'Members', icon: '👥', perms: ['MEMBER:READ'] },
+      { path: '/member-edits', label: 'Member Editing', icon: '✏', perms: ['MEMBER:READ'] },
+    ],
   },
   {
     group: 'Finance',
@@ -43,7 +49,8 @@ export const NAV: NavGroup[] = [
       {
         path: '/admin', label: 'Admin Centre', icon: '⚙',
         perms: ['ADMIN:ORG_MANAGE', 'ADMIN:THEME_MANAGE', 'ADMIN:USER_MANAGE', 'ADMIN:PRODUCT_MANAGE',
-          'ADMIN:AUDIT_VIEW', 'ADMIN:COA_MANAGE', 'ADMIN:ROLE_MANAGE', 'ADMIN:POOL_MANAGE', 'ADMIN:WORKFLOW_MANAGE'],
+          'ADMIN:AUDIT_VIEW', 'ADMIN:COA_MANAGE', 'ADMIN:ROLE_MANAGE', 'ADMIN:POOL_MANAGE', 'ADMIN:WORKFLOW_MANAGE',
+          'ADMIN:CHANGE_LOG_MANAGE'],
       },
     ],
   },

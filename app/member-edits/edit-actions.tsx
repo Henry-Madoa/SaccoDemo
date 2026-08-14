@@ -6,10 +6,11 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { useToast } from '@/components/ui/toast';
 import {
-  submitMemberEdit, cancelMemberEditApproval, approveMemberEditRequest, rejectMemberEditRequest,
-  processMemberEditRequest,
+  requestMemberEdit, submitMemberEdit, cancelMemberEditApproval, approveMemberEditRequest,
+  rejectMemberEditRequest, processMemberEditRequest,
 } from '@/app/actions/memberEdits';
 import { delegateMyTask } from '@/app/actions/workflows';
+import type { Member } from '@/lib/types';
 
 /** Shared shape for the simple one-click workflow actions. */
 function useRunAction() {
@@ -91,6 +92,36 @@ export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; c
           successTitle="Edit request rejected"
         >
           <Field name="reason" label="Reason" type="textarea" required />
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
+/** Starts a new edit request by snapshotting an existing member's current values. */
+export function NewEditRequestButton({ members }: {
+  members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>New edit request</button>
+      {open ? (
+        <FormModal
+          title="New member edit request"
+          onClose={() => setOpen(false)}
+          onSubmit={async (values) => {
+            const res = await requestMemberEdit(Number(values.memberId));
+            if (res.ok) router.push(`/member-edits/view/${res.data.no}?edit=1`);
+            return res;
+          }}
+          submitLabel="Start request"
+          successTitle="Edit request created"
+          successDetail={(d) => `${d.no} is open for editing`}
+        >
+          <Field name="memberId" label="Member" type="select" required
+            options={members.map((m) => ({ value: m.id, label: `${m.member_no} — ${m.first_name} ${m.last_name}` }))} />
         </FormModal>
       ) : null}
     </>

@@ -78,7 +78,8 @@ const ROLES: RoleSeed[] = [
     description: 'Approves loans and oversees branch operations.',
     perms: ['MEMBER:READ', 'MEMBER:CREATE', 'MEMBER:UPDATE', 'MEMBER:APPROVE', 'SAVINGS:READ', 'SAVINGS:OPEN',
       'SAVINGS:DEPOSIT', 'SAVINGS:WITHDRAW', 'SAVINGS:REVERSE', 'LOAN:READ', 'LOAN:CREATE', 'LOAN:APPROVE',
-      'LOAN:DISBURSE', 'LOAN:REPAY', 'GL:READ', 'REPORT:VIEW', 'REPORT:EXPORT', 'ADMIN:AUDIT_VIEW'],
+      'LOAN:DISBURSE', 'LOAN:REPAY', 'GL:READ', 'REPORT:VIEW', 'REPORT:EXPORT', 'ADMIN:AUDIT_VIEW',
+      'ADMIN:CHANGE_LOG_MANAGE'],
   },
   {
     name: 'Loans Officer',

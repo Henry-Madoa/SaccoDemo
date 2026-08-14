@@ -3,17 +3,17 @@
 import { revalidatePath } from 'next/cache';
 import { requirePerm } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
-import { replaceApplicationSignatories, type SignatoryDraft } from '@/lib/applicationSignatories';
+import { replaceEditSignatories, type SignatoryDraft } from '@/lib/editSignatories';
 import type { ActionResult } from '@/lib/types';
 
-export async function saveApplicationSignatories(
-  applicationNo: string,
+export async function saveEditSignatories(
+  editNo: string,
   rows: SignatoryDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
     await requirePerm('MEMBER:UPDATE');
-    await replaceApplicationSignatories(applicationNo, rows);
-    revalidatePath(`/member-applications/view/${applicationNo}`);
+    await replaceEditSignatories(editNo, rows);
+    revalidatePath(`/member-edits/view/${editNo}`);
     return { updated: true };
   });
 }

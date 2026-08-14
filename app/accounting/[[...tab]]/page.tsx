@@ -14,7 +14,7 @@ import { SearchInput } from '@/components/ui/filters';
 import { Money } from '@/components/ui/money';
 import { LedgerLink, JournalLink } from '../drill-downs';
 import { NewJournalButton } from '../journal-form';
-import { AddGlAccountButton } from '../gl-account-form';
+import { GlAccountFormButton } from '../gl-account-form';
 import { PeriodToggle } from '../period-toggle';
 
 const TABS: TabDefinition[] = [
@@ -167,7 +167,7 @@ async function AccountsTab() {
     <>
       <Toolbar>
         <Spacer />
-        {canManage ? <AddGlAccountButton /> : null}
+        {canManage ? <GlAccountFormButton className="btn">Add account</GlAccountFormButton> : null}
       </Toolbar>
       <Card>
         <CardHead
@@ -178,7 +178,7 @@ async function AccountsTab() {
           <thead>
             <tr>
               <th>Code</th><th>Account</th><th>Type</th><th>Parent</th>
-              <th>Postable</th><th className="num">Balance</th>
+              <th>Postable</th><th>Status</th><th className="num">Balance</th><th />
             </tr>
           </thead>
           <tbody>
@@ -189,7 +189,13 @@ async function AccountsTab() {
                 <td className="tiny">{a.type}</td>
                 <td className="mono muted-cell">{a.parent_code || ''}</td>
                 <td>{a.is_postable ? <Pill tone="ok">YES</Pill> : <Pill>HEADER</Pill>}</td>
+                <td><Pill status={a.status} /></td>
                 <td className="num">{a.is_postable ? <Money cents={a.balance} /> : ''}</td>
+                <td>
+                  {canManage ? (
+                    <GlAccountFormButton account={a} className="btn sm ghost">Edit</GlAccountFormButton>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

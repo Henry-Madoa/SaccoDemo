@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardHead } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { FilePicker } from '@/components/ui/uploader';
 import { useToast } from '@/components/ui/toast';
 import { saveMemberBiometric, type BiometricKind } from '@/app/actions/media';
@@ -42,8 +42,7 @@ export function BiometricPanel({ memberId, images, canEdit, mediaEnabled }: Biom
   const [tab, setTab] = useState<TabKey>('id');
 
   return (
-    <Card>
-      <CardHead title="Biometric information" sub="ID scans, signature and fingerprint capture" />
+    <CollapsibleCard title="Biometric information" sub="ID scans, signature and fingerprint capture">
       {!mediaEnabled ? (
         <div className="note" style={{ marginBottom: 'var(--sp)' }}>
           Media storage is not configured. Set the <code>CLOUDINARY_*</code> environment variables to enable uploads.
@@ -70,7 +69,7 @@ export function BiometricPanel({ memberId, images, canEdit, mediaEnabled }: Biom
           />
         ))}
       </div>
-    </Card>
+    </CollapsibleCard>
   );
 }
 

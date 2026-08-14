@@ -8,10 +8,16 @@ import { useToast } from '@/components/ui/toast';
 import { saveMemberApplication } from '@/app/actions/memberApplications';
 import { today } from '@/lib/format';
 import { MEMBER_TITLES } from '@/lib/constants';
-import type { MemberCategory } from '@/lib/types';
+import type { DimensionValue, MemberCategory } from '@/lib/types';
 
-export function NewApplicationForm({ memberCategories }: {
+export function NewApplicationForm({
+  memberCategories, globalDimension1Values, globalDimension2Values, caption1, caption2,
+}: {
   memberCategories: MemberCategory[];
+  globalDimension1Values: DimensionValue[];
+  globalDimension2Values: DimensionValue[];
+  caption1: string;
+  caption2: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -29,7 +35,7 @@ export function NewApplicationForm({ memberCategories }: {
       const res = await saveMemberApplication(null, values);
       if (!res.ok) { setError(res.error || 'Could not create application'); return; }
       toast('Application created', 'Add the rest of the details on the application page.', 'ok');
-      router.push(`/member-applications/view/${(res.data as { no: string }).no}`);
+      router.push(`/member-applications/view/${(res.data as { no: string }).no}?edit=1`);
     } finally {
       setBusy(false);
     }
@@ -44,12 +50,17 @@ export function NewApplicationForm({ memberCategories }: {
             options={[
               { value: '', label: 'Select category…' },
               ...memberCategories.map((c) => ({ value: c.id, label: c.description })),
-            ]} />
-          <Field name="join_date" label="Date joined" type="date" defaultValue={today()} />
-          <Field name="title" label="Title" type="select" options={MEMBER_TITLES} />
-          <Field name="first_name" label="First name" required />
-          <Field name="last_name" label="Last name" required />
-          <Field name="phone" label="Phone" required />
+            ]} required />
+          <Field name="global_dimension_1_id" label={caption1} type="select"
+            options={[
+              { value: '', label: `Select ${caption1.toLowerCase()}…` },
+              ...globalDimension1Values.map((v) => ({ value: v.id, label: v.name })),
+            ]} required/>
+          <Field name="global_dimension_2_id" label={caption2} type="select"
+            options={[
+              { value: '', label: `Select ${caption2.toLowerCase()}…` },
+              ...globalDimension2Values.map((v) => ({ value: v.id, label: v.name })),
+            ]} required/>
         </div>
       </form>
       <Toolbar>

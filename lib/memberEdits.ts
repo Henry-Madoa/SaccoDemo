@@ -1,11 +1,17 @@
-import { one, all, run, tx, nextSequence, audit } from './db.ts';
+import { one, all, run, tx, nextSequence } from './db.ts';
 import { AppError } from './errors.ts';
 import {
   MEMBER_FIELDS, getMember, updateMember, type MemberField, type MemberInput,
 } from './members.ts';
+import { listNextOfKin, listNominees, replaceNextOfKin, replaceNominees } from './nominees.ts';
+import { listSignatories, replaceSignatories } from './signatories.ts';
+import { listEditNextOfKin, listEditNominees, replaceEditNextOfKin, replaceEditNominees } from './editNominees.ts';
+import { listEditSignatories, replaceEditSignatories } from './editSignatories.ts';
+import { applyEditAttachments, cloneMemberAttachmentsToEdit } from './editAttachments.ts';
+import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import type {
-  Actor, AuditEntry, MemberEditFieldDiff, MemberEditRequest, MemberEditRequestWithDimensions,
+  Actor, MemberEditFieldDiff, MemberEditRequest, MemberEditRequestWithDimensions,
   MemberWithDimensions,
 } from './types.ts';
 
@@ -30,7 +36,7 @@ const VIEW_CLAUSE: Record<MemberEditView, string> = {
 const FIELD_LABELS: Record<MemberEditField, string> = {
   member_type: 'Member type', member_category_id: 'Member category', title: 'Title',
   first_name: 'First name', middle_name: 'Middle name', last_name: 'Last name',
-  national_id: 'National ID', kra_pin: 'KRA PIN', date_of_birth: 'Date of birth',
+  national_id: 'Identification No.', kra_pin: 'KRA PIN', date_of_birth: 'Date of birth',
   gender: 'Gender', marital_status: 'Marital status', phone: 'Phone', email: 'Email',
   postal_address: 'Postal address', physical_address: 'Physical address',
   county_id: 'County', sub_county_id: 'Sub-county', employer: 'Employer',
@@ -86,12 +92,6 @@ export const getOpenMemberEditRequest = (memberId: number): Promise<MemberEditRe
     memberId,
   );
 
-/** Every audit_log entry recorded against this edit request, newest first. */
-export const listEditAuditTrail = (no: string): Promise<AuditEntry[]> =>
-  all<AuditEntry>(
-    "SELECT * FROM audit_log WHERE entity = 'member_edit_request' AND entity_id = ? ORDER BY id DESC", no,
-  );
-
 /** Snapshots the member's current values into a fresh, editable request — unlike a member
  *  application's blank slate, an edit needs a full copy so the inline-edit cards have
  *  something to show, and so the eventual diff has a real "before" to compare against. */
@@ -109,19 +109,37 @@ export async function createMemberEditRequest(memberId: number, user: Actor): Pr
 
   const no = await nextSequence('MEMBER_EDIT');
   const values = EDIT_FIELDS.map((f) => (member as unknown as Record<string, string | number | null>)[f]);
-  await run(
-    `INSERT INTO member_edit_request (no, member_id, created_at, created_by, ${EDIT_FIELDS.join(',')})
-     VALUES (?,?,?,?${EDIT_FIELDS.map(() => ',?').join('')})`,
-    no, memberId, new Date().toISOString(), user.username, ...values,
-  );
-  await audit(user, 'MEMBER_EDIT_CREATE', 'member_edit_request', no, { memberId });
+
+  await tx(async () => {
+    await run(
+      `INSERT INTO member_edit_request (no, member_id, created_at, created_by, ${EDIT_FIELDS.join(',')})
+       VALUES (?,?,?,?${EDIT_FIELDS.map(() => ',?').join('')})`,
+      no, memberId, new Date().toISOString(), user.username, ...values,
+    );
+
+    // Same rationale as the flat fields above: the KYC/Nominee/Next-of-kin/Signatory
+    // tabs need a starting point to show and edit, not a blank slate.
+    const [nok, nominees, signatories] = await Promise.all([
+      listNextOfKin(memberId), listNominees(memberId), listSignatories(memberId),
+    ]);
+    await replaceEditNextOfKin(no, nok);
+    await replaceEditNominees(no, nominees);
+    await replaceEditSignatories(no, signatories);
+    await cloneMemberAttachmentsToEdit(memberId, no);
+
+    const changes = [
+      { field: 'member_id', oldValue: null, newValue: memberId },
+      ...EDIT_FIELDS.map((f, i) => ({ field: f, oldValue: null, newValue: values[i] })),
+    ];
+    await logTableChange('member_edit_request', no, 'Insertion', changes, user);
+  });
   return { no };
 }
 
 export async function updateMemberEditRequest(
   no: string, body: MemberEditInput, user: Actor,
 ): Promise<MemberEditRequestWithDimensions> {
-  const req = await one<MemberEditRequest>('SELECT status FROM member_edit_request WHERE no = ?', no);
+  const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open edit request can be edited', 'VALIDATION');
 
@@ -131,8 +149,11 @@ export async function updateMemberEditRequest(
       `UPDATE member_edit_request SET ${cols.map((c) => `${c}=?`).join(',')} WHERE no=?`,
       ...cols.map((c) => body[c]!), no,
     );
+    const changes = diffFields(
+      req as unknown as Record<string, unknown>, Object.fromEntries(cols.map((c) => [c, body[c]])),
+    );
+    await logTableChange('member_edit_request', no, 'Modification', changes, user);
   }
-  await audit(user, 'MEMBER_EDIT_UPDATE', 'member_edit_request', no, { fields: cols });
   return (await getMemberEditRequest(no))!;
 }
 
@@ -150,7 +171,10 @@ export async function submitMemberEditRequest(no: string, user: Actor): Promise<
 
   await tx(async () => {
     await run("UPDATE member_edit_request SET status = 'Pending Approval' WHERE no = ?", no);
-    await audit(user, 'MEMBER_EDIT_SUBMIT', 'member_edit_request', no, {});
+    await logTableChange(
+      'member_edit_request', no, 'Modification',
+      [{ field: 'status', oldValue: req.status, newValue: 'Pending Approval' }], user,
+    );
     await startWorkflow(matched.workflow, matched.steps, {
       documentType: 'MEMBER_EDIT', entityId: no, requestedBy: user.username, amount: req.gross_income,
     });
@@ -172,27 +196,35 @@ export async function cancelEditApproval(no: string, user: Actor): Promise<void>
     throw new AppError('Only the person who submitted this request for approval can cancel it', 'NOT_REQUESTER');
   }
   await run("UPDATE member_edit_request SET status = 'Open' WHERE no = ?", no);
-  await audit(user, 'MEMBER_EDIT_CANCEL_APPROVAL', 'member_edit_request', no, {});
+  await logTableChange(
+    'member_edit_request', no, 'Modification', [{ field: 'status', oldValue: req.status, newValue: 'Open' }], user,
+  );
 }
 
 export async function approveMemberEdit(no: string, user: Actor): Promise<void> {
-  const req = await one<MemberEditRequest>('SELECT status FROM member_edit_request WHERE no = ?', no);
+  const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Pending Approval') {
     throw new AppError('Only a request pending approval can be approved', 'VALIDATION');
   }
   await run("UPDATE member_edit_request SET status = 'Approved', decision_reason = NULL WHERE no = ?", no);
-  await audit(user, 'MEMBER_EDIT_APPROVE', 'member_edit_request', no, {});
+  const changes = diffFields(
+    req as unknown as Record<string, unknown>, { status: 'Approved', decision_reason: null },
+  );
+  await logTableChange('member_edit_request', no, 'Modification', changes, user);
 }
 
 export async function rejectMemberEdit(no: string, reason: string | null, user: Actor): Promise<void> {
-  const req = await one<MemberEditRequest>('SELECT status FROM member_edit_request WHERE no = ?', no);
+  const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Pending Approval') {
     throw new AppError('Only a request pending approval can be rejected', 'VALIDATION');
   }
   await run("UPDATE member_edit_request SET status = 'Rejected', decision_reason = ? WHERE no = ?", reason || null, no);
-  await audit(user, 'MEMBER_EDIT_REJECT', 'member_edit_request', no, { reason });
+  const changes = diffFields(
+    req as unknown as Record<string, unknown>, { status: 'Rejected', decision_reason: reason || null },
+  );
+  await logTableChange('member_edit_request', no, 'Modification', changes, user);
 }
 
 /** Approved -> applies onto the live member via members.updateMember(), then marks Committed. */
@@ -207,9 +239,22 @@ export async function processMemberEdit(no: string, user: Actor): Promise<{ memb
     const body: MemberInput = {};
     for (const f of EDIT_FIELDS) body[f] = (req as unknown as Record<string, string | number | null>)[f];
     await updateMember(req.member_id, body, user);
-    await run("UPDATE member_edit_request SET status = 'Committed' WHERE no = ?", no);
 
-    await audit(user, 'MEMBER_EDIT_PROCESS', 'member_edit_request', no, { memberId: req.member_id });
+    const [nok, nominees, signatories] = await Promise.all([
+      listEditNextOfKin(no), listEditNominees(no), listEditSignatories(no),
+    ]);
+    await replaceNextOfKin(req.member_id, nok, user);
+    await replaceNominees(req.member_id, nominees, user);
+    await replaceSignatories(req.member_id, signatories, user);
+    await applyEditAttachments(no, req.member_id, user);
+
+    await run(
+      "UPDATE member_edit_request SET status = 'Committed', processed_at = ?, processed_by = ? WHERE no = ?",
+      new Date().toISOString(), user.username, no,
+    );
+
+    const changes = diffFields(req as unknown as Record<string, unknown>, { status: 'Committed' });
+    await logTableChange('member_edit_request', no, 'Modification', changes, user);
     return { memberId: req.member_id };
   });
 }

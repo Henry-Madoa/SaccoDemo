@@ -1,4 +1,5 @@
-import { Card, CardHead, EmptyState, TableWrap } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
+import { EmptyState, TableWrap } from '@/components/ui/primitives';
 import type { MemberEditFieldDiff } from '@/lib/types';
 
 const fmt = (v: string | number | null) => (v === null || v === '' ? '—' : String(v));
@@ -7,8 +8,7 @@ const fmt = (v: string | number | null) => (v === null || v === '' ? '—' : Str
  *  current vs. requested, without having to read two full cards side by side. */
 export function ChangesSummary({ diffs }: { diffs: MemberEditFieldDiff[] }) {
   return (
-    <Card>
-      <CardHead title="What's changing" sub={`${diffs.length} field${diffs.length === 1 ? '' : 's'} would change`} />
+    <CollapsibleCard title="What's changing" sub={`${diffs.length} field${diffs.length === 1 ? '' : 's'} would change`}>
       {diffs.length ? (
         <TableWrap>
           <thead>
@@ -25,6 +25,6 @@ export function ChangesSummary({ diffs }: { diffs: MemberEditFieldDiff[] }) {
           </tbody>
         </TableWrap>
       ) : <EmptyState icon="✓" title="No changes yet" sub="Edit the cards below to stage a change" />}
-    </Card>
+    </CollapsibleCard>
   );
 }

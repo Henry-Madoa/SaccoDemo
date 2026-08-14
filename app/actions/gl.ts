@@ -6,7 +6,7 @@ import { actionResult, AppError } from '@/lib/errors';
 import * as gl from '@/lib/gl';
 import { toCents } from '@/lib/format';
 import type {
-  AccountingPeriod, ActionResult, FormValues, GlAccountType, JournalLineInput, PostedJournal,
+  AccountingPeriod, ActionResult, FormValues, GlAccount, GlAccountType, JournalLineInput, PostedJournal,
 } from '@/lib/types';
 
 /*
@@ -89,6 +89,21 @@ export async function createGlAccount(values: FormValues): Promise<ActionResult<
     }, user);
     revalidatePath('/accounting/accounts');
     return created;
+  });
+}
+
+export async function updateGlAccount(code: string, values: FormValues): Promise<ActionResult<GlAccount>> {
+  return actionResult(async () => {
+    const user = await requirePerm('ADMIN:COA_MANAGE');
+    const updated = await gl.updateGlAccount(code, {
+      name: String(values.name || '').trim(),
+      type: values.type as GlAccountType,
+      parent_code: String(values.parent_code || '') || null,
+      is_postable: Number(values.is_postable) ? 1 : 0,
+      status: (String(values.status || 'ACTIVE') as 'ACTIVE' | 'INACTIVE'),
+    }, user);
+    revalidatePath('/accounting/accounts');
+    return updated;
   });
 }
 

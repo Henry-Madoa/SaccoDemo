@@ -197,6 +197,31 @@ export interface AuditEntry {
   ip: string | null;
 }
 
+/** Which tables get field-level change tracking — Admin Centre toggles these. */
+export interface ChangeLogSetup {
+  table_name: string;
+  table_caption: string;
+  log_insertion: Flag;
+  log_modification: Flag;
+  log_deletion: Flag;
+}
+
+export type ChangeLogType = 'Insertion' | 'Modification' | 'Deletion';
+
+export interface ChangeLogEntry {
+  id: number;
+  table_name: string;
+  table_caption: string;
+  record_id: string;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  type: ChangeLogType;
+  changed_at: IsoDateTime;
+  user_id: number | null;
+  username: string;
+}
+
 /* ----------------------------------------------------------------- members */
 
 export type MemberStatus = 'NOT PAID UP' | 'ACTIVE' | 'INACTIVE'|'DORMANT' | 'WITHDRAWN'|   'DECEASED'| 'CLOSED' ;
@@ -318,8 +343,7 @@ export interface MemberDetail {
  * A member application only ever drives itself through a subset of these.
  */
 export type DocumentStatus =
-  | 'Open' | 'Closed' | 'Pending Approval' | 'Approved' | 'Pending Prepayment' | 'Rejected' | 'Reversed'
-  | 'Archived' | 'Committed' | 'Fulfilled' | 'Running' | 'Terminated' | 'Bounced' | 'Cleared' | 'Received';
+  | 'Open' | 'Pending Approval' | 'Approved' | 'Posted' | 'Rejected' | 'Committed';
 
 /** A staged membership, captured with every field member.createMember() will need once approved. */
 export interface MemberApplication {
@@ -327,9 +351,9 @@ export interface MemberApplication {
   member_type: 'INDIVIDUAL' | 'CORPORATE' | 'GROUP';
   member_category_id: number | null;
   title: string | null;
-  first_name: string;
+  first_name: string | null;
   middle_name: string | null;
-  last_name: string;
+  last_name: string | null;
   national_id: string | null;
   kra_pin: string | null;
   date_of_birth: IsoDate | null;
@@ -371,6 +395,8 @@ export interface MemberApplication {
   member_id: number | null;
   created_at: IsoDateTime | null;
   created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
 }
 
 export interface MemberApplicationWithDimensions extends MemberApplication {
@@ -440,6 +466,8 @@ export interface MemberEditRequest {
   decision_reason: string | null;
   created_at: IsoDateTime | null;
   created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
 }
 
 export interface MemberEditRequestWithDimensions extends MemberEditRequest {
@@ -500,6 +528,50 @@ export interface MemberApplicationSignatory {
 export interface MemberApplicationAttachment {
   id: number;
   application_no: string;
+  public_id: string;
+  url: string;
+  filename: string;
+  resource_type: string;
+  format: string | null;
+  bytes: number;
+  category: string | null;
+  uploaded_at: IsoDateTime;
+  uploaded_by: string;
+}
+
+export interface MemberEditNextOfKin {
+  id: number;
+  edit_no: string;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+}
+
+export interface MemberEditNominee {
+  id: number;
+  edit_no: string;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+  percentage: number;
+  is_next_of_kin: Flag;
+}
+
+/** An office bearer authorised to act on the eventual non-individual (group/corporate) member's account. */
+export interface MemberEditSignatory {
+  id: number;
+  edit_no: string;
+  identification_no: string | null;
+  name: string;
+  designation: string | null;
+  date_of_birth: IsoDate | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface MemberEditAttachment {
+  id: number;
+  edit_no: string;
   public_id: string;
   url: string;
   filename: string;
