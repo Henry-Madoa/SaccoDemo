@@ -3,6 +3,11 @@ import { AppError } from './errors.ts';
 import { loanableDeposits, existingExposure } from './loanService.ts';
 import { listNextOfKin, listNominees } from './nominees.ts';
 import { listSignatories } from './signatories.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
+import {
+  MEMBER_STATUSES, MEMBER_TYPES, MEMBER_TITLES, GENDERS, MARITAL_STATUSES, EMPLOYMENT_STATUSES,
+} from './constants.ts';
 import type {
   Actor, GuarantorshipRow, LoanWithProductName, Member, MemberDetail, MemberListRow,
   MemberWithDimensions, SavingsAccountWithProduct, Txn,
@@ -25,9 +30,68 @@ export type MemberInput = Partial<Record<MemberField, string | number | null>>;
 
 export { MEMBER_STATUSES } from './constants.ts';
 
+/** Members list's dynamic-filter registry — every column meaningful to filter on (image/binary
+ *  fields like photo/signature/fingerprint images are excluded, since there's nothing to filter).
+ *  DB-driven fields (member_category_id, county_id, sub_county_id, both dimensions) ship without
+ *  `options` here; the page fills them in from lookups it already fetches. */
+export const MEMBER_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'member_no', label: 'Member No.', type: 'text', column: 'm.member_no' },
+  { key: 'member_type', label: 'Member Type', type: 'select', column: 'm.member_type', options: MEMBER_TYPES.map((t) => ({ value: t, label: t })) },
+  { key: 'member_category_id', label: 'Member Category', type: 'select', column: 'm.member_category_id' },
+  { key: 'title', label: 'Title', type: 'select', column: 'm.title', options: MEMBER_TITLES.filter(Boolean).map((t) => ({ value: t, label: t })) },
+  { key: 'first_name', label: 'First Name', type: 'text', column: 'm.first_name' },
+  { key: 'middle_name', label: 'Middle Name', type: 'text', column: 'm.middle_name' },
+  { key: 'last_name', label: 'Last Name', type: 'text', column: 'm.last_name' },
+  { key: 'national_id', label: 'Identification No.', type: 'text', column: 'm.national_id' },
+  { key: 'kra_pin', label: 'KRA PIN', type: 'text', column: 'm.kra_pin' },
+  { key: 'date_of_birth', label: 'Date of Birth', type: 'date', column: 'm.date_of_birth' },
+  { key: 'gender', label: 'Gender', type: 'select', column: 'm.gender', options: GENDERS.filter(Boolean).map((g) => ({ value: g, label: g })) },
+  { key: 'marital_status', label: 'Marital Status', type: 'select', column: 'm.marital_status', options: MARITAL_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
+  { key: 'phone', label: 'Phone', type: 'text', column: 'm.phone' },
+  { key: 'email', label: 'Email', type: 'text', column: 'm.email' },
+  { key: 'postal_address', label: 'Postal Address', type: 'text', column: 'm.postal_address' },
+  { key: 'physical_address', label: 'Physical Address', type: 'text', column: 'm.physical_address' },
+  { key: 'county_id', label: 'County', type: 'select', column: 'm.county_id' },
+  { key: 'sub_county_id', label: 'Sub-county', type: 'select', column: 'm.sub_county_id' },
+  { key: 'employer', label: 'Employer', type: 'text', column: 'm.employer' },
+  { key: 'employment_status', label: 'Employment Status', type: 'select', column: 'm.employment_status', options: EMPLOYMENT_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
+  { key: 'staff_no', label: 'Staff No.', type: 'text', column: 'm.staff_no' },
+  { key: 'gross_income', label: 'Gross Income', type: 'number', column: 'm.gross_income' },
+  { key: 'other_deductions', label: 'Other Deductions', type: 'number', column: 'm.other_deductions' },
+  { key: 'status', label: 'Status', type: 'select', column: 'm.status', options: MEMBER_STATUSES.map((s) => ({ value: s, label: s })) },
+  { key: 'kyc_verified', label: 'KYC Verified', type: 'select', column: 'm.kyc_verified', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] },
+  { key: 'join_date', label: 'Join Date', type: 'date', column: 'm.join_date' },
+  { key: 'notes', label: 'Notes', type: 'text', column: 'm.notes' },
+  { key: 'group_name', label: 'Group / Entity Name', type: 'text', column: 'm.group_name' },
+  { key: 'registration_no', label: 'Registration No.', type: 'text', column: 'm.registration_no' },
+  { key: 'registration_date', label: 'Registration Date', type: 'date', column: 'm.registration_date' },
+  { key: 'contact_person_name', label: 'Contact Person', type: 'text', column: 'm.contact_person_name' },
+  { key: 'contact_person_phone', label: 'Contact Phone', type: 'text', column: 'm.contact_person_phone' },
+  { key: 'contact_person_email', label: 'Contact Email', type: 'text', column: 'm.contact_person_email' },
+  { key: 'member_count', label: 'Number of Members', type: 'number', column: 'm.member_count' },
+  { key: 'global_dimension_1_id', label: 'Global Dimension 1', type: 'select', column: 'm.global_dimension_1_id' },
+  { key: 'global_dimension_2_id', label: 'Global Dimension 2', type: 'select', column: 'm.global_dimension_2_id' },
+  { key: 'created_at', label: 'Created', type: 'date', column: 'm.created_at', datetime: true },
+  { key: 'created_by', label: 'Created By', type: 'text', column: 'm.created_by' },
+];
+
+/** Members list's sortable columns — every column shown in the table. */
+const MEMBER_SORT_COLUMNS: Record<string, string> = {
+  member_no: 'm.member_no',
+  name: 'm.first_name',
+  national_id: 'm.national_id',
+  phone: 'm.phone',
+  gd1: 'gd1.name',
+  gd2: 'gd2.name',
+  total_savings: 'total_savings',
+  loan_balance: 'loan_balance',
+  status: 'm.status',
+};
+
 export interface ListMembersOptions {
   search?: string;
-  status?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
   limit?: number;
   offset?: number;
 }
@@ -39,8 +103,10 @@ export interface ListMembersOptions {
  * COUNT(*). A window function returns both in a single scan.
  */
 export async function listMembers(
-  { search = '', status = '', limit = 200, offset = 0 }: ListMembersOptions = {},
+  { search = '', filters = [], sort = null, limit = 200, offset = 0 }: ListMembersOptions = {},
 ): Promise<{ rows: MemberListRow[]; total: number }> {
+  const { clause, params } = buildFilterClause(MEMBER_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(MEMBER_SORT_COLUMNS, sort, 'm.member_no');
   const rows = await all<MemberListRow>(
     `SELECT m.*, c.name AS county_name, sc.name AS sub_county_name,
             mc.description AS member_category_name,
@@ -58,9 +124,9 @@ export async function listMembers(
      LEFT JOIN global_dimension_2_value gd2 ON gd2.id = m.global_dimension_2_id
      WHERE (m.member_no LIKE @like OR m.first_name LIKE @like OR m.last_name LIKE @like
             OR m.national_id LIKE @like OR m.phone LIKE @like)
-       ${status ? 'AND m.status = @status' : ''}
-     ORDER BY m.member_no LIMIT @limit OFFSET @offset`,
-    { like: `%${String(search).trim()}%`, status, limit: Math.min(limit, 500), offset },
+       ${clause}
+     ${orderBy} LIMIT @limit OFFSET @offset`,
+    { like: `%${String(search).trim()}%`, limit: Math.min(limit, 500), offset, ...params },
   );
   return { rows, total: rows.length ? rows[0].total_count : 0 };
 }

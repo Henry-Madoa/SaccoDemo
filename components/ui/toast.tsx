@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { GlobalErrorListener } from './global-error-listener';
 
 export type ToastKind = '' | 'ok' | 'err';
 export type ToastFn = (title: string, message?: string, kind?: ToastKind) => void;
@@ -34,6 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   return (
     <ToastContext.Provider value={toast}>
+      <GlobalErrorListener />
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (

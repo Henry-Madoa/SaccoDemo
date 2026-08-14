@@ -1,27 +1,36 @@
 import Link from 'next/link';
-import { requirePerm, currentCan } from '@/lib/session';
-import { listLoans } from '@/lib/loanService';
+import { requireAction, currentCanAction } from '@/lib/session';
+import { listLoans, LOAN_FILTER_FIELDS } from '@/lib/loanService';
 import { listActiveLoanProducts } from '@/lib/admin';
 import { listActiveMembers } from '@/lib/members';
-import { LOAN_STATUSES } from '@/lib/constants';
+import { parseFilters } from '@/lib/listFilters';
+import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, EmptyState, Pill, TableWrap, Toolbar, Spacer } from '@/components/ui/primitives';
-import { SearchInput, SelectFilter } from '@/components/ui/filters';
+import { SearchInput } from '@/components/ui/filters';
+import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
+import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
+import { ExportButton } from '@/components/ui/export-button';
 import { NewApplicationButton } from './application-form';
 import { AgingButton } from './aging-button';
 
 export default async function LoansPage({ searchParams }: {
-  searchParams: Promise<{ q?: string; status?: string; new?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string; new?: string }>;
 }) {
-  const user = await requirePerm('LOAN:READ');
-  const { q = '', status = '', new: presetMember } = await searchParams;
+  const user = await requireAction('LOAN_READ');
+  const { q = '', filters: filtersRaw, sort: sortRaw, new: presetMember } = await searchParams;
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
   const [rows, canCreate, members, products] = await Promise.all([
-    listLoans({ search: q, status }),
-    currentCan('LOAN:CREATE'),
+    listLoans({ search: q, filters, sort }),
+    currentCanAction('LOAN_CREATE'),
     listActiveMembers(),
     listActiveLoanProducts(),
   ]);
+  const fields = LOAN_FILTER_FIELDS.map((f) => (
+    f.key === 'product_id' ? { ...f, options: products.map((p) => ({ value: p.id, label: p.name })) } : f
+  ));
 
   const book = rows
     .filter((l) => l.status === 'DISBURSED')
@@ -31,8 +40,9 @@ export default async function LoansPage({ searchParams }: {
     <Page title="Loans" crumb="Origination, appraisal, disbursement and collection" user={user}>
       <Toolbar>
         <SearchInput placeholder="Search loan number, member number or name…" />
-        <SelectFilter paramName="status" options={LOAN_STATUSES} allLabel="All statuses" />
+        <DynamicFilterBar fields={fields} />
         <Spacer />
+        <ExportButton href="/api/export/loans" params={{ q, filters: filtersRaw, sort: sortRaw }} />
         <AgingButton />
         {canCreate ? (
           <NewApplicationButton
@@ -53,10 +63,15 @@ export default async function LoansPage({ searchParams }: {
             <TableWrap>
               <thead>
                 <tr>
-                  <th>Loan no.</th><th>Member</th><th>Product</th>
-                  <th className="num">Principal</th><th className="num">Outstanding</th>
-                  <th className="num">Instalment</th><th className="num">Arrears</th>
-                  <th>Status</th><th>Class</th>
+                  <th><SortLink sortKey="loan_no">Loan no.</SortLink></th>
+                  <th><SortLink sortKey="member">Member</SortLink></th>
+                  <th><SortLink sortKey="product_name">Product</SortLink></th>
+                  <th className="num"><SortLink sortKey="principal">Principal</SortLink></th>
+                  <th className="num"><SortLink sortKey="outstanding">Outstanding</SortLink></th>
+                  <th className="num"><SortLink sortKey="installment">Instalment</SortLink></th>
+                  <th className="num"><SortLink sortKey="arrears_amount">Arrears</SortLink></th>
+                  <th><SortLink sortKey="status">Status</SortLink></th>
+                  <th><SortLink sortKey="classification">Class</SortLink></th>
                 </tr>
               </thead>
               <tbody>

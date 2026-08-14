@@ -1,9 +1,11 @@
 import { one, all, run, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { trialBalance, postJournal, reverseJournal, accountBalance } from './accounting.ts';
-import { GL_ACCOUNT_TYPES } from './constants.ts';
+import { GL_ACCOUNT_TYPES, PRODUCT_STATUSES } from './constants.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal, JournalLineInput,
   JournalLineWithAccount, JournalListRow, LedgerLine, PostedJournal, TrialBalanceRow,
@@ -25,7 +27,47 @@ export async function getTrialBalance(asOf?: IsoDate | null): Promise<TrialBalan
   return { rows, totals, balanced: totals.debit === totals.credit };
 }
 
-export function listJournals(search = ''): Promise<JournalListRow[]> {
+/** Journals list's dynamic-filter registry — every meaningful column. Global dimension fields
+ *  ship without `options` since they're DB-driven; the page fills them in. Excludes purely
+ *  internal columns (id, member_id — redundant with search, reverses_id/reversed_by_id — raw
+ *  ids with no friendly picker, idempotency_key — a technical dedupe token). */
+export const JOURNAL_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'journal_no', label: 'Journal No.', type: 'text', column: 'j.journal_no' },
+  { key: 'value_date', label: 'Value Date', type: 'date', column: 'j.value_date' },
+  { key: 'posted_at', label: 'Posted At', type: 'date', column: 'j.posted_at', datetime: true },
+  { key: 'source_module', label: 'Source', type: 'text', column: 'j.source_module' },
+  { key: 'event_type', label: 'Event', type: 'text', column: 'j.event_type' },
+  { key: 'description', label: 'Description', type: 'text', column: 'j.description' },
+  { key: 'reference', label: 'Reference', type: 'text', column: 'j.reference' },
+  { key: 'amount', label: 'Amount', type: 'number', column: 'j.amount' },
+  { key: 'posted_by', label: 'Posted By', type: 'text', column: 'j.posted_by' },
+  { key: 'global_dimension_1_id', label: 'Global Dimension 1', type: 'select', column: 'j.global_dimension_1_id' },
+  { key: 'global_dimension_2_id', label: 'Global Dimension 2', type: 'select', column: 'j.global_dimension_2_id' },
+];
+
+/** Journals list's sortable columns — every column shown in the table. */
+const JOURNAL_SORT_COLUMNS: Record<string, string> = {
+  journal_no: 'j.journal_no',
+  value_date: 'j.value_date',
+  source_module: 'j.source_module',
+  event_type: 'j.event_type',
+  description: 'j.description',
+  member: 'm.first_name',
+  gd1: 'gd1.code',
+  gd2: 'gd2.code',
+  amount: 'j.amount',
+  posted_by: 'j.posted_by',
+};
+
+export interface ListJournalsOptions {
+  search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+export function listJournals({ search = '', filters = [], sort = null }: ListJournalsOptions = {}): Promise<JournalListRow[]> {
+  const { clause, params } = buildFilterClause(JOURNAL_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(JOURNAL_SORT_COLUMNS, sort, 'j.id DESC');
   return all<JournalListRow>(
     `SELECT j.*, m.member_no, m.first_name, m.last_name,
             gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
@@ -33,9 +75,10 @@ export function listJournals(search = ''): Promise<JournalListRow[]> {
      LEFT JOIN member m ON m.id = j.member_id
      LEFT JOIN global_dimension_1_value gd1 ON gd1.id = j.global_dimension_1_id
      LEFT JOIN global_dimension_2_value gd2 ON gd2.id = j.global_dimension_2_id
-     WHERE j.journal_no LIKE @like OR j.description LIKE @like OR j.reference LIKE @like
-     ORDER BY j.id DESC LIMIT 200`,
-    { like: `%${String(search).trim()}%` },
+     WHERE (j.journal_no LIKE @like OR j.description LIKE @like OR j.reference LIKE @like)
+       ${clause}
+     ${orderBy} LIMIT 200`,
+    { like: `%${String(search).trim()}%`, ...params },
   );
 }
 
@@ -155,8 +198,48 @@ export async function getAccountLedger(code: string): Promise<AccountLedger | nu
   return { account, lines, balance };
 }
 
-export const listGlAccounts = (): Promise<GlAccount[]> =>
-  all<GlAccount>('SELECT * FROM gl_account ORDER BY code');
+/** Chart of accounts list's dynamic-filter registry — every meaningful column (id is excluded
+ *  as purely internal). */
+export const GL_ACCOUNT_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'code', label: 'Code', type: 'text' },
+  { key: 'name', label: 'Account Name', type: 'text' },
+  { key: 'type', label: 'Type', type: 'select', options: GL_ACCOUNT_TYPES.map((t) => ({ value: t, label: t })) },
+  { key: 'parent_code', label: 'Parent Code', type: 'text' },
+  { key: 'is_postable', label: 'Postable', type: 'select', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'Header' }] },
+  { key: 'balance', label: 'Balance', type: 'number' },
+  { key: 'status', label: 'Status', type: 'select', options: PRODUCT_STATUSES.map((s) => ({ value: s, label: s })) },
+];
+
+/** Chart of accounts list's sortable columns — every column shown in the table. */
+const GL_ACCOUNT_SORT_COLUMNS: Record<string, string> = {
+  code: 'code',
+  name: 'name',
+  type: 'type',
+  parent_code: 'parent_code',
+  is_postable: 'is_postable',
+  balance: 'balance',
+  status: 'status',
+};
+
+export interface ListGlAccountsOptions {
+  search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+export const listGlAccounts = (
+  { search = '', filters = [], sort = null }: ListGlAccountsOptions = {},
+): Promise<GlAccount[]> => {
+  const { clause, params } = buildFilterClause(GL_ACCOUNT_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(GL_ACCOUNT_SORT_COLUMNS, sort, 'code');
+  return all<GlAccount>(
+    `SELECT * FROM gl_account
+     WHERE (code LIKE @like OR name LIKE @like)
+       ${clause}
+     ${orderBy}`,
+    { like: `%${String(search).trim()}%`, ...params },
+  );
+};
 
 export const listPostableAccounts = (): Promise<GlAccount[]> =>
   all<GlAccount>("SELECT * FROM gl_account WHERE is_postable = 1 AND status = 'ACTIVE' ORDER BY code");

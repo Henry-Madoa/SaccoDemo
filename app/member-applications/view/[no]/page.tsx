@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePerm, currentCan } from '@/lib/session';
+import { requireAction, currentCanAction } from '@/lib/session';
 import { getMemberApplication } from '@/lib/memberApplications';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { listApplicationNextOfKin, listApplicationNominees } from '@/lib/applicationNominees';
@@ -30,7 +30,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
   params: Promise<{ no: string }>;
   searchParams: Promise<{ edit?: string }>;
 }) {
-  const user = await requirePerm('MEMBER:READ');
+  const user = await requireAction('MEMBER_APPLICATIONS_READ');
   const { no } = await params;
   const { edit } = await searchParams;
   const startEditing = edit === '1';
@@ -41,7 +41,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
     canUpdate, canCreate, canApprove, nextOfKin, nominees, signatories, attachments,
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 }, tasks,
   ] = await Promise.all([
-    currentCan('MEMBER:UPDATE'), currentCan('MEMBER:CREATE'), currentCan('MEMBER:APPROVE'),
+    currentCanAction('MEMBER_APPLICATIONS_UPDATE'), currentCanAction('MEMBER_APPLICATIONS_CREATE'), currentCanAction('MEMBER_APPLICATIONS_APPROVE'),
     listApplicationNextOfKin(no), listApplicationNominees(no), listApplicationSignatories(no),
     listApplicationAttachments(no),
     listActiveCounties(), listActiveSubCounties(), listActiveMemberCategories(),

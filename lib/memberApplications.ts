@@ -7,6 +7,11 @@ import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { getMemberCategoryDefaultAccounts } from './pool.ts';
 import { openAccount } from './savings.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
+import {
+  MEMBER_TYPES, MEMBER_TITLES, GENDERS, MARITAL_STATUSES, EMPLOYMENT_STATUSES,
+} from './constants.ts';
 import type {
   Actor, MemberApplication, MemberApplicationAttachment, MemberApplicationWithDimensions,
 } from './types.ts';
@@ -50,21 +55,85 @@ const SELECT_APPLICATION = `
   LEFT JOIN global_dimension_1_value gd1 ON gd1.id = a.global_dimension_1_id
   LEFT JOIN global_dimension_2_value gd2 ON gd2.id = a.global_dimension_2_id`;
 
+/** Member Applications list's dynamic-filter registry — every meaningful column, sitting
+ *  alongside the view tabs (which remain the primary Open/Pending/Approved/Processed
+ *  navigation, so `status` is deliberately left out here). Image/attachment fields (photo,
+ *  front/back id, signature, fingerprints) are excluded — nothing to filter on. DB-driven
+ *  fields (member_category_id, county_id, sub_county_id, both dimensions) ship without
+ *  `options`; the page fills them in from lookups it already fetches. */
+export const APPLICATION_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'no', label: 'Application No.', type: 'text', column: 'a.no' },
+  { key: 'member_type', label: 'Member Type', type: 'select', column: 'a.member_type', options: MEMBER_TYPES.map((t) => ({ value: t, label: t })) },
+  { key: 'member_category_id', label: 'Member Category', type: 'select', column: 'a.member_category_id' },
+  { key: 'title', label: 'Title', type: 'select', column: 'a.title', options: MEMBER_TITLES.filter(Boolean).map((t) => ({ value: t, label: t })) },
+  { key: 'first_name', label: 'First Name', type: 'text', column: 'a.first_name' },
+  { key: 'middle_name', label: 'Middle Name', type: 'text', column: 'a.middle_name' },
+  { key: 'last_name', label: 'Last Name', type: 'text', column: 'a.last_name' },
+  { key: 'national_id', label: 'Identification No.', type: 'text', column: 'a.national_id' },
+  { key: 'kra_pin', label: 'KRA PIN', type: 'text', column: 'a.kra_pin' },
+  { key: 'date_of_birth', label: 'Date of Birth', type: 'date', column: 'a.date_of_birth' },
+  { key: 'gender', label: 'Gender', type: 'select', column: 'a.gender', options: GENDERS.filter(Boolean).map((g) => ({ value: g, label: g })) },
+  { key: 'marital_status', label: 'Marital Status', type: 'select', column: 'a.marital_status', options: MARITAL_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
+  { key: 'phone', label: 'Phone', type: 'text', column: 'a.phone' },
+  { key: 'email', label: 'Email', type: 'text', column: 'a.email' },
+  { key: 'postal_address', label: 'Postal Address', type: 'text', column: 'a.postal_address' },
+  { key: 'physical_address', label: 'Physical Address', type: 'text', column: 'a.physical_address' },
+  { key: 'county_id', label: 'County', type: 'select', column: 'a.county_id' },
+  { key: 'sub_county_id', label: 'Sub-county', type: 'select', column: 'a.sub_county_id' },
+  { key: 'employer', label: 'Employer', type: 'text', column: 'a.employer' },
+  { key: 'employment_status', label: 'Employment Status', type: 'select', column: 'a.employment_status', options: EMPLOYMENT_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
+  { key: 'staff_no', label: 'Staff No.', type: 'text', column: 'a.staff_no' },
+  { key: 'gross_income', label: 'Gross Income', type: 'number', column: 'a.gross_income' },
+  { key: 'other_deductions', label: 'Other Deductions', type: 'number', column: 'a.other_deductions' },
+  { key: 'kyc_verified', label: 'KYC Verified', type: 'select', column: 'a.kyc_verified', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] },
+  { key: 'join_date', label: 'Join Date', type: 'date', column: 'a.join_date' },
+  { key: 'notes', label: 'Notes', type: 'text', column: 'a.notes' },
+  { key: 'group_name', label: 'Group / Entity Name', type: 'text', column: 'a.group_name' },
+  { key: 'registration_no', label: 'Registration No.', type: 'text', column: 'a.registration_no' },
+  { key: 'registration_date', label: 'Registration Date', type: 'date', column: 'a.registration_date' },
+  { key: 'contact_person_name', label: 'Contact Person', type: 'text', column: 'a.contact_person_name' },
+  { key: 'contact_person_phone', label: 'Contact Phone', type: 'text', column: 'a.contact_person_phone' },
+  { key: 'contact_person_email', label: 'Contact Email', type: 'text', column: 'a.contact_person_email' },
+  { key: 'member_count', label: 'Number of Members', type: 'number', column: 'a.member_count' },
+  { key: 'global_dimension_1_id', label: 'Global Dimension 1', type: 'select', column: 'a.global_dimension_1_id' },
+  { key: 'global_dimension_2_id', label: 'Global Dimension 2', type: 'select', column: 'a.global_dimension_2_id' },
+  { key: 'decision_reason', label: 'Decision Reason', type: 'text', column: 'a.decision_reason' },
+  { key: 'created_by', label: 'Created By', type: 'text', column: 'a.created_by' },
+  { key: 'created_at', label: 'Created', type: 'date', column: 'a.created_at', datetime: true },
+  { key: 'processed_by', label: 'Processed By', type: 'text', column: 'a.processed_by' },
+  { key: 'processed_at', label: 'Processed', type: 'date', column: 'a.processed_at', datetime: true },
+];
+
+/** Member Applications list's sortable columns — every column shown in the table. */
+const APPLICATION_SORT_COLUMNS: Record<string, string> = {
+  no: 'a.no',
+  name: 'a.first_name',
+  national_id: 'a.national_id',
+  phone: 'a.phone',
+  status: 'a.status',
+};
+
 export interface ListApplicationsOptions {
   view?: MemberApplicationView;
   search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
 }
 
 export const listMemberApplications = (
-  { view, search = '' }: ListApplicationsOptions = {},
-): Promise<MemberApplicationWithDimensions[]> =>
-  all<MemberApplicationWithDimensions>(
+  { view, search = '', filters = [], sort = null }: ListApplicationsOptions = {},
+): Promise<MemberApplicationWithDimensions[]> => {
+  const { clause, params } = buildFilterClause(APPLICATION_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(APPLICATION_SORT_COLUMNS, sort, 'a.no DESC');
+  return all<MemberApplicationWithDimensions>(
     `${SELECT_APPLICATION}
      WHERE (a.first_name LIKE @like OR a.last_name LIKE @like OR a.national_id LIKE @like OR a.no LIKE @like)
        ${view ? `AND ${VIEW_CLAUSE[view]}` : ''}
-     ORDER BY a.no DESC`,
-    { like: `%${String(search).trim()}%` },
+       ${clause}
+     ${orderBy}`,
+    { like: `%${String(search).trim()}%`, ...params },
   );
+};
 
 export const getMemberApplication = (no: string): Promise<MemberApplicationWithDimensions | undefined> =>
   one<MemberApplicationWithDimensions>(`${SELECT_APPLICATION} WHERE a.no = ?`, no);

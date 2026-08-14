@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
   replaceApplicationNextOfKin, replaceApplicationNominees, type NextOfKinDraft, type NomineeDraft,
@@ -13,7 +13,7 @@ export async function saveApplicationNextOfKin(
   rows: NextOfKinDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await requirePerm('MEMBER:UPDATE');
+    await requireAction('MEMBER_APPLICATIONS_UPDATE');
     await replaceApplicationNextOfKin(applicationNo, rows);
     revalidatePath(`/member-applications/view/${applicationNo}`);
     return { updated: true };
@@ -25,7 +25,7 @@ export async function saveApplicationNominees(
   rows: NomineeDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await requirePerm('MEMBER:UPDATE');
+    await requireAction('MEMBER_APPLICATIONS_UPDATE');
     await replaceApplicationNominees(applicationNo, rows);
     revalidatePath(`/member-applications/view/${applicationNo}`);
     return { updated: true };

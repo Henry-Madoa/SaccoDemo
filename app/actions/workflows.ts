@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm, requireUser } from '@/lib/session';
+import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as workflow from '@/lib/workflow';
 import { decideWorkflowTask, delegateWorkflowTask } from '@/lib/workflow';
@@ -14,7 +14,7 @@ export async function saveWorkflow(
   steps: workflow.StepDraft[],
 ): Promise<ActionResult<Workflow | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:WORKFLOW_MANAGE');
+    const user = await requireAction('ADMIN_WORKFLOWS_DEFINITIONS_MANAGE');
     const body: workflow.WorkflowInput = {
       name: String(values.name || '').trim(),
       document_type: values.document_type as WorkflowDocumentType,
@@ -34,7 +34,7 @@ export async function saveWorkflowUserGroup(
   members: workflow.GroupMemberDraft[],
 ): Promise<ActionResult<WorkflowUserGroup | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:WORKFLOW_MANAGE');
+    const user = await requireAction('ADMIN_WORKFLOWS_GROUPS_MANAGE');
     const body: workflow.WorkflowUserGroupInput = {
       name: String(values.name || '').trim(),
       status: values.status ? String(values.status) : null,
@@ -53,7 +53,7 @@ export async function saveWorkflowTableRelationFields(
   documentType: WorkflowDocumentType, fieldNames: string[],
 ): Promise<ActionResult<{ saved: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:WORKFLOW_MANAGE');
+    const user = await requireAction('ADMIN_WORKFLOWS_TABLES_MANAGE');
     await workflow.saveWorkflowTableRelationFields(documentType, fieldNames, user);
     revalidatePath('/admin/workflows');
     return { saved: true };
@@ -65,7 +65,7 @@ export async function saveApprovalUserSetupRow(
   values: FormValues,
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:WORKFLOW_MANAGE');
+    const user = await requireAction('ADMIN_WORKFLOWS_SETUP_MANAGE');
     await workflow.saveApprovalUserSetup(userId, {
       approver_id: Number(values.approver_id) || null,
       substitute_id: Number(values.substitute_id) || null,

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
   updateChangeLogSetup, listAvailableChangeLogTables, addChangeLogSetupTable as addTable,
@@ -15,7 +15,7 @@ export async function saveChangeLogSetup(
   patch: Partial<Pick<ChangeLogSetup, 'log_insertion' | 'log_modification' | 'log_deletion'>>,
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await requirePerm('ADMIN:CHANGE_LOG_MANAGE');
+    await requireAction('ADMIN_CHANGE_LOG_MANAGE');
     await updateChangeLogSetup(tableName, patch);
     revalidatePath('/admin/security/changelog');
     return { updated: true };
@@ -24,7 +24,7 @@ export async function saveChangeLogSetup(
 
 export async function addChangeLogSetupTable(tableName: string): Promise<ActionResult<{ added: true }>> {
   return actionResult(async () => {
-    await requirePerm('ADMIN:CHANGE_LOG_MANAGE');
+    await requireAction('ADMIN_CHANGE_LOG_MANAGE');
     const table = (await listAvailableChangeLogTables()).find((t) => t.table_name === tableName);
     if (!table) throw new AppError('Unknown or already-configured table.');
     await addTable(table.table_name, table.table_caption);
@@ -35,7 +35,7 @@ export async function addChangeLogSetupTable(tableName: string): Promise<ActionR
 
 export async function removeChangeLogSetupTable(tableName: string): Promise<ActionResult<{ removed: true }>> {
   return actionResult(async () => {
-    await requirePerm('ADMIN:CHANGE_LOG_MANAGE');
+    await requireAction('ADMIN_CHANGE_LOG_MANAGE');
     await removeTable(tableName);
     revalidatePath('/admin/security/changelog');
     return { removed: true };

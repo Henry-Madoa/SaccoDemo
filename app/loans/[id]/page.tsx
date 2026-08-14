@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePerm, currentCan } from '@/lib/session';
+import { requireAction, currentCanAction } from '@/lib/session';
 import { getLoanDetail } from '@/lib/loanService';
 import { findPendingRoutedTask, isEligibleApprover } from '@/lib/workflow';
 import { getMemberDetail } from '@/lib/members';
@@ -16,15 +16,15 @@ import { DecideButtons, DisburseButton, RepayButton } from './loan-actions';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function LoanDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requirePerm('LOAN:READ');
+  const user = await requireAction('LOAN_READ');
   const { id } = await params;
   const detail = await getLoanDetail(Number(id));
   if (!detail) notFound();
 
   const { loan: l, schedule, guarantors, transactions } = detail;
   const [canApprove, canDisburse, canRepay, canAttach, attachments] = await Promise.all([
-    currentCan('LOAN:APPROVE'), currentCan('LOAN:DISBURSE'), currentCan('LOAN:REPAY'),
-    currentCan('LOAN:CREATE'), listAttachments('loan', l.id),
+    currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
+    currentCanAction('LOAN_CREATE'), listAttachments('loan', l.id),
   ]);
 
   // Approve/Reject are only ever shown to whoever can actually decide this specific

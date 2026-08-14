@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { getOrgBrand } from '@/lib/org';
 import { getDashboard } from '@/lib/reports';
 import { formatDate, today } from '@/lib/format';
@@ -9,7 +9,7 @@ import { Money, SignedMoney } from '@/components/ui/money';
 import { MonthlyVolumesChart, DepositMixChart } from './charts';
 
 export default async function DashboardPage() {
-  const user = await requirePerm('REPORT:VIEW');
+  const user = await requireAction('DASHBOARD_VIEW');
   const [org, d] = await Promise.all([getOrgBrand(), getDashboard()]);
 
   const accountCount = d.deposits.reduce((a, x) => a + x.accounts, 0);

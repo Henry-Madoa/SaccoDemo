@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as pool from '@/lib/pool';
 import { updateOrg } from '@/lib/org';
@@ -18,7 +18,7 @@ export async function saveCounty(
   rows: pool.SubCountyDraft[],
 ): Promise<ActionResult<County | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:POOL_MANAGE');
+    const user = await requireAction('ADMIN_POOL_COUNTIES_MANAGE');
     const body: pool.CountyInput = {
       name: String(values.name || '').trim(),
       status: values.status ? String(values.status) : null,
@@ -43,7 +43,7 @@ export async function saveMemberCategory(
   rows: DefaultAccountDraft[],
 ): Promise<ActionResult<MemberCategory | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:POOL_MANAGE');
+    const user = await requireAction('ADMIN_POOL_CATEGORIES_MANAGE');
     const body: pool.MemberCategoryInput = {
       code: String(values.code || '').trim().toUpperCase(),
       description: String(values.description || '').trim(),
@@ -71,7 +71,7 @@ export async function saveDimensionValue(
   values: FormValues,
 ): Promise<ActionResult<DimensionValue | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:POOL_MANAGE');
+    const user = await requireAction('ADMIN_POOL_DIMENSIONS_MANAGE');
     const body: pool.DimensionValueInput = {
       code: String(values.code || '').trim().toUpperCase(),
       name: String(values.name || '').trim(),
@@ -89,7 +89,7 @@ export async function saveDimensionValue(
  *  (not ADMIN:ORG_MANAGE) so it stays alongside the rest of the Dimensions setup tab. */
 export async function saveDimensionCaptions(values: FormValues): Promise<ActionResult<Organisation>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:POOL_MANAGE');
+    const user = await requireAction('ADMIN_POOL_DIMENSIONS_MANAGE');
     const org = await updateOrg({
       global_dimension_1_caption: String(values.global_dimension_1_caption || '').trim() || 'Global Dimension 1 Code',
       global_dimension_2_caption: String(values.global_dimension_2_caption || '').trim() || 'Global Dimension 2 Code',

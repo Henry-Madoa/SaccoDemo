@@ -1,12 +1,17 @@
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/session';
-import { can, PERMISSIONS } from '@/lib/auth';
+import { canPage, PAGES } from '@/lib/permissions';
 import { getOrg, getTheme, themePresets, TOKEN_GROUPS } from '@/lib/org';
 import {
-  listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog,
+  listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog, AUDIT_FILTER_FIELDS,
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
-import { listChangeLogSetup, listChangeLogEntries, listAvailableChangeLogTables } from '@/lib/changeLog';
+import {
+  listChangeLogSetup, listChangeLogEntries, listAvailableChangeLogTables, CHANGE_LOG_FILTER_FIELDS,
+} from '@/lib/changeLog';
+import { parseFilters } from '@/lib/listFilters';
+import { parseSort } from '@/lib/listSort';
+import { listConfigPackages, listConfigPackageTables } from '@/lib/configPackages';
 import { listPostableAccounts } from '@/lib/gl';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
@@ -26,11 +31,14 @@ import {
   Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
 } from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
+import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
+import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
+import { ExportButton } from '@/components/ui/export-button';
 import { CompanyForm } from '../company-form';
 import { AppearanceEditor } from '../appearance-editor';
 import { UserFormButton } from '../user-form';
-import { RoleFormButton } from '../role-form';
+import { RoleFormButton, RoleRow } from '../role-form';
 import { SavingsProductButton, LoanProductButton } from '../product-forms';
 import { MemberCategoryFormButton, MemberCategoryRow } from '../member-category-form';
 import { CountyFormButton, CountyRow } from '../county-form';
@@ -41,64 +49,71 @@ import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
 import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
 import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
 import { ChangeLogSetupTable } from '../change-log-setup-table';
-import type { Permission, WorkflowDocumentType } from '@/lib/types';
+import { ConfigPackageFormButton } from '../config-package-form';
+import { ConfigPackageIo, DeleteConfigPackageButton } from '../config-package-io';
+import type { WorkflowDocumentType } from '@/lib/types';
 
 interface AdminTab extends TabDefinition {
-  /** A tab shows up once the user holds any one of these — Setup Pool merges the perms of everything nested under it. */
-  perm: Permission | Permission[];
+  /** A tab shows up once the user can execute any one of these pages — Setup Pool
+   *  merges the pages of everything nested under it. */
+  page: string | string[];
 }
 
-const hasTabAccess = (user: Parameters<typeof can>[0], t: AdminTab): boolean =>
-  (Array.isArray(t.perm) ? t.perm : [t.perm]).some((p) => can(user, p));
+const hasTabAccess = (user: Parameters<typeof canPage>[0], t: AdminTab): boolean =>
+  (Array.isArray(t.page) ? t.page : [t.page]).some((p) => canPage(user, p));
 
 const TABS: AdminTab[] = [
-  { key: 'company', label: 'Company Information', perm: 'ADMIN:ORG_MANAGE' },
-  { key: 'appearance', label: 'Appearance & Theme', perm: 'ADMIN:THEME_MANAGE' },
-  { key: 'products', label: 'Sacco Products', perm: 'ADMIN:PRODUCT_MANAGE' },
-  { key: 'pool', label: 'Setup Pool', perm: 'ADMIN:POOL_MANAGE' },
-  { key: 'workflows', label: 'Workflow Management', perm: 'ADMIN:WORKFLOW_MANAGE' },
+  { key: 'company', label: 'Company Information', page: 'ADMIN_COMPANY' },
+  { key: 'appearance', label: 'Appearance & Theme', page: 'ADMIN_APPEARANCE' },
+  { key: 'products', label: 'Sacco Products', page: ['ADMIN_PRODUCTS_SAVINGS', 'ADMIN_PRODUCTS_LOANS'] },
+  { key: 'pool', label: 'Setup Pool', page: ['ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES', 'ADMIN_POOL_DIMENSIONS'] },
+  {
+    key: 'workflows', label: 'Workflow Management',
+    page: ['ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_WORKFLOWS_TABLES'],
+  },
   {
     key: 'security', label: 'System Security',
-    perm: ['ADMIN:USER_MANAGE', 'ADMIN:ROLE_MANAGE', 'ADMIN:AUDIT_VIEW', 'ADMIN:CHANGE_LOG_MANAGE'],
+    page: ['ADMIN_USERS', 'ADMIN_ROLES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
   },
+  { key: 'data', label: 'Data Management', page: 'ADMIN_DATA' },
 ];
 
 /** Sacco Products' own sub-navigation. */
 const PRODUCTS_TABS: AdminTab[] = [
-  { key: 'savings', label: 'Savings Products', perm: 'ADMIN:PRODUCT_MANAGE' },
-  { key: 'loans', label: 'Loan Products', perm: 'ADMIN:PRODUCT_MANAGE' },
+  { key: 'savings', label: 'Savings Products', page: 'ADMIN_PRODUCTS_SAVINGS' },
+  { key: 'loans', label: 'Loan Products', page: 'ADMIN_PRODUCTS_LOANS' },
 ];
 
 /** Setup Pool's own sub-navigation — each entry is its own page rather than one long scroll. */
 const POOL_TABS: AdminTab[] = [
-  { key: 'categories', label: 'Member Categories', perm: 'ADMIN:POOL_MANAGE' },
-  { key: 'counties', label: 'Counties', perm: 'ADMIN:POOL_MANAGE' },
-  { key: 'dimensions', label: 'Dimensions', perm: 'ADMIN:POOL_MANAGE' },
+  { key: 'categories', label: 'Member Categories', page: 'ADMIN_POOL_CATEGORIES' },
+  { key: 'counties', label: 'Counties', page: 'ADMIN_POOL_COUNTIES' },
+  { key: 'dimensions', label: 'Dimensions', page: 'ADMIN_POOL_DIMENSIONS' },
 ];
 
 /** Workflow Management's own sub-navigation. */
 const WORKFLOW_TABS: AdminTab[] = [
-  { key: 'definitions', label: 'Workflows', perm: 'ADMIN:WORKFLOW_MANAGE' },
-  { key: 'groups', label: 'Approval User Groups', perm: 'ADMIN:WORKFLOW_MANAGE' },
-  { key: 'setup', label: 'Approval User Setup', perm: 'ADMIN:WORKFLOW_MANAGE' },
-  { key: 'tables', label: 'Table Relations', perm: 'ADMIN:WORKFLOW_MANAGE' },
+  { key: 'definitions', label: 'Workflows', page: 'ADMIN_WORKFLOWS_DEFINITIONS' },
+  { key: 'groups', label: 'Approval User Groups', page: 'ADMIN_WORKFLOWS_GROUPS' },
+  { key: 'setup', label: 'Approval User Setup', page: 'ADMIN_WORKFLOWS_SETUP' },
+  { key: 'tables', label: 'Table Relations', page: 'ADMIN_WORKFLOWS_TABLES' },
 ];
 
 /** System Security's own sub-navigation. */
 const SECURITY_TABS: AdminTab[] = [
-  { key: 'users', label: 'Users', perm: 'ADMIN:USER_MANAGE' },
-  { key: 'roles', label: 'Roles & Permissions', perm: 'ADMIN:ROLE_MANAGE' },
-  { key: 'audit', label: 'Audit Trail', perm: 'ADMIN:AUDIT_VIEW' },
-  { key: 'changelog', label: 'Change Log Management', perm: 'ADMIN:CHANGE_LOG_MANAGE' },
+  { key: 'users', label: 'Users', page: 'ADMIN_USERS' },
+  { key: 'roles', label: 'Permission Sets', page: 'ADMIN_ROLES' },
+  { key: 'audit', label: 'Audit Trail', page: 'ADMIN_AUDIT' },
+  { key: 'changelog', label: 'Change Log Management', page: 'ADMIN_CHANGELOG' },
 ];
 
 export default async function AdminPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
 }) {
   const user = await requireUser();
   const { tab: segments } = await params;
-  const { q = '' } = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
 
   // The Admin Centre is reachable by anyone holding at least one admin
   // permission, so the visible tabs — and the default — depend on the role.
@@ -175,10 +190,11 @@ export default async function AdminPage({ params, searchParams }: {
           <Tabs tabs={securityAllowed} active={securityTab} hrefFor={(k) => `/admin/security/${k}`} />
           {securityTab === 'users' ? <UsersTab /> : null}
           {securityTab === 'roles' ? <RolesTab /> : null}
-          {securityTab === 'audit' ? <AuditTab search={q} /> : null}
-          {securityTab === 'changelog' ? <ChangeLogTab search={q} /> : null}
+          {securityTab === 'audit' ? <AuditTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
+          {securityTab === 'changelog' ? <ChangeLogTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
         </>
       ) : null}
+      {tab === 'data' ? <DataManagementTab /> : null}
     </Page>
   );
 }
@@ -251,27 +267,24 @@ async function RolesTab() {
     <>
       <Toolbar>
         <Spacer />
-        <RoleFormButton catalogue={PERMISSIONS}>Add role</RoleFormButton>
+        <RoleFormButton pages={PAGES}>Add permission set</RoleFormButton>
       </Toolbar>
-      <div className="grid g2">
-        {roles.map((r) => (
-          <Card key={r.id}>
-            <CardHead title={r.name} sub={r.description || ''}>
-              {r.is_system
-                ? <Pill>SYSTEM</Pill>
-                : <RoleFormButton role={r} catalogue={PERMISSIONS} className="btn sm ghost">Edit</RoleFormButton>}
-            </CardHead>
-            <div className="tiny" style={{ marginBottom: 8 }}>
-              {r.userCount} user(s) · {r.permissions.includes('*') ? 'all' : r.permissions.length} permission(s)
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {(r.permissions.includes('*') ? ['Full access'] : r.permissions).map((p) => (
-                <Pill key={p}>{p}</Pill>
-              ))}
-            </div>
-          </Card>
-        ))}
-      </div>
+      <Card>
+        <CardHead title={`${roles.length} permission sets`}
+          sub="Click a permission code to see its full line-by-line grant" />
+        <TableWrap>
+          <thead>
+            <tr>
+              <th>Permission code</th><th>Description</th>
+              <th className="num">Lines</th><th className="num">Assigned users</th>
+              <th>Type</th><th className="num" />
+            </tr>
+          </thead>
+          <tbody>
+            {roles.map((r) => <RoleRow key={r.id} role={r} pages={PAGES} />)}
+          </tbody>
+        </TableWrap>
+      </Card>
     </>
   );
 }
@@ -672,21 +685,31 @@ async function ApprovalUserSetupTab() {
   );
 }
 
-async function AuditTab({ search }: { search: string }) {
-  const rows = await listAuditLog({ search });
+async function AuditTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
+  const rows = await listAuditLog({ search, filters, sort });
 
   return (
     <>
       <Toolbar>
         <SearchInput placeholder="Filter by user, action or entity…" />
+        <DynamicFilterBar fields={AUDIT_FILTER_FIELDS} />
         <Spacer />
+        <ExportButton href="/api/export/audit" params={{ q: search, filters: filtersRaw, sort: sortRaw }} />
       </Toolbar>
       <Card>
         <CardHead title="Audit trail" sub="Append-only record of every privileged and financial action" />
         {rows.length ? (
           <TableWrap>
             <thead>
-              <tr><th>When</th><th>User</th><th>Action</th><th>Entity</th><th>Detail</th></tr>
+              <tr>
+                <th><SortLink sortKey="at">When</SortLink></th>
+                <th><SortLink sortKey="username">User</SortLink></th>
+                <th><SortLink sortKey="action">Action</SortLink></th>
+                <th><SortLink sortKey="entity">Entity</SortLink></th>
+                <th><SortLink sortKey="detail">Detail</SortLink></th>
+              </tr>
             </thead>
             <tbody>
               {rows.map((a) => (
@@ -713,10 +736,15 @@ async function AuditTab({ search }: { search: string }) {
  * nothing is recorded for a table until it's checked in below, unlike the always-on
  * Audit Trail tab.
  */
-async function ChangeLogTab({ search }: { search: string }) {
+async function ChangeLogTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
   const [setup, entries, available] = await Promise.all([
-    listChangeLogSetup(), listChangeLogEntries({ search }), listAvailableChangeLogTables(),
+    listChangeLogSetup(), listChangeLogEntries({ search, filters, sort }), listAvailableChangeLogTables(),
   ]);
+  const fields = CHANGE_LOG_FILTER_FIELDS.map((f) => (
+    f.key === 'table_name' ? { ...f, options: setup.map((s) => ({ value: s.table_name, label: s.table_caption })) } : f
+  ));
 
   return (
     <>
@@ -727,7 +755,9 @@ async function ChangeLogTab({ search }: { search: string }) {
 
       <Toolbar>
         <SearchInput placeholder="Filter by record, field or user…" />
+        <DynamicFilterBar fields={fields} />
         <Spacer />
+        <ExportButton href="/api/export/change-log" params={{ q: search, filters: filtersRaw, sort: sortRaw }} />
       </Toolbar>
       <Card>
         <CardHead title="Change Log Entries" sub="Every logged field change, newest first" />
@@ -735,8 +765,14 @@ async function ChangeLogTab({ search }: { search: string }) {
           <TableWrap>
             <thead>
               <tr>
-                <th>When</th><th>User</th><th>Table</th><th>Record</th>
-                <th>Field</th><th>Old value</th><th>New value</th><th>Type</th>
+                <th><SortLink sortKey="changed_at">When</SortLink></th>
+                <th><SortLink sortKey="username">User</SortLink></th>
+                <th><SortLink sortKey="table_caption">Table</SortLink></th>
+                <th><SortLink sortKey="record_id">Record</SortLink></th>
+                <th><SortLink sortKey="field_name">Field</SortLink></th>
+                <th><SortLink sortKey="old_value">Old value</SortLink></th>
+                <th><SortLink sortKey="new_value">New value</SortLink></th>
+                <th><SortLink sortKey="type">Type</SortLink></th>
               </tr>
             </thead>
             <tbody>
@@ -755,6 +791,59 @@ async function ChangeLogTab({ search }: { search: string }) {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="📜" title="No change log entries yet" />}
+      </Card>
+    </>
+  );
+}
+
+/**
+ * Configuration Packages — modeled on Business Central's Configuration Packages/RapidStart:
+ * an admin picks a table and a set of its columns, then exports that data to CSV and
+ * re-imports a CSV to bulk insert/update rows, straight into the base table for data
+ * migration, bypassing whatever approval workflow that entity normally goes through.
+ */
+async function DataManagementTab() {
+  const [packages, tables] = await Promise.all([listConfigPackages(), listConfigPackageTables()]);
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <ConfigPackageFormButton tables={tables}>New package</ConfigPackageFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Configuration packages"
+          sub="Export a table's data to CSV, edit it, and re-import to bulk create or update records — for data migration, not day-to-day entry"
+        />
+        {packages.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Name</th><th>Table</th><th className="num">Fields</th>
+                <th>Key field</th><th /><th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {packages.map((p) => (
+                <tr key={p.id}>
+                  <td className="mono">{p.code}</td>
+                  <td><b>{p.name}</b></td>
+                  <td className="mono tiny">{p.table_name}</td>
+                  <td className="num">{p.fields.length}</td>
+                  <td className="tiny">{p.key_field || '—'}</td>
+                  <td><ConfigPackageIo code={p.code} /></td>
+                  <td className="num">
+                    <div className="inline" style={{ gap: 4 }}>
+                      <ConfigPackageFormButton pkg={p} tables={tables} className="btn sm ghost">Edit</ConfigPackageFormButton>
+                      <DeleteConfigPackageButton code={p.code} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="📦" title="No configuration packages yet" sub="Create one to bulk export or import a table's data" />}
       </Card>
     </>
   );

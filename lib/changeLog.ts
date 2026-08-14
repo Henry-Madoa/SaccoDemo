@@ -1,4 +1,6 @@
 import { one, all, run } from './db.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
 import type { Actor, ChangeLogEntry, ChangeLogSetup, ChangeLogType } from './types.ts';
 
 /**
@@ -122,18 +124,55 @@ export async function logTableChange(
   }
 }
 
+/** Change log entries list's dynamic-filter registry — every meaningful column (id/user_id are
+ *  excluded as purely internal). `table_name`'s `options` are DB-driven (the page fills them in
+ *  from listChangeLogSetup(), which it already fetches for the setup grid). */
+export const CHANGE_LOG_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'table_name', label: 'Table', type: 'select' },
+  { key: 'record_id', label: 'Record', type: 'text' },
+  { key: 'field_name', label: 'Field', type: 'text' },
+  { key: 'old_value', label: 'Old Value', type: 'text' },
+  { key: 'new_value', label: 'New Value', type: 'text' },
+  {
+    key: 'type', label: 'Change Type', type: 'select',
+    options: [
+      { value: 'Insertion', label: 'Insertion' },
+      { value: 'Modification', label: 'Modification' },
+      { value: 'Deletion', label: 'Deletion' },
+    ],
+  },
+  { key: 'changed_at', label: 'When', type: 'date', datetime: true },
+  { key: 'username', label: 'User', type: 'text' },
+];
+
+/** Change log entries list's sortable columns — every column shown in the table. */
+const CHANGE_LOG_SORT_COLUMNS: Record<string, string> = {
+  changed_at: 'changed_at',
+  username: 'username',
+  table_caption: 'table_caption',
+  record_id: 'record_id',
+  field_name: 'field_name',
+  old_value: 'old_value',
+  new_value: 'new_value',
+  type: 'type',
+};
+
 export interface ListChangeLogEntriesOptions {
-  tableName?: string;
   search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
 }
 
 export const listChangeLogEntries = (
-  { tableName, search = '' }: ListChangeLogEntriesOptions = {},
-): Promise<ChangeLogEntry[]> =>
-  all<ChangeLogEntry>(
+  { search = '', filters = [], sort = null }: ListChangeLogEntriesOptions = {},
+): Promise<ChangeLogEntry[]> => {
+  const { clause, params } = buildFilterClause(CHANGE_LOG_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(CHANGE_LOG_SORT_COLUMNS, sort, 'id DESC');
+  return all<ChangeLogEntry>(
     `SELECT * FROM change_log_entry
      WHERE (record_id LIKE @like OR field_name LIKE @like OR username LIKE @like OR table_caption LIKE @like)
-       ${tableName ? 'AND table_name = @tableName' : ''}
-     ORDER BY id DESC LIMIT 500`,
-    { like: `%${String(search).trim()}%`, tableName },
+       ${clause}
+     ${orderBy} LIMIT 500`,
+    { like: `%${String(search).trim()}%`, ...params },
   );
+};

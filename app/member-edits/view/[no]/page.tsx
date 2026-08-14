@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePerm, currentCan } from '@/lib/session';
+import { requireAction, currentCanAction } from '@/lib/session';
 import { getMemberEditRequest, diffMemberEditFields } from '@/lib/memberEdits';
 import { getMember } from '@/lib/members';
 import { listEditNextOfKin, listEditNominees } from '@/lib/editNominees';
@@ -33,7 +33,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
   params: Promise<{ no: string }>;
   searchParams: Promise<{ edit?: string }>;
 }) {
-  const user = await requirePerm('MEMBER:READ');
+  const user = await requireAction('MEMBER_EDITS_READ');
   const { no } = await params;
   const { edit } = await searchParams;
   const startEditing = edit === '1';
@@ -45,7 +45,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 },
     nextOfKin, nominees, signatories, attachments, tasks,
   ] = await Promise.all([
-    currentCan('MEMBER:UPDATE'), currentCan('MEMBER:APPROVE'),
+    currentCanAction('MEMBER_EDITS_UPDATE'), currentCanAction('MEMBER_EDITS_APPROVE'),
     getMember(request.member_id),
     listActiveCounties(), listActiveSubCounties(), listActiveMemberCategories(),
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),

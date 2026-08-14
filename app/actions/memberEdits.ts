@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm, requireUser } from '@/lib/session';
+import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
   createMemberEditRequest, updateMemberEditRequest, submitMemberEditRequest, cancelEditApproval,
@@ -30,7 +30,7 @@ function normalise(values: FormValues): MemberEditInput {
 /** Starts a new edit request for an existing member, snapshotting its current values. */
 export async function requestMemberEdit(memberId: number): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     const result = await createMemberEditRequest(memberId, user);
     revalidatePath('/member-edits');
     revalidatePath(`/members/${memberId}`);
@@ -42,7 +42,7 @@ export async function saveMemberEditRequest(
   no: string, values: FormValues,
 ): Promise<ActionResult<MemberEditRequestWithDimensions>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     const body = normalise(values);
     const saved = await updateMemberEditRequest(no, body, user);
     revalidatePath('/member-edits');
@@ -52,7 +52,7 @@ export async function saveMemberEditRequest(
 
 export async function submitMemberEdit(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     await submitMemberEditRequest(no, user);
     revalidatePath('/member-edits');
     revalidatePath(`/member-edits/view/${no}`);
@@ -62,7 +62,7 @@ export async function submitMemberEdit(no: string): Promise<ActionResult<{ updat
 
 export async function cancelMemberEditApproval(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     await cancelEditApproval(no, user);
     revalidatePath('/member-edits');
     revalidatePath(`/member-edits/view/${no}`);
@@ -82,7 +82,7 @@ export async function approveMemberEditRequest(no: string): Promise<ActionResult
       const user = await requireUser();
       await decideWorkflowTask(routed.id, true, null, user);
     } else {
-      const user = await requirePerm('MEMBER:APPROVE');
+      const user = await requireAction('MEMBER_EDITS_APPROVE');
       await approveMemberEdit(no, user);
     }
     revalidatePath('/member-edits');
@@ -98,7 +98,7 @@ export async function rejectMemberEditRequest(no: string, reason: string): Promi
       const user = await requireUser();
       await decideWorkflowTask(routed.id, false, reason || null, user);
     } else {
-      const user = await requirePerm('MEMBER:APPROVE');
+      const user = await requireAction('MEMBER_EDITS_APPROVE');
       await rejectMemberEdit(no, reason, user);
     }
     revalidatePath('/member-edits');
@@ -109,7 +109,7 @@ export async function rejectMemberEditRequest(no: string, reason: string): Promi
 
 export async function processMemberEditRequest(no: string): Promise<ActionResult<{ memberId: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:APPROVE');
+    const user = await requireAction('MEMBER_EDITS_APPROVE');
     const result = await processMemberEdit(no, user);
     revalidatePath('/member-edits');
     revalidatePath(`/member-edits/view/${no}`);

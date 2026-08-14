@@ -1,20 +1,20 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as admin from '@/lib/admin';
 import { updateOrg, updateTheme } from '@/lib/org';
 import { toCents } from '@/lib/format';
 import type {
-  ActionResult, FormValues, Organisation, Permission, Role, SavingsProduct,
+  ActionResult, FormValues, Organisation, PermissionTableOption, Role, SavingsProduct,
   LoanProduct, Theme, ThemeTokens, UserStatus,
 } from '@/lib/types';
 
 /* --------------------------------------------------------------- company */
 export async function saveOrganisation(values: FormValues): Promise<ActionResult<Organisation>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:ORG_MANAGE');
+    const user = await requireAction('ADMIN_ORG_MANAGE');
     const org = await updateOrg({
       ...values,
       fy_start_month: Number(values.fy_start_month),
@@ -29,7 +29,7 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
 /* ------------------------------------------------------------- appearance */
 export async function saveTheme(tokens: ThemeTokens, preset: string): Promise<ActionResult<Theme>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:THEME_MANAGE');
+    const user = await requireAction('ADMIN_THEME_MANAGE');
     const theme = await updateTheme({ tokens, preset }, user);
     revalidatePath('/', 'layout');
     return theme;
@@ -42,7 +42,7 @@ export type SaveUserResult = { id: number } | { updated: true };
 
 export async function saveUser(id: number | null, values: FormValues): Promise<ActionResult<SaveUserResult>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:USER_MANAGE');
+    const user = await requireAction('ADMIN_USER_MANAGE');
     const body = {
       username: String(values.username || ''),
       full_name: String(values.full_name || ''),
@@ -63,18 +63,25 @@ export async function saveUser(id: number | null, values: FormValues): Promise<A
 export async function saveRole(
   id: number | null,
   values: FormValues,
-  permissions: Permission[],
+  lines: admin.RoleLineInput[],
 ): Promise<ActionResult<{ id?: number } | Role>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:ROLE_MANAGE');
+    const user = await requireAction('ADMIN_ROLE_MANAGE');
     const body = {
       name: String(values.name || ''),
       description: String(values.description || '') || null,
-      permissions,
+      lines,
     };
     const result = id ? await admin.updateRole(id, body, user) : await admin.createRole(body, user);
     revalidatePath('/admin/roles');
     return result;
+  });
+}
+
+export async function listPermissionTablesAction(): Promise<ActionResult<PermissionTableOption[]>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_ROLE_MANAGE');
+    return admin.listPermissionTables();
   });
 }
 
@@ -84,7 +91,7 @@ export async function saveSavingsProduct(
   values: FormValues,
 ): Promise<ActionResult<SavingsProduct | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:PRODUCT_MANAGE');
+    const user = await requireAction('ADMIN_PRODUCTS_SAVINGS_MANAGE');
     const body: admin.SavingsProductInput = {
       code: String(values.code || ''),
       name: String(values.name || ''),
@@ -121,7 +128,7 @@ export async function saveLoanProduct(
   values: FormValues,
 ): Promise<ActionResult<LoanProduct | { id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:PRODUCT_MANAGE');
+    const user = await requireAction('ADMIN_PRODUCTS_LOANS_MANAGE');
     const body: admin.LoanProductInput = {
       code: String(values.code || ''),
       name: String(values.name || ''),

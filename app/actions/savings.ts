@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as savings from '@/lib/savings';
 import { toCents } from '@/lib/format';
@@ -9,7 +9,7 @@ import type { ActionResult, Cents, Channel, FormValues, SavingsAccountFull } fro
 
 export async function openSavingsAccount(values: FormValues): Promise<ActionResult<SavingsAccountFull>> {
   return actionResult(async () => {
-    const user = await requirePerm('SAVINGS:OPEN');
+    const user = await requireAction('SAVINGS_OPEN');
     const account = await savings.openAccount({
       memberId: Number(values.memberId),
       productId: Number(values.productId),
@@ -25,7 +25,7 @@ export async function openSavingsAccount(values: FormValues): Promise<ActionResu
 
 export async function postDeposit(values: FormValues): Promise<ActionResult<savings.PostingResult>> {
   return actionResult(async () => {
-    const user = await requirePerm('SAVINGS:DEPOSIT');
+    const user = await requireAction('SAVINGS_DEPOSIT');
     const result = await savings.deposit({
       accountId: Number(values.accountId),
       amount: toCents(values.amount),
@@ -42,7 +42,7 @@ export async function postDeposit(values: FormValues): Promise<ActionResult<savi
 
 export async function postWithdrawal(values: FormValues): Promise<ActionResult<savings.PostingResult>> {
   return actionResult(async () => {
-    const user = await requirePerm('SAVINGS:WITHDRAW');
+    const user = await requireAction('SAVINGS_WITHDRAW');
     const result = await savings.withdraw({
       accountId: Number(values.accountId),
       amount: toCents(values.amount),
@@ -62,7 +62,7 @@ export async function reverseTransaction(
   values: FormValues,
 ): Promise<ActionResult<{ balance: Cents; journal_no: string }>> {
   return actionResult(async () => {
-    const user = await requirePerm('SAVINGS:REVERSE');
+    const user = await requireAction('SAVINGS_REVERSE');
     const result = await savings.reverseTxn({
       txnId: Number(values.txnId),
       reason: String(values.reason || '').trim(),

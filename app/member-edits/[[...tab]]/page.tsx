@@ -1,13 +1,20 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePerm, currentCan } from '@/lib/session';
-import { listMemberEditRequests, type MemberEditView } from '@/lib/memberEdits';
+import { requireAction, currentCanAction } from '@/lib/session';
+import { listMemberEditRequests, EDIT_FILTER_FIELDS, type MemberEditView } from '@/lib/memberEdits';
 import { listActiveMembers } from '@/lib/members';
+import { listActiveMemberCategories, listActiveCounties, listActiveSubCounties, listActiveDimensionValues } from '@/lib/pool';
+import { getDimensionCaptions } from '@/lib/org';
+import { parseFilters } from '@/lib/listFilters';
+import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import {
   Card, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
 } from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
+import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
+import { SortLink } from '@/components/ui/sort-link';
+import { ExportButton } from '@/components/ui/export-button';
 import {
   NewEditRequestButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ProcessButton,
 } from '../edit-actions';
@@ -21,28 +28,43 @@ const TABS: TabDefinition[] = [
 
 export default async function MemberEditsPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
 }) {
-  const user = await requirePerm('MEMBER:READ');
+  const user = await requireAction('MEMBER_EDITS_READ');
   const { tab: segments } = await params;
-  const { q = '' } = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
 
   const requested = segments?.[0];
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as MemberEditView;
 
-  const [requests, canUpdate, canApprove, members] = await Promise.all([
-    listMemberEditRequests({ view: tab, search: q }),
-    currentCan('MEMBER:UPDATE'), currentCan('MEMBER:APPROVE'),
-    listActiveMembers(),
-  ]);
+  const [requests, canUpdate, canApprove, members, categories, counties, subCounties, gd1Values, gd2Values, { caption1, caption2 }] =
+    await Promise.all([
+      listMemberEditRequests({ view: tab, search: q, filters, sort }),
+      currentCanAction('MEMBER_EDITS_UPDATE'), currentCanAction('MEMBER_EDITS_APPROVE'),
+      listActiveMembers(),
+      listActiveMemberCategories(), listActiveCounties(), listActiveSubCounties(),
+      listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
+    ]);
+  const fields = EDIT_FILTER_FIELDS.map((f) => (
+    f.key === 'member_category_id' ? { ...f, options: categories.map((c) => ({ value: c.id, label: c.description })) }
+      : f.key === 'county_id' ? { ...f, options: counties.map((c) => ({ value: c.id, label: c.name })) }
+        : f.key === 'sub_county_id' ? { ...f, options: subCounties.map((c) => ({ value: c.id, label: c.name })) }
+          : f.key === 'global_dimension_1_id' ? { ...f, label: caption1, options: gd1Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
+            : f.key === 'global_dimension_2_id' ? { ...f, label: caption2, options: gd2Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
+              : f
+  ));
 
   return (
     <Page title="Member Edits" crumb="Staged changes to existing members, from capture through to approval" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/member-edits/${k}`} />
       <Toolbar>
         <SearchInput placeholder="Search member name, no. or request no.…" />
+        <DynamicFilterBar fields={fields} />
         <Spacer />
+        <ExportButton href="/api/export/member-edits" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} />
         {canUpdate ? <NewEditRequestButton members={members} /> : null}
       </Toolbar>
 
@@ -51,8 +73,10 @@ export default async function MemberEditsPage({ params, searchParams }: {
           <TableWrap>
             <thead>
               <tr>
-                <th>No.</th><th>Member</th><th>Member no.</th>
-                <th>Status</th><th className="num" />
+                <th><SortLink sortKey="no">No.</SortLink></th>
+                <th><SortLink sortKey="member">Member</SortLink></th>
+                <th><SortLink sortKey="member_no">Member no.</SortLink></th>
+                <th><SortLink sortKey="status">Status</SortLink></th><th className="num" />
               </tr>
             </thead>
             <tbody>

@@ -10,6 +10,11 @@ import { listEditSignatories, replaceEditSignatories } from './editSignatories.t
 import { applyEditAttachments, cloneMemberAttachmentsToEdit } from './editAttachments.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
+import {
+  MEMBER_TYPES, MEMBER_TITLES, GENDERS, MARITAL_STATUSES, EMPLOYMENT_STATUSES,
+} from './constants.ts';
 import type {
   Actor, MemberEditFieldDiff, MemberEditRequest, MemberEditRequestWithDimensions,
   MemberWithDimensions,
@@ -65,21 +70,82 @@ const SELECT_EDIT_REQUEST = `
   LEFT JOIN global_dimension_1_value gd1 ON gd1.id = e.global_dimension_1_id
   LEFT JOIN global_dimension_2_value gd2 ON gd2.id = e.global_dimension_2_id`;
 
+/** Member Edits list's dynamic-filter registry — every meaningful column, same treatment as
+ *  Member Applications: the view tabs stay as the primary navigation (so `status` is left
+ *  out), image/attachment fields are excluded, and DB-driven fields ship without `options` —
+ *  the page fills them in from lookups it already fetches. */
+export const EDIT_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'no', label: 'Request No.', type: 'text', column: 'e.no' },
+  { key: 'member_type', label: 'Member Type', type: 'select', column: 'e.member_type', options: MEMBER_TYPES.map((t) => ({ value: t, label: t })) },
+  { key: 'member_category_id', label: 'Member Category', type: 'select', column: 'e.member_category_id' },
+  { key: 'title', label: 'Title', type: 'select', column: 'e.title', options: MEMBER_TITLES.filter(Boolean).map((t) => ({ value: t, label: t })) },
+  { key: 'first_name', label: 'First Name', type: 'text', column: 'e.first_name' },
+  { key: 'middle_name', label: 'Middle Name', type: 'text', column: 'e.middle_name' },
+  { key: 'last_name', label: 'Last Name', type: 'text', column: 'e.last_name' },
+  { key: 'national_id', label: 'Identification No.', type: 'text', column: 'e.national_id' },
+  { key: 'kra_pin', label: 'KRA PIN', type: 'text', column: 'e.kra_pin' },
+  { key: 'date_of_birth', label: 'Date of Birth', type: 'date', column: 'e.date_of_birth' },
+  { key: 'gender', label: 'Gender', type: 'select', column: 'e.gender', options: GENDERS.filter(Boolean).map((g) => ({ value: g, label: g })) },
+  { key: 'marital_status', label: 'Marital Status', type: 'select', column: 'e.marital_status', options: MARITAL_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
+  { key: 'phone', label: 'Phone', type: 'text', column: 'e.phone' },
+  { key: 'email', label: 'Email', type: 'text', column: 'e.email' },
+  { key: 'postal_address', label: 'Postal Address', type: 'text', column: 'e.postal_address' },
+  { key: 'physical_address', label: 'Physical Address', type: 'text', column: 'e.physical_address' },
+  { key: 'county_id', label: 'County', type: 'select', column: 'e.county_id' },
+  { key: 'sub_county_id', label: 'Sub-county', type: 'select', column: 'e.sub_county_id' },
+  { key: 'employer', label: 'Employer', type: 'text', column: 'e.employer' },
+  { key: 'employment_status', label: 'Employment Status', type: 'select', column: 'e.employment_status', options: EMPLOYMENT_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
+  { key: 'staff_no', label: 'Staff No.', type: 'text', column: 'e.staff_no' },
+  { key: 'gross_income', label: 'Gross Income', type: 'number', column: 'e.gross_income' },
+  { key: 'other_deductions', label: 'Other Deductions', type: 'number', column: 'e.other_deductions' },
+  { key: 'kyc_verified', label: 'KYC Verified', type: 'select', column: 'e.kyc_verified', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] },
+  { key: 'join_date', label: 'Join Date', type: 'date', column: 'e.join_date' },
+  { key: 'notes', label: 'Notes', type: 'text', column: 'e.notes' },
+  { key: 'group_name', label: 'Group / Entity Name', type: 'text', column: 'e.group_name' },
+  { key: 'registration_no', label: 'Registration No.', type: 'text', column: 'e.registration_no' },
+  { key: 'registration_date', label: 'Registration Date', type: 'date', column: 'e.registration_date' },
+  { key: 'contact_person_name', label: 'Contact Person', type: 'text', column: 'e.contact_person_name' },
+  { key: 'contact_person_phone', label: 'Contact Phone', type: 'text', column: 'e.contact_person_phone' },
+  { key: 'contact_person_email', label: 'Contact Email', type: 'text', column: 'e.contact_person_email' },
+  { key: 'member_count', label: 'Number of Members', type: 'number', column: 'e.member_count' },
+  { key: 'global_dimension_1_id', label: 'Global Dimension 1', type: 'select', column: 'e.global_dimension_1_id' },
+  { key: 'global_dimension_2_id', label: 'Global Dimension 2', type: 'select', column: 'e.global_dimension_2_id' },
+  { key: 'decision_reason', label: 'Decision Reason', type: 'text', column: 'e.decision_reason' },
+  { key: 'created_by', label: 'Created By', type: 'text', column: 'e.created_by' },
+  { key: 'created_at', label: 'Created', type: 'date', column: 'e.created_at', datetime: true },
+  { key: 'processed_by', label: 'Processed By', type: 'text', column: 'e.processed_by' },
+  { key: 'processed_at', label: 'Processed', type: 'date', column: 'e.processed_at', datetime: true },
+];
+
+/** Member Edits list's sortable columns — every column shown in the table. */
+const EDIT_SORT_COLUMNS: Record<string, string> = {
+  no: 'e.no',
+  member: 'm.first_name',
+  member_no: 'm.member_no',
+  status: 'e.status',
+};
+
 export interface ListEditRequestsOptions {
   view?: MemberEditView;
   search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
 }
 
 export const listMemberEditRequests = (
-  { view, search = '' }: ListEditRequestsOptions = {},
-): Promise<MemberEditRequestWithDimensions[]> =>
-  all<MemberEditRequestWithDimensions>(
+  { view, search = '', filters = [], sort = null }: ListEditRequestsOptions = {},
+): Promise<MemberEditRequestWithDimensions[]> => {
+  const { clause, params } = buildFilterClause(EDIT_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(EDIT_SORT_COLUMNS, sort, 'e.no DESC');
+  return all<MemberEditRequestWithDimensions>(
     `${SELECT_EDIT_REQUEST}
      WHERE (m.first_name LIKE @like OR m.last_name LIKE @like OR m.member_no LIKE @like OR e.no LIKE @like)
        ${view ? `AND ${VIEW_CLAUSE[view]}` : ''}
-     ORDER BY e.no DESC`,
-    { like: `%${String(search).trim()}%` },
+       ${clause}
+     ${orderBy}`,
+    { like: `%${String(search).trim()}%`, ...params },
   );
+};
 
 export const getMemberEditRequest = (no: string): Promise<MemberEditRequestWithDimensions | undefined> =>
   one<MemberEditRequestWithDimensions>(`${SELECT_EDIT_REQUEST} WHERE e.no = ?`, no);

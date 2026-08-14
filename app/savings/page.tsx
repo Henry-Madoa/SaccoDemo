@@ -1,20 +1,32 @@
 import Link from 'next/link';
-import { requirePerm, currentCan } from '@/lib/session';
-import { listAccounts } from '@/lib/savings';
+import { requireAction, currentCanAction } from '@/lib/session';
+import { listAccounts, SAVINGS_ACCOUNT_FILTER_FIELDS } from '@/lib/savings';
+import { listActiveSavingsProducts } from '@/lib/admin';
+import { parseFilters } from '@/lib/listFilters';
+import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, EmptyState, Pill, TableWrap, Toolbar, Spacer } from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
+import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
+import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
+import { ExportButton } from '@/components/ui/export-button';
 import { TxnButton, type TxnAccount } from './txn-form';
 
 export default async function SavingsPage({ searchParams }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
 }) {
-  const user = await requirePerm('SAVINGS:READ');
-  const { q = '' } = await searchParams;
-  const [rows, canDeposit, canWithdraw] = await Promise.all([
-    listAccounts(q), currentCan('SAVINGS:DEPOSIT'), currentCan('SAVINGS:WITHDRAW'),
+  const user = await requireAction('SAVINGS_READ');
+  const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
+  const [rows, canDeposit, canWithdraw, products] = await Promise.all([
+    listAccounts({ search: q, filters, sort }), currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'),
+    listActiveSavingsProducts(),
   ]);
+  const fields = SAVINGS_ACCOUNT_FILTER_FIELDS.map((f) => (
+    f.key === 'product_id' ? { ...f, options: products.map((p) => ({ value: p.id, label: p.name })) } : f
+  ));
 
   const total = rows.reduce((a, r) => a + r.balance, 0);
 
@@ -22,7 +34,9 @@ export default async function SavingsPage({ searchParams }: {
     <Page title="Savings & FOSA" crumb="Member deposit accounts and teller operations" user={user}>
       <Toolbar>
         <SearchInput placeholder="Search account number, member number or name…" />
+        <DynamicFilterBar fields={fields} />
         <Spacer />
+        <ExportButton href="/api/export/savings" params={{ q, filters: filtersRaw, sort: sortRaw }} />
       </Toolbar>
 
       <Card>
@@ -35,8 +49,12 @@ export default async function SavingsPage({ searchParams }: {
             <TableWrap>
               <thead>
                 <tr>
-                  <th>Account no.</th><th>Member</th><th>Product</th><th>Status</th>
-                  <th className="num">Balance</th><th className="num">Available</th>
+                  <th><SortLink sortKey="account_no">Account no.</SortLink></th>
+                  <th><SortLink sortKey="member">Member</SortLink></th>
+                  <th><SortLink sortKey="product_name">Product</SortLink></th>
+                  <th><SortLink sortKey="status">Status</SortLink></th>
+                  <th className="num"><SortLink sortKey="balance">Balance</SortLink></th>
+                  <th className="num"><SortLink sortKey="available">Available</SortLink></th>
                   <th className="num">Actions</th>
                 </tr>
               </thead>

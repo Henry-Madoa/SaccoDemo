@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm, requireUser } from '@/lib/session';
+import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
   createMemberApplication, updateMemberApplication, submitMemberApplication, cancelApplicationApproval,
@@ -33,7 +33,7 @@ export async function saveMemberApplication(
   values: FormValues,
 ): Promise<ActionResult<MemberApplicationWithDimensions | { no: string }>> {
   return actionResult(async () => {
-    const user = await requirePerm(no ? 'MEMBER:UPDATE' : 'MEMBER:CREATE');
+    const user = await requireAction(no ? 'MEMBER_APPLICATIONS_UPDATE' : 'MEMBER_APPLICATIONS_CREATE');
     const body = normalise(values);
     const saved = no ? await updateMemberApplication(no, body, user) : await createMemberApplication(body, user);
     revalidatePath('/member-applications');
@@ -43,7 +43,7 @@ export async function saveMemberApplication(
 
 export async function submitApplication(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:CREATE');
+    const user = await requireAction('MEMBER_APPLICATIONS_CREATE');
     await submitMemberApplication(no, user);
     revalidatePath('/member-applications');
     revalidatePath(`/member-applications/view/${no}`);
@@ -53,7 +53,7 @@ export async function submitApplication(no: string): Promise<ActionResult<{ upda
 
 export async function cancelApprovalRequest(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:CREATE');
+    const user = await requireAction('MEMBER_APPLICATIONS_CREATE');
     await cancelApplicationApproval(no, user);
     revalidatePath('/member-applications');
     revalidatePath(`/member-applications/view/${no}`);
@@ -74,7 +74,7 @@ export async function approveApplication(no: string): Promise<ActionResult<{ upd
       const user = await requireUser();
       await decideWorkflowTask(routed.id, true, null, user);
     } else {
-      const user = await requirePerm('MEMBER:APPROVE');
+      const user = await requireAction('MEMBER_APPLICATIONS_APPROVE');
       await approveMemberApplication(no, user);
     }
     revalidatePath('/member-applications');
@@ -90,7 +90,7 @@ export async function rejectApplication(no: string, reason: string): Promise<Act
       const user = await requireUser();
       await decideWorkflowTask(routed.id, false, reason || null, user);
     } else {
-      const user = await requirePerm('MEMBER:APPROVE');
+      const user = await requireAction('MEMBER_APPLICATIONS_APPROVE');
       await rejectMemberApplication(no, reason, user);
     }
     revalidatePath('/member-applications');
@@ -101,7 +101,7 @@ export async function rejectApplication(no: string, reason: string): Promise<Act
 
 export async function processApplication(no: string): Promise<ActionResult<{ memberId: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:APPROVE');
+    const user = await requireAction('MEMBER_APPLICATIONS_APPROVE');
     const result = await createMemberFromApplication(no, user);
     revalidatePath('/member-applications');
     revalidatePath(`/member-applications/view/${no}`);

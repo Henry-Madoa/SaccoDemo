@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePerm, currentCan } from '@/lib/session';
+import { requireAction, currentCanAction } from '@/lib/session';
 import { statement } from '@/lib/savings';
 import { getOrgBrand } from '@/lib/org';
 import { formatDate } from '@/lib/format';
@@ -12,7 +12,7 @@ import { TxnButton, type TxnAccount } from '../txn-form';
 import { ReverseButton } from './reverse-button';
 
 export default async function SavingsAccountPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requirePerm('SAVINGS:READ');
+  const user = await requireAction('SAVINGS_READ');
   const { id } = await params;
 
   let data;
@@ -25,7 +25,7 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
   const { account: a, opening, lines } = data;
   const [org, canDeposit, canWithdraw, canReverse] = await Promise.all([
     getOrgBrand(),
-    currentCan('SAVINGS:DEPOSIT'), currentCan('SAVINGS:WITHDRAW'), currentCan('SAVINGS:REVERSE'),
+    currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'), currentCanAction('SAVINGS_REVERSE'),
   ]);
 
   const available = a.balance - a.hold_amount - a.min_balance;

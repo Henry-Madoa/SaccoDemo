@@ -31,9 +31,10 @@ const savings = await import('../lib/savings.ts');
 const loanSvc = await import('../lib/loanService.ts');
 const { buildSchedule, allocateRepayment } = await import('../lib/loans.ts');
 const auth = await import('../lib/auth.ts');
+const permissions = await import('../lib/permissions.ts');
 
 import type {
-  Actor, LoanFull, LoanProduct, LoanScheduleRow, Member, SavingsAccount,
+  Actor, LoanFull, LoanProduct, LoanScheduleRow, Member, SavingsAccount, SessionUser,
 } from '../lib/types.ts';
 
 let pass = 0;
@@ -522,13 +523,14 @@ await test('two users with the same password get different hashes', () => {
 });
 
 await test('role permissions gate access correctly', async () => {
-  const row = (await one<{ permissions: string }>("SELECT permissions FROM role WHERE name='Teller'"))!;
-  const teller = { permissionList: JSON.parse(row.permissions) } as Parameters<typeof auth.can>[0];
-  assert.ok(auth.can(teller, 'SAVINGS:DEPOSIT'));
-  assert.ok(!auth.can(teller, 'LOAN:APPROVE'));
-  assert.ok(!auth.can(teller, 'ADMIN:USER_MANAGE'));
-  const sysadmin = { permissionList: ['*'] } as Parameters<typeof auth.can>[0];
-  assert.ok(auth.can(sysadmin, 'ADMIN:USER_MANAGE'));
+  const role = (await one<{ id: number }>("SELECT id FROM role WHERE name='Teller'"))!;
+  const permissionSet = await auth.loadPermissionSet(role.id);
+  const teller = { is_system: 0, permissionSet } as SessionUser;
+  assert.ok(permissions.canAction(teller, 'SAVINGS_DEPOSIT'));
+  assert.ok(!permissions.canAction(teller, 'LOAN_APPROVE'));
+  assert.ok(!permissions.canAction(teller, 'ADMIN_USER_MANAGE'));
+  const sysadmin = { is_system: 1, permissionSet: { tables: {}, pages: {} } } as SessionUser;
+  assert.ok(permissions.canAction(sysadmin, 'ADMIN_USER_MANAGE'));
 });
 
 /* ------------------------------------------------------------------------ */

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import { signUpload, verifyUpload, destroyAsset, type UploadKind } from '@/lib/cloudinary';
 import { updateOrg, getOrg } from '@/lib/org';
@@ -11,20 +11,21 @@ import { updateMemberEditRequest, getMemberEditRequest } from '@/lib/memberEdits
 import {
   recordAttachment, deleteAttachment, listAttachments,
 } from '@/lib/attachments';
+import type { ActionKey } from '@/lib/permissions';
 import type {
   ActionResult, Attachment, AttachmentEntity, Organisation, UploadSignature, UploadedFile,
 } from '@/lib/types';
 
-/** The permission that governs writing media onto each kind of record. */
-const WRITE_PERM: Record<UploadKind, string> = {
-  logo: 'ADMIN:ORG_MANAGE',
-  photo: 'MEMBER:UPDATE',
-  attachment: 'MEMBER:UPDATE',
-  id_front: 'MEMBER:UPDATE',
-  id_back: 'MEMBER:UPDATE',
-  signature: 'MEMBER:UPDATE',
-  fingerprint1: 'MEMBER:UPDATE',
-  fingerprint2: 'MEMBER:UPDATE',
+/** The action that governs writing media onto each kind of record. */
+const WRITE_ACTION: Record<UploadKind, ActionKey> = {
+  logo: 'ADMIN_ORG_MANAGE',
+  photo: 'MEMBERS_UPDATE',
+  attachment: 'MEMBERS_UPDATE',
+  id_front: 'MEMBERS_UPDATE',
+  id_back: 'MEMBERS_UPDATE',
+  signature: 'MEMBERS_UPDATE',
+  fingerprint1: 'MEMBERS_UPDATE',
+  fingerprint2: 'MEMBERS_UPDATE',
 };
 
 /**
@@ -39,8 +40,8 @@ export async function requestUploadSignature(
 ): Promise<ActionResult<UploadSignature>> {
   return actionResult(async () => {
     // Loan documents are captured by whoever can originate the loan.
-    const perm = kind === 'attachment' && entity === 'loan' ? 'LOAN:CREATE' : WRITE_PERM[kind];
-    await requirePerm(perm);
+    const key = kind === 'attachment' && entity === 'loan' ? 'LOAN_CREATE' : WRITE_ACTION[kind];
+    await requireAction(key);
     return signUpload(kind);
   });
 }
@@ -49,7 +50,7 @@ export async function requestUploadSignature(
 
 export async function saveOrgLogo(file: UploadedFile | null): Promise<ActionResult<Organisation>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:ORG_MANAGE');
+    const user = await requireAction('ADMIN_ORG_MANAGE');
     const previous = (await getOrg())?.logo ?? null;
 
     let logo: string | null = null;
@@ -76,7 +77,7 @@ export async function saveMemberPhoto(
   file: UploadedFile | null,
 ): Promise<ActionResult<{ photo: string | null }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBERS_UPDATE');
     const previous = (await getMember(memberId))?.photo ?? null;
 
     let photo: string | null = null;
@@ -115,7 +116,7 @@ export async function saveMemberBiometric(
   file: UploadedFile | null,
 ): Promise<ActionResult<Record<string, string | null>>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBERS_UPDATE');
     const field = BIOMETRIC_FIELD[kind];
     const previous = (await getMember(memberId))?.[field] ?? null;
 
@@ -141,7 +142,7 @@ export async function saveMemberApplicationBiometric(
   file: UploadedFile | null,
 ): Promise<ActionResult<Record<string, string | null>>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_APPLICATIONS_UPDATE');
     const field = BIOMETRIC_FIELD[kind];
     const previous = (await getMemberApplication(applicationNo))?.[field] ?? null;
 
@@ -166,7 +167,7 @@ export async function saveMemberEditPhoto(
   file: UploadedFile | null,
 ): Promise<ActionResult<{ photo: string | null }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     const previous = (await getMemberEditRequest(editNo))?.photo ?? null;
 
     let photo: string | null = null;
@@ -190,7 +191,7 @@ export async function saveMemberEditBiometric(
   file: UploadedFile | null,
 ): Promise<ActionResult<Record<string, string | null>>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     const field = BIOMETRIC_FIELD[kind];
     const previous = (await getMemberEditRequest(editNo))?.[field] ?? null;
 
@@ -211,8 +212,8 @@ export async function saveMemberEditBiometric(
 
 /* ------------------------------------------------------------ attachments */
 
-function attachmentPerm(entity: AttachmentEntity): string {
-  return entity === 'loan' ? 'LOAN:CREATE' : 'MEMBER:UPDATE';
+function attachmentAction(entity: AttachmentEntity): ActionKey {
+  return entity === 'loan' ? 'LOAN_CREATE' : 'MEMBERS_UPDATE';
 }
 
 export async function addAttachment(
@@ -222,7 +223,7 @@ export async function addAttachment(
   category: string,
 ): Promise<ActionResult<Attachment>> {
   return actionResult(async () => {
-    const user = await requirePerm(attachmentPerm(entity));
+    const user = await requireAction(attachmentAction(entity));
     const asset = await verifyUpload(file.publicId, 'attachment', file.resourceType);
     const saved = await recordAttachment({
       entity,
@@ -242,7 +243,7 @@ export async function removeAttachment(
   attachmentId: number,
 ): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm(attachmentPerm(entity));
+    const user = await requireAction(attachmentAction(entity));
     // Confirm the attachment really belongs to the record named in the URL,
     // so an id from another member's file cannot be deleted through this page.
     const owned = (await listAttachments(entity, entityId)).some((a) => a.id === attachmentId);

@@ -9,6 +9,9 @@ import { PostingError } from './errors.ts';
 import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
+import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
 import type {
   Actor, Appraisal, AppraisalFactor, Cents, Channel, GuarantorRow, IsoDate, JournalLineInput,
   LoanDetail, LoanFull, LoanListRow, LoanProduct, LoanScheduleRow, Member,
@@ -28,18 +31,69 @@ export function getLoan(id: number): Promise<LoanFull | undefined> {
   );
 }
 
-/** Loans matching a free-text search, optionally filtered by status. */
+/** Loans list's dynamic-filter registry — every meaningful column. product_id ships without
+ *  `options` since it's DB-driven; the page fills it in from listActiveLoanProducts(), which
+ *  it already fetches. Excludes purely internal columns (id, member_id — redundant with the
+ *  free-text search, disburse_to_account_id, version — an optimistic-lock counter). */
+export const LOAN_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'loan_no', label: 'Loan No.', type: 'text', column: 'l.loan_no' },
+  { key: 'product_id', label: 'Product', type: 'select', column: 'l.product_id' },
+  { key: 'interest_rate', label: 'Interest Rate', type: 'number', column: 'l.interest_rate' },
+  { key: 'interest_method', label: 'Interest Method', type: 'select', column: 'l.interest_method', options: INTEREST_METHODS.map((m) => ({ value: m, label: m })) },
+  { key: 'term_months', label: 'Term (Months)', type: 'number', column: 'l.term_months' },
+  { key: 'purpose', label: 'Purpose', type: 'text', column: 'l.purpose' },
+  { key: 'status', label: 'Status', type: 'select', column: 'l.status', options: LOAN_STATUSES.map((s) => ({ value: s, label: s })) },
+  { key: 'applied_date', label: 'Applied Date', type: 'date', column: 'l.applied_date' },
+  { key: 'approved_date', label: 'Approved Date', type: 'date', column: 'l.approved_date' },
+  { key: 'approved_by', label: 'Approved By', type: 'text', column: 'l.approved_by' },
+  { key: 'rejected_reason', label: 'Rejected Reason', type: 'text', column: 'l.rejected_reason' },
+  { key: 'disbursed_date', label: 'Disbursed Date', type: 'date', column: 'l.disbursed_date' },
+  { key: 'first_due_date', label: 'First Due Date', type: 'date', column: 'l.first_due_date' },
+  { key: 'principal', label: 'Principal', type: 'number', column: 'l.principal' },
+  { key: 'installment', label: 'Instalment', type: 'number', column: 'l.installment' },
+  { key: 'total_interest', label: 'Total Interest', type: 'number', column: 'l.total_interest' },
+  { key: 'fees_charged', label: 'Fees Charged', type: 'number', column: 'l.fees_charged' },
+  { key: 'principal_balance', label: 'Principal Balance', type: 'number', column: 'l.principal_balance' },
+  { key: 'interest_balance', label: 'Interest Balance', type: 'number', column: 'l.interest_balance' },
+  { key: 'penalty_balance', label: 'Penalty Balance', type: 'number', column: 'l.penalty_balance' },
+  { key: 'principal_paid', label: 'Principal Paid', type: 'number', column: 'l.principal_paid' },
+  { key: 'interest_paid', label: 'Interest Paid', type: 'number', column: 'l.interest_paid' },
+  { key: 'arrears_amount', label: 'Arrears', type: 'number', column: 'l.arrears_amount' },
+  { key: 'days_in_arrears', label: 'Days in Arrears', type: 'number', column: 'l.days_in_arrears' },
+  {
+    key: 'classification', label: 'Classification', type: 'select', column: 'l.classification',
+    options: ['PERFORMING', 'WATCH', 'SUBSTANDARD', 'DOUBTFUL', 'LOSS'].map((c) => ({ value: c, label: c })),
+  },
+  { key: 'created_by', label: 'Created By', type: 'text', column: 'l.created_by' },
+];
+
+/** Loans list's sortable columns — every column shown in the table. */
+const LOAN_SORT_COLUMNS: Record<string, string> = {
+  loan_no: 'l.loan_no',
+  member: 'm.first_name',
+  product_name: 'p.name',
+  principal: 'l.principal',
+  outstanding: '(l.principal_balance + l.interest_balance)',
+  installment: 'l.installment',
+  arrears_amount: 'l.arrears_amount',
+  status: 'l.status',
+  classification: 'l.classification',
+};
+
+/** Loans matching a free-text search, further narrowed by any dynamic filter conditions. */
 export function listLoans(
-  { search = '', status = '' }: { search?: string; status?: string } = {},
+  { search = '', filters = [], sort = null }: { search?: string; filters?: FilterCondition[]; sort?: SortState | null } = {},
 ): Promise<LoanListRow[]> {
+  const { clause, params } = buildFilterClause(LOAN_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(LOAN_SORT_COLUMNS, sort, 'l.id DESC');
   return all<LoanListRow>(
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
             m.member_no, m.first_name, m.last_name
      FROM loan l JOIN loan_product p ON p.id = l.product_id JOIN member m ON m.id = l.member_id
      WHERE (l.loan_no LIKE @like OR m.member_no LIKE @like OR m.first_name LIKE @like OR m.last_name LIKE @like)
-       ${status ? 'AND l.status = @status' : ''}
-     ORDER BY l.id DESC LIMIT 300`,
-    { like: `%${String(search).trim()}%`, status },
+       ${clause}
+     ${orderBy} LIMIT 300`,
+    { like: `%${String(search).trim()}%`, ...params },
   );
 }
 

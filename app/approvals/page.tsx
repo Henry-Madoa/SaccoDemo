@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireUser, currentCan } from '@/lib/session';
+import { requireAction, currentCanAction } from '@/lib/session';
 import {
   listMyWorkflowTasks, listLegacyPendingTasks, listWorkflowTaskHistory,
 } from '@/lib/workflow';
@@ -49,10 +49,10 @@ function TaskTable({ rows, decideable, showDecision }: {
 }
 
 export default async function ApprovalsPage() {
-  const user = await requireUser();
+  const user = await requireAction('APPROVALS_VIEW');
   const [myTasks, canLoanApprove, history] = await Promise.all([
     listMyWorkflowTasks(user.id),
-    currentCan('LOAN:APPROVE'),
+    currentCanAction('LOAN_APPROVE'),
     listWorkflowTaskHistory(),
   ]);
   const legacyLoanTasks = canLoanApprove ? await listLegacyPendingTasks('LOAN') : [];

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import { verifyUpload } from '@/lib/cloudinary';
 import {
@@ -15,7 +15,7 @@ export async function addApplicationAttachment(
   category: string,
 ): Promise<ActionResult<MemberApplicationAttachment>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_APPLICATIONS_UPDATE');
     const asset = await verifyUpload(file.publicId, 'attachment', file.resourceType);
     const saved = await recordApplicationAttachment({
       applicationNo,
@@ -33,7 +33,7 @@ export async function removeApplicationAttachment(
   attachmentId: number,
 ): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    await requirePerm('MEMBER:UPDATE');
+    await requireAction('MEMBER_APPLICATIONS_UPDATE');
     // Confirm the attachment really belongs to the application named in the URL,
     // so an id from another application's file cannot be deleted through this page.
     const owned = (await listApplicationAttachments(applicationNo)).some((a) => a.id === attachmentId);

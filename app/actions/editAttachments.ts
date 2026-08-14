@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import { verifyUpload } from '@/lib/cloudinary';
 import {
@@ -15,7 +15,7 @@ export async function addEditAttachment(
   category: string,
 ): Promise<ActionResult<MemberEditAttachment>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBER_EDITS_UPDATE');
     const asset = await verifyUpload(file.publicId, 'attachment', file.resourceType);
     const saved = await recordEditAttachment({
       editNo,
@@ -33,7 +33,7 @@ export async function removeEditAttachment(
   attachmentId: number,
 ): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    await requirePerm('MEMBER:UPDATE');
+    await requireAction('MEMBER_EDITS_UPDATE');
     // Confirm the attachment really belongs to the request named in the URL,
     // so an id from another request's file cannot be deleted through this page.
     const owned = (await listEditAttachments(editNo)).some((a) => a.id === attachmentId);

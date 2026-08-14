@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import * as gl from '@/lib/gl';
 import { toCents } from '@/lib/format';
@@ -16,7 +16,7 @@ import type {
  */
 export async function fetchAccountLedger(code: string): Promise<ActionResult<gl.AccountLedger>> {
   return actionResult(async () => {
-    await requirePerm('GL:READ');
+    await requireAction('GL_READ');
     const ledger = await gl.getAccountLedger(code);
     if (!ledger) throw new AppError('Account not found', 'NOT_FOUND');
     return ledger;
@@ -25,7 +25,7 @@ export async function fetchAccountLedger(code: string): Promise<ActionResult<gl.
 
 export async function fetchJournal(id: number): Promise<ActionResult<gl.JournalDetail>> {
   return actionResult(async () => {
-    await requirePerm('GL:READ');
+    await requireAction('GL_READ');
     const journal = await gl.getJournal(id);
     if (!journal) throw new AppError('Journal not found', 'NOT_FOUND');
     return journal;
@@ -47,7 +47,7 @@ export async function createJournal(
   lines: JournalLineDraft[],
 ): Promise<ActionResult<gl.CreateJournalResult>> {
   return actionResult(async () => {
-    const user = await requirePerm('GL:JOURNAL_CREATE');
+    const user = await requireAction('GL_JOURNAL_CREATE');
     const result = await gl.createJournal({
       valueDate: String(values.valueDate || ''),
       description: String(values.description || ''),
@@ -69,7 +69,7 @@ export async function createJournal(
 
 export async function reverseJournal(id: number, values: FormValues): Promise<ActionResult<PostedJournal>> {
   return actionResult(async () => {
-    const user = await requirePerm('GL:JOURNAL_APPROVE');
+    const user = await requireAction('GL_JOURNAL_APPROVE');
     const rev = await gl.reverseJournalEntry(id, String(values.reason || '').trim(), user);
     revalidatePath('/accounting');
     revalidatePath('/reports');
@@ -79,7 +79,7 @@ export async function reverseJournal(id: number, values: FormValues): Promise<Ac
 
 export async function createGlAccount(values: FormValues): Promise<ActionResult<{ id: number }>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:COA_MANAGE');
+    const user = await requireAction('GL_ACCOUNT_MANAGE');
     const created = await gl.createGlAccount({
       code: String(values.code || '').trim(),
       name: String(values.name || '').trim(),
@@ -94,7 +94,7 @@ export async function createGlAccount(values: FormValues): Promise<ActionResult<
 
 export async function updateGlAccount(code: string, values: FormValues): Promise<ActionResult<GlAccount>> {
   return actionResult(async () => {
-    const user = await requirePerm('ADMIN:COA_MANAGE');
+    const user = await requireAction('GL_ACCOUNT_MANAGE');
     const updated = await gl.updateGlAccount(code, {
       name: String(values.name || '').trim(),
       type: values.type as GlAccountType,
@@ -109,7 +109,7 @@ export async function updateGlAccount(code: string, values: FormValues): Promise
 
 export async function setPeriodStatus(code: string, status: string): Promise<ActionResult<AccountingPeriod>> {
   return actionResult(async () => {
-    const user = await requirePerm('GL:PERIOD_CLOSE');
+    const user = await requireAction('GL_PERIOD_CLOSE');
     const period = await gl.setPeriodStatus(code, status, user);
     revalidatePath('/accounting/periods');
     return period;

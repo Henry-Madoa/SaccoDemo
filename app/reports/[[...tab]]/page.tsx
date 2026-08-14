@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { getOrgBrand } from '@/lib/org';
 import { getBalanceSheet, getIncomeStatement, getPortfolioAtRisk } from '@/lib/reports';
 import { formatDate, today, startOfYear } from '@/lib/format';
@@ -19,7 +19,7 @@ const TABS: TabDefinition[] = [
 ];
 
 export default async function ReportsPage({ params }: { params: Promise<{ tab?: string[] }> }) {
-  const user = await requirePerm('REPORT:VIEW');
+  const user = await requireAction('REPORTS_VIEW');
   const { tab: segments } = await params;
   const tab = segments?.[0] ?? 'balance-sheet';
   if (!TABS.some((t) => t.key === tab)) notFound();

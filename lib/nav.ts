@@ -1,10 +1,9 @@
-import type { Permission } from './types.ts';
-
 export interface NavItem {
   path: string;
   label: string;
   icon: string;
-  perms: Permission[];
+  /** Visible once the user can execute any one of these pages. */
+  page: string | string[];
   badge?: 'pendingApprovals';
 }
 
@@ -22,25 +21,25 @@ export const NAV: NavGroup[] = [
   {
     group: 'Operations',
     items: [
-      { path: '/dashboard', label: 'Dashboard', icon: '▤', perms: ['REPORT:VIEW'] },
-      { path: '/approvals', label: 'Approvals', icon: '✔', perms: ['LOAN:READ', 'MEMBER:READ', 'GL:READ'], badge: 'pendingApprovals' },
-      { path: '/savings', label: 'Savings & FOSA', icon: '💰', perms: ['SAVINGS:READ'] },
-      { path: '/loans', label: 'Loans', icon: '📄', perms: ['LOAN:READ'] },
+      { path: '/dashboard', label: 'Dashboard', icon: '▤', page: 'DASHBOARD' },
+      { path: '/approvals', label: 'Approvals', icon: '✔', page: 'APPROVALS', badge: 'pendingApprovals' },
+      { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
+      { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
        ],
   },
   {
     group: 'Client Relationship Mgmt',
     items: [
-      { path: '/member-applications', label: 'Member Application', icon: '📝', perms: ['MEMBER:READ'] },
-      { path: '/members', label: 'Members', icon: '👥', perms: ['MEMBER:READ'] },
-      { path: '/member-edits', label: 'Member Editing', icon: '✏', perms: ['MEMBER:READ'] },
+      { path: '/member-applications', label: 'Member Application', icon: '📝', page: 'MEMBER_APPLICATIONS' },
+      { path: '/members', label: 'Members', icon: '👥', page: 'MEMBERS' },
+      { path: '/member-edits', label: 'Member Editing', icon: '✏', page: 'MEMBER_EDITS' },
     ],
   },
   {
     group: 'Finance',
     items: [
-      { path: '/accounting', label: 'General Ledger', icon: '⚖', perms: ['GL:READ'] },
-      { path: '/reports', label: 'Reports', icon: '📊', perms: ['REPORT:VIEW'] },
+      { path: '/accounting', label: 'General Ledger', icon: '⚖', page: 'GL' },
+      { path: '/reports', label: 'Reports', icon: '📊', page: 'REPORTS' },
     ],
   },
   {
@@ -48,9 +47,12 @@ export const NAV: NavGroup[] = [
     items: [
       {
         path: '/admin', label: 'Admin Centre', icon: '⚙',
-        perms: ['ADMIN:ORG_MANAGE', 'ADMIN:THEME_MANAGE', 'ADMIN:USER_MANAGE', 'ADMIN:PRODUCT_MANAGE',
-          'ADMIN:AUDIT_VIEW', 'ADMIN:COA_MANAGE', 'ADMIN:ROLE_MANAGE', 'ADMIN:POOL_MANAGE', 'ADMIN:WORKFLOW_MANAGE',
-          'ADMIN:CHANGE_LOG_MANAGE'],
+        page: [
+          'ADMIN_COMPANY', 'ADMIN_APPEARANCE', 'ADMIN_USERS', 'ADMIN_ROLES', 'ADMIN_PRODUCTS_SAVINGS',
+          'ADMIN_PRODUCTS_LOANS', 'ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES', 'ADMIN_POOL_DIMENSIONS',
+          'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_WORKFLOWS_TABLES',
+          'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA',
+        ],
       },
     ],
   },

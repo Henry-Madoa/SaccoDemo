@@ -1,58 +1,97 @@
-import { one, all, run, audit } from './db.ts';
+import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { hashPassword } from './auth.ts';
+import { requireAction } from './session.ts';
 import { passwordStrengthError } from './password.ts';
+import { listPermissionTables } from './permissions.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
-  Actor, AuditEntry, LoanProduct, LoanProductWithUsage, Permission, Role,
+  Actor, AuditEntry, LoanProduct, LoanProductWithUsage, PermissionSetLine, Role,
   RoleWithUsage, SavingsProduct, SavingsProductWithUsage, UserListRow, UserStatus,
 } from './types.ts';
 
+export { listPermissionTables };
+
 /* --------------------------------------------------------------------- roles */
 /*
- * One grouped join instead of a COUNT(*) query per role — the old handler ran
- * 1 + N queries to fill in userCount.
+ * One grouped join for userCount, plus one query for every role's lines —
+ * still just 2 queries total, not 1 + N.
  */
-export const listRoles = async (): Promise<RoleWithUsage[]> =>
-  (await all<Role & { userCount: number }>(
-    `SELECT r.*, COUNT(u.id) AS userCount
-     FROM role r LEFT JOIN app_user u ON u.role_id = r.id
-     GROUP BY r.id ORDER BY r.id`,
-  )).map((r) => ({ ...r, permissions: JSON.parse(r.permissions) as Permission[] }));
+export async function listRoles(): Promise<RoleWithUsage[]> {
+  const [roles, lines] = await Promise.all([
+    all<Role & { userCount: number }>(
+      `SELECT r.*, COUNT(u.id) AS "userCount"
+       FROM role r LEFT JOIN app_user u ON u.role_id = r.id
+       GROUP BY r.id ORDER BY r.id`,
+    ),
+    all<PermissionSetLine>('SELECT * FROM permission_set_line ORDER BY role_id, object_type, object_name'),
+  ]);
+  const byRole = new Map<number, PermissionSetLine[]>();
+  for (const line of lines) byRole.set(line.role_id, [...(byRole.get(line.role_id) ?? []), line]);
+  return roles.map((r) => ({ ...r, lines: byRole.get(r.id) ?? [] }));
+}
+
+export interface RoleLineInput {
+  objectType: 'TABLE' | 'PAGE';
+  objectName: string;
+  read?: boolean;
+  insert?: boolean;
+  modify?: boolean;
+  delete?: boolean;
+  execute?: boolean;
+}
 
 export interface RoleInput {
   name?: string;
   description?: string | null;
-  permissions?: Permission[];
+  lines?: RoleLineInput[];
+}
+
+async function replaceLines(roleId: number, lines: RoleLineInput[]): Promise<void> {
+  await run('DELETE FROM permission_set_line WHERE role_id = ?', roleId);
+  for (const line of lines) {
+    await run(
+      `INSERT INTO permission_set_line
+        (role_id, object_type, object_name, read_perm, insert_perm, modify_perm, delete_perm, execute_perm)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      roleId, line.objectType, line.objectName,
+      line.read ? 1 : 0, line.insert ? 1 : 0, line.modify ? 1 : 0, line.delete ? 1 : 0, line.execute ? 1 : 0,
+    );
+  }
 }
 
 export async function createRole(
-  { name, description, permissions = [] }: RoleInput,
+  { name, description, lines = [] }: RoleInput,
   user: Actor,
 ): Promise<{ id: number }> {
   if (!name) throw new AppError('Role name is required', 'VALIDATION');
-  const info = await run(
-    'INSERT INTO role (name, description, permissions) VALUES (?,?,?)',
-    name, description || null, JSON.stringify(permissions),
-  );
-  await audit(user, 'ROLE_CREATE', 'role', info.lastInsertRowid, { name, permissions });
-  return { id: Number(info.lastInsertRowid) };
+  return tx(async () => {
+    const info = await run('INSERT INTO role (name, description) VALUES (?,?)', name, description || null);
+    const id = Number(info.lastInsertRowid);
+    await replaceLines(id, lines);
+    await audit(user, 'ROLE_CREATE', 'role', id, { name, lines: lines.length });
+    return { id };
+  });
 }
 
 export async function updateRole(
   id: number,
-  { name, description, permissions }: RoleInput,
+  { name, description, lines }: RoleInput,
   user: Actor,
 ): Promise<Role> {
   const role = await one<Role>('SELECT * FROM role WHERE id = ?', id);
   if (!role) throw new AppError('Role not found', 'NOT_FOUND');
   if (role.is_system) throw new AppError('The System Administrator role cannot be modified', 'SYSTEM_ROLE');
-  await run(
-    `UPDATE role SET name=COALESCE(?,name), description=COALESCE(?,description),
-      permissions=COALESCE(?,permissions) WHERE id=?`,
-    name ?? null, description ?? null, permissions ? JSON.stringify(permissions) : null, id,
-  );
-  await audit(user, 'ROLE_UPDATE', 'role', id, { permissions });
-  return (await one<Role>('SELECT * FROM role WHERE id = ?', id))!;
+  return tx(async () => {
+    await run(
+      `UPDATE role SET name=COALESCE(?,name), description=COALESCE(?,description) WHERE id=?`,
+      name ?? null, description ?? null, id,
+    );
+    if (lines) await replaceLines(id, lines);
+    await audit(user, 'ROLE_UPDATE', 'role', id, { lines: lines?.length });
+    return (await one<Role>('SELECT * FROM role WHERE id = ?', id))!;
+  });
 }
 
 /* --------------------------------------------------------------------- users */
@@ -228,11 +267,48 @@ export async function updateLoanProduct(
 }
 
 /* --------------------------------------------------------------- audit trail */
-export function listAuditLog({ search = '', limit = 300 } = {}): Promise<AuditEntry[]> {
+/** Audit trail list's dynamic-filter registry — every meaningful column (id/user_id are
+ *  excluded as purely internal). `at` is a full timestamp filtered by a date-only input,
+ *  hence `datetime: true` (see lib/listFilters.ts's end-of-day handling). */
+export const AUDIT_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'at', label: 'When', type: 'date', datetime: true },
+  { key: 'username', label: 'User', type: 'text' },
+  { key: 'action', label: 'Action', type: 'text' },
+  { key: 'entity', label: 'Entity', type: 'text' },
+  { key: 'entity_id', label: 'Entity Id', type: 'text' },
+  { key: 'detail', label: 'Detail', type: 'text' },
+  { key: 'ip', label: 'IP Address', type: 'text' },
+];
+
+/** Audit trail list's sortable columns — every column shown in the table. */
+const AUDIT_SORT_COLUMNS: Record<string, string> = {
+  at: 'at',
+  username: 'username',
+  action: 'action',
+  entity: 'entity',
+  detail: 'detail',
+};
+
+export interface ListAuditLogOptions {
+  search?: string;
+  limit?: number;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+/** Gated here, not just by the Admin Centre tab that leads to it — a direct
+ *  Read right on audit_log so no future call path can reach it unguarded. */
+export async function listAuditLog(
+  { search = '', limit = 300, filters = [], sort = null }: ListAuditLogOptions = {},
+): Promise<AuditEntry[]> {
+  await requireAction('ADMIN_AUDIT_VIEW');
+  const { clause, params } = buildFilterClause(AUDIT_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(AUDIT_SORT_COLUMNS, sort, 'id DESC');
   return all<AuditEntry>(
     `SELECT * FROM audit_log
      WHERE (username LIKE @like OR action LIKE @like OR entity LIKE @like)
-     ORDER BY id DESC LIMIT @limit`,
-    { like: `%${String(search).trim()}%`, limit: Math.min(limit, 500) },
+       ${clause}
+     ${orderBy} LIMIT @limit`,
+    { like: `%${String(search).trim()}%`, limit: Math.min(limit, 500), ...params },
   );
 }

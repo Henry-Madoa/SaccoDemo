@@ -91,11 +91,6 @@ export interface TokenGroup {
 
 /* -------------------------------------------------------------------- RBAC */
 
-export type PermissionResource = 'MEMBER' | 'SAVINGS' | 'LOAN' | 'GL' | 'REPORT' | 'ADMIN';
-
-/** e.g. `LOAN:APPROVE`. Wildcards (`*`, `LOAN:*`) are valid stored values too. */
-export type Permission = string;
-
 export interface County {
   id: number;
   name: string;
@@ -132,12 +127,30 @@ export interface Role {
   name: string;
   description: string | null;
   is_system: Flag;
-  permissions: string; // JSON array as stored
 }
 
-/** A role row with `permissions` parsed and its user count rolled up. */
-export interface RoleWithUsage extends Omit<Role, 'permissions'> {
-  permissions: Permission[];
+/** One Permission Set line: a grant of rights on one Table or Page object. */
+export interface PermissionSetLine {
+  id: number;
+  role_id: number;
+  object_type: 'TABLE' | 'PAGE';
+  object_name: string;
+  read_perm: Flag;
+  insert_perm: Flag;
+  modify_perm: Flag;
+  delete_perm: Flag;
+  execute_perm: Flag;
+}
+
+/** A table available in the Permission Set line dropdown — live, not curated. */
+export interface PermissionTableOption {
+  name: string;
+  label: string;
+}
+
+/** A role row with its lines and user count rolled up. */
+export interface RoleWithUsage extends Role {
+  lines: PermissionSetLine[];
   userCount: number;
 }
 
@@ -156,6 +169,12 @@ export interface AppUser {
   created_at: IsoDateTime | null;
 }
 
+/** A role's lines, folded into direct lookups for canTable()/canPage(). */
+export interface PermissionSet {
+  tables: Record<string, { read: boolean; insert: boolean; modify: boolean; delete: boolean }>;
+  pages: Record<string, boolean>;
+}
+
 /**
  * The signed-in user, as returned by userFromToken().
  * `password_hash` is deleted before the record leaves the auth layer, which is
@@ -163,7 +182,8 @@ export interface AppUser {
  */
 export interface SessionUser extends Omit<AppUser, 'password_hash'> {
   role_name: string;
-  permissionList: Permission[];
+  is_system: Flag;
+  permissionSet: PermissionSet;
 }
 
 /** Anything that can be recorded as the actor on an audit entry. */
@@ -744,7 +764,7 @@ export interface SavingsProductWithUsage extends SavingsProduct {
 /* ---------------------------------------------------------- member categories */
 
 export type MemberCategoryType =
-  | 'INDIVIDUAL' | 'INSTITUTION' | 'MICRO_FINANCE' | 'GROUP_MEMBER' | 'JOINT_ACCOUNT';
+  | 'INDIVIDUAL' | 'GROUP' |'INSTITUTION' | 'MICRO_FINANCE' | 'GROUP_MEMBER' | 'JOINT_ACCOUNT';
 
 export interface MemberCategory {
   id: number;
@@ -1086,6 +1106,56 @@ export interface WorkflowTableRelationField {
 
 export interface WorkflowTableRelationWithFields extends WorkflowTableRelation {
   fields: WorkflowTableRelationField[];
+}
+
+/** An admin-defined CSV export/import package (Admin Centre → Data Management) — which table,
+ *  and via ConfigPackageField, which of that table's columns are included. */
+export interface ConfigPackage {
+  id: number;
+  code: string;
+  name: string;
+  table_name: string;
+  key_field: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ConfigPackageField {
+  id: number;
+  package_id: number;
+  field_name: string;
+  column_no: number;
+}
+
+export interface ConfigPackageWithFields extends ConfigPackage {
+  fields: ConfigPackageField[];
+}
+
+/** One selectable table in the package's table dropdown — the live, denylist-filtered set. */
+export interface ConfigPackageTableOption {
+  table_name: string;
+  label: string;
+}
+
+/** One selectable column of a package's table — `relation_table` is set when the column is a
+ *  foreign key, so export/import can resolve it to/from a human-readable code instead of a raw id. */
+export interface ConfigPackageColumn {
+  name: string;
+  label: string;
+  relation_table: string | null;
+}
+
+export interface ConfigImportRowResult {
+  row: number;
+  status: 'INSERTED' | 'UPDATED' | 'ERROR';
+  message?: string;
+}
+
+export interface ConfigImportResult {
+  inserted: number;
+  updated: number;
+  errors: number;
+  rows: ConfigImportRowResult[];
 }
 
 export interface WorkflowUserGroup {

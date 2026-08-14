@@ -9,7 +9,7 @@ import type { SelectOption } from './field';
  * filter server-side. Keeping the filter in the URL means a filtered list is
  * shareable and survives a refresh — the old in-module `let q` did not.
  */
-function useQueryWriter() {
+export function useQueryWriter() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();

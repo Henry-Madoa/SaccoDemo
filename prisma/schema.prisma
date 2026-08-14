@@ -903,12 +903,35 @@ model organisation {
 }
 
 model role {
-  id          Int        @id @default(autoincrement())
-  name        String     @unique
-  description String?
-  is_system   Int        @default(0)
-  permissions String     @default("[]")
-  app_user    app_user[]
+  id                   Int                    @id @default(autoincrement())
+  name                 String                 @unique
+  description          String?
+  is_system            Int                    @default(0)
+  app_user             app_user[]
+  permission_set_line  permission_set_line[]
+}
+
+/*
+ * One line of a Business Central-style Permission Set: a grant of rights on
+ * one Object, which is either a database Table (Read/Insert/Modify/Delete)
+ * or an application Page (Execute). A role with is_system=1 (System
+ * Administrator) has no lines at all — full access is implied directly by
+ * the flag, not by a wildcard row here.
+ */
+model permission_set_line {
+  id           Int    @id @default(autoincrement())
+  role_id      Int
+  object_type  String // 'TABLE' | 'PAGE'
+  object_name  String // table name (e.g. 'loan') or page code (e.g. 'LOANS')
+  read_perm    Int    @default(0)
+  insert_perm  Int    @default(0)
+  modify_perm  Int    @default(0)
+  delete_perm  Int    @default(0)
+  execute_perm Int    @default(0)
+  role         role   @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, object_type, object_name])
+  @@index([role_id])
 }
 
 model savings_account {
@@ -1007,4 +1030,28 @@ model txn {
   @@index([loan_id, id], map: "ix_txn_loan")
   @@index([member_id, id(sort: Desc)], map: "ix_txn_member")
   @@index([savings_account_id, id], map: "ix_txn_sa")
+}
+
+/// An admin-defined CSV export/import package (Admin Centre → Data Management), modeled on
+/// Business Central's Configuration Packages: which table, and via config_package_field, which
+/// of that table's columns are included — one package has many fields.
+model config_package {
+  id             Int                    @id @default(autoincrement())
+  code           String                 @unique
+  name           String
+  table_name     String
+  key_field      String?
+  created_at     String?
+  created_by     String?
+  field          config_package_field[]
+}
+
+model config_package_field {
+  id         Int            @id @default(autoincrement())
+  package_id Int
+  field_name String
+  column_no  Int
+  package    config_package @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([package_id, field_name], map: "ux_config_package_field")
 }

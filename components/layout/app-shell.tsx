@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { getOrgBrand } from '@/lib/org';
 import { requireUser } from '@/lib/session';
-import { can } from '@/lib/auth';
+import { canPage } from '@/lib/permissions';
 import { pendingApprovalCount } from '@/lib/reports';
 import { NAV } from '@/lib/nav';
 import { Sidebar } from '@/components/layout/sidebar';
@@ -14,10 +14,10 @@ export async function AppShell({ children }: { children: ReactNode }) {
   // Resolve navigation visibility here so the browser only ever learns which
   // links to draw, not the permission list that produced them.
   const allowedPaths = NAV.flatMap((g) => g.items)
-    .filter((i) => i.perms.some((p) => can(user, p)))
+    .filter((i) => (Array.isArray(i.page) ? i.page : [i.page]).some((p) => canPage(user, p)))
     .map((i) => i.path);
 
-  const badges = can(user, 'REPORT:VIEW') ? { pendingApprovals: await pendingApprovalCount() } : {};
+  const badges = canPage(user, 'APPROVALS') ? { pendingApprovals: await pendingApprovalCount() } : {};
 
   return (
     <NavProvider>

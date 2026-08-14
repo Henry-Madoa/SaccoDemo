@@ -8,13 +8,13 @@
  */
 import type {
   Channel, DocumentStatus, GlAccountType, InterestMethod, LoanStatus, MemberCategoryType, MemberStatus,
-  SavingsCategory, UserStatus,
+  SavingsAccountStatus, SavingsCategory, UserStatus,
 } from './types.ts';
 
 export const MEMBER_STATUSES: MemberStatus[] =
   [ 'NOT PAID UP' , 'ACTIVE' , 'INACTIVE','DORMANT', 'WITHDRAWN',  'DECEASED', 'CLOSED'];
 
-  
+export const MEMBER_TYPES = ['INDIVIDUAL', 'CORPORATE', 'GROUP'];
 export const MEMBER_TITLES = ['', 'Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
 export const GENDERS = ['', 'MALE', 'FEMALE'];
 export const MARITAL_STATUSES = ['', 'SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'];
@@ -37,9 +37,11 @@ export const REPAY_CHANNELS: Channel[] = ['TELLER', 'CHECKOFF', 'MPESA', 'BANK']
 
 export const SAVINGS_CATEGORIES: SavingsCategory[] = ['SHARE', 'SAVINGS', 'DEPOSIT', 'FIXED'];
 export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE'];
+export const SAVINGS_ACCOUNT_STATUSES: SavingsAccountStatus[] = ['ACTIVE', 'DORMANT', 'FROZEN', 'CLOSED'];
 
 export const MEMBER_CATEGORY_TYPES: { value: MemberCategoryType; label: string }[] = [
   { value: 'INDIVIDUAL', label: 'Individual' },
+  { value: 'GROUP', label: 'Group' },
   { value: 'INSTITUTION', label: 'Institution' },
   { value: 'MICRO_FINANCE', label: 'Micro-finance group' },
   { value: 'GROUP_MEMBER', label: 'Group member' },

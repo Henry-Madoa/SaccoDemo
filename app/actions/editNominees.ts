@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
   replaceEditNextOfKin, replaceEditNominees, type NextOfKinDraft, type NomineeDraft,
@@ -13,7 +13,7 @@ export async function saveEditNextOfKin(
   rows: NextOfKinDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await requirePerm('MEMBER:UPDATE');
+    await requireAction('MEMBER_EDITS_UPDATE');
     await replaceEditNextOfKin(editNo, rows);
     revalidatePath(`/member-edits/view/${editNo}`);
     return { updated: true };
@@ -25,7 +25,7 @@ export async function saveEditNominees(
   rows: NomineeDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await requirePerm('MEMBER:UPDATE');
+    await requireAction('MEMBER_EDITS_UPDATE');
     await replaceEditNominees(editNo, rows);
     revalidatePath(`/member-edits/view/${editNo}`);
     return { updated: true };

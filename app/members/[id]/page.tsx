@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requirePerm, currentCan } from '@/lib/session';
+import { requireAction, currentCanAction } from '@/lib/session';
 import { getMemberDetail } from '@/lib/members';
 import { listActiveSavingsProducts } from '@/lib/admin';
 import { getDimensionCaptions } from '@/lib/org';
@@ -19,7 +19,7 @@ import { BiometricPanel } from './biometric-panel';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requirePerm('MEMBER:READ');
+  const user = await requireAction('MEMBERS_READ');
   const { id } = await params;
   const detail = await getMemberDetail(Number(id));
   if (!detail) notFound();
@@ -30,7 +30,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   const [
     canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 },
   ] = await Promise.all([
-    currentCan('SAVINGS:OPEN'), currentCan('LOAN:CREATE'),
+    currentCanAction('SAVINGS_OPEN'), currentCanAction('LOAN_CREATE'),
     listAttachments('member', m.id), listActiveSavingsProducts(),
     getDimensionCaptions(),
   ]);

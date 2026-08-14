@@ -292,6 +292,16 @@ tbody tr.header-row { background: var(--surface-2); font-weight: 600; }
 .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12.5px; }
 .muted-cell { color: var(--text-muted); }
 .tiny { font-size: 11px; color: var(--text-muted); }
+
+/* A sortable column header — reset to plain text with a pointer, so it reads as part of the
+   header row rather than as a button, until hovered/active. */
+.sort-link {
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+  font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.sort-link:hover { color: var(--brand-primary); }
+.sort-link .arrow { font-size: 9px; }
 .table-wrap { overflow-x: auto; margin: 0 calc(var(--sp) * -2.5) calc(var(--sp) * -2.5); padding: 0 calc(var(--sp) * 2.5) 0; }
 tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight: 600; }
 

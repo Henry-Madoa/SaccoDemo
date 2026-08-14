@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm } from '@/lib/session';
+import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import { replaceNextOfKin, replaceNominees, type NextOfKinDraft, type NomineeDraft } from '@/lib/nominees';
 import type { ActionResult } from '@/lib/types';
@@ -11,7 +11,7 @@ export async function saveNextOfKin(
   rows: NextOfKinDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBERS_UPDATE');
     await replaceNextOfKin(memberId, rows, user);
     revalidatePath(`/members/${memberId}`);
     return { updated: true };
@@ -23,7 +23,7 @@ export async function saveNominees(
   rows: NomineeDraft[],
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requirePerm('MEMBER:UPDATE');
+    const user = await requireAction('MEMBERS_UPDATE');
     await replaceNominees(memberId, rows, user);
     revalidatePath(`/members/${memberId}`);
     return { updated: true };

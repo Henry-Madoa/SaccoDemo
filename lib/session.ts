@@ -2,9 +2,10 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { SESSION_COOKIE, userFromToken, can } from './auth.ts';
+import { SESSION_COOKIE, userFromToken } from './auth.ts';
+import { ACTIONS, canAction, canPage, canTable, type ActionKey, type Right } from './permissions.ts';
 import { ForbiddenError } from './errors.ts';
-import type { Permission, SessionUser } from './types.ts';
+import type { SessionUser } from './types.ts';
 
 /**
  * The signed-in user for the current request.
@@ -26,14 +27,33 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** The current user, or a redirect / thrown ForbiddenError if they lack `permission`. */
-export async function requirePerm(permission: Permission): Promise<SessionUser> {
+/** The current user, or a thrown ForbiddenError if they lack `right` on `table`. */
+export async function requireTable(table: string, right: Right): Promise<SessionUser> {
   const user = await requireUser();
-  if (!can(user, permission)) throw new ForbiddenError(permission);
+  if (!canTable(user, table, right)) throw new ForbiddenError(`${table}:${right}`);
   return user;
 }
 
-/** Non-throwing permission check for the current user. */
-export async function currentCan(permission: Permission): Promise<boolean> {
-  return can(await getCurrentUser(), permission);
+/** The current user, or a thrown ForbiddenError if they lack Execute on `page`. */
+export async function requirePage(page: string): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!canPage(user, page)) throw new ForbiddenError(page);
+  return user;
+}
+
+/** The current user, or a thrown ForbiddenError if they lack the page + table rights `key` needs. */
+export async function requireAction(key: ActionKey): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!canAction(user, key)) throw new ForbiddenError(ACTIONS[key].page);
+  return user;
+}
+
+/** Non-throwing action check for the current user — for UI visibility only. */
+export async function currentCanAction(key: ActionKey): Promise<boolean> {
+  return canAction(await getCurrentUser(), key);
+}
+
+/** Non-throwing page-execute check for the current user — for UI visibility only. */
+export async function currentCanPage(page: string): Promise<boolean> {
+  return canPage(await getCurrentUser(), page);
 }

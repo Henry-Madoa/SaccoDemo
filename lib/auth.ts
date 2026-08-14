@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { one, run, audit } from './db.ts';
-import type { Actor, AppUser, Permission, PermissionResource, SessionUser } from './types.ts';
+import { one, all, run, audit } from './db.ts';
+import type { Actor, AppUser, PermissionSet, PermissionSetLine, SessionUser } from './types.ts';
 
 const SESSION_HOURS = 12;
 export const SESSION_COOKIE = 'sacco_session';
@@ -21,16 +21,6 @@ export function verifyPassword(plain: string, stored: string): boolean {
     return false;
   }
 }
-
-/* Permission catalogue — resource:action, as specified in section 4 of the design. */
-export const PERMISSIONS: Record<PermissionResource, string[]> = {
-  MEMBER: ['READ', 'CREATE', 'UPDATE', 'APPROVE'],
-  SAVINGS: ['READ', 'OPEN', 'DEPOSIT', 'WITHDRAW', 'REVERSE'],
-  LOAN: ['READ', 'CREATE', 'APPROVE', 'DISBURSE', 'REPAY', 'WRITE_OFF'],
-  GL: ['READ', 'JOURNAL_CREATE', 'JOURNAL_APPROVE', 'PERIOD_CLOSE'],
-  REPORT: ['VIEW', 'EXPORT'],
-  ADMIN: ['ORG_MANAGE', 'THEME_MANAGE', 'USER_MANAGE', 'ROLE_MANAGE', 'PRODUCT_MANAGE', 'COA_MANAGE', 'POOL_MANAGE', 'AUDIT_VIEW', 'WORKFLOW_MANAGE'],
-};
 
 async function createSession(user: Pick<AppUser, 'id'>): Promise<{ token: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString('hex');
@@ -59,16 +49,31 @@ export async function userFromToken(token: string | undefined): Promise<SessionU
     return null;
   }
 
-  const row = await one<AppUser & { role_name: string; permissions: string }>(
-    `SELECT u.*, r.name AS role_name, r.permissions AS permissions
+  const row = await one<AppUser & { role_name: string; is_system: 0 | 1 }>(
+    `SELECT u.*, r.name AS role_name, r.is_system AS is_system
      FROM app_user u JOIN role r ON r.id = u.role_id WHERE u.id = ?`,
     session.user_id,
   );
   if (!row || row.status !== 'ACTIVE') return null;
 
-  // Strip the credential and the raw JSON before the record leaves this layer.
-  const { password_hash: _hash, permissions, ...rest } = row;
-  return { ...rest, permissionList: JSON.parse(permissions || '[]') as Permission[] };
+  const { password_hash: _hash, ...rest } = row;
+  return { ...rest, permissionSet: row.is_system ? { tables: {}, pages: {} } : await loadPermissionSet(row.role_id) };
+}
+
+/** Folds a role's permission_set_line rows into direct {table}/{page} lookups. */
+export async function loadPermissionSet(roleId: number): Promise<PermissionSet> {
+  const lines = await all<PermissionSetLine>('SELECT * FROM permission_set_line WHERE role_id = ?', roleId);
+  const set: PermissionSet = { tables: {}, pages: {} };
+  for (const line of lines) {
+    if (line.object_type === 'PAGE') {
+      if (line.execute_perm) set.pages[line.object_name] = true;
+    } else {
+      set.tables[line.object_name] = {
+        read: !!line.read_perm, insert: !!line.insert_perm, modify: !!line.modify_perm, delete: !!line.delete_perm,
+      };
+    }
+  }
+  return set;
 }
 
 export interface LoginResult {
@@ -86,13 +91,4 @@ export async function login(username: unknown, password: unknown, ip?: string): 
   const { token, expiresAt } = await createSession(row);
   await audit(row as Actor, 'LOGIN', 'app_user', row.id, { ip });
   return { token, expiresAt, user: await userFromToken(token) };
-}
-
-/** Does `user` hold `permission`? Understands the `*` and `RESOURCE:*` wildcards. */
-export function can(user: SessionUser | null | undefined, permission: Permission): boolean {
-  if (!user) return false;
-  const list = user.permissionList || [];
-  if (list.includes('*')) return true;
-  if (list.includes(permission)) return true;
-  return list.includes(`${permission.split(':')[0]}:*`);
 }

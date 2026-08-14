@@ -9,8 +9,9 @@ import { postJournal } from './accounting.ts';
 import * as savings from './savings.ts';
 import * as loanSvc from './loanService.ts';
 import { addMonths } from './loans.ts';
+import { expandActionsToLines, type ActionKey } from './permissions.ts';
 import type {
-  Actor, Cents, Channel, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member, Permission,
+  Actor, Cents, Channel, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member,
 } from './types.ts';
 
 const K = (n: number): Cents => Math.round(n * 100); // shillings -> cents
@@ -68,41 +69,61 @@ const CHART: ChartRow[] = [
 interface RoleSeed {
   name: string;
   description: string;
-  perms: Permission[];
+  /** Which named actions (see lib/permissions.ts) this role's Permission Set lines
+   *  are expanded from. System Administrator gets none — is_system implies full access. */
+  actions: ActionKey[];
 }
 
-const ROLES: RoleSeed[] = [
-  { name: 'System Administrator', description: 'Full access including configuration and security.', perms: ['*'] },
+/** Every non-auditor operational role could reach /approvals under the old
+ *  flat permission model (it had no gate of its own, just a login check) —
+ *  carried forward here as an explicit grant on every seeded role. */
+export const ROLES: RoleSeed[] = [
+  { name: 'System Administrator', description: 'Full access including configuration and security.', actions: [] },
   {
     name: 'Branch Manager',
     description: 'Approves loans and oversees branch operations.',
-    perms: ['MEMBER:READ', 'MEMBER:CREATE', 'MEMBER:UPDATE', 'MEMBER:APPROVE', 'SAVINGS:READ', 'SAVINGS:OPEN',
-      'SAVINGS:DEPOSIT', 'SAVINGS:WITHDRAW', 'SAVINGS:REVERSE', 'LOAN:READ', 'LOAN:CREATE', 'LOAN:APPROVE',
-      'LOAN:DISBURSE', 'LOAN:REPAY', 'GL:READ', 'REPORT:VIEW', 'REPORT:EXPORT', 'ADMIN:AUDIT_VIEW',
-      'ADMIN:CHANGE_LOG_MANAGE'],
+    actions: [
+      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
+      'MEMBERS_UPDATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_EDITS_UPDATE', 'MEMBER_APPLICATIONS_APPROVE',
+      'MEMBER_EDITS_APPROVE', 'SAVINGS_READ', 'SAVINGS_OPEN', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW',
+      'SAVINGS_REVERSE', 'LOAN_READ', 'LOAN_CREATE', 'LOAN_APPROVE', 'LOAN_DISBURSE', 'LOAN_REPAY', 'GL_READ',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW', 'ADMIN_CHANGE_LOG_MANAGE',
+    ],
   },
   {
     name: 'Loans Officer',
     description: 'Captures and appraises loan applications. Cannot approve own work.',
-    perms: ['MEMBER:READ', 'MEMBER:CREATE', 'MEMBER:UPDATE', 'SAVINGS:READ', 'LOAN:READ', 'LOAN:CREATE',
-      'LOAN:REPAY', 'REPORT:VIEW'],
+    actions: [
+      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
+      'MEMBERS_UPDATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_EDITS_UPDATE', 'SAVINGS_READ', 'LOAN_READ',
+      'LOAN_CREATE', 'LOAN_REPAY', 'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
+    ],
   },
   {
     name: 'Teller',
     description: 'Front-office cash operations.',
-    perms: ['MEMBER:READ', 'SAVINGS:READ', 'SAVINGS:OPEN', 'SAVINGS:DEPOSIT', 'SAVINGS:WITHDRAW',
-      'LOAN:READ', 'LOAN:REPAY', 'REPORT:VIEW'],
+    actions: [
+      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'SAVINGS_READ', 'SAVINGS_OPEN',
+      'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW', 'LOAN_READ', 'LOAN_REPAY', 'DASHBOARD_VIEW', 'REPORTS_VIEW',
+      'APPROVALS_VIEW',
+    ],
   },
   {
     name: 'Finance Officer',
     description: 'General ledger, journals and financial reporting.',
-    perms: ['MEMBER:READ', 'SAVINGS:READ', 'LOAN:READ', 'GL:READ', 'GL:JOURNAL_CREATE', 'GL:JOURNAL_APPROVE',
-      'GL:PERIOD_CLOSE', 'REPORT:VIEW', 'REPORT:EXPORT', 'ADMIN:COA_MANAGE'],
+    actions: [
+      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'SAVINGS_READ', 'LOAN_READ', 'GL_READ',
+      'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_PERIOD_CLOSE', 'GL_ACCOUNT_MANAGE', 'DASHBOARD_VIEW',
+      'REPORTS_VIEW', 'APPROVALS_VIEW',
+    ],
   },
   {
     name: 'Internal Auditor',
     description: 'Read-only across the system, including the audit trail.',
-    perms: ['MEMBER:READ', 'SAVINGS:READ', 'LOAN:READ', 'GL:READ', 'REPORT:VIEW', 'REPORT:EXPORT', 'ADMIN:AUDIT_VIEW'],
+    actions: [
+      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'SAVINGS_READ', 'LOAN_READ', 'GL_READ',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
+    ],
   },
 ];
 
@@ -151,9 +172,20 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   const accId = async (code: string): Promise<number> =>
     (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;
 
-  const INS_ROLE = 'INSERT INTO role (name, description, is_system, permissions) VALUES (?,?,?,?)';
+  const INS_ROLE = 'INSERT INTO role (name, description, is_system) VALUES (?,?,?)';
+  const INS_LINE = `INSERT INTO permission_set_line
+    (role_id, object_type, object_name, read_perm, insert_perm, modify_perm, delete_perm, execute_perm)
+    VALUES (?,?,?,?,?,?,?,?)`;
   for (const r of ROLES) {
-    await run(INS_ROLE, r.name, r.description, r.name === 'System Administrator' ? 1 : 0, JSON.stringify(r.perms));
+    const isSystem = r.name === 'System Administrator';
+    const info = await run(INS_ROLE, r.name, r.description, isSystem ? 1 : 0);
+    const roleId = Number(info.lastInsertRowid);
+    for (const line of expandActionsToLines(roleId, r.actions)) {
+      await run(
+        INS_LINE, line.role_id, line.object_type, line.object_name,
+        line.read ? 1 : 0, line.insert ? 1 : 0, line.modify ? 1 : 0, line.delete ? 1 : 0, line.execute ? 1 : 0,
+      );
+    }
   }
   const roleId = async (n: string): Promise<number> =>
     (await one<{ id: number }>('SELECT id FROM role WHERE name = ?', n))!.id;

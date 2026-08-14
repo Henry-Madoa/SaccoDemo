@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requirePerm, requireUser } from '@/lib/session';
+import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as loanSvc from '@/lib/loanService';
 import { getMemberDetail } from '@/lib/members';
@@ -16,7 +16,7 @@ export async function memberDisbursementAccounts(
   memberId: number,
 ): Promise<ActionResult<SavingsAccountWithProduct[]>> {
   return actionResult(async () => {
-    await requirePerm('LOAN:READ');
+    await requireAction('LOAN_READ');
     const detail = await getMemberDetail(memberId);
     return (detail?.accounts ?? []).filter((a) => a.status === 'ACTIVE');
   });
@@ -24,7 +24,7 @@ export async function memberDisbursementAccounts(
 
 export async function appraiseLoan(values: FormValues): Promise<ActionResult<Appraisal>> {
   return actionResult(async () => {
-    await requirePerm('LOAN:READ');
+    await requireAction('LOAN_READ');
     return loanSvc.appraise({
       memberId: Number(values.memberId),
       productId: Number(values.productId),
@@ -36,7 +36,7 @@ export async function appraiseLoan(values: FormValues): Promise<ActionResult<App
 
 export async function applyForLoan(values: FormValues): Promise<ActionResult<LoanFull>> {
   return actionResult(async () => {
-    const user = await requirePerm('LOAN:CREATE');
+    const user = await requireAction('LOAN_CREATE');
     const loan = await loanSvc.apply({
       memberId: Number(values.memberId),
       productId: Number(values.productId),
@@ -72,7 +72,7 @@ export async function decideLoan(
       await decideWorkflowTask(routed.id, approve, reason || null, user);
       result = { decided: true };
     } else {
-      const user = await requirePerm('LOAN:APPROVE');
+      const user = await requireAction('LOAN_APPROVE');
       const loan = await loanSvc.approve({ loanId, user, approve, reason });
       await recordLegacyDecision('LOAN', String(loanId), approve, reason || null, user);
       result = loan;
@@ -86,7 +86,7 @@ export async function decideLoan(
 
 export async function disburseLoan(loanId: number, values: FormValues): Promise<ActionResult<LoanFull>> {
   return actionResult(async () => {
-    const user = await requirePerm('LOAN:DISBURSE');
+    const user = await requireAction('LOAN_DISBURSE');
     const loan = await loanSvc.disburse({
       loanId,
       valueDate: String(values.valueDate || ''),
@@ -105,7 +105,7 @@ export async function repayLoan(
   values: FormValues,
 ): Promise<ActionResult<loanSvc.RepayResult>> {
   return actionResult(async () => {
-    const user = await requirePerm('LOAN:REPAY');
+    const user = await requireAction('LOAN_REPAY');
     const result = await loanSvc.repay({
       loanId,
       amount: toCents(values.amount),
@@ -124,7 +124,7 @@ export async function repayLoan(
 
 export async function runAging(): Promise<ActionResult<{ asOf: string; loansProcessed: number }>> {
   return actionResult(async () => {
-    await requirePerm('LOAN:READ');
+    await requireAction('LOAN_READ');
     const result = await loanSvc.runArrearsAging();
     revalidatePath('/loans');
     revalidatePath('/reports/par');

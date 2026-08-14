@@ -5,6 +5,9 @@
 import { one, all, run, tx, nextSequence, audit } from './db.ts';
 import { postJournal, reverseJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
+import { SAVINGS_ACCOUNT_STATUSES, SAVINGS_CATEGORIES } from './constants.ts';
 import type {
   Actor, Cents, Channel, IsoDate, JournalLineInput, Member,
   SavingsAccountFull, SavingsAccountListRow, SavingsProduct, Statement, Txn,
@@ -34,8 +37,47 @@ export function getAccount(id: number): Promise<SavingsAccountFull | undefined> 
   );
 }
 
-/** Accounts matching a free-text search over account number, member number or name. */
-export function listAccounts(search = ''): Promise<SavingsAccountListRow[]> {
+/** Savings accounts list's dynamic-filter registry — every meaningful column, including a
+ *  couple joined in from the product (category, min_balance). product_id ships without
+ *  `options` since it's DB-driven; the page fills it in from listActiveSavingsProducts(). */
+export const SAVINGS_ACCOUNT_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'account_no', label: 'Account No.', type: 'text', column: 'sa.account_no' },
+  {
+    key: 'status', label: 'Status', type: 'select', column: 'sa.status',
+    options: SAVINGS_ACCOUNT_STATUSES.map((s) => ({ value: s, label: s })),
+  },
+  { key: 'product_id', label: 'Product', type: 'select', column: 'sa.product_id' },
+  { key: 'category', label: 'Category', type: 'select', column: 'p.category', options: SAVINGS_CATEGORIES.map((c) => ({ value: c, label: c })) },
+  { key: 'balance', label: 'Balance', type: 'number', column: 'sa.balance' },
+  { key: 'hold_amount', label: 'Hold Amount', type: 'number', column: 'sa.hold_amount' },
+  { key: 'min_balance', label: 'Min. Balance', type: 'number', column: 'p.min_balance' },
+  { key: 'opened_date', label: 'Opened Date', type: 'date', column: 'sa.opened_date' },
+  { key: 'last_activity', label: 'Last Activity', type: 'date', column: 'sa.last_activity' },
+];
+
+/** Savings accounts list's sortable columns — every column shown in the table. */
+const SAVINGS_ACCOUNT_SORT_COLUMNS: Record<string, string> = {
+  account_no: 'sa.account_no',
+  member: 'm.first_name',
+  product_name: 'p.name',
+  status: 'sa.status',
+  balance: 'sa.balance',
+  available: '(sa.balance - sa.hold_amount - p.min_balance)',
+};
+
+export interface ListAccountsOptions {
+  search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+/** Accounts matching a free-text search over account number, member number or name,
+ *  further narrowed by any dynamic filter conditions. */
+export function listAccounts(
+  { search = '', filters = [], sort = null }: ListAccountsOptions = {},
+): Promise<SavingsAccountListRow[]> {
+  const { clause, params } = buildFilterClause(SAVINGS_ACCOUNT_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(SAVINGS_ACCOUNT_SORT_COLUMNS, sort, 'sa.id DESC');
   return all<SavingsAccountListRow>(
     `SELECT sa.*, p.name AS product_name, p.code AS product_code, p.category,
             p.allow_withdrawal, p.min_balance,
@@ -43,10 +85,11 @@ export function listAccounts(search = ''): Promise<SavingsAccountListRow[]> {
      FROM savings_account sa
      JOIN savings_product p ON p.id = sa.product_id
      JOIN member m ON m.id = sa.member_id
-     WHERE sa.account_no LIKE @like OR m.member_no LIKE @like
-        OR m.first_name LIKE @like OR m.last_name LIKE @like
-     ORDER BY sa.id DESC LIMIT 200`,
-    { like: `%${String(search).trim()}%` },
+     WHERE (sa.account_no LIKE @like OR m.member_no LIKE @like
+        OR m.first_name LIKE @like OR m.last_name LIKE @like)
+       ${clause}
+     ${orderBy} LIMIT 200`,
+    { like: `%${String(search).trim()}%`, ...params },
   );
 }
 
