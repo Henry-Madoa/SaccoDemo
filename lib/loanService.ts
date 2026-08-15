@@ -31,6 +31,36 @@ export function getLoan(id: number): Promise<LoanFull | undefined> {
   );
 }
 
+/** The Loans list's tab keys, and the status each pins down — "all" contributes no filter.
+ *  Shared between the list page's tab links and the detail card's Previous/Next, so paging
+ *  through a tab never steps outside the status it was opened from. */
+export const LOAN_TAB_STATUS: Record<string, string | undefined> = {
+  all: undefined,
+  open: 'OPEN',
+  pending: 'PENDING APPROVAL',
+  approved: 'APPROVED',
+  disbursed: 'DISBURSED',
+  closed: 'CLOSED',
+  'written-off': 'WRITTEN OFF',
+  archived: 'ARCHIVED',
+};
+
+/** The loan immediately before/after this one by id — for the card's Business-Central-style
+ *  Previous/Next navigation. Scoped to `status` (a LOAN_TAB_STATUS value) when given, so paging
+ *  never steps outside the tab the record was opened from. */
+export async function getAdjacentLoanIds(
+  id: number, status?: string,
+): Promise<{ prevId: number | null; nextId: number | null }> {
+  const clause = status ? 'AND status = ?' : '';
+  const prevArgs = status ? [id, status] : [id];
+  const nextArgs = status ? [id, status] : [id];
+  const [prev, next] = await Promise.all([
+    one<{ id: number }>(`SELECT id FROM loan WHERE id < ? ${clause} ORDER BY id DESC LIMIT 1`, ...prevArgs),
+    one<{ id: number }>(`SELECT id FROM loan WHERE id > ? ${clause} ORDER BY id ASC LIMIT 1`, ...nextArgs),
+  ]);
+  return { prevId: prev?.id ?? null, nextId: next?.id ?? null };
+}
+
 /** Loans list's dynamic-filter registry — every meaningful column. product_id ships without
  *  `options` since it's DB-driven; the page fills it in from listActiveLoanProducts(), which
  *  it already fetches. Excludes purely internal columns (id, member_id — redundant with the
@@ -297,6 +327,9 @@ export async function approve(
   if (loan.created_by === user.username) {
     throw new PostingError('Segregation of duties: you cannot approve a loan you captured', 'SOD_VIOLATION');
   }
+  if (!decision && (!reason || !reason.trim())) {
+    throw new PostingError('A reason is required to reject a loan application', 'VALIDATION');
+  }
 
   await tx(async () => {
     if (!decision) {
@@ -304,7 +337,7 @@ export async function approve(
       // can amend and resubmit it, the same shape as a self-service cancel-approval pull-back.
       await run(
         "UPDATE loan SET status='OPEN', rejected_reason=?, approved_by=?, approved_date=? WHERE id=?",
-        reason || 'Not stated', user.username, today(), loanId,
+        reason, user.username, today(), loanId,
       );
     } else {
       await run(

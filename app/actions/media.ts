@@ -8,6 +8,7 @@ import { updateOrg, getOrg } from '@/lib/org';
 import { updateMember, getMember } from '@/lib/members';
 import { updateMemberApplication, getMemberApplication } from '@/lib/memberApplications';
 import { updateMemberEditRequest, getMemberEditRequest } from '@/lib/memberEdits';
+import { updateAccountOpeningRequest, getAccountOpeningRequest } from '@/lib/accountOpening';
 import {
   recordAttachment, deleteAttachment, listAttachments,
 } from '@/lib/attachments';
@@ -26,6 +27,7 @@ const WRITE_ACTION: Record<UploadKind, ActionKey> = {
   signature: 'MEMBERS_UPDATE',
   fingerprint1: 'MEMBERS_UPDATE',
   fingerprint2: 'MEMBERS_UPDATE',
+  junior_photo: 'ACCOUNT_OPENING_CREATE',
 };
 
 /**
@@ -207,6 +209,34 @@ export async function saveMemberEditBiometric(
     }
     revalidatePath(`/member-edits/view/${editNo}`);
     return { [field]: value };
+  });
+}
+
+/* -------------------------------------------------- account opening: junior photo */
+
+/** The Junior Account's profile picture, captured while the account is still a staged
+ *  Account Opening request (editable only while it's Open — updateAccountOpeningRequest()
+ *  enforces that). Copied onto the real savings_account once the request is processed. */
+export async function saveAccountOpeningJuniorPhoto(
+  no: string,
+  file: UploadedFile | null,
+): Promise<ActionResult<{ juniorPhoto: string | null }>> {
+  return actionResult(async () => {
+    const user = await requireAction('ACCOUNT_OPENING_CREATE');
+    const previous = (await getAccountOpeningRequest(no))?.junior_photo ?? null;
+
+    let juniorPhoto: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, 'junior_photo', file.resourceType);
+      juniorPhoto = asset.public_id;
+    }
+
+    await updateAccountOpeningRequest(no, { juniorPhoto }, user);
+    if (previous && previous !== juniorPhoto) {
+      await destroyAsset(previous);
+    }
+    revalidatePath(`/account-openings/view/${no}`);
+    return { juniorPhoto };
   });
 }
 

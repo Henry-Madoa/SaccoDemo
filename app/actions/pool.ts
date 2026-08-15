@@ -7,8 +7,8 @@ import * as pool from '@/lib/pool';
 import { updateOrg } from '@/lib/org';
 import { toCents } from '@/lib/format';
 import type {
-  ActionResult, County, DimensionValue, FormValues, MemberCategory, MemberCategoryType,
-  Organisation,
+  ActionResult, County, DefaultAccountBacklogItem, DimensionValue, FormValues, MemberCategory,
+  MemberCategoryType, Organisation,
 } from '@/lib/types';
 
 /* ------------------------------------------------------------------- counties */
@@ -61,6 +61,38 @@ export async function saveMemberCategory(
       : await pool.createMemberCategory(body, productIds, user);
     revalidatePath('/admin/pool');
     return result;
+  });
+}
+
+/** The default accounts a category's existing members are still missing — the plan a "Create
+ *  Default Accounts" progress run works through, one item at a time (see createOneDefaultAccount). */
+export async function loadDefaultAccountsBacklog(categoryId: number): Promise<ActionResult<DefaultAccountBacklogItem[]>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_POOL_CATEGORIES_MANAGE');
+    return pool.getDefaultAccountsBacklog(categoryId);
+  });
+}
+
+/** Opens exactly one backlog item's account — called once per item by the client-driven
+ *  progress UI, so the browser can show real per-item progress instead of a single opaque
+ *  bulk call. */
+export async function createOneDefaultAccount(
+  memberId: number, productId: number,
+): Promise<ActionResult<{ accountId: number } | { skipped: true }>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_POOL_CATEGORIES_MANAGE');
+    return pool.openDefaultAccountForMember(memberId, productId, user);
+  });
+}
+
+/** Refreshes the affected pages once a Create Default Accounts run finishes (or is cancelled)
+ *  — called once at the end rather than after every item, since a run can touch dozens of them. */
+export async function finishDefaultAccountsRun(): Promise<ActionResult<{ done: true }>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_POOL_CATEGORIES_MANAGE');
+    revalidatePath('/admin/pool');
+    revalidatePath('/members');
+    return { done: true };
   });
 }
 

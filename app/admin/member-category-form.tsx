@@ -6,6 +6,7 @@ import { Field } from '@/components/ui/field';
 import { Pill, Spacer } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { saveMemberCategory } from '@/app/actions/pool';
+import { CreateDefaultAccountsButton } from './create-default-accounts-modal';
 import { MEMBER_CATEGORY_TYPES, MEMBER_CATEGORY_STATUSES } from '@/lib/constants';
 import { humanise, toUnits } from '@/lib/format';
 import type {
@@ -159,15 +160,18 @@ export function MemberCategoryRow({ category, defaultAccounts, accounts, savings
         <td className="num">{category.members}</td>
         <td><Pill status={category.status} /></td>
         <td className="num">
-          <MemberCategoryFormButton
-            category={category}
-            defaultAccounts={defaultAccounts}
-            accounts={accounts}
-            savingsProducts={savingsProducts}
-            className="btn sm ghost"
-          >
-            Edit
-          </MemberCategoryFormButton>
+          <div className="inline" style={{ justifyContent: 'flex-end' }}>
+            <CreateDefaultAccountsButton categoryId={category.id} categoryLabel={category.description} />
+            <MemberCategoryFormButton
+              category={category}
+              defaultAccounts={defaultAccounts}
+              accounts={accounts}
+              savingsProducts={savingsProducts}
+              className="btn sm ghost"
+            >
+              Edit
+            </MemberCategoryFormButton>
+          </div>
         </td>
       </tr>
       {expanded ? (

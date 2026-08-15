@@ -28,6 +28,9 @@ export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
   MEMBER_EDIT: 'member_edit_request',
   LOAN: 'loan',
   JOURNAL: 'journal',
+  ACCOUNT_OPENING: 'account_opening_request',
+  ACCOUNT_DEACTIVATION: 'account_deactivation_request',
+  ACCOUNT_ACTIVATION: 'account_activation_request',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
@@ -35,6 +38,9 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   MEMBER_EDIT: 'Member Detail Edit',
   LOAN: 'Loan',
   JOURNAL: 'Journal',
+  ACCOUNT_OPENING: 'Account Opening',
+  ACCOUNT_DEACTIVATION: 'Account Deactivation',
+  ACCOUNT_ACTIVATION: 'Account Activation',
 };
 
 const humanizeIdentifier = (identifier: string): string => identifier
@@ -69,6 +75,9 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   MEMBER_EDIT: (id) => `/member-edits/view/${id}`,
   LOAN: (id) => `/loans/view/${id}`,
   JOURNAL: () => '/approvals',
+  ACCOUNT_OPENING: (id) => `/account-openings/view/${id}`,
+  ACCOUNT_DEACTIVATION: (id) => `/account-deactivations/view/${id}`,
+  ACCOUNT_ACTIVATION: (id) => `/account-activations/view/${id}`,
 };
 
 export function documentLabel(documentType: WorkflowDocumentType, entityId: string): string {

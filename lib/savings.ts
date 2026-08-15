@@ -27,7 +27,7 @@ export function getAccount(id: number): Promise<SavingsAccountFull | undefined> 
   return one<SavingsAccountFull>(
     `SELECT sa.*, p.name AS product_name, p.code AS product_code, p.category,
             p.min_balance, p.allow_withdrawal, p.withdrawal_fee,
-            p.gl_control_id, p.gl_fee_income_id, p.is_loanable_base,
+            p.gl_control_id, p.gl_fee_income_id, p.is_loanable_base, p.is_business_account,
             m.member_no, m.first_name, m.last_name
      FROM savings_account sa
      JOIN savings_product p ON p.id = sa.product_id
@@ -35,6 +35,16 @@ export function getAccount(id: number): Promise<SavingsAccountFull | undefined> 
      WHERE sa.id = ?`,
     id,
   );
+}
+
+/** The account immediately before/after this one by id — for the card's Business-Central-style
+ *  Previous/Next navigation. */
+export async function getAdjacentAccountIds(id: number): Promise<{ prevId: number | null; nextId: number | null }> {
+  const [prev, next] = await Promise.all([
+    one<{ id: number }>('SELECT id FROM savings_account WHERE id < ? ORDER BY id DESC LIMIT 1', id),
+    one<{ id: number }>('SELECT id FROM savings_account WHERE id > ? ORDER BY id ASC LIMIT 1', id),
+  ]);
+  return { prevId: prev?.id ?? null, nextId: next?.id ?? null };
 }
 
 /** Savings accounts list's dynamic-filter registry — every meaningful column, including a
@@ -101,10 +111,22 @@ export interface OpenAccountInput {
   user?: Actor | null;
   /** Set false to provision an unfunded account (e.g. a category default opened at registration, before any teller deposit) without the minimum-opening-deposit rule. */
   enforceMinOpening?: boolean;
+  /** Captured by the Account Opening module when the product is flagged is_business_account. */
+  businessName?: string | null;
+  businessLocation?: string | null;
+  businessPaybillTillNo?: string | null;
+  businessPhoneNo?: string | null;
+  /** Captured by the Account Opening module when the product's category is JUNIOR ACCOUNT. */
+  juniorName?: string | null;
+  juniorBirthCertNo?: string | null;
+  juniorDateOfBirth?: IsoDate | null;
+  juniorPhoto?: string | null;
 }
 
 export async function openAccount({
   memberId, productId, openingBalance = 0, channel = 'TELLER', user = null, enforceMinOpening = true,
+  businessName = null, businessLocation = null, businessPaybillTillNo = null, businessPhoneNo = null,
+  juniorName = null, juniorBirthCertNo = null, juniorDateOfBirth = null, juniorPhoto = null,
 }: OpenAccountInput): Promise<SavingsAccountFull> {
   const member = await one<Member>('SELECT * FROM member WHERE id = ?', memberId);
   if (!member) throw new PostingError('Member not found', 'MEMBER_NOT_FOUND');
@@ -118,12 +140,49 @@ export async function openAccount({
     );
   }
 
+  // A member may hold only one account per product — except Junior and Business products,
+  // where multiple make sense (one per child, one per business) and are told apart by their
+  // own identifying details instead.
+  const isJunior = product.category === 'JUNIOR ACCOUNT';
+  if (!isJunior && !product.is_business_account) {
+    const existing = await one('SELECT 1 FROM savings_account WHERE member_id = ? AND product_id = ?', memberId, productId);
+    if (existing) {
+      throw new PostingError(
+        `${member.first_name} ${member.last_name} already has a ${product.name} account — only one is allowed per member`,
+        'DUPLICATE_PRODUCT_ACCOUNT',
+      );
+    }
+  }
+
+  // The Birth Notification/Certificate No. is a Junior Account's unique identifier — always
+  // uppercase, and required precisely because multiple Junior accounts per member are allowed
+  // (it's what tells them apart).
+  let normalizedJuniorBirthCertNo: string | null = null;
+  if (isJunior) {
+    normalizedJuniorBirthCertNo = (juniorBirthCertNo || '').trim().toUpperCase() || null;
+    if (!normalizedJuniorBirthCertNo) {
+      throw new PostingError('A Birth Notification/Certificate No. is required to open a Junior Account', 'JUNIOR_CERT_REQUIRED');
+    }
+    const dup = await one('SELECT 1 FROM savings_account WHERE junior_birth_cert_no = ?', normalizedJuniorBirthCertNo);
+    if (dup) {
+      throw new PostingError(
+        `A Junior Account already exists for Birth Notification/Certificate No. "${normalizedJuniorBirthCertNo}"`,
+        'DUPLICATE_JUNIOR_CERT',
+      );
+    }
+  }
+
   const id = await tx(async () => {
     const accountNo = await nextSequence('SAVINGS_ACCOUNT');
     const info = await run(
-      `INSERT INTO savings_account (account_no, member_id, product_id, balance, status, opened_date, last_activity)
-       VALUES (?,?,?,0,'ACTIVE',?,?)`,
+      `INSERT INTO savings_account
+         (account_no, member_id, product_id, balance, status, opened_date, last_activity,
+          business_name, business_location, business_paybill_till_no, business_phone_no,
+          junior_name, junior_birth_cert_no, junior_date_of_birth, junior_photo)
+       VALUES (?,?,?,0,'ACTIVE',?,?,?,?,?,?,?,?,?,?)`,
       accountNo, memberId, productId, today(), today(),
+      businessName, businessLocation, businessPaybillTillNo, businessPhoneNo,
+      juniorName, normalizedJuniorBirthCertNo, juniorDateOfBirth, juniorPhoto,
     );
     const accountId = Number(info.lastInsertRowid);
     if (openingBalance > 0) {
@@ -164,6 +223,7 @@ export async function deposit({
   if (!acct) throw new PostingError('Savings account not found', 'ACCOUNT_NOT_FOUND');
   if (acct.status === 'CLOSED') throw new PostingError('Account is closed', 'ACCOUNT_CLOSED');
   if (acct.status === 'FROZEN') throw new PostingError('Account is frozen — posting prohibited', 'ACCOUNT_FROZEN');
+  if (acct.status === 'INACTIVE') throw new PostingError('Account is inactive — posting prohibited', 'ACCOUNT_INACTIVE');
 
   const vd = valueDate || today();
   const res = await tx<PostingResult>(async () => {

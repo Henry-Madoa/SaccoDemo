@@ -1,30 +1,37 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getLoanDetail } from '@/lib/loanService';
-import { findPendingRoutedTask, isEligibleApprover } from '@/lib/workflow';
+import { getLoanDetail, getAdjacentLoanIds, LOAN_TAB_STATUS } from '@/lib/loanService';
+import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { getMemberDetail } from '@/lib/members';
 import { listAttachments } from '@/lib/attachments';
 import { isConfigured } from '@/lib/cloudinary';
-import { formatDate, humanise } from '@/lib/format';
+import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
+import { CardNav } from '@/components/ui/card-nav';
 import { SubmitButton, DecideButtons, DisburseButton, RepayButton } from './loan-actions';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
-export default async function LoanDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LoanDetailPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const user = await requireAction('LOAN_READ');
   const { id } = await params;
+  const { tab } = await searchParams;
   const detail = await getLoanDetail(Number(id));
   if (!detail) notFound();
 
   const { loan: l, schedule, guarantors, transactions } = detail;
-  const [canApprove, canDisburse, canRepay, canCreate, attachments] = await Promise.all([
+  const [canApprove, canDisburse, canRepay, canCreate, attachments, tasks, { prevId, nextId }] = await Promise.all([
     currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
     currentCanAction('LOAN_CREATE'), listAttachments('loan', l.id),
+    listWorkflowTasksForDocument('LOAN', String(l.id)),
+    getAdjacentLoanIds(l.id, tab ? LOAN_TAB_STATUS[tab] : undefined),
   ]);
 
   // Send for approval is only offered to whoever captured this loan — unless they can also
@@ -56,13 +63,19 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
     }),
     { principal: 0, interest: 0, paid: 0 },
   );
+  const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
   return (
-    <Page
-      title={`Loan ${l.loan_no}`}
-      crumb={`${l.first_name} ${l.last_name} · ${l.product_name}`}
-      user={user}
-    >
+    <>
+      <CardNav
+        prevHref={prevId ? `/loans/view/${prevId}${tab ? `?tab=${tab}` : ''}` : null}
+        nextHref={nextId ? `/loans/view/${nextId}${tab ? `?tab=${tab}` : ''}` : null}
+      />
+      <Page
+        title={`Loan ${l.loan_no}`}
+        crumb={`${l.first_name} ${l.last_name} · ${l.product_name}${pendingWith ? ` · pending with ${pendingWith}` : ''}`}
+        user={user}
+      >
       <Toolbar>
         <Link href="/loans" className="btn ghost sm">← All loans</Link>
         <Link href={`/members/${l.member_id}`} className="btn ghost sm">Member 360</Link>
@@ -110,6 +123,43 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
               ['Principal repaid', <Money cents={l.principal_paid} key="pp" />],
               ['Interest repaid', <Money cents={l.interest_paid} key="ip" />],
             ]} />
+          </Card>
+
+          <Card>
+            <CardHead
+              title="Approval details"
+              sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+            />
+            {tasks.length ? (
+              <TableWrap>
+                <thead>
+                  <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
+                </thead>
+                <tbody>
+                  {tasks.flatMap((t) => [
+                    ...t.level_decisions.map((ld, i) => (
+                      <tr key={`${t.id}-level-${i}`} className="muted">
+                        <td>—</td>
+                        <td>—</td>
+                        <td className="muted-cell">
+                          Level {ld.sequence}: {ld.decided_by}
+                          {ld.comment ? ` — "${ld.comment}"` : ''}
+                        </td>
+                        <td>{formatDateTime(ld.decided_at)}</td>
+                        <td><Pill tone="ok">CLEARED</Pill></td>
+                      </tr>
+                    )),
+                    <tr key={t.id}>
+                      <td>{t.requested_by || '—'}</td>
+                      <td>{formatDateTime(t.requested_at)}</td>
+                      <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
+                      <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
+                      <td><Pill status={t.status} /></td>
+                    </tr>,
+                  ])}
+                </tbody>
+              </TableWrap>
+            ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
           </Card>
 
           {guarantors.length ? (
@@ -209,6 +259,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
           </Card>
         </div>
       </div>
-    </Page>
+      </Page>
+    </>
   );
 }

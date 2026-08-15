@@ -5,23 +5,7 @@ import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as savings from '@/lib/savings';
 import { toCents } from '@/lib/format';
-import type { ActionResult, Cents, Channel, FormValues, SavingsAccountFull } from '@/lib/types';
-
-export async function openSavingsAccount(values: FormValues): Promise<ActionResult<SavingsAccountFull>> {
-  return actionResult(async () => {
-    const user = await requireAction('SAVINGS_OPEN');
-    const account = await savings.openAccount({
-      memberId: Number(values.memberId),
-      productId: Number(values.productId),
-      openingBalance: toCents(values.openingBalance),
-      channel: values.channel as Channel,
-      user,
-    });
-    revalidatePath('/savings');
-    revalidatePath(`/members/${values.memberId}`);
-    return account;
-  });
-}
+import type { ActionResult, Cents, Channel, FormValues } from '@/lib/types';
 
 export async function postDeposit(values: FormValues): Promise<ActionResult<savings.PostingResult>> {
   return actionResult(async () => {

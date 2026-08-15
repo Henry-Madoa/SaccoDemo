@@ -67,6 +67,7 @@ function JournalForm({
       submitLabel="Post journal"
       successTitle="Journal submitted"
       successDetail={(r) => (r.posted ? `Posted as ${r.journal.journal_no}` : 'Submitted for approval — not yet posted')}
+      resultStyle="popup"
     >
       <div className="grid g2">
         <Field name="valueDate" label="Value date" type="date" defaultValue={today()} required />

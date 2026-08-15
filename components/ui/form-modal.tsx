@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Modal } from './modal';
 import { readForm } from './field';
 import { useToast } from './toast';
+import { useResultDialog } from './result-dialog';
 import type { ActionResult, FormValues } from '@/lib/types';
 
 export interface FormModalProps<T> {
@@ -16,6 +17,11 @@ export interface FormModalProps<T> {
   submitClass?: string;
   successTitle?: string;
   successDetail?: string | ((data: T) => string);
+  /** 'popup' for a workflow decision or document posting (deposit, withdrawal, reversal,
+   *  journal, disbursement, repayment, approve/reject) — the appealing centered card via
+   *  useResultDialog(). Defaults to 'toast', the small corner notification, for everything
+   *  else (uploads, admin config saves, profile edits). */
+  resultStyle?: 'toast' | 'popup';
   extraFooter?: ReactNode;
   children: ReactNode;
 }
@@ -29,11 +35,13 @@ export interface FormModalProps<T> {
  */
 export function FormModal<T>({
   title, wide, onClose, onSubmit, submitLabel = 'Save', submitClass = 'btn',
-  successTitle, successDetail, extraFooter, children,
+  successTitle, successDetail, resultStyle = 'toast', extraFooter, children,
 }: FormModalProps<T>) {
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   const toast = useToast();
+  const showResult = useResultDialog();
+  const notify = resultStyle === 'popup' ? showResult : toast;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -50,7 +58,7 @@ export function FormModal<T>({
         return;
       }
       if (successTitle) {
-        toast(successTitle, typeof successDetail === 'function' ? successDetail(res.data) : successDetail, 'ok');
+        notify(successTitle, typeof successDetail === 'function' ? successDetail(res.data) : successDetail, 'ok');
       }
       onClose();
       router.refresh();

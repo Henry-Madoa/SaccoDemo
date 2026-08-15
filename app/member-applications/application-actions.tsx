@@ -4,40 +4,28 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
-import { useToast } from '@/components/ui/toast';
+import { useResultDialog } from '@/components/ui/result-dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useRunAction } from '@/components/ui/run-action';
 import {
   submitApplication, cancelApprovalRequest, approveApplication, rejectApplication, processApplication,
 } from '@/app/actions/memberApplications';
 import { delegateMyTask } from '@/app/actions/workflows';
 
-/** Shared shape for the simple one-click workflow actions. */
-function useRunAction() {
-  const toast = useToast();
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-
-  const run = async (fn: () => Promise<{ ok: boolean; error?: string }>, successTitle: string) => {
-    setBusy(true);
-    try {
-      const res = await fn();
-      if (!res.ok) toast('Could not complete', res.error, 'err');
-      else {
-        toast(successTitle, undefined, 'ok');
-        router.refresh();
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return { run, busy };
-}
-
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => submitApplication(no), 'Sent for approval')}>
+      onClick={() => run(() => submitApplication(no), {
+        confirm: {
+          title: 'Send this application for approval?',
+          message: 'It will be routed to the configured approver(s) and can no longer be edited while pending.',
+          confirmLabel: 'Send for approval',
+        },
+        successTitle: (d) => (d.autoApproved ? 'Application approved' : 'Sent for approval'),
+        successDetail: (d) => (d.autoApproved
+          ? 'You are the assigned approver, so this was approved automatically.' : undefined),
+      })}>
       {busy ? 'Working…' : 'Send for approval'}
     </button>
   );
@@ -48,7 +36,14 @@ export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: s
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => cancelApprovalRequest(no), 'Approval request cancelled — back to Open')}>
+      onClick={() => run(() => cancelApprovalRequest(no), {
+        confirm: {
+          title: 'Cancel this approval request?',
+          message: 'The application goes back to Open so you can amend and resubmit it.',
+          confirmLabel: 'Cancel approval request',
+        },
+        successTitle: 'Approval request cancelled — back to Open',
+      })}>
       {busy ? 'Working…' : 'Cancel approval request'}
     </button>
   );
@@ -59,7 +54,14 @@ export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId:
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => delegateMyTask(taskId), 'Delegated to your substitute')}>
+      onClick={() => run(() => delegateMyTask(taskId), {
+        confirm: {
+          title: 'Delegate to your substitute?',
+          message: 'Your configured substitute will be asked to decide this instead of you.',
+          confirmLabel: 'Delegate',
+        },
+        successTitle: 'Delegated to your substitute',
+      })}>
       {busy ? 'Working…' : 'Delegate'}
     </button>
   );
@@ -69,7 +71,10 @@ export function ApproveButton({ no, className = 'btn sm' }: { no: string; classN
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => approveApplication(no), 'Application approved')}>
+      onClick={() => run(() => approveApplication(no), {
+        confirm: { title: 'Approve this application?', confirmLabel: 'Approve' },
+        successTitle: 'Application approved',
+      })}>
       {busy ? 'Working…' : 'Approve'}
     </button>
   );
@@ -87,7 +92,8 @@ export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; c
           onSubmit={(values) => rejectApplication(no, String(values.reason || ''))}
           submitLabel="Reject"
           submitClass="btn danger"
-          successTitle="Application rejected"
+          successTitle="Rejected — back to Open for changes"
+          resultStyle="popup"
         >
           <Field name="reason" label="Reason" type="textarea" required />
         </FormModal>
@@ -97,16 +103,23 @@ export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; c
 }
 
 export function ProcessButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
-  const toast = useToast();
+  const showResult = useResultDialog();
+  const confirm = useConfirm();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
   const process = async () => {
+    const ok = await confirm({
+      title: 'Create this member?',
+      message: 'This registers a real member record from the approved application. This cannot be undone from here.',
+      confirmLabel: 'Create member',
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await processApplication(no);
-      if (!res.ok) { toast('Could not create member', res.error, 'err'); return; }
-      toast('Member created', undefined, 'ok');
+      if (!res.ok) { showResult('Could not create member', res.error, 'err'); return; }
+      showResult('Member created', undefined, 'ok');
       router.push(`/members/${res.data.memberId}`);
     } finally {
       setBusy(false);

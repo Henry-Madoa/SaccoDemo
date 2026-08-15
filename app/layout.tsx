@@ -5,6 +5,8 @@ import { ensureSeeded } from '@/lib/bootstrap';
 import { getOrgBrand, getTheme, themeCss } from '@/lib/org';
 import { FormatProvider } from '@/components/ui/format-provider';
 import { ToastProvider } from '@/components/ui/toast';
+import { ResultDialogProvider } from '@/components/ui/result-dialog';
+import { ConfirmDialogProvider } from '@/components/ui/confirm-dialog';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +63,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body>
         <FormatProvider org={org}>
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider>
+            <ResultDialogProvider>
+              <ConfirmDialogProvider>{children}</ConfirmDialogProvider>
+            </ResultDialogProvider>
+          </ToastProvider>
         </FormatProvider>
       </body>
     </html>

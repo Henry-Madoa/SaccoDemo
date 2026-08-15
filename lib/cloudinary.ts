@@ -28,6 +28,7 @@ const FOLDERS = {
   signature: `${FOLDER_ROOT}/member-signatures`,
   fingerprint1: `${FOLDER_ROOT}/member-fingerprints`,
   fingerprint2: `${FOLDER_ROOT}/member-fingerprints`,
+  junior_photo: `${FOLDER_ROOT}/junior-photos`,
 } as const;
 
 export type UploadKind = keyof typeof FOLDERS;
@@ -46,6 +47,7 @@ const ACCEPTED: Record<UploadKind, string[]> = {
   signature: IMAGE_TYPES,
   fingerprint1: IMAGE_TYPES,
   fingerprint2: IMAGE_TYPES,
+  junior_photo: IMAGE_TYPES,
 };
 
 const MAX_BYTES: Record<UploadKind, number> = {
@@ -57,6 +59,7 @@ const MAX_BYTES: Record<UploadKind, number> = {
   signature: 1_500_000,
   fingerprint1: 1_500_000,
   fingerprint2: 1_500_000,
+  junior_photo: 3_000_000,
 };
 
 let configured: boolean | null = null;

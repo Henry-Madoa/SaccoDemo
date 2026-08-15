@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getMemberDetail } from '@/lib/members';
-import { listActiveSavingsProducts } from '@/lib/admin';
+import { getMemberDetail, getAdjacentMemberIds, MEMBER_STATUSES } from '@/lib/members';
+import type { MemberStatus } from '@/lib/types';
 import { getDimensionCaptions } from '@/lib/org';
 import { listAttachments } from '@/lib/attachments';
 import { imageSrc, isConfigured } from '@/lib/cloudinary';
@@ -12,15 +12,20 @@ import {
   Card, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
+import { CardNav } from '@/components/ui/card-nav';
 import { Money, SignedMoney } from '@/components/ui/money';
-import { OpenAccountButton } from './open-account-button';
 import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
-export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function MemberDetailPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ status?: string }>;
+}) {
   const user = await requireAction('MEMBERS_READ');
   const { id } = await params;
+  const { status: statusRaw } = await searchParams;
+  const status = MEMBER_STATUSES.includes(statusRaw as MemberStatus) ? (statusRaw as MemberStatus) : undefined;
   const detail = await getMemberDetail(Number(id));
   if (!detail) notFound();
 
@@ -28,11 +33,12 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
     member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees, signatories,
   } = detail;
   const [
-    canOpen, canCreateLoan, attachments, savingsProducts, { caption1, caption2 },
+    canOpen, canCreateLoan, attachments, { caption1, caption2 }, { prevId, nextId },
   ] = await Promise.all([
-    currentCanAction('SAVINGS_OPEN'), currentCanAction('LOAN_CREATE'),
-    listAttachments('member', m.id), listActiveSavingsProducts(),
+    currentCanAction('ACCOUNT_OPENING_CREATE'), currentCanAction('LOAN_CREATE'),
+    listAttachments('member', m.id),
     getDimensionCaptions(),
+    getAdjacentMemberIds(m.id, status),
   ]);
   const mediaEnabled = isConfigured();
 
@@ -41,15 +47,22 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   const loanBalance = runningLoans.reduce((a, l) => a + l.principal_balance + l.interest_balance, 0);
 
   return (
-    <Page
-      title={`${m.first_name} ${m.last_name}`}
-      crumb={m.member_no}
-      user={user}
-    >
+    <>
+      <CardNav
+        prevHref={prevId ? `/members/${prevId}${status ? `?status=${encodeURIComponent(status)}` : ''}` : null}
+        nextHref={nextId ? `/members/${nextId}${status ? `?status=${encodeURIComponent(status)}` : ''}` : null}
+      />
+      <Page
+        title={`${m.first_name} ${m.last_name}`}
+        crumb={m.member_no}
+        user={user}
+      >
       <Toolbar>
         <Link href="/members" className="btn ghost sm">← All members</Link>
         <Spacer />
-        {canOpen ? <OpenAccountButton member={m} products={savingsProducts} /> : null}
+        {canOpen ? (
+          <Link href={`/account-openings?new=${m.id}`} className="btn ghost">New account opening request</Link>
+        ) : null}
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
         ) : null}
@@ -335,6 +348,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
           </CollapsibleCard>
         </div>
       </div>
-    </Page>
+      </Page>
+    </>
   );
 }

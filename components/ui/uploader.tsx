@@ -5,7 +5,8 @@ import { requestUploadSignature } from '@/app/actions/media';
 import type { AttachmentEntity, UploadedFile, UploadSignature } from '@/lib/types';
 
 type UploadKind =
-  | 'logo' | 'photo' | 'attachment' | 'id_front' | 'id_back' | 'signature' | 'fingerprint1' | 'fingerprint2';
+  | 'logo' | 'photo' | 'attachment' | 'id_front' | 'id_back' | 'signature' | 'fingerprint1' | 'fingerprint2'
+  | 'junior_photo';
 
 const prettyBytes = (n: number) =>
   n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
@@ -20,6 +21,7 @@ const MAX_DIMENSION: Record<UploadKind, number> = {
   signature: 1200,
   fingerprint1: 1200,
   fingerprint2: 1200,
+  junior_photo: 1600,
 };
 
 /** Below this, re-encoding costs more CPU than it saves in transfer time. */

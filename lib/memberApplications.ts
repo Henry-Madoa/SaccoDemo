@@ -138,6 +138,20 @@ export const listMemberApplications = (
 export const getMemberApplication = (no: string): Promise<MemberApplicationWithDimensions | undefined> =>
   one<MemberApplicationWithDimensions>(`${SELECT_APPLICATION} WHERE a.no = ?`, no);
 
+/** The application immediately before/after this one by number — for the card's
+ *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record
+ *  was opened from (when given), so paging never steps outside the list the user came from. */
+export async function getAdjacentApplicationNos(
+  no: string, view?: MemberApplicationView,
+): Promise<{ prevNo: string | null; nextNo: string | null }> {
+  const clause = view ? `AND ${VIEW_CLAUSE[view]}` : '';
+  const [prev, next] = await Promise.all([
+    one<{ no: string }>(`SELECT a.no FROM member_application a WHERE a.no < ? ${clause} ORDER BY a.no DESC LIMIT 1`, no),
+    one<{ no: string }>(`SELECT a.no FROM member_application a WHERE a.no > ? ${clause} ORDER BY a.no ASC LIMIT 1`, no),
+  ]);
+  return { prevNo: prev?.no ?? null, nextNo: next?.no ?? null };
+}
+
 export async function createMemberApplication(
   body: MemberApplicationInput, user: Actor,
 ): Promise<{ no: string }> {
@@ -175,7 +189,11 @@ export async function updateMemberApplication(
   return (await getMemberApplication(no))!;
 }
 
-export async function submitMemberApplication(no: string, user: Actor): Promise<void> {
+/** Sends the application into the matched workflow — `autoApproved` tells the caller whether
+ *  it came straight back out the other side already Approved (the requester was the resolved
+ *  approver at every step; see lib/workflow.ts's requesterClearsLevel()), so the UI can say so
+ *  instead of the generic "sent for approval". */
+export async function submitMemberApplication(no: string, user: Actor): Promise<{ autoApproved: boolean }> {
   const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Open') {
@@ -201,6 +219,9 @@ export async function submitMemberApplication(no: string, user: Actor): Promise<
       documentType: 'MEMBER_APPLICATION', entityId: no, requestedBy: user.username, amount: app.gross_income,
     });
   });
+
+  const after = await one<{ status: string }>('SELECT status FROM member_application WHERE no = ?', no);
+  return { autoApproved: after?.status === 'Approved' };
 }
 
 /**
@@ -243,20 +264,25 @@ export async function approveMemberApplication(no: string, user: Actor): Promise
   await logTableChange('member_application', no, 'Modification', changes, user);
 }
 
+/** Rejection sends the application back to Open, not a terminal state — the applicant can
+ *  amend and resubmit it, the same shape lib/loanService.ts's approve(approve: false) already
+ *  uses. decision_reason carries the rejection comment along, so it's visible on the
+ *  reopened application until the next decision overwrites or clears it. */
 export async function rejectMemberApplication(no: string, reason: string | null, user: Actor): Promise<void> {
+  if (!reason || !reason.trim()) throw new AppError('A reason is required to reject an application', 'VALIDATION');
   const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Pending Approval') {
     throw new AppError('Only an application pending approval can be rejected', 'VALIDATION');
   }
-  await run("UPDATE member_application SET status = 'Rejected', decision_reason = ? WHERE no = ?", reason || null, no);
+  await run("UPDATE member_application SET status = 'Open', decision_reason = ? WHERE no = ?", reason || null, no);
   const changes = diffFields(
-    app as unknown as Record<string, unknown>, { status: 'Rejected', decision_reason: reason || null },
+    app as unknown as Record<string, unknown>, { status: 'Open', decision_reason: reason || null },
   );
   await logTableChange('member_application', no, 'Modification', changes, user);
 }
 
-/** Approved -> a real member.createMember() call, linked back onto the application as "Committed". */
+/** Approved -> a real member.createMember() call, linked back onto the application as "Processed". */
 export async function createMemberFromApplication(no: string, user: Actor): Promise<{ memberId: number }> {
   return tx(async () => {
     const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
@@ -286,7 +312,7 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
     const member = await createMember(body, user);
     await run(
       `UPDATE member_application
-       SET member_id = ?, status = 'Committed', processed_at = ?, processed_by = ? WHERE no = ?`,
+       SET member_id = ?, status = 'Processed', processed_at = ?, processed_by = ? WHERE no = ?`,
       member.id, new Date().toISOString(), user.username, no,
     );
 
@@ -335,7 +361,7 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
     }
 
     const changes = diffFields(
-      app as unknown as Record<string, unknown>, { member_id: member.id, status: 'Committed' },
+      app as unknown as Record<string, unknown>, { member_id: member.id, status: 'Processed' },
     );
     await logTableChange('member_application', no, 'Modification', changes, user);
     return { memberId: member.id };

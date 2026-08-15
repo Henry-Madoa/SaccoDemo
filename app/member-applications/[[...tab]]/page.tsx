@@ -15,7 +15,7 @@ import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { ExportButton } from '@/components/ui/export-button';
 import {
-  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ProcessButton,
+  SubmitButton, CancelApprovalButton, ProcessButton,
 } from '../application-actions';
 
 const TABS: TabDefinition[] = [
@@ -62,7 +62,7 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
         <SearchInput placeholder="Search name, national ID or application no.…" />
         <DynamicFilterBar fields={fields} />
         <Spacer />
-        <ExportButton href="/api/export/member-applications" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/member-applications" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!applications.length} />
         {canCreate ? <Link href="/member-applications/new" className="btn">New application</Link> : null}
       </Toolbar>
 
@@ -84,7 +84,7 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
                 const canEditThis = canCreate && (!canApprove || isOwnApplication);
                 return (
                 <tr key={a.no}>
-                  <td className="mono"><Link href={`/member-applications/view/${a.no}`}>{a.no}</Link></td>
+                  <td className="mono"><Link href={`/member-applications/view/${a.no}?view=${tab}`}>{a.no}</Link></td>
                   <td><b>{a.first_name} {a.last_name}</b></td>
                   <td className="mono">{a.national_id || '—'}</td>
                   <td>{a.phone || '—'}</td>
@@ -94,12 +94,6 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
                       {a.status === 'Open' && canEditThis ? <SubmitButton no={a.no} /> : null}
                       {a.status === 'Pending Approval' && canCreate && isOwnApplication ? (
                         <CancelApprovalButton no={a.no} />
-                      ) : null}
-                      {a.status === 'Pending Approval' && canApprove ? (
-                        <>
-                          <ApproveButton no={a.no} />
-                          <RejectButton no={a.no} />
-                        </>
                       ) : null}
                       {a.status === 'Approved' && canApprove ? <ProcessButton no={a.no} /> : null}
                       {a.member_id ? (

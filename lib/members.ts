@@ -10,7 +10,7 @@ import {
 } from './constants.ts';
 import type {
   Actor, GuarantorshipRow, LoanWithProductName, Member, MemberDetail, MemberListRow,
-  MemberWithDimensions, SavingsAccountWithProduct, Txn,
+  MemberStatus, MemberWithDimensions, SavingsAccountWithProduct, Txn,
 } from './types.ts';
 
 export const MEMBER_FIELDS = [
@@ -152,6 +152,25 @@ export const getMember = (id: number): Promise<MemberWithDimensions | undefined>
      WHERE m.id = ?`,
     id,
   );
+
+/** The member immediately before/after this one by member_no — the same order the Members
+ *  list defaults to — for the card's Business-Central-style Previous/Next navigation. Either
+ *  side is null at the start/end of the list. Scoped to `status` (the Members list's Status
+ *  tab) when given, so paging never steps outside the tab the record was opened from. */
+export async function getAdjacentMemberIds(
+  id: number, status?: MemberStatus,
+): Promise<{ prevId: number | null; nextId: number | null }> {
+  const current = await one<{ member_no: string }>('SELECT member_no FROM member WHERE id = ?', id);
+  if (!current) return { prevId: null, nextId: null };
+  const clause = status ? 'AND status = ?' : '';
+  const prevArgs = status ? [current.member_no, status] : [current.member_no];
+  const nextArgs = status ? [current.member_no, status] : [current.member_no];
+  const [prev, next] = await Promise.all([
+    one<{ id: number }>(`SELECT id FROM member WHERE member_no < ? ${clause} ORDER BY member_no DESC LIMIT 1`, ...prevArgs),
+    one<{ id: number }>(`SELECT id FROM member WHERE member_no > ? ${clause} ORDER BY member_no ASC LIMIT 1`, ...nextArgs),
+  ]);
+  return { prevId: prev?.id ?? null, nextId: next?.id ?? null };
+}
 
 /** Member 360 — profile, accounts, loans, guarantorships and recent activity. */
 export async function getMemberDetail(id: number): Promise<MemberDetail | null> {

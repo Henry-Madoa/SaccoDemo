@@ -1,8 +1,9 @@
 import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
+import { openAccount } from './savings.ts';
 import { MEMBER_CATEGORY_TYPES } from './constants.ts';
 import type {
-  Actor, County, CountyWithUsage, DimensionValue, MemberCategory,
+  Actor, County, CountyWithUsage, DefaultAccountBacklogItem, DimensionValue, MemberCategory,
   MemberCategoryDefaultAccountRow, MemberCategoryWithUsage, SubCounty, SubCountyWithUsage,
 } from './types.ts';
 
@@ -152,6 +153,61 @@ export const getMemberCategoryDefaultAccounts = (memberCategoryId: number): Prom
      WHERE d.member_category_id = ? ORDER BY p.code`,
     memberCategoryId,
   );
+
+/**
+ * The default accounts a category's existing members are still missing — for when defaults
+ * are added (or a category's default set changes) after members were already registered,
+ * since normally these only get provisioned once, at Member Application processing time (see
+ * lib/memberApplications.ts) or via the Account Opening module for anything else. Excludes
+ * members who have exited the society (WITHDRAWN/DECEASED) and any product a member already
+ * holds. One item per (member, missing product) pair — the caller (a client-driven progress
+ * UI) opens them one at a time via openDefaultAccountForMember() so it can show real progress.
+ */
+export async function getDefaultAccountsBacklog(memberCategoryId: number): Promise<DefaultAccountBacklogItem[]> {
+  const defaults = await getMemberCategoryDefaultAccounts(memberCategoryId);
+  if (!defaults.length) {
+    throw new AppError('This category has no default accounts configured', 'VALIDATION');
+  }
+
+  const members = await all<{ id: number; member_no: string; first_name: string; last_name: string }>(
+    `SELECT id, member_no, first_name, last_name FROM member
+     WHERE member_category_id = ? AND status NOT IN ('WITHDRAWN','DECEASED') ORDER BY member_no`,
+    memberCategoryId,
+  );
+  if (!members.length) return [];
+
+  const memberIds = members.map((m) => m.id);
+  const existing = await all<{ member_id: number; product_id: number }>(
+    `SELECT member_id, product_id FROM savings_account WHERE member_id IN (${memberIds.map(() => '?').join(',')})`,
+    ...memberIds,
+  );
+  const held = new Set(existing.map((e) => `${e.member_id}:${e.product_id}`));
+
+  const items: DefaultAccountBacklogItem[] = [];
+  for (const m of members) {
+    for (const d of defaults) {
+      if (held.has(`${m.id}:${d.savings_product_id}`)) continue;
+      items.push({
+        memberId: m.id, memberNo: m.member_no, memberName: `${m.first_name} ${m.last_name}`,
+        productId: d.savings_product_id, productCode: d.savings_product_code, productName: d.savings_product_name,
+      });
+    }
+  }
+  return items;
+}
+
+/** Opens one backlog item's account. Re-checks the member doesn't already hold the product —
+ *  a concurrent run, or someone opening it by hand — could have closed the gap since the
+ *  backlog was computed, so this is safe to call even against a stale item. */
+export async function openDefaultAccountForMember(
+  memberId: number, productId: number, user: Actor,
+): Promise<{ accountId: number } | { skipped: true }> {
+  const already = await one('SELECT 1 FROM savings_account WHERE member_id = ? AND product_id = ?', memberId, productId);
+  if (already) return { skipped: true };
+  const account = await openAccount({ memberId, productId, user, enforceMinOpening: false });
+  await audit(user, 'MEMBER_CATEGORY_DEFAULT_ACCOUNT_CREATE', 'member', memberId, { productId, accountId: account.id });
+  return { accountId: account.id };
+}
 
 /** Replaces the full default-account set for a category with the given product ids. */
 async function replaceDefaultAccounts(memberCategoryId: number, savingsProductIds: number[]): Promise<void> {

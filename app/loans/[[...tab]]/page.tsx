@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listLoans, LOAN_FILTER_FIELDS } from '@/lib/loanService';
+import { listLoans, LOAN_FILTER_FIELDS, LOAN_TAB_STATUS } from '@/lib/loanService';
 import { listActiveLoanProducts } from '@/lib/admin';
 import { listActiveMembers } from '@/lib/members';
-import { parseFilters, type FilterCondition } from '@/lib/listFilters';
+import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import {
@@ -39,17 +39,6 @@ const TABS: TabDefinition[] = [
   { key: 'archived', label: 'Archived' },
 ];
 
-/** The filter condition each tab contributes. */
-const TAB_FILTERS: Record<string, FilterCondition[]> = {
-  open: [{ field: 'status', operator: '=', value: 'OPEN' }],
-  pending: [{ field: 'status', operator: '=', value: 'PENDING APPROVAL' }],
-  approved: [{ field: 'status', operator: '=', value: 'APPROVED' }],
-  disbursed: [{ field: 'status', operator: '=', value: 'DISBURSED' }],
-  closed: [{ field: 'status', operator: '=', value: 'CLOSED' }],
-  'written-off': [{ field: 'status', operator: '=', value: 'WRITTEN OFF' }],
-  archived: [{ field: 'status', operator: '=', value: 'ARCHIVED' }],
-};
-
 export default async function LoansPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
   searchParams: Promise<{ q?: string; filters?: string; sort?: string; new?: string }>;
@@ -63,7 +52,8 @@ export default async function LoansPage({ params, searchParams }: {
   const tab = requested ?? 'all';
 
   const filters = parseFilters(filtersRaw);
-  const effectiveFilters = [...filters, ...(TAB_FILTERS[tab] ?? [])];
+  const tabStatus = LOAN_TAB_STATUS[tab];
+  const effectiveFilters = tabStatus ? [...filters, { field: 'status', operator: '=' as const, value: tabStatus }] : filters;
   const sort = parseSort(sortRaw);
   const [rows, canCreate, members, products] = await Promise.all([
     listLoans({ search: q, filters: effectiveFilters, sort }),
@@ -89,7 +79,7 @@ export default async function LoansPage({ params, searchParams }: {
         <SearchInput placeholder="Search loan number, member number or name…" />
         <DynamicFilterBar fields={fields} />
         <Spacer />
-        <ExportButton href="/api/export/loans" params={{ q, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/loans" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         <AgingButton />
         {canCreate ? (
           <NewApplicationButton
@@ -124,7 +114,7 @@ export default async function LoansPage({ params, searchParams }: {
               <tbody>
                 {rows.map((l) => (
                   <tr key={l.id}>
-                    <td className="mono"><Link href={`/loans/view/${l.id}`}>{l.loan_no}</Link></td>
+                    <td className="mono"><Link href={`/loans/view/${l.id}?tab=${tab}`}>{l.loan_no}</Link></td>
                     <td>
                       {l.first_name} {l.last_name}
                       <div className="tiny mono">{l.member_no}</div>

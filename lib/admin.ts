@@ -162,8 +162,8 @@ export async function updateUser(
 /* ---------------------------------------------------------- savings products */
 const SAVINGS_PRODUCT_FIELDS = [
   'code', 'name', 'category', 'min_balance', 'min_opening', 'interest_rate', 'allow_withdrawal',
-  'withdrawal_fee', 'is_loanable_base', 'withdrawal_notice_days', 'gl_control_id', 'gl_interest_exp_id',
-  'gl_fee_income_id', 'status',
+  'withdrawal_fee', 'is_loanable_base', 'is_business_account', 'withdrawal_notice_days',
+  'gl_control_id', 'gl_interest_exp_id', 'gl_fee_income_id', 'status',
 ] as const satisfies readonly (keyof SavingsProduct)[];
 
 export type SavingsProductInput =

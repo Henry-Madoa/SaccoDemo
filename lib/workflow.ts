@@ -16,11 +16,13 @@ import { sendMail, approvalRequestedEmail, approvalDecidedEmail } from './mailer
 import { notify } from './notifications.ts';
 import { DOCUMENT_LINK, documentLabel, DOCUMENT_TABLE, DOCUMENT_TYPE_LABELS } from './workflowConstants.ts';
 import type { DocumentFieldDef, DocumentFieldRelation } from './workflowConstants.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, ApprovalUserSetupRow, Cents, DocumentTypeOption, Flag, Workflow, WorkflowApproverType,
-  WorkflowCondition, WorkflowConditionOperator, WorkflowDocumentType, WorkflowStep,
+  WorkflowCondition, WorkflowConditionOperator, WorkflowDocumentType, WorkflowLevelDecision, WorkflowStep,
   WorkflowTableRelationField, WorkflowTableRelationWithFields, WorkflowTask, WorkflowTaskRow,
-  WorkflowUserGroupMemberRow, WorkflowUserGroupWithUsage, WorkflowWithDetail,
+  WorkflowTaskWithApprover, WorkflowUserGroupMemberRow, WorkflowUserGroupWithUsage, WorkflowWithDetail,
 } from './types.ts';
 
 export * from './workflowConstants.ts';
@@ -331,33 +333,37 @@ async function nextGroupSequence(groupId: number, afterSequence: number): Promis
   return row?.seq ?? null;
 }
 
+async function userIdByUsername(username: string): Promise<number | null> {
+  const row = await one<{ id: number }>('SELECT id FROM app_user WHERE username = ?', username);
+  return row?.id ?? null;
+}
+
 async function resolveApprover(
   step: WorkflowStep, requestedByUsername: string,
-): Promise<{ userIds: number[]; groupId: number | null; sequence: number | null }> {
+): Promise<{ userIds: number[]; groupId: number | null; sequence: number | null; requesterId: number | null }> {
+  const requesterId = await userIdByUsername(requestedByUsername);
+
   if (step.approver_type === 'USER') {
-    return { userIds: step.approver_user_id ? [step.approver_user_id] : [], groupId: null, sequence: null };
+    return { userIds: step.approver_user_id ? [step.approver_user_id] : [], groupId: null, sequence: null, requesterId };
   }
   if (step.approver_type === 'USER_GROUP') {
     const sequence = step.approver_group_id ? await lowestGroupSequence(step.approver_group_id) : null;
-    return { userIds: [], groupId: step.approver_group_id, sequence };
+    return { userIds: [], groupId: step.approver_group_id, sequence, requesterId };
   }
 
   // DIRECT_APPROVER: the requester's configured approver, falling back to
   // whoever is flagged as an Approval Administrator if none is set up.
-  const requester = await one<{ id: number }>(
-    'SELECT id FROM app_user WHERE username = ?', requestedByUsername,
-  );
-  if (!requester) throw new AppError('Requesting user not found', 'USER_NOT_FOUND');
+  if (requesterId == null) throw new AppError('Requesting user not found', 'USER_NOT_FOUND');
 
   const setup = await one<{ approver_id: number | null }>(
-    'SELECT approver_id FROM approval_user_setup WHERE user_id = ?', requester.id,
+    'SELECT approver_id FROM approval_user_setup WHERE user_id = ?', requesterId,
   );
-  if (setup?.approver_id) return { userIds: [setup.approver_id], groupId: null, sequence: null };
+  if (setup?.approver_id) return { userIds: [setup.approver_id], groupId: null, sequence: null, requesterId };
 
   const admins = await all<{ user_id: number }>(
     'SELECT user_id FROM approval_user_setup WHERE is_approval_administrator = 1',
   );
-  if (admins.length) return { userIds: admins.map((a) => a.user_id), groupId: null, sequence: null };
+  if (admins.length) return { userIds: admins.map((a) => a.user_id), groupId: null, sequence: null, requesterId };
 
   throw new AppError(
     'No approver is configured for this request. Ask an administrator to set up an Approver in '
@@ -365,6 +371,34 @@ async function resolveApprover(
     'NO_APPROVER',
   );
 }
+
+/**
+ * Whether `requesterId` alone satisfies this resolved approver set, so this level should
+ * auto-clear the moment its task is created rather than ever sitting there waiting for the
+ * requester to approve their own submission. For USER/DIRECT_APPROVER this is true whenever
+ * they're the one actually assigned (`primaryUserId` — the same id workflow_task.assigned_to_
+ * user_id ends up holding; a DIRECT_APPROVER fallback to several Approval Administrators only
+ * ever really assigns the first one, so only that one auto-clears). For a USER_GROUP sequence
+ * it's true only when they're the *sole* member at that sequence — the explicit exception:
+ * sharing the level with someone else means the requester's own membership doesn't count, and
+ * eligibleUserIds() below excludes it so a genuinely different approver still has to decide it.
+ */
+async function requesterClearsLevel(
+  groupId: number | null, sequence: number | null, primaryUserId: number | null, requesterId: number,
+): Promise<boolean> {
+  if (groupId != null) {
+    if (sequence == null) return false;
+    const members = await all<{ user_id: number }>(
+      'SELECT user_id FROM workflow_user_group_member WHERE group_id = ? AND sequence = ?', groupId, sequence,
+    );
+    return members.length === 1 && members[0].user_id === requesterId;
+  }
+  return primaryUserId === requesterId;
+}
+
+/** Attributed to the requester as `decided_by` when a level auto-clears because they were its
+ *  only possible approver — see requesterClearsLevel(). */
+const AUTO_APPROVE_COMMENT = 'Auto-approved — the requester is the assigned approver at this level.';
 
 /**
  * Every user who may currently act on a task: the assignee, their substitute, or —
@@ -376,7 +410,7 @@ async function eligibleUserIds(
   task: Pick<
     WorkflowTask,
     'assigned_to_user_id' | 'assigned_to_group_id' | 'current_sequence'
-    | 'delegated_by_user_id' | 'delegated_to_user_id'
+    | 'delegated_by_user_id' | 'delegated_to_user_id' | 'requested_by'
   >,
 ): Promise<number[]> {
   const ids: number[] = [];
@@ -392,7 +426,17 @@ async function eligibleUserIds(
       'SELECT user_id FROM workflow_user_group_member WHERE group_id = ? AND sequence = ?',
       task.assigned_to_group_id, task.current_sequence,
     );
-    ids.push(...members.map((m) => m.user_id));
+    let memberIds = members.map((m) => m.user_id);
+    // The requester's own group membership never counts toward clearing a level they share
+    // with someone else — see requesterClearsLevel()'s exception. When they're the only member
+    // at this sequence there's no one else who ever could act on it, so this leaves them
+    // eligible; that shape only survives to here for a task that predates this rule — a fresh
+    // one now auto-clears at creation instead of ever staying PENDING (see createTaskForStep()).
+    if (memberIds.length > 1) {
+      const requesterId = await userIdByUsername(task.requested_by);
+      if (requesterId != null) memberIds = memberIds.filter((id) => id !== requesterId);
+    }
+    ids.push(...memberIds);
   }
   const withDelegation = task.delegated_by_user_id != null
     ? ids.filter((id) => id !== task.delegated_by_user_id)
@@ -406,7 +450,7 @@ export async function isEligibleApprover(
   task: Pick<
     WorkflowTask,
     'assigned_to_user_id' | 'assigned_to_group_id' | 'current_sequence'
-    | 'delegated_by_user_id' | 'delegated_to_user_id'
+    | 'delegated_by_user_id' | 'delegated_to_user_id' | 'requested_by'
   >,
   userId: number,
 ): Promise<boolean> {
@@ -449,7 +493,7 @@ async function notifyApprovers(
 }
 
 async function createTaskForStep(workflowId: number, step: WorkflowStep, input: StartWorkflowInput): Promise<number> {
-  const { userIds, groupId, sequence } = await resolveApprover(step, input.requestedBy);
+  const { userIds, groupId, sequence, requesterId } = await resolveApprover(step, input.requestedBy);
   const primaryUserId = userIds[0] ?? null;
 
   const info = await run(
@@ -462,9 +506,17 @@ async function createTaskForStep(workflowId: number, step: WorkflowStep, input: 
   );
   const taskId = Number(info.lastInsertRowid);
 
+  // The requester submitted this document straight into their own approval queue — clear this
+  // level immediately instead of ever showing it to them as something to act on. See
+  // requesterClearsLevel() for the one exception (a USER_GROUP level shared with someone else).
+  if (requesterId != null && await requesterClearsLevel(groupId, sequence, primaryUserId, requesterId)) {
+    await decideWorkflowTask(taskId, true, AUTO_APPROVE_COMMENT, { id: requesterId, username: input.requestedBy });
+    return taskId;
+  }
+
   const recipients = await eligibleUserIds({
     assigned_to_user_id: primaryUserId, assigned_to_group_id: groupId, current_sequence: sequence,
-    delegated_by_user_id: null, delegated_to_user_id: null,
+    delegated_by_user_id: null, delegated_to_user_id: null, requested_by: input.requestedBy,
   });
   await notifyApprovers(input.documentType, input.entityId, input.requestedBy, recipients, !!step.notify_email);
   return taskId;
@@ -505,6 +557,24 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       const svc = await import('./memberEdits.ts');
       if (approved) await svc.approveMemberEdit(task.entity_id, decidedBy);
       else await svc.rejectMemberEdit(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'ACCOUNT_OPENING': {
+      const svc = await import('./accountOpening.ts');
+      if (approved) await svc.approveAccountOpeningRequest(task.entity_id, decidedBy);
+      else await svc.rejectAccountOpeningRequest(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'ACCOUNT_DEACTIVATION': {
+      const svc = await import('./accountDeactivation.ts');
+      if (approved) await svc.approveAccountDeactivationRequest(task.entity_id, decidedBy);
+      else await svc.rejectAccountDeactivationRequest(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'ACCOUNT_ACTIVATION': {
+      const svc = await import('./accountActivation.ts');
+      if (approved) await svc.approveAccountActivationRequest(task.entity_id, decidedBy);
+      else await svc.rejectAccountActivationRequest(task.entity_id, reason, decidedBy);
       break;
     }
     case 'LOAN': {
@@ -554,16 +624,74 @@ export async function findPendingRoutedTask(
   return task || null;
 }
 
+/** Resolved names of whoever may currently act on a still-PENDING task — the same
+ *  eligibility eligibleUserIds() already computes for the authorization check, just turned
+ *  into something the requester can read: a person's name, or "Group name — member, member"
+ *  for a group step. Null once the task has been decided. */
+async function describePendingWith(task: WorkflowTask): Promise<string | null> {
+  if (task.status !== 'PENDING') return null;
+  const ids = await eligibleUserIds(task);
+  if (!ids.length) return null;
+  const users = await all<{ username: string; full_name: string | null }>(
+    `SELECT username, full_name FROM app_user WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids,
+  );
+  const names = users.map((u) => u.full_name || u.username);
+  if (task.assigned_to_group_id) {
+    const group = await one<{ name: string }>('SELECT name FROM workflow_user_group WHERE id = ?', task.assigned_to_group_id);
+    return group ? `${group.name} — ${names.join(', ')}` : names.join(', ');
+  }
+  return names.join(', ');
+}
+
+/** Every group-sequence level a task has already cleared, oldest first. A multi-level group
+ *  step advances by mutating the same task row's current_sequence (see decideWorkflowTask()
+ *  above) rather than inserting a new row per level, so there's nowhere on workflow_task itself
+ *  to keep who cleared level 1 once the task has moved to level 2 — this reconstructs that
+ *  history from the WORKFLOW_TASK_LEVEL_APPROVE entries decideWorkflowTask() logs to the
+ *  system audit log, scoped back down to this one task. */
+async function listLevelDecisions(taskId: number, documentType: string, entityId: string): Promise<WorkflowLevelDecision[]> {
+  const rows = await all<{ at: string; username: string | null; detail: string | null }>(
+    `SELECT at, username, detail FROM audit_log
+     WHERE action = 'WORKFLOW_TASK_LEVEL_APPROVE' AND entity = ? AND entity_id = ?
+     ORDER BY at, id`,
+    documentType, entityId,
+  );
+  const decisions: WorkflowLevelDecision[] = [];
+  for (const r of rows) {
+    if (!r.detail) continue;
+    try {
+      const parsed = JSON.parse(r.detail) as { taskId?: number; sequence?: number; comment?: string | null };
+      if (parsed.taskId !== taskId) continue;
+      decisions.push({
+        sequence: Number(parsed.sequence) || 0, decided_by: r.username || '—', decided_at: r.at,
+        comment: parsed.comment ?? null,
+      });
+    } catch {
+      // Malformed detail on an old/foreign audit row — skip it rather than break the trail.
+    }
+  }
+  return decisions;
+}
+
 /** Every task a document has ever been routed through, oldest first — a multi-step
  *  workflow produces one row per step, each with its own sender and (once acted on)
- *  its own decider. A document's Audit Trail tab renders this as its approval history. */
-export const listWorkflowTasksForDocument = (
+ *  its own decider. A document's Audit Trail tab renders this as its approval history:
+ *  `pending_with` tells the requester who a still-open step is currently sitting with, and
+ *  `level_decisions` fills in a group-sequence step's already-cleared levels, which the task
+ *  row alone can't show (see listLevelDecisions() above). */
+export async function listWorkflowTasksForDocument(
   documentType: WorkflowDocumentType, entityId: string,
-): Promise<WorkflowTask[]> =>
-  all<WorkflowTask>(
+): Promise<WorkflowTaskWithApprover[]> {
+  const tasks = await all<WorkflowTask>(
     'SELECT * FROM workflow_task WHERE document_type=? AND entity_id=? ORDER BY requested_at, id',
     documentType, String(entityId),
   );
+  return Promise.all(tasks.map(async (t) => ({
+    ...t,
+    pending_with: await describePendingWith(t),
+    level_decisions: t.assigned_to_group_id ? await listLevelDecisions(t.id, documentType, entityId) : [],
+  })));
+}
 
 export interface DecideResult { finalized: boolean; approved: boolean }
 
@@ -591,13 +719,27 @@ export async function decideWorkflowTask(
           'UPDATE workflow_task SET current_sequence = ?, delegated_by_user_id = NULL, delegated_to_user_id = NULL WHERE id = ?',
           nextSequenceLevel, taskId,
         );
+        // The task row itself only ever holds the *final* decision (decided_by/decided_at/
+        // comment), since a group-sequence step advances by mutating current_sequence in place
+        // rather than inserting a new task per level. Without this, who cleared level 1 (and
+        // when, with what comment) would be lost the moment the task moves to level 2 — so it's
+        // logged here and reconstructed by listWorkflowTasksForDocument() for the document's own
+        // Approval Details trail, not just the admin-only system audit log.
         await audit(
           actingUser, 'WORKFLOW_TASK_LEVEL_APPROVE', task.document_type, task.entity_id,
-          { comment, sequence: nextSequenceLevel },
+          { taskId, sequence: task.current_sequence, nextSequence: nextSequenceLevel, comment },
         );
+
+        // The requester alone occupies the new level — no one else could ever clear it, so
+        // don't leave their own request pending on themselves; cascade straight through.
+        const requesterId = await userIdByUsername(task.requested_by);
+        if (requesterId != null && await requesterClearsLevel(task.assigned_to_group_id, nextSequenceLevel, null, requesterId)) {
+          return decideWorkflowTask(taskId, true, AUTO_APPROVE_COMMENT, { id: requesterId, username: task.requested_by });
+        }
+
         const nextRecipients = await eligibleUserIds({
           assigned_to_user_id: null, assigned_to_group_id: task.assigned_to_group_id, current_sequence: nextSequenceLevel,
-          delegated_by_user_id: null, delegated_to_user_id: null,
+          delegated_by_user_id: null, delegated_to_user_id: null, requested_by: task.requested_by,
         });
         const step = task.workflow_step_id
           ? await one<{ notify_email: number }>('SELECT notify_email FROM workflow_step WHERE id = ?', task.workflow_step_id)
@@ -690,41 +832,157 @@ async function decorateTasks(rows: WorkflowTask[]): Promise<WorkflowTaskRow[]> {
   }));
 }
 
-/** Pending tasks I may act on: assigned to me directly, as someone's substitute, or via a group. */
-export async function listMyWorkflowTasks(userId: number): Promise<WorkflowTaskRow[]> {
+/** The Approvals page's dynamic-filter registry — every meaningful column across its three
+ *  tabs (Open/History/Sent). Legacy (unrouted) tasks are out of scope everywhere on this page —
+ *  every document type now requires a matching workflow to even be submitted, so `workflow_id`
+ *  is never null for anything a user would still need to act on. */
+export const WORKFLOW_TASK_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'entity_id', label: 'Document No.', type: 'text', column: 't.entity_id' },
+  {
+    key: 'document_type', label: 'Document Type', type: 'select', column: 't.document_type',
+    options: (Object.keys(DOCUMENT_TYPE_LABELS) as WorkflowDocumentType[])
+      .map((k) => ({ value: k, label: DOCUMENT_TYPE_LABELS[k] })),
+  },
+  { key: 'amount', label: 'Amount', type: 'number', column: 't.amount' },
+  { key: 'requested_by', label: 'Requested By', type: 'text', column: 't.requested_by' },
+  { key: 'requested_at', label: 'Requested', type: 'date', column: 't.requested_at', datetime: true },
+  {
+    key: 'status', label: 'Status', type: 'select', column: 't.status',
+    options: [
+      { value: 'PENDING', label: 'Pending' }, { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' }, { value: 'CANCELLED', label: 'Cancelled' },
+    ],
+  },
+  { key: 'decided_by', label: 'Decided By', type: 'text', column: 't.decided_by' },
+  { key: 'decided_at', label: 'Decided', type: 'date', column: 't.decided_at', datetime: true },
+  { key: 'comment', label: 'Comment', type: 'text', column: 't.comment' },
+];
+
+const WORKFLOW_TASK_SORT_COLUMNS: Record<string, string> = {
+  entity_id: 't.entity_id',
+  document_type: 't.document_type',
+  amount: 't.amount',
+  requested_by: 't.requested_by',
+  requested_at: 't.requested_at',
+  status: 't.status',
+  decided_by: 't.decided_by',
+  decided_at: 't.decided_at',
+};
+
+export interface ListWorkflowTaskOptions {
+  search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+const SEARCHABLE = '(t.entity_id LIKE @like OR t.requested_by LIKE @like OR t.decided_by LIKE @like)';
+
+/** Pending tasks I may act on: assigned to me directly, as someone's substitute, or via a
+ *  group — the Approvals page's "Open Approval Requests" tab. `username` excludes my own group
+ *  membership from a level I share with someone else on a request I sent myself — the same
+ *  exception isEligibleApprover()/eligibleUserIds() enforce, kept in lockstep here so a self-
+ *  submitted request never shows up as something to act on that a click would then just refuse
+ *  (see requesterClearsLevel()). */
+export async function listMyWorkflowTasks(
+  userId: number, username: string, { search = '', filters = [], sort = null }: ListWorkflowTaskOptions = {},
+): Promise<WorkflowTaskRow[]> {
+  const { clause, params } = buildFilterClause(WORKFLOW_TASK_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(WORKFLOW_TASK_SORT_COLUMNS, sort, 't.requested_at DESC');
   const rows = await all<WorkflowTask>(
     `SELECT DISTINCT t.* FROM workflow_task t
+     LEFT JOIN approval_user_setup su ON su.user_id = t.assigned_to_user_id AND su.substitute_id = @uid
+     LEFT JOIN workflow_user_group_member gm
+       ON gm.group_id = t.assigned_to_group_id AND gm.user_id = @uid AND gm.sequence = t.current_sequence
+       AND NOT (
+         t.requested_by = @username AND EXISTS (
+           SELECT 1 FROM workflow_user_group_member gm2
+           WHERE gm2.group_id = t.assigned_to_group_id AND gm2.sequence = t.current_sequence AND gm2.user_id != @uid
+         )
+       )
+     WHERE t.status = 'PENDING' AND t.workflow_id IS NOT NULL
+       AND t.delegated_by_user_id IS DISTINCT FROM @uid
+       AND (t.assigned_to_user_id = @uid OR su.user_id IS NOT NULL OR gm.user_id IS NOT NULL OR t.delegated_to_user_id = @uid)
+       AND ${SEARCHABLE}
+       ${clause}
+     ${orderBy}`,
+    { uid: userId, username, like: `%${search.trim()}%`, ...params },
+  );
+  return decorateTasks(rows);
+}
+
+/** Every decision I've personally made — the Approvals page's "History" tab. Each task row
+ *  already belongs to exactly the one step whoever decided it actually decided, so (unlike
+ *  listMySubmittedWorkflowTasks below) there's no multi-step de-duplication to do here. */
+export async function listMyDecidedWorkflowTasks(
+  username: string, { search = '', filters = [], sort = null }: ListWorkflowTaskOptions = {},
+): Promise<WorkflowTaskRow[]> {
+  const { clause, params } = buildFilterClause(WORKFLOW_TASK_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(WORKFLOW_TASK_SORT_COLUMNS, sort, 't.decided_at DESC');
+  const rows = await all<WorkflowTask>(
+    `SELECT t.* FROM workflow_task t
+     WHERE t.decided_by = @username AND t.status != 'PENDING' AND t.workflow_id IS NOT NULL
+       AND ${SEARCHABLE}
+       ${clause}
+     ${orderBy}`,
+    { username, like: `%${search.trim()}%`, ...params },
+  );
+  return decorateTasks(rows);
+}
+
+/** Every request I've ever sent for approval — the Approvals page's "Sent" tab. A multi-step
+ *  workflow produces one workflow_task row per step, all carrying the same original
+ *  requested_by, so this collapses to just the latest (current) step per document — one row
+ *  per actual request, showing where it stands now, not one row per internal routing hop. */
+export async function listMySubmittedWorkflowTasks(
+  username: string, { search = '', filters = [], sort = null }: ListWorkflowTaskOptions = {},
+): Promise<WorkflowTaskRow[]> {
+  const { clause, params } = buildFilterClause(WORKFLOW_TASK_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(WORKFLOW_TASK_SORT_COLUMNS, sort, 't.requested_at DESC');
+  const rows = await all<WorkflowTask>(
+    `SELECT t.* FROM workflow_task t
+     WHERE t.requested_by = @username AND t.workflow_id IS NOT NULL
+       AND t.id = (
+         SELECT MAX(t2.id) FROM workflow_task t2
+         WHERE t2.document_type = t.document_type AND t2.entity_id = t.entity_id AND t2.requested_by = @username
+       )
+       AND ${SEARCHABLE}
+       ${clause}
+     ${orderBy}`,
+    { username, like: `%${search.trim()}%`, ...params },
+  );
+  return decorateTasks(rows);
+}
+
+/** Org-wide pending task count, for the Dashboard's own KPI — not scoped to a user. */
+export const pendingWorkflowTaskCount = async (): Promise<number> =>
+  (await one<{ c: number }>("SELECT COUNT(*) c FROM workflow_task WHERE status = 'PENDING'"))!.c;
+
+/**
+ * Pending tasks this specific user may actually act on — the exact same scope as the Approvals
+ * page's "Open Approval Requests" tab (listMyWorkflowTasks), as a COUNT rather than full
+ * decorated rows, since this runs on every page load for the sidebar's Approvals badge.
+ * Deliberately not the org-wide count: a badge showing every pending approval in the system
+ * regardless of who can act on it just trains people to ignore it.
+ */
+export async function myPendingWorkflowTaskCount(userId: number, username: string): Promise<number> {
+  const row = await one<{ c: number }>(
+    `SELECT COUNT(DISTINCT t.id) c FROM workflow_task t
      LEFT JOIN approval_user_setup su ON su.user_id = t.assigned_to_user_id AND su.substitute_id = ?
      LEFT JOIN workflow_user_group_member gm
        ON gm.group_id = t.assigned_to_group_id AND gm.user_id = ? AND gm.sequence = t.current_sequence
+       AND NOT (
+         t.requested_by = ? AND EXISTS (
+           SELECT 1 FROM workflow_user_group_member gm2
+           WHERE gm2.group_id = t.assigned_to_group_id AND gm2.sequence = t.current_sequence AND gm2.user_id != ?
+         )
+       )
      WHERE t.status = 'PENDING' AND t.workflow_id IS NOT NULL
        AND t.delegated_by_user_id IS DISTINCT FROM ?
-       AND (t.assigned_to_user_id = ? OR su.user_id IS NOT NULL OR gm.user_id IS NOT NULL OR t.delegated_to_user_id = ?)
-     ORDER BY t.requested_at`,
-    userId, userId, userId, userId, userId,
+       AND (t.assigned_to_user_id = ? OR su.user_id IS NOT NULL OR gm.user_id IS NOT NULL OR t.delegated_to_user_id = ?)`,
+    userId, userId, username, userId, userId, userId, userId,
   );
-  return decorateTasks(rows);
+  return row?.c ?? 0;
 }
-
-/** Pending legacy (unrouted) tasks for a document type — anyone with the static permission may act. */
-export async function listLegacyPendingTasks(documentType: WorkflowDocumentType): Promise<WorkflowTaskRow[]> {
-  const rows = await all<WorkflowTask>(
-    "SELECT * FROM workflow_task WHERE workflow_id IS NULL AND document_type = ? AND status = 'PENDING' ORDER BY requested_at",
-    documentType,
-  );
-  return decorateTasks(rows);
-}
-
-/** Recent decision history across everyone — the org-wide maker-checker audit view. */
-export async function listWorkflowTaskHistory(limit = 200): Promise<WorkflowTaskRow[]> {
-  const rows = await all<WorkflowTask>(
-    "SELECT * FROM workflow_task WHERE status != 'PENDING' ORDER BY decided_at DESC NULLS LAST, id DESC LIMIT ?", limit,
-  );
-  return decorateTasks(rows);
-}
-
-export const pendingWorkflowTaskCount = async (): Promise<number> =>
-  (await one<{ c: number }>("SELECT COUNT(*) c FROM workflow_task WHERE status = 'PENDING'"))!.c;
 
 /* ------------------------------------------------------------- admin: workflows */
 

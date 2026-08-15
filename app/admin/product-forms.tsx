@@ -55,6 +55,8 @@ export function SavingsProductButton({ product, accounts, className = 'btn', chi
             defaultValue={p ? p.allow_withdrawal : 1} />
           <Field name="is_loanable_base" label="Counts toward the loan deposit multiplier" type="checkbox"
             defaultValue={p ? p.is_loanable_base : 0} />
+          <Field name="is_business_account" label="Business account — collects business details when opened" type="checkbox"
+            defaultValue={p ? p.is_business_account : 0} />
           <div className="grid g3">
             <Field name="gl_control_id" label="GL control account" type="select" required
               defaultValue={p?.gl_control_id} options={accountOptions(accounts)} />

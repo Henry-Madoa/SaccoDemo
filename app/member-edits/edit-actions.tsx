@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
-import { useToast } from '@/components/ui/toast';
+import { useResultDialog } from '@/components/ui/result-dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useRunAction } from '@/components/ui/run-action';
 import {
   requestMemberEdit, submitMemberEdit, cancelMemberEditApproval, approveMemberEditRequest,
   rejectMemberEditRequest, processMemberEditRequest,
@@ -12,34 +14,20 @@ import {
 import { delegateMyTask } from '@/app/actions/workflows';
 import type { Member } from '@/lib/types';
 
-/** Shared shape for the simple one-click workflow actions. */
-function useRunAction() {
-  const toast = useToast();
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-
-  const run = async (fn: () => Promise<{ ok: boolean; error?: string }>, successTitle: string) => {
-    setBusy(true);
-    try {
-      const res = await fn();
-      if (!res.ok) toast('Could not complete', res.error, 'err');
-      else {
-        toast(successTitle, undefined, 'ok');
-        router.refresh();
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return { run, busy };
-}
-
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => submitMemberEdit(no), 'Sent for approval')}>
+      onClick={() => run(() => submitMemberEdit(no), {
+        confirm: {
+          title: 'Send this edit request for approval?',
+          message: 'It will be routed to the configured approver(s) and can no longer be edited while pending.',
+          confirmLabel: 'Send for approval',
+        },
+        successTitle: (d) => (d.autoApproved ? 'Edit request approved' : 'Sent for approval'),
+        successDetail: (d) => (d.autoApproved
+          ? 'You are the assigned approver, so this was approved automatically.' : undefined),
+      })}>
       {busy ? 'Working…' : 'Send for approval'}
     </button>
   );
@@ -50,7 +38,14 @@ export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: s
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => cancelMemberEditApproval(no), 'Approval request cancelled — back to Open')}>
+      onClick={() => run(() => cancelMemberEditApproval(no), {
+        confirm: {
+          title: 'Cancel this approval request?',
+          message: 'The edit request goes back to Open so you can amend and resubmit it.',
+          confirmLabel: 'Cancel approval request',
+        },
+        successTitle: 'Approval request cancelled — back to Open',
+      })}>
       {busy ? 'Working…' : 'Cancel approval request'}
     </button>
   );
@@ -61,7 +56,14 @@ export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId:
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => delegateMyTask(taskId), 'Delegated to your substitute')}>
+      onClick={() => run(() => delegateMyTask(taskId), {
+        confirm: {
+          title: 'Delegate to your substitute?',
+          message: 'Your configured substitute will be asked to decide this instead of you.',
+          confirmLabel: 'Delegate',
+        },
+        successTitle: 'Delegated to your substitute',
+      })}>
       {busy ? 'Working…' : 'Delegate'}
     </button>
   );
@@ -71,7 +73,10 @@ export function ApproveButton({ no, className = 'btn sm' }: { no: string; classN
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => approveMemberEditRequest(no), 'Edit request approved')}>
+      onClick={() => run(() => approveMemberEditRequest(no), {
+        confirm: { title: 'Approve this edit request?', confirmLabel: 'Approve' },
+        successTitle: 'Edit request approved',
+      })}>
       {busy ? 'Working…' : 'Approve'}
     </button>
   );
@@ -89,7 +94,8 @@ export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; c
           onSubmit={(values) => rejectMemberEditRequest(no, String(values.reason || ''))}
           submitLabel="Reject"
           submitClass="btn danger"
-          successTitle="Edit request rejected"
+          successTitle="Rejected — back to Open for changes"
+          resultStyle="popup"
         >
           <Field name="reason" label="Reason" type="textarea" required />
         </FormModal>
@@ -129,16 +135,23 @@ export function NewEditRequestButton({ members }: {
 }
 
 export function ProcessButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
-  const toast = useToast();
+  const showResult = useResultDialog();
+  const confirm = useConfirm();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
   const process = async () => {
+    const ok = await confirm({
+      title: 'Apply these changes?',
+      message: 'The approved edits will be written onto the live member record. This cannot be undone from here.',
+      confirmLabel: 'Apply changes',
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await processMemberEditRequest(no);
-      if (!res.ok) { toast('Could not apply changes', res.error, 'err'); return; }
-      toast('Changes applied to the member', undefined, 'ok');
+      if (!res.ok) { showResult('Could not apply changes', res.error, 'err'); return; }
+      showResult('Changes applied to the member', undefined, 'ok');
       router.push(`/members/${res.data.memberId}`);
     } finally {
       setBusy(false);

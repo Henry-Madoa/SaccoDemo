@@ -78,7 +78,7 @@ export default async function MembersPage({ searchParams }: {
         <SearchInput placeholder="Search name, member number, ID or phone…" />
         <DynamicFilterBar fields={fields} />
         <Spacer />
-        <ExportButton href="/api/export/members" params={{ q, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/members" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         {canCreate ? (
           <Link href="/member-applications/new" className="btn">New member application</Link>
         ) : null}
@@ -109,7 +109,7 @@ export default async function MembersPage({ searchParams }: {
                 {rows.map((m) => (
                   <tr key={m.id}>
                     <td className="mono">
-                      <Link href={`/members/${m.id}`}>{m.member_no}</Link>
+                      <Link href={`/members/${m.id}${activeStatus ? `?status=${encodeURIComponent(activeStatus)}` : ''}`}>{m.member_no}</Link>
                     </td>
                     <td>
                       <b>{m.first_name} {m.last_name}</b>

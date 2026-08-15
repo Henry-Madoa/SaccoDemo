@@ -121,7 +121,7 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
         <SearchInput placeholder="Search journal number, description or reference…" />
         <DynamicFilterBar fields={journalFields} />
         <Spacer />
-        <ExportButton href="/api/export/journal" params={{ q: search, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/journal" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         {canCreate ? (
           <NewJournalButton
             accounts={postableAccounts}
@@ -192,7 +192,7 @@ async function AccountsTab({ search, filtersRaw, sortRaw }: { search: string; fi
         <SearchInput placeholder="Search code or name…" />
         <DynamicFilterBar fields={GL_ACCOUNT_FILTER_FIELDS} />
         <Spacer />
-        <ExportButton href="/api/export/gl-accounts" params={{ q: search, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/gl-accounts" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         {canManage ? <GlAccountFormButton className="btn">Add account</GlAccountFormButton> : null}
       </Toolbar>
       <Card>

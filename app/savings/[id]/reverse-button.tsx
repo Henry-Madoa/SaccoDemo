@@ -20,6 +20,7 @@ export function ReverseButton({ accountId, txnId }: { accountId: number; txnId: 
           submitClass="btn danger"
           successTitle="Reversed"
           successDetail={(r) => `Journal ${r.journal_no}`}
+          resultStyle="popup"
         >
           <p>
             The original transaction is never altered. A compensating journal is posted and both

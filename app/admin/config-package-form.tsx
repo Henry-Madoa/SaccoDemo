@@ -25,6 +25,8 @@ export function ConfigPackageFormButton({ pkg, tables, className = 'btn', childr
   const [keyField, setKeyField] = useState(pkg?.key_field ?? '');
   const [picked, setPicked] = useState('');
   const [loadingColumns, setLoadingColumns] = useState(false);
+  const [columnsError, setColumnsError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   // Loads the selected table's columns whenever it changes (or the modal opens on an existing
   // package) — the dropdown only carries table names, not every table's full column set.
@@ -32,13 +34,24 @@ export function ConfigPackageFormButton({ pkg, tables, className = 'btn', childr
     if (!open || !tableName) { setColumns([]); return; }
     let cancelled = false;
     setLoadingColumns(true);
-    getConfigPackageColumns(tableName).then((res) => {
-      if (cancelled) return;
-      setColumns(res.ok ? res.data : []);
-      setLoadingColumns(false);
-    });
+    setColumnsError(null);
+    getConfigPackageColumns(tableName)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok) setColumns(res.data);
+        else setColumnsError(res.error);
+        setLoadingColumns(false);
+      })
+      // A rejected call (stale action reference, network blip) never reaches actionResult()'s
+      // own try/catch — without this, loadingColumns stayed stuck true forever, i.e. the
+      // dropdown looked like it just never fetched anything.
+      .catch((err) => {
+        if (cancelled) return;
+        setColumnsError(err instanceof Error ? err.message : 'Could not load columns');
+        setLoadingColumns(false);
+      });
     return () => { cancelled = true; };
-  }, [open, tableName]);
+  }, [open, tableName, retryToken]);
 
   const pickTable = (name: string) => {
     setTableName(name);
@@ -48,6 +61,7 @@ export function ConfigPackageFormButton({ pkg, tables, className = 'btn', childr
 
   const remaining = columns.filter((c) => !fields.includes(c.name));
   const labelFor = (name: string) => columns.find((c) => c.name === name)?.label ?? humanize(name);
+  const missingRequired = columns.filter((c) => c.required && !fields.includes(c.name));
 
   const addField = () => {
     if (!picked) return;
@@ -117,6 +131,12 @@ export function ConfigPackageFormButton({ pkg, tables, className = 'btn', childr
                 </select>
                 <button type="button" className="btn sm" disabled={!picked} onClick={addField}>Add field</button>
               </div>
+              {columnsError ? (
+                <div className="tiny" style={{ marginTop: 4, color: 'var(--danger)' }}>
+                  Could not load this table's columns: {columnsError}{' '}
+                  <button type="button" className="link-btn tiny" onClick={() => setRetryToken((n) => n + 1)}>Retry</button>
+                </div>
+              ) : null}
 
               <table style={{ marginTop: 10 }}>
                 <thead>
@@ -147,6 +167,14 @@ export function ConfigPackageFormButton({ pkg, tables, className = 'btn', childr
                 The key field matches an import row to an existing record for update; with no key
                 field, every imported row is always inserted as new.
               </div>
+              {missingRequired.length ? (
+                <div className="tiny" style={{ marginTop: 4, color: 'var(--warning)' }}>
+                  {humanize(tableName)} also requires {missingRequired.map((c) => c.label).join(', ')} on any row
+                  that inserts as new — a row whose key field doesn't match an existing record (or
+                  any row at all, with no key field set) will fail to import unless these are
+                  included too.
+                </div>
+              ) : null}
               <input type="hidden" name="key_field" value={keyField} />
             </>
           ) : null}

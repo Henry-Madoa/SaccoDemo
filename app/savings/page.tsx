@@ -36,7 +36,7 @@ export default async function SavingsPage({ searchParams }: {
         <SearchInput placeholder="Search account number, member number or name…" />
         <DynamicFilterBar fields={fields} />
         <Spacer />
-        <ExportButton href="/api/export/savings" params={{ q, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/savings" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>
 
       <Card>

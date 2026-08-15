@@ -1,13 +1,17 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { statement } from '@/lib/savings';
+import { statement, getAdjacentAccountIds } from '@/lib/savings';
 import { getOrgBrand } from '@/lib/org';
 import { formatDate } from '@/lib/format';
+import { imageSrc } from '@/lib/cloudinary';
 import { Page } from '@/components/layout/page';
-import { Card, CardHead, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer } from '@/components/ui/primitives';
+import {
+  Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
+} from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { PrintButton } from '@/components/ui/print-button';
+import { CardNav } from '@/components/ui/card-nav';
 import { TxnButton, type TxnAccount } from '../txn-form';
 import { ReverseButton } from './reverse-button';
 
@@ -23,9 +27,11 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
   }
 
   const { account: a, opening, lines } = data;
-  const [org, canDeposit, canWithdraw, canReverse] = await Promise.all([
+  const [org, canDeposit, canWithdraw, canReverse, canDeactivate, canActivate, { prevId, nextId }] = await Promise.all([
     getOrgBrand(),
     currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'), currentCanAction('SAVINGS_REVERSE'),
+    currentCanAction('ACCOUNT_DEACTIVATION_CREATE'), currentCanAction('ACCOUNT_ACTIVATION_CREATE'),
+    getAdjacentAccountIds(a.id),
   ]);
 
   const available = a.balance - a.hold_amount - a.min_balance;
@@ -45,11 +51,16 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
   });
 
   return (
-    <Page
-      title={`Account ${a.account_no}`}
-      crumb={`${a.first_name} ${a.last_name} · ${a.product_name}`}
-      user={user}
-    >
+    <>
+      <CardNav
+        prevHref={prevId ? `/savings/${prevId}` : null}
+        nextHref={nextId ? `/savings/${nextId}` : null}
+      />
+      <Page
+        title={`Account ${a.account_no}`}
+        crumb={`${a.first_name} ${a.last_name} · ${a.product_name}`}
+        user={user}
+      >
       <Toolbar>
         <Link href="/savings" className="btn ghost sm">← All accounts</Link>
         <Link href={`/members/${a.member_id}`} className="btn ghost sm">Member 360</Link>
@@ -58,6 +69,12 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
         {canWithdraw && a.allow_withdrawal && a.status === 'ACTIVE'
           ? <TxnButton kind="WITHDRAWAL" account={account} className="btn ghost" />
           : null}
+        {canDeactivate && a.status === 'ACTIVE' ? (
+          <Link href={`/account-deactivations?new=${a.member_id}`} className="btn ghost">Deactivate account</Link>
+        ) : null}
+        {canActivate && a.status === 'INACTIVE' ? (
+          <Link href={`/account-activations?new=${a.member_id}`} className="btn ghost">Activate account</Link>
+        ) : null}
         <PrintButton>Print statement</PrintButton>
       </Toolbar>
 
@@ -69,6 +86,39 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
           foot={`opened ${formatDate(a.opened_date)}`} />
         <Stat label="Product" small value={a.product_code} foot={a.product_name} />
       </div>
+
+      {a.is_business_account ? (
+        <Card>
+          <CardHead title="Business details" />
+          <DefinitionList items={[
+            ['Business name', a.business_name || '—'],
+            ['Business location', a.business_location || '—'],
+            ['Paybill / Till No.', a.business_paybill_till_no || '—'],
+            ['Business phone no.', a.business_phone_no || '—'],
+          ]} />
+        </Card>
+      ) : null}
+
+      {a.category === 'JUNIOR ACCOUNT' ? (
+        <Card>
+          <CardHead title="Junior details" />
+          <div className="grid split-side-sm">
+            <DefinitionList items={[
+              ["Junior's name", a.junior_name || '—'],
+              ['Birth notification / certificate no.', a.junior_birth_cert_no || '—'],
+              ['Date of birth', a.junior_date_of_birth ? formatDate(a.junior_date_of_birth) : '—'],
+            ]} />
+            {a.junior_photo ? (
+              <img
+                src={imageSrc(a.junior_photo, { width: 140, height: 140 }) ?? undefined}
+                alt={a.junior_name || 'Junior profile'}
+                className="photo"
+                style={{ width: 140, height: 140 }}
+              />
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHead
@@ -127,6 +177,7 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
           </TableWrap>
         ) : <EmptyState icon="🧾" title="No transactions on this account" />}
       </Card>
-    </Page>
+      </Page>
+    </>
   );
 }

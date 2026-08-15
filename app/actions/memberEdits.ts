@@ -50,13 +50,13 @@ export async function saveMemberEditRequest(
   });
 }
 
-export async function submitMemberEdit(no: string): Promise<ActionResult<{ updated: true }>> {
+export async function submitMemberEdit(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
   return actionResult(async () => {
     const user = await requireAction('MEMBER_EDITS_UPDATE');
-    await submitMemberEditRequest(no, user);
+    const { autoApproved } = await submitMemberEditRequest(no, user);
     revalidatePath('/member-edits');
     revalidatePath(`/member-edits/view/${no}`);
-    return { updated: true };
+    return { updated: true, autoApproved };
   });
 }
 

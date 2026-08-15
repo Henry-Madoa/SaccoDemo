@@ -34,7 +34,7 @@ const VIEW_CLAUSE: Record<MemberEditView, string> = {
   open: "e.status = 'Open'",
   pending: "e.status = 'Pending Approval'",
   approved: "e.status = 'Approved'",
-  processed: "e.status = 'Committed'",
+  processed: "e.status = 'Processed'",
 };
 
 /** Human labels for the diff summary — the same strings info-cards.tsx already writes by hand. */
@@ -150,11 +150,27 @@ export const listMemberEditRequests = (
 export const getMemberEditRequest = (no: string): Promise<MemberEditRequestWithDimensions | undefined> =>
   one<MemberEditRequestWithDimensions>(`${SELECT_EDIT_REQUEST} WHERE e.no = ?`, no);
 
-/** The member's own currently in-flight (not yet Rejected/Committed) edit request, if any —
- *  used to gate a second request and to link the member page at whatever's already open. */
+/** The edit request immediately before/after this one by number — for the card's
+ *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record
+ *  was opened from (when given), so paging never steps outside the list the user came from. */
+export async function getAdjacentEditRequestNos(
+  no: string, view?: MemberEditView,
+): Promise<{ prevNo: string | null; nextNo: string | null }> {
+  const clause = view ? `AND ${VIEW_CLAUSE[view]}` : '';
+  const [prev, next] = await Promise.all([
+    one<{ no: string }>(`SELECT e.no FROM member_edit_request e WHERE e.no < ? ${clause} ORDER BY e.no DESC LIMIT 1`, no),
+    one<{ no: string }>(`SELECT e.no FROM member_edit_request e WHERE e.no > ? ${clause} ORDER BY e.no ASC LIMIT 1`, no),
+  ]);
+  return { prevNo: prev?.no ?? null, nextNo: next?.no ?? null };
+}
+
+/** The member's own currently in-flight (not yet Processed) edit request, if any — used to
+ *  gate a second request and to link the member page at whatever's already open. A rejection
+ *  sends the request back to Open rather than a terminal status, so Processed is the only
+ *  state that closes it out. */
 export const getOpenMemberEditRequest = (memberId: number): Promise<MemberEditRequest | undefined> =>
   one<MemberEditRequest>(
-    "SELECT * FROM member_edit_request WHERE member_id = ? AND status NOT IN ('Rejected','Committed') ORDER BY no DESC",
+    "SELECT * FROM member_edit_request WHERE member_id = ? AND status != 'Processed' ORDER BY no DESC",
     memberId,
   );
 
@@ -223,7 +239,11 @@ export async function updateMemberEditRequest(
   return (await getMemberEditRequest(no))!;
 }
 
-export async function submitMemberEditRequest(no: string, user: Actor): Promise<void> {
+/** Sends the request into the matched workflow — `autoApproved` tells the caller whether it
+ *  came straight back out the other side already Approved (the requester was the resolved
+ *  approver at every step; see lib/workflow.ts's requesterClearsLevel()), so the UI can say so
+ *  instead of the generic "sent for approval". */
+export async function submitMemberEditRequest(no: string, user: Actor): Promise<{ autoApproved: boolean }> {
   const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Open') {
@@ -245,6 +265,9 @@ export async function submitMemberEditRequest(no: string, user: Actor): Promise<
       documentType: 'MEMBER_EDIT', entityId: no, requestedBy: user.username, amount: req.gross_income,
     });
   });
+
+  const after = await one<{ status: string }>('SELECT status FROM member_edit_request WHERE no = ?', no);
+  return { autoApproved: after?.status === 'Approved' };
 }
 
 /** Pulls a submission back to Open — same rules as cancelApplicationApproval(). */
@@ -280,20 +303,25 @@ export async function approveMemberEdit(no: string, user: Actor): Promise<void> 
   await logTableChange('member_edit_request', no, 'Modification', changes, user);
 }
 
+/** Rejection sends the request back to Open, not a terminal state — the requester can amend
+ *  and resubmit it, the same shape lib/loanService.ts's approve(approve: false) already uses.
+ *  decision_reason carries the rejection comment along, so it's visible on the reopened
+ *  request until the next decision overwrites or clears it. */
 export async function rejectMemberEdit(no: string, reason: string | null, user: Actor): Promise<void> {
+  if (!reason || !reason.trim()) throw new AppError('A reason is required to reject a request', 'VALIDATION');
   const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Pending Approval') {
     throw new AppError('Only a request pending approval can be rejected', 'VALIDATION');
   }
-  await run("UPDATE member_edit_request SET status = 'Rejected', decision_reason = ? WHERE no = ?", reason || null, no);
+  await run("UPDATE member_edit_request SET status = 'Open', decision_reason = ? WHERE no = ?", reason || null, no);
   const changes = diffFields(
-    req as unknown as Record<string, unknown>, { status: 'Rejected', decision_reason: reason || null },
+    req as unknown as Record<string, unknown>, { status: 'Open', decision_reason: reason || null },
   );
   await logTableChange('member_edit_request', no, 'Modification', changes, user);
 }
 
-/** Approved -> applies onto the live member via members.updateMember(), then marks Committed. */
+/** Approved -> applies onto the live member via members.updateMember(), then marks Processed. */
 export async function processMemberEdit(no: string, user: Actor): Promise<{ memberId: number }> {
   return tx(async () => {
     const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
@@ -315,11 +343,11 @@ export async function processMemberEdit(no: string, user: Actor): Promise<{ memb
     await applyEditAttachments(no, req.member_id, user);
 
     await run(
-      "UPDATE member_edit_request SET status = 'Committed', processed_at = ?, processed_by = ? WHERE no = ?",
+      "UPDATE member_edit_request SET status = 'Processed', processed_at = ?, processed_by = ? WHERE no = ?",
       new Date().toISOString(), user.username, no,
     );
 
-    const changes = diffFields(req as unknown as Record<string, unknown>, { status: 'Committed' });
+    const changes = diffFields(req as unknown as Record<string, unknown>, { status: 'Processed' });
     await logTableChange('member_edit_request', no, 'Modification', changes, user);
     return { memberId: req.member_id };
   });

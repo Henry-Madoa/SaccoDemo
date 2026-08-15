@@ -35,9 +35,9 @@ export const WITHDRAWAL_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK'];
 export const DISBURSE_CHANNELS: Channel[] = ['BANK', 'MPESA', 'TELLER'];
 export const REPAY_CHANNELS: Channel[] = ['TELLER', 'CHECKOFF', 'MPESA', 'BANK'];
 
-export const SAVINGS_CATEGORIES: SavingsCategory[] = ['SHARE', 'SAVINGS', 'DEPOSIT', 'FIXED'];
+export const SAVINGS_CATEGORIES: SavingsCategory[] = ['WITHDRAWABLE DEPOSIT', 'NON WITHDRAWABLE DEPOSIT', 'JUNIOR ACCOUNT', 'SHARE CAPITAL ACCOUNT', 'FIXED DEPOSIT ACCOUNT', 'LOAN ACCOUNT', 'INVESTMENTS ACCOUNT', 'HOLDING ACCOUNT', 'HOLIDAY ACCOUNT', 'SHARE TRADING ACCOUNT', 'BENEVOLENT ACCOUNT', 'SCHOOL FEE ACCOUNT'];
 export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE'];
-export const SAVINGS_ACCOUNT_STATUSES: SavingsAccountStatus[] = ['ACTIVE', 'DORMANT', 'FROZEN', 'CLOSED'];
+export const SAVINGS_ACCOUNT_STATUSES: SavingsAccountStatus[] = ['ACTIVE', 'DORMANT', 'FROZEN', 'CLOSED', 'INACTIVE'];
 
 export const MEMBER_CATEGORY_TYPES: { value: MemberCategoryType; label: string }[] = [
   { value: 'INDIVIDUAL', label: 'Individual' },
@@ -75,7 +75,7 @@ export const ATTACHMENT_CATEGORIES = [
 
 /** The full "Document Status" vocabulary — a member application only drives itself through some of these. */
 export const DOCUMENT_STATUSES: DocumentStatus[] = [
-  'Open', 'Pending Approval', 'Approved', 'Posted'
+  'Open', 'Pending Approval', 'Approved', 'Processed'
 ];
 
 export const MONTH_NAMES = [

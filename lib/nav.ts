@@ -31,6 +31,9 @@ export const NAV: NavGroup[] = [
       { path: '/member-applications', label: 'Member Application', icon: '📝', page: 'MEMBER_APPLICATIONS' },
       { path: '/members', label: 'Members', icon: '👥', page: 'MEMBERS' },
       { path: '/member-edits', label: 'Member Editing', icon: '✏', page: 'MEMBER_EDITS' },
+      { path: '/account-openings', label: 'Account Opening', icon: '🏦', page: 'ACCOUNT_OPENING' },
+      { path: '/account-deactivations', label: 'Account Deactivation', icon: '🚫', page: 'ACCOUNT_DEACTIVATION' },
+      { path: '/account-activations', label: 'Account Activation', icon: '✅', page: 'ACCOUNT_ACTIVATION' },
     ],
   },
   {

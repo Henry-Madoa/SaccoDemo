@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getMemberEditRequest, diffMemberEditFields } from '@/lib/memberEdits';
+import { getMemberEditRequest, diffMemberEditFields, getAdjacentEditRequestNos, type MemberEditView } from '@/lib/memberEdits';
 import { getMember } from '@/lib/members';
 import { listEditNextOfKin, listEditNominees } from '@/lib/editNominees';
 import { listEditSignatories } from '@/lib/editSignatories';
@@ -15,6 +15,7 @@ import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, Toolbar, Spacer } from '@/components/ui/primitives';
 import { ClientTabs } from '@/components/ui/client-tabs';
+import { CardNav } from '@/components/ui/card-nav';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../edit-actions';
@@ -29,21 +30,24 @@ import {
 import { ChangesSummary } from './changes-summary';
 import { AuditTrail } from './audit-trail';
 
+const EDIT_VIEWS: MemberEditView[] = ['open', 'pending', 'approved', 'processed'];
+
 export default async function MemberEditDetailPage({ params, searchParams }: {
   params: Promise<{ no: string }>;
-  searchParams: Promise<{ edit?: string }>;
+  searchParams: Promise<{ edit?: string; view?: string }>;
 }) {
   const user = await requireAction('MEMBER_EDITS_READ');
   const { no } = await params;
-  const { edit } = await searchParams;
+  const { edit, view: viewRaw } = await searchParams;
   const startEditing = edit === '1';
+  const view = EDIT_VIEWS.includes(viewRaw as MemberEditView) ? (viewRaw as MemberEditView) : undefined;
   const request = await getMemberEditRequest(no);
   if (!request) notFound();
 
   const [
     canUpdate, canApprove, currentMember,
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 },
-    nextOfKin, nominees, signatories, attachments, tasks,
+    nextOfKin, nominees, signatories, attachments, tasks, { prevNo, nextNo },
   ] = await Promise.all([
     currentCanAction('MEMBER_EDITS_UPDATE'), currentCanAction('MEMBER_EDITS_APPROVE'),
     getMember(request.member_id),
@@ -51,6 +55,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
     listEditNextOfKin(no), listEditNominees(no), listEditSignatories(no), listEditAttachments(no),
     listWorkflowTasksForDocument('MEMBER_EDIT', no),
+    getAdjacentEditRequestNos(no, view),
   ]);
   if (!currentMember) notFound();
 
@@ -72,6 +77,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
 
   const canEditFields = isOpen && canEditThis;
   const diffs = diffMemberEditFields(currentMember, request);
+  const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
   const generalPanel = (
     <GeneralInfoCard
@@ -122,11 +128,16 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
   );
 
   return (
-    <Page
-      title={`${request.first_name} ${request.last_name}`}
-      crumb={`${request.no} · ${request.status} · editing ${request.member_no}`}
-      user={user}
-    >
+    <>
+      <CardNav
+        prevHref={prevNo ? `/member-edits/view/${prevNo}${view ? `?view=${view}` : ''}` : null}
+        nextHref={nextNo ? `/member-edits/view/${nextNo}${view ? `?view=${view}` : ''}` : null}
+      />
+      <Page
+        title={`${request.first_name} ${request.last_name}`}
+        crumb={`${request.no} · ${request.status} · editing ${request.member_no}${pendingWith ? ` · pending with ${pendingWith}` : ''}`}
+        user={user}
+      >
       <Toolbar>
         <Link href="/member-edits" className="btn ghost sm">← All edit requests</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
@@ -198,6 +209,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
           audit: <AuditTrail request={request} tasks={tasks} />,
         }}
       />
-    </Page>
+      </Page>
+    </>
   );
 }

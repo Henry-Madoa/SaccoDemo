@@ -16,7 +16,7 @@ import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { ExportButton } from '@/components/ui/export-button';
 import {
-  NewEditRequestButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ProcessButton,
+  NewEditRequestButton, SubmitButton, CancelApprovalButton, ProcessButton,
 } from '../edit-actions';
 
 const TABS: TabDefinition[] = [
@@ -64,7 +64,7 @@ export default async function MemberEditsPage({ params, searchParams }: {
         <SearchInput placeholder="Search member name, no. or request no.…" />
         <DynamicFilterBar fields={fields} />
         <Spacer />
-        <ExportButton href="/api/export/member-edits" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/member-edits" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!requests.length} />
         {canUpdate ? <NewEditRequestButton members={members} /> : null}
       </Toolbar>
 
@@ -85,7 +85,7 @@ export default async function MemberEditsPage({ params, searchParams }: {
                 const canEditThis = canUpdate && (!canApprove || isOwnRequest);
                 return (
                 <tr key={r.no}>
-                  <td className="mono"><Link href={`/member-edits/view/${r.no}`}>{r.no}</Link></td>
+                  <td className="mono"><Link href={`/member-edits/view/${r.no}?view=${tab}`}>{r.no}</Link></td>
                   <td><b>{r.member_first_name} {r.member_last_name}</b></td>
                   <td className="mono">{r.member_no}</td>
                   <td><Pill status={r.status} /></td>
@@ -94,12 +94,6 @@ export default async function MemberEditsPage({ params, searchParams }: {
                       {r.status === 'Open' && canEditThis ? <SubmitButton no={r.no} /> : null}
                       {r.status === 'Pending Approval' && canUpdate && isOwnRequest ? (
                         <CancelApprovalButton no={r.no} />
-                      ) : null}
-                      {r.status === 'Pending Approval' && canApprove ? (
-                        <>
-                          <ApproveButton no={r.no} />
-                          <RejectButton no={r.no} />
-                        </>
                       ) : null}
                       {r.status === 'Approved' && canApprove ? <ProcessButton no={r.no} /> : null}
                       <Link href={`/members/${r.member_id}`} className="btn sm ghost">View member</Link>

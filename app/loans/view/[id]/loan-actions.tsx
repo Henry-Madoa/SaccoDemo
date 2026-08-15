@@ -6,7 +6,8 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useFormat } from '@/components/ui/format-provider';
-import { useToast } from '@/components/ui/toast';
+import { useResultDialog } from '@/components/ui/result-dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { decideLoan, disburseLoan, repayLoan, submitLoan } from '@/app/actions/loans';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
@@ -16,15 +17,26 @@ import type { LoanFull, SavingsAccountWithProduct } from '@/lib/types';
 /** Sends a captured (OPEN) loan for approval. */
 export function SubmitButton({ loanId, className = 'btn' }: { loanId: number; className?: string }) {
   const router = useRouter();
-  const toast = useToast();
+  const showResult = useResultDialog();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
+    const ok = await confirm({
+      title: 'Send this loan for approval?',
+      message: 'It will be routed to the configured approver(s) and can no longer be edited while pending.',
+      confirmLabel: 'Send for approval',
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await submitLoan(loanId);
-      if (!res.ok) { toast('Could not submit', res.error, 'err'); return; }
-      toast('Sent for approval', undefined, 'ok');
+      if (!res.ok) { showResult('Could not submit', res.error, 'err'); return; }
+      if (res.data.status === 'APPROVED') {
+        showResult('Loan approved', 'You are the assigned approver, so this was approved automatically.', 'ok');
+      } else {
+        showResult('Sent for approval', undefined, 'ok');
+      }
       router.refresh();
     } finally {
       setBusy(false);
@@ -43,17 +55,24 @@ export function DecideButtons({ loan, routedTaskId }: { loan: LoanFull; routedTa
   const [decision, setDecision] = useState<'approve' | 'reject' | null>(null);
   const { cur } = useFormat();
   const router = useRouter();
-  const toast = useToast();
+  const showResult = useResultDialog();
+  const confirm = useConfirm();
   const [delegating, setDelegating] = useState(false);
   const approving = decision === 'approve';
 
   const delegate = async () => {
     if (!routedTaskId) return;
+    const ok = await confirm({
+      title: 'Delegate to your substitute?',
+      message: 'Your configured substitute will be asked to decide this instead of you.',
+      confirmLabel: 'Delegate',
+    });
+    if (!ok) return;
     setDelegating(true);
     try {
       const res = await delegateMyTask(routedTaskId);
-      if (!res.ok) { toast('Could not delegate', res.error, 'err'); return; }
-      toast('Delegated to your substitute', undefined, 'ok');
+      if (!res.ok) { showResult('Could not delegate', res.error, 'err'); return; }
+      showResult('Delegated to your substitute', undefined, 'ok');
       router.refresh();
     } finally {
       setDelegating(false);
@@ -79,6 +98,7 @@ export function DecideButtons({ loan, routedTaskId }: { loan: LoanFull; routedTa
           submitClass={approving ? 'btn' : 'btn danger'}
           successTitle={approving ? 'Loan approved' : 'Application rejected'}
           successDetail={loan.loan_no}
+          resultStyle="popup"
         >
           <p>
             {approving
@@ -115,6 +135,7 @@ export function DisburseButton({ loan }: { loan: LoanFull }) {
           submitLabel="Disburse"
           successTitle="Disbursed"
           successDetail={`${loan.loan_no} · ${cur(loan.principal)}`}
+          resultStyle="popup"
         >
           <p>
             On disbursement the amortisation schedule is generated, the loan receivable is debited

@@ -14,22 +14,34 @@ function ExcelIcon() {
 
 /** A styled download link — a GET request needs no client JS, so this stays a plain
  *  Server Component and never enters the browser bundle. Forwards the page's own
- *  filter params so the download matches what's currently on screen. */
-export function ExportButton({ href, params, children, className = 'btn sm ghost' }: {
+ *  filter params so the download matches what's currently on screen. `disabled` (pass the
+ *  page's own empty-list check) renders it as inert text instead of a link — nothing worth
+ *  exporting when the list is empty, and a plain `<a>` has no real disabled state of its own. */
+export function ExportButton({ href, params, children, className = 'btn sm ghost', disabled = false }: {
   href: string;
   params?: Record<string, string | undefined>;
   children?: React.ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value) query.set(key, value);
   }
   const qs = query.toString();
+  const label = <><ExcelIcon />{children ?? 'Export to Excel'}</>;
+
+  if (disabled) {
+    return (
+      <span className={`${className} disabled`} aria-disabled="true" title="Nothing to export">
+        {label}
+      </span>
+    );
+  }
+
   return (
     <a className={className} href={qs ? `${href}?${qs}` : href}>
-      <ExcelIcon />
-      {children ?? 'Export to Excel'}
+      {label}
     </a>
   );
 }

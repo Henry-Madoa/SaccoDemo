@@ -363,7 +363,7 @@ export interface MemberDetail {
  * A member application only ever drives itself through a subset of these.
  */
 export type DocumentStatus =
-  | 'Open' | 'Pending Approval' | 'Approved' | 'Posted' | 'Rejected' | 'Committed';
+  | 'Open' | 'Pending Approval' | 'Approved' | 'Processed';
 
 /** A staged membership, captured with every field member.createMember() will need once approved. */
 export interface MemberApplication {
@@ -513,6 +513,91 @@ export interface MemberEditFieldDiff {
   label: string;
   from: string | number | null;
   to: string | number | null;
+}
+
+export interface AccountOpeningRequest {
+  no: string;
+  member_id: number;
+  savings_product_id: number;
+  notes: string | null;
+  business_name: string | null;
+  business_location: string | null;
+  business_paybill_till_no: string | null;
+  business_phone_no: string | null;
+  junior_name: string | null;
+  junior_birth_cert_no: string | null;
+  junior_date_of_birth: IsoDate | null;
+  junior_photo: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  account_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+}
+
+export interface AccountOpeningRequestWithDimensions extends AccountOpeningRequest {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  savings_product_code: string;
+  savings_product_name: string;
+  savings_product_category: SavingsCategory;
+  savings_product_is_business_account: Flag;
+}
+
+/** A maker-checker request to deactivate an existing non-default savings account — the same
+ *  Open -> Pending Approval -> Approved -> Processed shape as AccountOpeningRequest. Processing
+ *  sets the target account's status to INACTIVE (lib/savings.ts then refuses to post against it). */
+export interface AccountDeactivationRequest {
+  no: string;
+  account_id: number;
+  reason: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+}
+
+export interface AccountDeactivationRequestWithDimensions extends AccountDeactivationRequest {
+  account_no: string;
+  account_status: SavingsAccountStatus;
+  account_balance: Cents;
+  member_id: number;
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  savings_product_code: string;
+  savings_product_name: string;
+}
+
+/** A maker-checker request to reactivate an INACTIVE savings account — the mirror image of
+ *  AccountDeactivationRequest. Processing sets the target account's status back to ACTIVE. */
+export interface AccountActivationRequest {
+  no: string;
+  account_id: number;
+  reason: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+}
+
+export interface AccountActivationRequestWithDimensions extends AccountActivationRequest {
+  account_no: string;
+  account_status: SavingsAccountStatus;
+  account_balance: Cents;
+  member_id: number;
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  savings_product_code: string;
+  savings_product_name: string;
 }
 
 export interface MemberApplicationNextOfKin {
@@ -732,8 +817,8 @@ export interface AccountingPeriod {
 
 /* ----------------------------------------------------------------- savings */
 
-export type SavingsCategory = 'SHARE' | 'SAVINGS' | 'DEPOSIT' | 'FIXED';
-export type SavingsAccountStatus = 'ACTIVE' | 'DORMANT' | 'FROZEN' | 'CLOSED';
+export type SavingsCategory = 'WITHDRAWABLE DEPOSIT' | 'NON WITHDRAWABLE DEPOSIT' | 'JUNIOR ACCOUNT' | 'SHARE CAPITAL ACCOUNT' | 'FIXED DEPOSIT ACCOUNT' | 'LOAN ACCOUNT' | 'INVESTMENTS ACCOUNT' | 'HOLDING ACCOUNT' | 'HOLIDAY ACCOUNT' | 'SHARE TRADING ACCOUNT' | 'BENEVOLENT ACCOUNT' | 'SCHOOL FEE ACCOUNT';
+export type SavingsAccountStatus = 'ACTIVE' | 'DORMANT' | 'FROZEN' | 'CLOSED' | 'INACTIVE';
 export type Channel = 'TELLER' | 'MPESA' | 'BANK' | 'CHECKOFF' | 'SYSTEM';
 
 export interface SavingsProduct {
@@ -747,6 +832,8 @@ export interface SavingsProduct {
   allow_withdrawal: Flag;
   withdrawal_fee: Cents;
   is_loanable_base: Flag;
+  /** Collects business details (name, location, paybill/till, phone) at Account Opening time. */
+  is_business_account: Flag;
   withdrawal_notice_days: number;
   gl_control_id: number | null;
   gl_interest_exp_id: number | null;
@@ -795,6 +882,19 @@ export interface MemberCategoryDefaultAccountRow extends MemberCategoryDefaultAc
   savings_product_name: string;
 }
 
+/** One (member, default product) pair a category's default-account backfill still needs to
+ *  open — computed by pool.getDefaultAccountsBacklog(), then opened one at a time by the
+ *  client-driven progress UI (Admin Centre -> Setup Pool -> Member Categories -> Create
+ *  Default Accounts), so the browser can show real per-item progress. */
+export interface DefaultAccountBacklogItem {
+  memberId: number;
+  memberNo: string;
+  memberName: string;
+  productId: number;
+  productCode: string;
+  productName: string;
+}
+
 export interface SavingsAccount {
   id: number;
   account_no: string;
@@ -806,6 +906,14 @@ export interface SavingsAccount {
   opened_date: IsoDate | null;
   last_activity: IsoDate | null;
   version: number;
+  business_name: string | null;
+  business_location: string | null;
+  business_paybill_till_no: string | null;
+  business_phone_no: string | null;
+  junior_name: string | null;
+  junior_birth_cert_no: string | null;
+  junior_date_of_birth: IsoDate | null;
+  junior_photo: string | null;
 }
 
 export interface SavingsAccountWithProduct extends SavingsAccount {
@@ -822,6 +930,7 @@ export interface SavingsAccountFull extends SavingsAccountWithProduct {
   gl_control_id: number;
   gl_fee_income_id: number;
   is_loanable_base: Flag;
+  is_business_account: Flag;
   member_no: string;
   first_name: string;
   last_name: string;
@@ -1046,7 +1155,9 @@ export interface TxnWithMember extends Txn {
 
 /* --------------------------------------------------------------- workflow */
 
-export type WorkflowDocumentType = 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL';
+export type WorkflowDocumentType =
+  | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
+  | 'ACCOUNT_ACTIVATION';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -1155,11 +1266,17 @@ export interface ConfigPackageTableOption {
 }
 
 /** One selectable column of a package's table — `relation_table` is set when the column is a
- *  foreign key, so export/import can resolve it to/from a human-readable code instead of a raw id. */
+ *  foreign key, so export/import can resolve it to/from a human-readable code instead of a raw id.
+ *  `required` (NOT NULL, no default) matters for import: a row that doesn't match the package's
+ *  key field gets inserted as new, so it must supply every required column or the insert fails —
+ *  importConfigPackage() checks this up front instead of surfacing a raw DB constraint error.
+ *  `filter_type` drives which operators the export filter builder offers for this column. */
 export interface ConfigPackageColumn {
   name: string;
   label: string;
   relation_table: string | null;
+  required: boolean;
+  filter_type: 'text' | 'number' | 'date' | 'select';
 }
 
 export interface ConfigImportRowResult {
@@ -1242,6 +1359,25 @@ export interface WorkflowTaskRow extends WorkflowTask {
   document_label: string;
   /** Where "Review" / clicking the row should navigate. */
   link: string;
+}
+
+/** One group-sequence level a task has already cleared, reconstructed from the system audit
+ *  log since the task row itself only ever holds the final decision. */
+export interface WorkflowLevelDecision {
+  sequence: number;
+  decided_by: string;
+  decided_at: IsoDateTime;
+  comment: string | null;
+}
+
+/** A task row as shown on a document's own Approval Details table. */
+export interface WorkflowTaskWithApprover extends WorkflowTask {
+  /** Who may currently act on this task — a resolved name, or "Group name — member, member".
+   *  Only populated while status is PENDING; null once decided. */
+  pending_with: string | null;
+  /** For a group task with multiple sequence levels, each level already cleared, oldest
+   *  first. Empty for a single-approver task, or a group task still on its first level. */
+  level_decisions: WorkflowLevelDecision[];
 }
 
 export type NotificationType = 'WORKFLOW_PENDING' | 'WORKFLOW_APPROVED' | 'WORKFLOW_REJECTED';

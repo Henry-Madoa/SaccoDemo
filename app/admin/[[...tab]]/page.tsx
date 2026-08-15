@@ -48,7 +48,7 @@ import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form
 import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
 import { ChangeLogSetupTable } from '../change-log-setup-table';
 import { ConfigPackageFormButton } from '../config-package-form';
-import { ConfigPackageIo, DeleteConfigPackageButton } from '../config-package-io';
+import { ConfigPackageCard, DeleteConfigPackageButton } from '../config-package-io';
 interface AdminTab extends TabDefinition {
   /** A tab shows up once the user can execute any one of these pages — Setup Pool
    *  merges the pages of everything nested under it. */
@@ -695,7 +695,7 @@ async function AuditTab({ search, filtersRaw, sortRaw }: { search: string; filte
         <SearchInput placeholder="Filter by user, action or entity…" />
         <DynamicFilterBar fields={AUDIT_FILTER_FIELDS} />
         <Spacer />
-        <ExportButton href="/api/export/audit" params={{ q: search, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/audit" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>
       <Card>
         <CardHead title="Audit trail" sub="Append-only record of every privileged and financial action" />
@@ -756,7 +756,7 @@ async function ChangeLogTab({ search, filtersRaw, sortRaw }: { search: string; f
         <SearchInput placeholder="Filter by record, field or user…" />
         <DynamicFilterBar fields={fields} />
         <Spacer />
-        <ExportButton href="/api/export/change-log" params={{ q: search, filters: filtersRaw, sort: sortRaw }} />
+        <ExportButton href="/api/export/change-log" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!entries.length} />
       </Toolbar>
       <Card>
         <CardHead title="Change Log Entries" sub="Every logged field change, newest first" />
@@ -820,20 +820,19 @@ async function DataManagementTab() {
             <thead>
               <tr>
                 <th>Code</th><th>Name</th><th>Table</th><th className="num">Fields</th>
-                <th>Key field</th><th /><th className="num" />
+                <th>Key field</th><th className="num" />
               </tr>
             </thead>
             <tbody>
               {packages.map((p) => (
                 <tr key={p.id}>
-                  <td className="mono">{p.code}</td>
+                  <td><ConfigPackageCard pkg={p} /></td>
                   <td><b>{p.name}</b></td>
                   <td className="mono tiny">{p.table_name}</td>
                   <td className="num">{p.fields.length}</td>
                   <td className="tiny">{p.key_field || '—'}</td>
-                  <td><ConfigPackageIo code={p.code} /></td>
                   <td className="num">
-                    <div className="inline" style={{ gap: 4 }}>
+                    <div className="inline" style={{ gap: 4, justifyContent: 'flex-end' }}>
                       <ConfigPackageFormButton pkg={p} tables={tables} className="btn sm ghost">Edit</ConfigPackageFormButton>
                       <DeleteConfigPackageButton code={p.code} />
                     </div>

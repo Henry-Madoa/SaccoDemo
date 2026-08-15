@@ -43,6 +43,7 @@ function TxnForm({ kind, account, onClose }: {
       submitLabel={`Post ${isDeposit ? 'deposit' : 'withdrawal'}`}
       successTitle="Posted"
       successDetail={(r) => `${r.txn.txn_ref} · new balance ${cur(r.balance)}`}
+      resultStyle="popup"
     >
       <div className="card inset">
         <DefinitionList items={[

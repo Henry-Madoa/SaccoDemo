@@ -55,6 +55,9 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'MEMBER_APPLICATIONS', label: 'Member Application', route: '/member-applications' },
   { code: 'MEMBERS', label: 'Members', route: '/members' },
   { code: 'MEMBER_EDITS', label: 'Member Editing', route: '/member-edits' },
+  { code: 'ACCOUNT_OPENING', label: 'Account Opening', route: '/account-openings' },
+  { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
+  { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
   { code: 'GL', label: 'General Ledger', route: '/accounting' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'ADMIN_COMPANY', label: 'Company Information', route: '/admin/company' },
@@ -143,9 +146,50 @@ export const ACTIONS = {
   },
   MEMBER_EDITS_APPROVE: { page: 'MEMBER_EDITS', tables: [['member_edit_request', 'modify'], ['member', 'modify']] },
 
+  // Account Opening — additional savings accounts, not a member category's default account
+  // (those are provisioned automatically; see pool.getDefaultAccountsBacklog()). Always opens
+  // at a zero balance — no deposit, so no journal/txn rights are needed; funding the account
+  // afterwards is a separate SAVINGS_DEPOSIT grant.
+  ACCOUNT_OPENING_READ: { page: 'ACCOUNT_OPENING', tables: [['account_opening_request', 'read']] },
+  ACCOUNT_OPENING_CREATE: {
+    page: 'ACCOUNT_OPENING',
+    tables: [['account_opening_request', 'insert'], ['account_opening_request', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  ACCOUNT_OPENING_APPROVE: {
+    page: 'ACCOUNT_OPENING',
+    tables: [['account_opening_request', 'modify'], ['savings_account', 'insert']],
+  },
+
+  // Account Deactivation — deactivates an existing non-default savings account (the member's
+  // category default accounts are excluded; see lib/accountDeactivation.ts's
+  // eligibleAccountsForMember()). Processing only flips the account's status to INACTIVE, no
+  // balance movement, so no journal/txn rights are needed.
+  ACCOUNT_DEACTIVATION_READ: { page: 'ACCOUNT_DEACTIVATION', tables: [['account_deactivation_request', 'read']] },
+  ACCOUNT_DEACTIVATION_CREATE: {
+    page: 'ACCOUNT_DEACTIVATION',
+    tables: [['account_deactivation_request', 'insert'], ['account_deactivation_request', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  ACCOUNT_DEACTIVATION_APPROVE: {
+    page: 'ACCOUNT_DEACTIVATION',
+    tables: [['account_deactivation_request', 'modify'], ['savings_account', 'modify']],
+  },
+
+  // Account Activation — reactivates an INACTIVE savings account (only ever an account this
+  // module itself, or a prior manual freeze, put in that state; see
+  // lib/accountActivation.ts's eligibleAccountsForMember()). Processing only flips the
+  // account's status back to ACTIVE, no balance movement, so no journal/txn rights are needed.
+  ACCOUNT_ACTIVATION_READ: { page: 'ACCOUNT_ACTIVATION', tables: [['account_activation_request', 'read']] },
+  ACCOUNT_ACTIVATION_CREATE: {
+    page: 'ACCOUNT_ACTIVATION',
+    tables: [['account_activation_request', 'insert'], ['account_activation_request', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  ACCOUNT_ACTIVATION_APPROVE: {
+    page: 'ACCOUNT_ACTIVATION',
+    tables: [['account_activation_request', 'modify'], ['savings_account', 'modify']],
+  },
+
   // Savings & FOSA
   SAVINGS_READ: { page: 'SAVINGS', tables: [['savings_account', 'read']] },
-  SAVINGS_OPEN: { page: 'SAVINGS', tables: [['savings_account', 'insert'], ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert']] },
   SAVINGS_DEPOSIT: { page: 'SAVINGS', tables: [['journal', 'insert'], ['journal_line', 'insert'], ['savings_account', 'modify'], ['txn', 'insert']] },
   SAVINGS_WITHDRAW: { page: 'SAVINGS', tables: [['journal', 'insert'], ['journal_line', 'insert'], ['savings_account', 'modify'], ['txn', 'insert']] },
   SAVINGS_REVERSE: { page: 'SAVINGS', tables: [['journal', 'insert'], ['savings_account', 'modify'], ['txn', 'insert'], ['txn', 'modify']] },

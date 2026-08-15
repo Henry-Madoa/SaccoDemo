@@ -4,7 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as configPackages from '@/lib/configPackages';
-import type { ActionResult, ConfigImportResult, ConfigPackage, ConfigPackageColumn, FormValues } from '@/lib/types';
+import type {
+  ActionResult, ConfigImportResult, ConfigPackage, ConfigPackageColumn, FormValues,
+} from '@/lib/types';
+import type { FilterFieldDef } from '@/lib/listFilters';
 
 /** Lets the New/Edit Package form fetch a table's columns client-side once an admin picks it —
  *  the table dropdown is populated up front, but its columns aren't fetched until selected. */
@@ -12,6 +15,15 @@ export async function getConfigPackageColumns(tableName: string): Promise<Action
   return actionResult(async () => {
     await requireAction('ADMIN_CONFIG_PACKAGE_MANAGE');
     return configPackages.listConfigPackageColumns(tableName);
+  });
+}
+
+/** The package's own configured fields, as filterable fields for its export filter builder
+ *  (see app/admin/config-package-io.tsx). */
+export async function getConfigPackageFilterFields(code: string): Promise<ActionResult<FilterFieldDef[]>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_CONFIG_PACKAGE_MANAGE');
+    return configPackages.listConfigPackageFilterFields(code);
   });
 }
 

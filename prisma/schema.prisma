@@ -736,6 +736,36 @@ model member_edit_request {
   @@index([global_dimension_2_id], map: "ix_edit_gd2")
 }
 
+model account_opening_request {
+  no                 String          @id
+  member_id           Int
+  savings_product_id  Int
+  notes               String?
+  business_name             String?
+  business_location         String?
+  business_paybill_till_no  String?
+  business_phone_no         String?
+  junior_name                String?
+  junior_birth_cert_no       String?           @db.VarChar(50)
+  junior_date_of_birth       String?
+  junior_photo                String?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status              String          @default("Open")
+  decision_reason     String?
+  account_id          Int?
+  created_at          String?
+  created_by          String?
+  processed_at        String?
+  processed_by        String?
+  member              member          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_product     savings_product @relation(fields: [savings_product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account     savings_account? @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_aor_member")
+  @@index([savings_product_id], map: "ix_aor_product")
+  @@index([status], map: "ix_aor_status")
+}
+
 model member_edit_attachment {
   id                  Int                 @id @default(autoincrement())
   edit_no             String
@@ -852,6 +882,7 @@ model member {
   member_signatory   member_signatory[]
   member_application member_application[]
   member_edit_request member_edit_request[]
+  account_opening_request account_opening_request[]
   savings_account    savings_account[]
   txn                txn[]
 
@@ -945,13 +976,66 @@ model savings_account {
   opened_date     String?
   last_activity   String?
   version         Int             @default(0)
+  business_name             String?
+  business_location         String?
+  business_paybill_till_no  String?
+  business_phone_no         String?
+  junior_name                String?
+  junior_birth_cert_no       String?           @unique @db.VarChar(50)
+  junior_date_of_birth       String?
+  junior_photo                String?
   loan            loan[]
   member          member          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   savings_product savings_product @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   txn             txn[]
+  account_opening_request account_opening_request[]
+  account_deactivation_request account_deactivation_request[]
+  account_activation_request account_activation_request[]
 
   @@index([member_id], map: "ix_sa_member")
   @@index([product_id], map: "ix_sa_product")
+}
+
+/// A maker-checker request to deactivate an existing non-default savings account (the same
+/// Open -> Pending Approval -> Approved -> Processed shape as account_opening_request) — see
+/// lib/accountDeactivation.ts. Processing sets the target account's status to INACTIVE, which
+/// lib/savings.ts's deposit()/withdraw() then refuse to post against.
+model account_deactivation_request {
+  no              String          @id
+  account_id      Int
+  reason          String?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status          String          @default("Open")
+  decision_reason String?
+  created_at      String?
+  created_by      String?
+  processed_at    String?
+  processed_by    String?
+  savings_account savings_account @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([account_id], map: "ix_adr_account")
+  @@index([status], map: "ix_adr_status")
+}
+
+/// A maker-checker request to reactivate an INACTIVE savings account (the same
+/// Open -> Pending Approval -> Approved -> Processed shape as account_deactivation_request) —
+/// see lib/accountActivation.ts. Processing sets the target account's status back to ACTIVE,
+/// letting lib/savings.ts's deposit()/withdraw() post against it again.
+model account_activation_request {
+  no              String          @id
+  account_id      Int
+  reason          String?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status          String          @default("Open")
+  decision_reason String?
+  created_at      String?
+  created_by      String?
+  processed_at    String?
+  processed_by    String?
+  savings_account savings_account @relation(fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([account_id], map: "ix_aar_account")
+  @@index([status], map: "ix_aar_status")
 }
 
 model savings_product {
@@ -965,6 +1049,7 @@ model savings_product {
   allow_withdrawal                                          Int                               @default(1)
   withdrawal_fee                                            BigInt                            @default(0)
   is_loanable_base                                          Int                               @default(0)
+  is_business_account                                       Int                               @default(0)
   withdrawal_notice_days                                    Int                               @default(0)
   gl_control_id                                             Int?
   gl_interest_exp_id                                        Int?
@@ -975,6 +1060,7 @@ model savings_product {
   gl_account_savings_product_gl_fee_income_idTogl_account   gl_account?                       @relation("savings_product_gl_fee_income_idTogl_account", fields: [gl_fee_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   gl_account_savings_product_gl_interest_exp_idTogl_account gl_account?                       @relation("savings_product_gl_interest_exp_idTogl_account", fields: [gl_interest_exp_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member_category_default_account                           member_category_default_account[]
+  account_opening_request                                   account_opening_request[]
 }
 
 model sequence {

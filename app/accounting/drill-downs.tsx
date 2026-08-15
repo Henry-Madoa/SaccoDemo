@@ -120,6 +120,7 @@ function JournalModal({ id, canReverse, caption1, caption2, onClose }: {
         submitClass="btn danger"
         successTitle="Reversed"
         successDetail={(rev) => `Compensating journal ${rev.journal_no}`}
+        resultStyle="popup"
       >
         <p>A compensating journal will be posted. The original entry is preserved.</p>
         <Field name="reason" label="Reason" required />

@@ -17,6 +17,7 @@
 import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { toCsv, parseCsv } from './csv.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import type {
   Actor, ConfigImportResult, ConfigImportRowResult, ConfigPackage, ConfigPackageColumn,
   ConfigPackageField, ConfigPackageTableOption, ConfigPackageWithFields,
@@ -60,14 +61,17 @@ async function assertConfigPackageTable(table: string): Promise<void> {
 }
 
 /** Real columns of `table` and, for foreign keys, which table they reference — the same
- *  introspection lib/workflow.ts's tableSchema() runs for its own (fixed-table) condition fields. */
+ *  introspection lib/workflow.ts's tableSchema() runs for its own (fixed-table) condition fields.
+ *  Also carries what an import needs to know a column is required (NOT NULL, no default) and
+ *  what an export filter needs to know its comparable type. */
 async function tableSchema(table: string): Promise<{
-  columns: Map<string, { default: string | null }>;
+  columns: Map<string, { default: string | null; required: boolean; dataType: string }>;
   referencedTableByColumn: Map<string, string>;
 }> {
   const [columns, foreignKeys] = await Promise.all([
-    all<{ column_name: string; column_default: string | null }>(
-      "SELECT column_name, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ?",
+    all<{ column_name: string; column_default: string | null; is_nullable: string; data_type: string }>(
+      `SELECT column_name, column_default, is_nullable, data_type
+       FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ?`,
       table,
     ),
     all<{ column_name: string; referenced_table: string }>(
@@ -82,9 +86,28 @@ async function tableSchema(table: string): Promise<{
     ),
   ]);
   return {
-    columns: new Map(columns.map((c) => [c.column_name, { default: c.column_default }])),
+    columns: new Map(columns.map((c) => [
+      c.column_name,
+      { default: c.column_default, required: c.is_nullable === 'NO' && !c.column_default, dataType: c.data_type },
+    ])),
     referencedTableByColumn: new Map(foreignKeys.map((fk) => [fk.column_name, fk.referenced_table])),
   };
+}
+
+/** Postgres data_type -> the export filter builder's comparable type. A foreign key always
+ *  filters as 'text' — the raw stored id isn't what an admin filtering by "code" thinks in
+ *  terms of, but building a live picklist for an arbitrary related table isn't worth it for a
+ *  data-migration tool; entering the id directly still works. */
+const NUMBER_TYPES = new Set([
+  'integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real',
+]);
+const DATE_TYPES = new Set(['date', 'timestamp without time zone', 'timestamp with time zone']);
+
+function filterTypeFor(dataType: string, isRelation: boolean): ConfigPackageColumn['filter_type'] {
+  if (isRelation) return 'text';
+  if (NUMBER_TYPES.has(dataType)) return 'number';
+  if (DATE_TYPES.has(dataType)) return 'date';
+  return 'text';
 }
 
 /** The columns of `table` a package may include — everything except `id` and any
@@ -95,11 +118,16 @@ export async function listConfigPackageColumns(tableName: string): Promise<Confi
   const { columns, referencedTableByColumn } = await tableSchema(tableName);
   return [...columns.entries()]
     .filter(([name, meta]) => name !== 'id' && !(meta.default ?? '').startsWith('nextval('))
-    .map(([name]) => ({
-      name,
-      label: humanize(name),
-      relation_table: referencedTableByColumn.get(name) ?? null,
-    }))
+    .map(([name, meta]) => {
+      const relationTable = referencedTableByColumn.get(name) ?? null;
+      return {
+        name,
+        label: humanize(name),
+        relation_table: relationTable,
+        required: meta.required,
+        filter_type: filterTypeFor(meta.dataType, !!relationTable),
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -221,7 +249,23 @@ async function displayColumnFor(referencedTable: string): Promise<string> {
   return names.has('code') ? 'code' : names.has('name') ? 'name' : 'id';
 }
 
-export async function exportConfigPackage(code: string): Promise<{ filename: string; csv: string }> {
+/** The package's own configured fields, as a filter registry for its export — each field's
+ *  operators are driven by its inferred filter_type (number/date columns get the full
+ *  comparison set, everything else just equals/not-equals; see components/ui/dynamic-filter.tsx). */
+export async function listConfigPackageFilterFields(code: string): Promise<FilterFieldDef[]> {
+  const pkg = await getConfigPackage(code);
+  if (!pkg) throw new AppError('Package not found', 'NOT_FOUND');
+  const columns = await listConfigPackageColumns(pkg.table_name);
+  const byName = new Map(columns.map((c) => [c.name, c]));
+  return pkg.fields
+    .map((f) => byName.get(f.field_name))
+    .filter((c): c is ConfigPackageColumn => !!c)
+    .map((c) => ({ key: c.name, label: c.label, type: c.filter_type, column: `t."${c.name}"` }));
+}
+
+export async function exportConfigPackage(
+  code: string, filters: FilterCondition[] = [],
+): Promise<{ filename: string; csv: string }> {
   const pkg = await getConfigPackage(code);
   if (!pkg) throw new AppError('Package not found', 'NOT_FOUND');
   await assertConfigPackageTable(pkg.table_name);
@@ -249,8 +293,18 @@ export async function exportConfigPackage(code: string): Promise<{ filename: str
   }).join(', ');
   const orderBy = pkg.key_field && fieldNames.includes(pkg.key_field) ? `t."${pkg.key_field}"` : 't.id';
 
+  // Filters apply against the package's own configured fields only — the same allow-list
+  // shape every other list's dynamic filter uses (see lib/listFilters.ts's own header note),
+  // so a filter naming a column outside the package's field set is silently dropped.
+  const filterFields = fieldNames.map((f) => {
+    const col = byName.get(f)!;
+    return { key: f, label: col.label, type: col.filter_type, column: `t."${f}"` };
+  });
+  const { clause, params } = buildFilterClause(filterFields, filters);
+
   const rows = await all<Record<string, string | number | null>>(
-    `SELECT ${selectList} FROM "${pkg.table_name}" t ORDER BY ${orderBy}`,
+    `SELECT ${selectList} FROM "${pkg.table_name}" t WHERE 1=1 ${clause} ORDER BY ${orderBy}`,
+    params,
   );
   const headers = fieldNames.map((f) => byName.get(f)!.label);
   const csv = toCsv(headers, rows.map((r) => fieldNames.map((f) => r[f] ?? null)));
@@ -286,6 +340,13 @@ export async function importConfigPackage(code: string, csvText: string, user: A
   const byName = new Map(columns.map((c) => [c.name, c]));
   const fieldNames = pkg.fields.map((f) => f.field_name).filter((f) => byName.has(f));
   if (!fieldNames.length) throw new AppError('This package has no valid fields configured', 'VALIDATION');
+
+  // A row that doesn't match the key field (or there is no key field at all) gets inserted as a
+  // brand-new row, which means every NOT NULL, no-default column of the table must have a value
+  // — checked here, per row, so a template missing e.g. a member's first_name fails with a
+  // clear message instead of a raw Postgres "null value in column ... violates not-null
+  // constraint" the moment the insert runs.
+  const requiredFields = columns.filter((c) => c.required).map((c) => c.name);
 
   const allRows = parseCsv(csvText);
   if (!allRows.length) throw new AppError('The file is empty', 'VALIDATION');
@@ -325,6 +386,18 @@ export async function importConfigPackage(code: string, csvText: string, user: A
             values[pkg.key_field],
           );
           existingId = existing?.id ?? null;
+        }
+        if (!existingId) {
+          const missing = requiredFields.filter((f) => values[f] == null);
+          if (missing.length) {
+            const why = pkg.key_field
+              ? `no existing ${humanize(pkg.table_name)} matched "${values[pkg.key_field] ?? ''}" for ${byName.get(pkg.key_field)!.label}, so this row would insert a new one`
+              : 'this package has no Key Field set, so every row inserts as new';
+            throw new AppError(
+              `Cannot import row ${rowNo} — ${why}, but it's missing required field(s): ${missing.map((f) => byName.get(f)!.label).join(', ')}.`,
+              'MISSING_REQUIRED_FIELDS',
+            );
+          }
         }
         if (existingId) {
           const setClause = setFields.map((f) => `"${f}" = ?`).join(', ');

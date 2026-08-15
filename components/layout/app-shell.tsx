@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { getOrgBrand } from '@/lib/org';
 import { requireUser } from '@/lib/session';
 import { canPage } from '@/lib/permissions';
-import { pendingApprovalCount } from '@/lib/reports';
+import { myPendingWorkflowTaskCount } from '@/lib/workflow';
 import { NAV } from '@/lib/nav';
 import { Sidebar } from '@/components/layout/sidebar';
 import { NavProvider } from '@/components/layout/nav-context';
@@ -17,7 +17,11 @@ export async function AppShell({ children }: { children: ReactNode }) {
     .filter((i) => (Array.isArray(i.page) ? i.page : [i.page]).some((p) => canPage(user, p)))
     .map((i) => i.path);
 
-  const badges = canPage(user, 'APPROVALS') ? { pendingApprovals: await pendingApprovalCount() } : {};
+  // The badge is what this user personally has to act on, not an org-wide pending count —
+  // otherwise it stops meaning "you have something to do" the moment anyone else has a backlog.
+  const badges = canPage(user, 'APPROVALS')
+    ? { pendingApprovals: await myPendingWorkflowTaskCount(user.id, user.username) }
+    : {};
 
   return (
     <NavProvider>

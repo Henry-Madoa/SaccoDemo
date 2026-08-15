@@ -41,13 +41,13 @@ export async function saveMemberApplication(
   });
 }
 
-export async function submitApplication(no: string): Promise<ActionResult<{ updated: true }>> {
+export async function submitApplication(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
   return actionResult(async () => {
     const user = await requireAction('MEMBER_APPLICATIONS_CREATE');
-    await submitMemberApplication(no, user);
+    const { autoApproved } = await submitMemberApplication(no, user);
     revalidatePath('/member-applications');
     revalidatePath(`/member-applications/view/${no}`);
-    return { updated: true };
+    return { updated: true, autoApproved };
   });
 }
 

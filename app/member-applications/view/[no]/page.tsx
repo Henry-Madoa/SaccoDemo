@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getMemberApplication } from '@/lib/memberApplications';
+import { getMemberApplication, getAdjacentApplicationNos, type MemberApplicationView } from '@/lib/memberApplications';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { listApplicationNextOfKin, listApplicationNominees } from '@/lib/applicationNominees';
 import { listApplicationSignatories } from '@/lib/applicationSignatories';
@@ -14,6 +14,7 @@ import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { Page } from '@/components/layout/page';
 import { Toolbar, Spacer } from '@/components/ui/primitives';
 import { ClientTabs } from '@/components/ui/client-tabs';
+import { CardNav } from '@/components/ui/card-nav';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../application-actions';
@@ -26,20 +27,24 @@ import {
 } from './info-cards';
 import { AuditTrail } from './audit-trail';
 
+const APPLICATION_VIEWS: MemberApplicationView[] = ['open', 'pending', 'approved', 'processed'];
+
 export default async function MemberApplicationDetailPage({ params, searchParams }: {
   params: Promise<{ no: string }>;
-  searchParams: Promise<{ edit?: string }>;
+  searchParams: Promise<{ edit?: string; view?: string }>;
 }) {
   const user = await requireAction('MEMBER_APPLICATIONS_READ');
   const { no } = await params;
-  const { edit } = await searchParams;
+  const { edit, view: viewRaw } = await searchParams;
   const startEditing = edit === '1';
+  const view = APPLICATION_VIEWS.includes(viewRaw as MemberApplicationView) ? (viewRaw as MemberApplicationView) : undefined;
   const application = await getMemberApplication(no);
   if (!application) notFound();
 
   const [
     canUpdate, canCreate, canApprove, nextOfKin, nominees, signatories, attachments,
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 }, tasks,
+    { prevNo, nextNo },
   ] = await Promise.all([
     currentCanAction('MEMBER_APPLICATIONS_UPDATE'), currentCanAction('MEMBER_APPLICATIONS_CREATE'), currentCanAction('MEMBER_APPLICATIONS_APPROVE'),
     listApplicationNextOfKin(no), listApplicationNominees(no), listApplicationSignatories(no),
@@ -47,6 +52,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
     listActiveCounties(), listActiveSubCounties(), listActiveMemberCategories(),
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
     listWorkflowTasksForDocument('MEMBER_APPLICATION', no),
+    getAdjacentApplicationNos(no, view),
   ]);
   const mediaEnabled = isConfigured();
   const isOpen = application.status === 'Open';
@@ -67,6 +73,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
   const canCancelThis = canCreate && requestedBy === user.username;
 
   const canEditFields = isOpen && canEditThis;
+  const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
   const generalPanel = (
     <GeneralInfoCard
@@ -108,11 +115,16 @@ export default async function MemberApplicationDetailPage({ params, searchParams
   );
 
   return (
-    <Page
-      title={[application.first_name, application.last_name].filter(Boolean).join(' ') || application.no}
-      crumb={`${application.no} · ${application.status}`}
-      user={user}
-    >
+    <>
+      <CardNav
+        prevHref={prevNo ? `/member-applications/view/${prevNo}${view ? `?view=${view}` : ''}` : null}
+        nextHref={nextNo ? `/member-applications/view/${nextNo}${view ? `?view=${view}` : ''}` : null}
+      />
+      <Page
+        title={[application.first_name, application.last_name].filter(Boolean).join(' ') || application.no}
+        crumb={`${application.no} · ${application.status}${pendingWith ? ` · pending with ${pendingWith}` : ''}`}
+        user={user}
+      >
       <Toolbar>
         <Link href="/member-applications" className="btn ghost sm">← All applications</Link>
         <Spacer />
@@ -175,6 +187,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
           audit: <AuditTrail application={application} tasks={tasks} />,
         }}
       />
-    </Page>
+      </Page>
+    </>
   );
 }

@@ -104,6 +104,7 @@ export async function saveSavingsProduct(
       withdrawal_notice_days: Number(values.withdrawal_notice_days) || 0,
       allow_withdrawal: Number(values.allow_withdrawal) ? 1 : 0,
       is_loanable_base: Number(values.is_loanable_base) ? 1 : 0,
+      is_business_account: Number(values.is_business_account) ? 1 : 0,
       gl_control_id: Number(values.gl_control_id) || null,
       gl_interest_exp_id: Number(values.gl_interest_exp_id) || null,
       gl_fee_income_id: Number(values.gl_fee_income_id) || null,
