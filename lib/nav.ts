@@ -23,16 +23,26 @@ export const NAV: NavGroup[] = [
     items: [
       { path: '/dashboard', label: 'Dashboard', icon: '▤', page: 'DASHBOARD' },
       { path: '/approvals', label: 'Approvals', icon: '✔', page: 'APPROVALS', badge: 'pendingApprovals' },
-      { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
-      { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
        ],
   },
   {
-    group: 'Client Relationship Mgmt',
+    group: 'Client Relationship MGMT',
     items: [
       { path: '/member-applications', label: 'Member Application', icon: '📝', page: 'MEMBER_APPLICATIONS' },
       { path: '/members', label: 'Members', icon: '👥', page: 'MEMBERS' },
       { path: '/member-edits', label: 'Member Editing', icon: '✏', page: 'MEMBER_EDITS' },
+    ],
+  },
+  {
+    group:'Credit',
+    items:[ 
+      { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
+    ],
+  },
+   {
+    group:'FOSA',
+    items:[
+      { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
     ],
   },
   {
