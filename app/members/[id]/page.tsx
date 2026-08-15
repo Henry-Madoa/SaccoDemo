@@ -265,7 +265,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                       </td>
                       <td><Pill status={l.status} /></td>
                       <td>{l.status === 'DISBURSED' ? <Pill status={l.classification} /> : '—'}</td>
-                      <td className="num"><Link href={`/loans/${l.id}`}>Open</Link></td>
+                      <td className="num"><Link href={`/loans/view/${l.id}`}>Open</Link></td>
                     </tr>
                   ))}
                 </tbody>
@@ -285,7 +285,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 <tbody>
                   {guaranteeing.map((g) => (
                     <tr key={g.id}>
-                      <td className="mono"><Link href={`/loans/${g.loan_id}`}>{g.loan_no}</Link></td>
+                      <td className="mono"><Link href={`/loans/view/${g.loan_id}`}>{g.loan_no}</Link></td>
                       <td>{g.first_name} {g.last_name}</td>
                       <td className="num"><Money cents={g.amount} decimals={0} /></td>
                       <td className="num"><Money cents={g.principal_balance} decimals={0} /></td>

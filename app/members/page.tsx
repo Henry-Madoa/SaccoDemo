@@ -1,28 +1,49 @@
 import Link from 'next/link';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listMembers, MEMBER_FILTER_FIELDS } from '@/lib/members';
+import { listMembers, MEMBER_FILTER_FIELDS, MEMBER_STATUSES } from '@/lib/members';
 import { listActiveMemberCategories, listActiveCounties, listActiveSubCounties, listActiveDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
-import { Card, CardHead, EmptyState, Pill, TableWrap, Toolbar, Spacer } from '@/components/ui/primitives';
+import {
+  Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
+} from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
 import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { ExportButton } from '@/components/ui/export-button';
+import type { MemberStatus } from '@/lib/types';
+
+/** The list's Status navigation — a tab per member status, themed off the org's active Theme &
+ *  Appearance tokens (see Tabs' `tone`). Query-param based (`?status=...`), not a path segment,
+ *  since /members/[id] already owns single-segment routes under /members. Withdrawn and Deceased
+ *  intentionally share the "bad" tone — both are terminal exits — while "All" stays untoned like
+ *  the rest of the app's neutral/closed convention (lib/format.ts's statusTone()). */
+const STATUS_TABS: (TabDefinition & { status: MemberStatus | null })[] = [
+  { key: 'all', label: 'All', status: null },
+  { key: 'active', label: 'Active', status: 'ACTIVE', tone: 'ok' },
+  { key: 'not-paid-up', label: 'Not Paid Up', status: 'NOT PAID UP', tone: 'warn' },
+  { key: 'dormant', label: 'Dormant', status: 'DORMANT', tone: 'info' },
+  { key: 'inactive', label: 'Inactive', status: 'INACTIVE', tone: 'accent' },
+  { key: 'withdrawn', label: 'Withdrawn', status: 'WITHDRAWN', tone: 'bad' },
+  { key: 'deceased', label: 'Deceased', status: 'DECEASED', tone: 'bad' },
+];
 
 export default async function MembersPage({ searchParams }: {
-  searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string; status?: string }>;
 }) {
   const user = await requireAction('MEMBERS_READ');
-  const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw, status: statusRaw } = await searchParams;
+  const activeStatus = MEMBER_STATUSES.includes(statusRaw as MemberStatus) ? (statusRaw as MemberStatus) : null;
+  const activeTab = STATUS_TABS.find((t) => t.status === activeStatus)?.key ?? 'all';
   const filters = parseFilters(filtersRaw);
+  const effectiveFilters = activeStatus ? [...filters, { field: 'status', operator: '=' as const, value: activeStatus }] : filters;
   const sort = parseSort(sortRaw);
   const [{ rows, total }, canCreate, { caption1, caption2 }, categories, counties, subCounties, gd1Values, gd2Values] =
     await Promise.all([
-      listMembers({ search: q, filters, sort }),
+      listMembers({ search: q, filters: effectiveFilters, sort }),
       currentCanAction('MEMBER_APPLICATIONS_CREATE'),
       getDimensionCaptions(),
       listActiveMemberCategories(),
@@ -31,7 +52,11 @@ export default async function MembersPage({ searchParams }: {
       listActiveDimensionValues(1),
       listActiveDimensionValues(2),
     ]);
-  const fields = MEMBER_FILTER_FIELDS.map((f) => (
+  // The Status tabs above are now the primary way to narrow by status, so it's dropped from the
+  // dynamic filter bar (mirroring member-applications' TABS/APPLICATION_FILTER_FIELDS split) —
+  // it stays in MEMBER_FILTER_FIELDS itself since buildFilterClause still needs it to resolve
+  // the synthetic condition a tab adds above.
+  const fields = MEMBER_FILTER_FIELDS.filter((f) => f.key !== 'status').map((f) => (
     f.key === 'member_category_id' ? { ...f, options: categories.map((c) => ({ value: c.id, label: c.description })) }
       : f.key === 'county_id' ? { ...f, options: counties.map((c) => ({ value: c.id, label: c.name })) }
         : f.key === 'sub_county_id' ? { ...f, options: subCounties.map((c) => ({ value: c.id, label: c.name })) }
@@ -42,6 +67,13 @@ export default async function MembersPage({ searchParams }: {
 
   return (
     <Page title="Members" crumb="Registry, KYC and member 360" user={user}>
+      <Tabs
+        tabs={STATUS_TABS} active={activeTab}
+        hrefFor={(k) => {
+          const t = STATUS_TABS.find((s) => s.key === k);
+          return t?.status ? `/members?status=${encodeURIComponent(t.status)}` : '/members';
+        }}
+      />
       <Toolbar>
         <SearchInput placeholder="Search name, member number, ID or phone…" />
         <DynamicFilterBar fields={fields} />

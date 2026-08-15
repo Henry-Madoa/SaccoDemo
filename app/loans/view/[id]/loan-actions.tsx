@@ -7,11 +7,36 @@ import { Field } from '@/components/ui/field';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useFormat } from '@/components/ui/format-provider';
 import { useToast } from '@/components/ui/toast';
-import { decideLoan, disburseLoan, repayLoan } from '@/app/actions/loans';
+import { decideLoan, disburseLoan, repayLoan, submitLoan } from '@/app/actions/loans';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
 import { today, toUnits } from '@/lib/format';
 import type { LoanFull, SavingsAccountWithProduct } from '@/lib/types';
+
+/** Sends a captured (OPEN) loan for approval. */
+export function SubmitButton({ loanId, className = 'btn' }: { loanId: number; className?: string }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const res = await submitLoan(loanId);
+      if (!res.ok) { toast('Could not submit', res.error, 'err'); return; }
+      toast('Sent for approval', undefined, 'ok');
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button type="button" className={className} disabled={busy} onClick={submit}>
+      {busy ? 'Working…' : 'Send for approval'}
+    </button>
+  );
+}
 
 /** Approve / reject / delegate, with the maker-checker rule enforced server-side. */
 export function DecideButtons({ loan, routedTaskId }: { loan: LoanFull; routedTaskId: number | null }) {

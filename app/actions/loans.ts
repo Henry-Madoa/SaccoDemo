@@ -47,8 +47,18 @@ export async function applyForLoan(values: FormValues): Promise<ActionResult<Loa
       user,
     });
     revalidatePath('/loans');
-    revalidatePath('/approvals');
     revalidatePath(`/members/${values.memberId}`);
+    return loan;
+  });
+}
+
+export async function submitLoan(loanId: number): Promise<ActionResult<LoanFull>> {
+  return actionResult(async () => {
+    const user = await requireAction('LOAN_CREATE');
+    const loan = await loanSvc.submit({ loanId, user });
+    revalidatePath('/loans');
+    revalidatePath(`/loans/view/${loanId}`);
+    revalidatePath('/approvals');
     return loan;
   });
 }
@@ -78,7 +88,7 @@ export async function decideLoan(
       result = loan;
     }
     revalidatePath('/loans');
-    revalidatePath(`/loans/${loanId}`);
+    revalidatePath(`/loans/view/${loanId}`);
     revalidatePath('/approvals');
     return result;
   });
@@ -94,7 +104,7 @@ export async function disburseLoan(loanId: number, values: FormValues): Promise<
       user,
     });
     revalidatePath('/loans');
-    revalidatePath(`/loans/${loanId}`);
+    revalidatePath(`/loans/view/${loanId}`);
     revalidatePath(`/members/${loan.member_id}`);
     return loan;
   });
@@ -116,7 +126,7 @@ export async function repayLoan(
       user,
     });
     revalidatePath('/loans');
-    revalidatePath(`/loans/${loanId}`);
+    revalidatePath(`/loans/view/${loanId}`);
     revalidatePath(`/members/${result.loan.member_id}`);
     return result;
   });

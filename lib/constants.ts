@@ -12,7 +12,7 @@ import type {
 } from './types.ts';
 
 export const MEMBER_STATUSES: MemberStatus[] =
-  [ 'NOT PAID UP' , 'ACTIVE' , 'INACTIVE','DORMANT', 'WITHDRAWN',  'DECEASED', 'CLOSED'];
+  [ 'NOT PAID UP','ACTIVE','INACTIVE','DORMANT','WITHDRAWN','DECEASED'];
 
 export const MEMBER_TYPES = ['INDIVIDUAL', 'CORPORATE', 'GROUP'];
 export const MEMBER_TITLES = ['', 'Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Prof.'];
@@ -49,7 +49,7 @@ export const MEMBER_CATEGORY_TYPES: { value: MemberCategoryType; label: string }
 ];
 export const MEMBER_CATEGORY_STATUSES = ['ACTIVE', 'INACTIVE'];
 
-export const LOAN_STATUSES: LoanStatus[] = ['PENDING', 'APPROVED', 'DISBURSED', 'CLOSED', 'REJECTED'];
+export const LOAN_STATUSES: LoanStatus[] = ['OPEN','PENDING APPROVAL', 'APPROVED', 'DISBURSED', 'CLOSED', 'ARCHIVED','WRITTEN OFF',];
 export const INTEREST_METHODS: InterestMethod[] = ['REDUCING', 'FLAT'];
 
 export const GL_ACCOUNT_TYPES: GlAccountType[] =

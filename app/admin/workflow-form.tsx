@@ -1,19 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
-import { saveWorkflow } from '@/app/actions/workflows';
-import {
-  DOCUMENT_TYPE_LABELS, CONDITION_OPERATORS, APPROVER_TYPES,
-} from '@/lib/workflowConstants';
+import { saveWorkflow, getWorkflowConditionFields } from '@/app/actions/workflows';
+import { CONDITION_OPERATORS, APPROVER_TYPES } from '@/lib/workflowConstants';
 import type { DocumentFieldDef, DocumentFieldRelation } from '@/lib/workflowConstants';
 import type {
-  UserListRow, WorkflowUserGroupWithUsage, WorkflowWithDetail, WorkflowDocumentType,
+  UserListRow, WorkflowUserGroupWithUsage, WorkflowWithDetail, DocumentTypeOption,
   WorkflowConditionOperator, WorkflowApproverType, MemberCategory, County, DimensionValue, LoanProduct,
 } from '@/lib/types';
-
-const DOCUMENT_TYPES = Object.keys(DOCUMENT_TYPE_LABELS) as WorkflowDocumentType[];
 
 /** One option list per `DocumentFieldRelation` — whichever rows the caller has on hand for
  *  that lookup table. Missing/empty lists just fall back to a plain text input. */
@@ -48,16 +44,16 @@ const emptyCondition = (fields: DocumentFieldDef[]): ConditionRow => ({
 const emptyStep = (): StepRow => ({ approver_type: 'USER', approver_user_id: '', approver_group_id: '', notify_email: true });
 
 export function WorkflowFormButton({
-  workflow, users, groups, memberCategory, county, globalDimension1, globalDimension2, loanProduct,
-  documentFields, dimensionCaption1 = 'Global Dimension 1', dimensionCaption2 = 'Global Dimension 2',
+  workflow, documentTypes, users, groups, memberCategory, county, globalDimension1, globalDimension2, loanProduct,
+  dimensionCaption1 = 'Global Dimension 1', dimensionCaption2 = 'Global Dimension 2',
   className = 'btn', children,
 }: {
   workflow?: WorkflowWithDetail | null;
+  /** The live document-type picker — every wired business document type plus every other real
+   *  table, read off lib/workflow.ts's listDocumentTypeOptions(), not hardcoded here. */
+  documentTypes: DocumentTypeOption[];
   users: UserListRow[];
   groups: WorkflowUserGroupWithUsage[];
-  /** The condition fields available per document type — read off the real tables server-side
-   *  by lib/workflow.ts's listConditionFieldDefs(), not hardcoded here. */
-  documentFields: Record<WorkflowDocumentType, DocumentFieldDef[]>;
   /** The org's own labels for the two dimension slots (e.g. "Branch", "Cost Centre") — falls
    *  back to the generic name if the caller doesn't have them on hand. */
   dimensionCaption1?: string;
@@ -75,8 +71,9 @@ export function WorkflowFormButton({
   );
   const [open, setOpen] = useState(false);
   const w = workflow ?? null;
-  const [documentType, setDocumentType] = useState<WorkflowDocumentType>(w?.document_type || 'MEMBER_APPLICATION');
-  const fields = documentFields[documentType];
+  const [documentType, setDocumentType] = useState<string>(w?.document_type || documentTypes[0]?.documentType || '');
+  const [fields, setFields] = useState<DocumentFieldDef[]>([]);
+  const [loadingFields, setLoadingFields] = useState(false);
   const [conditions, setConditions] = useState<ConditionRow[]>(() =>
     (w?.conditions || []).map((c) => ({
       field: c.field, operator: c.operator, value: c.value, value2: c.value2 || '',
@@ -88,6 +85,24 @@ export function WorkflowFormButton({
       approver_group_id: s.approver_group_id || '',
       notify_email: !!s.notify_email,
     })));
+
+  // Loads the selected document type's condition fields fresh whenever the type changes (or the
+  // modal opens) — read live off the real table (lib/workflow.ts's listConditionFieldDefs()), not
+  // precomputed for every document type up front, since that set now spans every real table
+  // rather than a fixed handful.
+  useEffect(() => {
+    if (!open || !documentType) { setFields([]); return; }
+    let cancelled = false;
+    setLoadingFields(true);
+    getWorkflowConditionFields(documentType).then((res) => {
+      if (cancelled) return;
+      setFields(res.ok ? res.data : []);
+      setLoadingFields(false);
+    });
+    return () => { cancelled = true; };
+  }, [open, documentType]);
+
+  const selectedType = documentTypes.find((t) => t.documentType === documentType);
 
   const updateCondition = (i: number, patch: Partial<ConditionRow>) =>
     setConditions((cur) => cur.map((r, k) => (k === i ? { ...r, ...patch } : r)));
@@ -131,11 +146,19 @@ export function WorkflowFormButton({
             <Field name="name" label="Workflow name" defaultValue={w?.name} required maxLength={80} />
             <Field name="document_type" label="Document type" type="select" required
               defaultValue={documentType}
-              options={DOCUMENT_TYPES.map((t) => ({ value: t, label: DOCUMENT_TYPE_LABELS[t] }))}
-              onChange={(e) => setDocumentType(e.target.value as WorkflowDocumentType)} />
+              options={documentTypes.map((t) => ({
+                value: t.documentType, label: t.wired ? t.label : `${t.label} (not yet enforced)`,
+              }))}
+              onChange={(e) => setDocumentType(e.target.value)} />
           </div>
           {w ? (
             <Field name="enabled" label="Enabled" type="checkbox" defaultValue={w.enabled} />
+          ) : null}
+          {selectedType && !selectedType.wired ? (
+            <div className="tiny" style={{ marginTop: 4 }}>
+              {selectedType.table} isn't wired into a submission flow yet — conditions and steps can be
+              configured here, but no approval task will ever be created from it until that integration exists.
+            </div>
           ) : null}
 
           <h4 className="section-title">Conditions</h4>
@@ -209,8 +232,9 @@ export function WorkflowFormButton({
             </tbody>
           </table>
           <div className="inline" style={{ marginTop: 10 }}>
-            <button type="button" className="btn ghost sm" onClick={() => setConditions((c) => [...c, emptyCondition(fields)])}>
-              Add condition
+            <button type="button" className="btn ghost sm" disabled={loadingFields}
+              onClick={() => setConditions((c) => [...c, emptyCondition(fields)])}>
+              {loadingFields ? 'Loading fields…' : 'Add condition'}
             </button>
           </div>
 

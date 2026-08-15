@@ -383,6 +383,15 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 .tabs a:hover, .tabs button:hover { color: var(--text); text-decoration: none; }
 .tabs a.active, .tabs button.active { color: var(--brand-primary); border-bottom-color: var(--brand-primary); font-weight: 600; }
 
+/* A tab carrying a `tone` (e.g. a document's Open/Pending/Approved/Processed lifecycle stages)
+   switches its active text/underline to that colour, sourced from the org's active Theme &
+   Appearance tokens, instead of the default brand colour — inactive tabs stay plain. */
+.tabs a.active[data-tone="info"], .tabs button.active[data-tone="info"] { color: var(--info); border-bottom-color: var(--info); }
+.tabs a.active[data-tone="warn"], .tabs button.active[data-tone="warn"] { color: var(--warning); border-bottom-color: var(--warning); }
+.tabs a.active[data-tone="ok"], .tabs button.active[data-tone="ok"] { color: var(--success); border-bottom-color: var(--success); }
+.tabs a.active[data-tone="accent"], .tabs button.active[data-tone="accent"] { color: var(--brand-accent); border-bottom-color: var(--brand-accent); }
+.tabs a.active[data-tone="bad"], .tabs button.active[data-tone="bad"] { color: var(--danger); border-bottom-color: var(--danger); }
+
 .toolbar { display: flex; gap: var(--sp); align-items: center; margin-bottom: calc(var(--sp) * 2); flex-wrap: wrap; }
 .toolbar input[type=text], .toolbar select { width: auto; min-width: 180px; }
 .toolbar .spacer { flex: 1; }

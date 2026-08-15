@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
-import { saveWorkflowTableRelationFields } from '@/app/actions/workflows';
-import type { WorkflowDocumentType, WorkflowTableRelationWithFields } from '@/lib/types';
+import { saveWorkflowTableRelationFields, getWorkflowAddableColumns } from '@/app/actions/workflows';
+import type { WorkflowTableRelationWithFields } from '@/lib/types';
 
 const humanize = (identifier: string): string => identifier
   .replace(/_id$/, '')
@@ -19,17 +19,14 @@ const DIMENSION_COLUMNS: Record<string, 'dimensionCaption1' | 'dimensionCaption2
 };
 
 export function WorkflowTableRelationFormButton({
-  documentType, documentTypeLabel, tableName, relation, availableColumns,
+  documentType, documentTypeLabel, tableName, relation,
   dimensionCaption1 = 'Global Dimension 1', dimensionCaption2 = 'Global Dimension 2',
   className = 'btn sm ghost', children,
 }: {
-  documentType: WorkflowDocumentType;
+  documentType: string;
   documentTypeLabel: string;
   tableName: string;
   relation: WorkflowTableRelationWithFields | null;
-  /** Real, not-yet-enabled columns of `tableName` — for LOAN/JOURNAL this is already capped
-   *  server-side to the fields their submission code actually evaluates. */
-  availableColumns: string[];
   /** The org's own labels for the two global dimension slots — falls back to the generic
    *  name if the caller doesn't have them on hand. */
   dimensionCaption1?: string;
@@ -40,6 +37,23 @@ export function WorkflowTableRelationFormButton({
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<string[]>(() => (relation?.fields ?? []).map((f) => f.field_name));
   const [picked, setPicked] = useState('');
+  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  const [loadingColumns, setLoadingColumns] = useState(false);
+
+  // Loads the table's real, not-yet-enabled columns fresh each time the modal opens — introspected
+  // live off Postgres (lib/workflow.ts's tableSchema()), not precomputed for every document type up
+  // front, since the document-type list now spans every real table, not just a fixed handful.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingColumns(true);
+    getWorkflowAddableColumns(documentType).then((res) => {
+      if (cancelled) return;
+      setAvailableColumns(res.ok ? res.data : []);
+      setLoadingColumns(false);
+    });
+    return () => { cancelled = true; };
+  }, [open, documentType]);
 
   const captions = { dimensionCaption1, dimensionCaption2 };
   const fieldLabel = (name: string) => {
@@ -75,17 +89,16 @@ export function WorkflowTableRelationFormButton({
           <div className="inline" style={{ marginTop: 8 }}>
             <select
               value={picked} aria-label="Field to add" style={{ flex: 1 }}
-              onChange={(e) => setPicked(e.target.value)}
+              disabled={loadingColumns} onChange={(e) => setPicked(e.target.value)}
             >
-              <option value="">Select a field…</option>
+              <option value="">{loadingColumns ? 'Loading fields…' : 'Select a field…'}</option>
               {remaining.map((c) => <option key={c} value={c}>{fieldLabel(c)} ({c})</option>)}
             </select>
             <button type="button" className="btn sm" disabled={!picked} onClick={addField}>Add field</button>
           </div>
-          {!remaining.length && !fields.length ? (
+          {!loadingColumns && !remaining.length && !fields.length ? (
             <div className="tiny" style={{ marginTop: 4 }}>
-              No columns are available to add — LOAN and JOURNAL are capped to the fields their
-              submission flow actually evaluates.
+              No columns are available to add for this document type.
             </div>
           ) : null}
 

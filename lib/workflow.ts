@@ -14,13 +14,13 @@ import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { sendMail, approvalRequestedEmail, approvalDecidedEmail } from './mailer.ts';
 import { notify } from './notifications.ts';
-import { DOCUMENT_LINK, documentLabel, DOCUMENT_TABLE } from './workflowConstants.ts';
+import { DOCUMENT_LINK, documentLabel, DOCUMENT_TABLE, DOCUMENT_TYPE_LABELS } from './workflowConstants.ts';
 import type { DocumentFieldDef, DocumentFieldRelation } from './workflowConstants.ts';
 import type {
-  Actor, ApprovalUserSetupRow, Cents, Flag, Workflow, WorkflowApproverType, WorkflowCondition,
-  WorkflowConditionOperator, WorkflowDocumentType, WorkflowStep, WorkflowTableRelationField,
-  WorkflowTableRelationWithFields, WorkflowTask, WorkflowTaskRow, WorkflowUserGroupMemberRow,
-  WorkflowUserGroupWithUsage, WorkflowWithDetail,
+  Actor, ApprovalUserSetupRow, Cents, DocumentTypeOption, Flag, Workflow, WorkflowApproverType,
+  WorkflowCondition, WorkflowConditionOperator, WorkflowDocumentType, WorkflowStep,
+  WorkflowTableRelationField, WorkflowTableRelationWithFields, WorkflowTask, WorkflowTaskRow,
+  WorkflowUserGroupMemberRow, WorkflowUserGroupWithUsage, WorkflowWithDetail,
 } from './types.ts';
 
 export * from './workflowConstants.ts';
@@ -84,6 +84,88 @@ function fieldDef(key: string, referencedTableByColumn: Map<string, string>): Do
   return { key, label: humanize(referencedTable ?? key), relation };
 }
 
+/** Tables that make no sense as a workflow document type however an admin configures one: the
+ *  workflow engine's own state, auth/session tables (already have their own Admin Centre UI),
+ *  and other admin/audit infrastructure. Not a write-safety denylist like configPackages.ts's
+ *  EXCLUDED_TABLES — a workflow only ever reads condition values off a table, never writes it —
+ *  just a noise filter so the document-type picker doesn't fill up with tables no one would
+ *  ever route an approval on. */
+const EXCLUDED_DOCUMENT_TABLES = new Set([
+  'session', 'sequence', 'audit_log', 'change_log_setup', 'change_log_entry',
+  'app_user', 'role',
+  'workflow', 'workflow_condition', 'workflow_step', 'workflow_table_relation',
+  'workflow_table_relation_field', 'workflow_user_group', 'workflow_user_group_member',
+  'workflow_task', 'approval_user_setup',
+  'config_package', 'config_package_field',
+]);
+
+/** The table backing a document type: the fixed mapping for a wired business document type, or
+ *  (for a workflow defined against any other real table) the document type itself — a non-wired
+ *  document type's key IS its table name, per listDocumentTypeOptions() below. */
+function tableForDocumentType(documentType: string): string {
+  return DOCUMENT_TABLE[documentType as WorkflowDocumentType] ?? documentType;
+}
+
+/**
+ * Every real table a new table relation may be registered against — the Table Relations tab's
+ * own picker, not the workflow form's Document Type dropdown (see listWorkflowDocumentTypes()
+ * below, which is what a workflow is actually created against). Introspected live via
+ * information_schema, the same approach listConfigPackageTables() in lib/configPackages.ts uses
+ * for its own table dropdown.
+ */
+export async function listDocumentTypeOptions(): Promise<DocumentTypeOption[]> {
+  const wired: DocumentTypeOption[] = (Object.keys(DOCUMENT_TABLE) as WorkflowDocumentType[]).map((t) => ({
+    documentType: t, table: DOCUMENT_TABLE[t], label: DOCUMENT_TYPE_LABELS[t], wired: true,
+  }));
+  const wiredTables = new Set(wired.map((w) => w.table));
+
+  const rows = await all<{ table_name: string }>(
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name",
+  );
+  const other: DocumentTypeOption[] = rows
+    .filter((r) => (
+      !wiredTables.has(r.table_name) && !EXCLUDED_DOCUMENT_TABLES.has(r.table_name) && !r.table_name.startsWith('_')
+    ))
+    .map((r) => ({ documentType: r.table_name, table: r.table_name, label: humanize(r.table_name), wired: false }));
+
+  return [...wired, ...other];
+}
+
+/**
+ * Every document type a workflow may actually be created against: the wired business document
+ * types (their submission code enforces approvals — see DOCUMENT_TABLE), plus any other document
+ * type an admin has already registered by configuring it under Table Relations (a row in
+ * workflow_table_relation) — NOT every real table in the database. Table Relations' own picker
+ * (listDocumentTypeOptions() above) is where an admin browses the full table list and registers
+ * one; only after that does it show up here, so the workflow form's dropdown stays curated
+ * instead of listing tables no one has opted into.
+ */
+export async function listWorkflowDocumentTypes(): Promise<DocumentTypeOption[]> {
+  const wired: DocumentTypeOption[] = (Object.keys(DOCUMENT_TABLE) as WorkflowDocumentType[]).map((t) => ({
+    documentType: t, table: DOCUMENT_TABLE[t], label: DOCUMENT_TYPE_LABELS[t], wired: true,
+  }));
+  const wiredTypes = new Set(wired.map((w) => w.documentType));
+
+  const rows = await all<{ document_type: string; table_name: string }>(
+    'SELECT document_type, table_name FROM workflow_table_relation ORDER BY document_type',
+  );
+  const registered: DocumentTypeOption[] = rows
+    .filter((r) => !wiredTypes.has(r.document_type))
+    .map((r) => ({ documentType: r.document_type, table: r.table_name, label: humanize(r.table_name), wired: false }));
+
+  return [...wired, ...registered];
+}
+
+/** Throws unless `documentType` is present in `options` — re-checked before every write this
+ *  module makes off a client-supplied document type, since a client payload (or a schema change
+ *  since the option was offered) can't be trusted on its own. Callers pass whichever of
+ *  listDocumentTypeOptions() / listWorkflowDocumentTypes() matches what they actually offered. */
+async function assertDocumentType(documentType: string, options: DocumentTypeOption[]): Promise<void> {
+  if (!options.some((o) => o.documentType === documentType)) {
+    throw new AppError('Unknown document type', 'VALIDATION');
+  }
+}
+
 /* ------------------------------------------------------ admin: table relations */
 
 /** Every configured table relation, fields included — the admin listing for
@@ -100,10 +182,12 @@ export async function listWorkflowTableRelations(): Promise<WorkflowTableRelatio
 
 /** The real columns of a document type's table that are still available to add as a condition
  *  field — real columns that exist, aren't already enabled, and (for LOAN/JOURNAL) fall inside
- *  the runtime cap above, so nothing offered here could ever silently fail to match. */
-export async function listAddableTableColumns(documentType: WorkflowDocumentType): Promise<string[]> {
-  const { columns } = await tableSchema(DOCUMENT_TABLE[documentType]);
-  const cap = RUNTIME_FIELD_CAP[documentType];
+ *  the runtime cap above, so nothing offered here could ever silently fail to match. A document
+ *  type with no runtime cap (every wired type but LOAN/JOURNAL, and every non-wired type) offers
+ *  every real column. */
+export async function listAddableTableColumns(documentType: string): Promise<string[]> {
+  const { columns } = await tableSchema(tableForDocumentType(documentType));
+  const cap = RUNTIME_FIELD_CAP[documentType as WorkflowDocumentType];
   const already = new Set(await listConditionFieldKeys(documentType));
   return [...columns]
     .filter((c) => !already.has(c) && (!cap || cap.includes(c)))
@@ -112,7 +196,7 @@ export async function listAddableTableColumns(documentType: WorkflowDocumentType
 
 /** The field keys currently enabled for a document type's conditions — empty until an admin
  *  has configured (or re-configured) that document type's table relation. */
-export async function listConditionFieldKeys(documentType: WorkflowDocumentType): Promise<string[]> {
+export async function listConditionFieldKeys(documentType: string): Promise<string[]> {
   const relation = await one<{ id: number }>(
     'SELECT id FROM workflow_table_relation WHERE document_type = ?', documentType,
   );
@@ -124,17 +208,18 @@ export async function listConditionFieldKeys(documentType: WorkflowDocumentType)
 }
 
 /**
- * Replaces the enabled field set for a document type's table relation, creating the relation
- * row (table_name always DOCUMENT_TABLE[documentType] — never admin-supplied) the first time a
+ * Replaces the enabled field set for a document type's table relation, creating the relation row
+ * (table_name always tableForDocumentType(documentType) — never admin-supplied) the first time a
  * document type is configured. Every field name is re-validated against the real table and the
  * runtime cap server-side, since a client payload can't be trusted to have respected either.
  */
 export async function saveWorkflowTableRelationFields(
-  documentType: WorkflowDocumentType, fieldNames: string[], user: Actor,
+  documentType: string, fieldNames: string[], user: Actor,
 ): Promise<void> {
-  const table = DOCUMENT_TABLE[documentType];
+  await assertDocumentType(documentType, await listDocumentTypeOptions());
+  const table = tableForDocumentType(documentType);
   const { columns } = await tableSchema(table);
-  const cap = RUNTIME_FIELD_CAP[documentType];
+  const cap = RUNTIME_FIELD_CAP[documentType as WorkflowDocumentType];
   const valid = [...new Set(fieldNames)].filter((f) => columns.has(f) && (!cap || cap.includes(f)));
 
   await tx(async () => {
@@ -165,10 +250,10 @@ export async function saveWorkflowTableRelationFields(
  * which table they reference — so the admin form can offer a picklist of that table's actual
  * rows instead of a raw id, and dimension fields inherit the org's own captions.
  */
-export async function listConditionFieldDefs(documentType: WorkflowDocumentType): Promise<DocumentFieldDef[]> {
+export async function listConditionFieldDefs(documentType: string): Promise<DocumentFieldDef[]> {
   const keys = await listConditionFieldKeys(documentType);
   if (!keys.length) return [];
-  const { columns, referencedTableByColumn } = await tableSchema(DOCUMENT_TABLE[documentType]);
+  const { columns, referencedTableByColumn } = await tableSchema(tableForDocumentType(documentType));
   return keys.filter((key) => columns.has(key)).map((key) => fieldDef(key, referencedTableByColumn));
 }
 
@@ -645,7 +730,7 @@ export const pendingWorkflowTaskCount = async (): Promise<number> =>
 
 export interface WorkflowInput {
   name?: string;
-  document_type?: WorkflowDocumentType;
+  document_type?: string;
   enabled?: Flag | null;
 }
 
@@ -721,6 +806,7 @@ export async function createWorkflow(
   body: WorkflowInput, conditions: ConditionDraft[], steps: StepDraft[], user: Actor,
 ): Promise<{ id: number }> {
   if (!body.name || !body.document_type) throw new AppError('Name and document type are required', 'VALIDATION');
+  await assertDocumentType(body.document_type, await listWorkflowDocumentTypes());
   const enabled = body.enabled ?? 1;
   requireStepsIfEnabled(enabled, steps);
   return tx(async () => {
@@ -738,6 +824,7 @@ export async function createWorkflow(
 export async function updateWorkflow(
   id: number, body: WorkflowInput, conditions: ConditionDraft[], steps: StepDraft[], user: Actor,
 ): Promise<{ id: number }> {
+  if (body.document_type) await assertDocumentType(body.document_type, await listWorkflowDocumentTypes());
   return tx(async () => {
     const enabled = body.enabled ?? (await one<Workflow>('SELECT enabled FROM workflow WHERE id = ?', id))?.enabled ?? 0;
     requireStepsIfEnabled(enabled, steps);

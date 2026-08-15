@@ -19,10 +19,10 @@ import {
 } from '../application-actions';
 
 const TABS: TabDefinition[] = [
-  { key: 'open', label: 'Open' },
-  { key: 'pending', label: 'Pending Approval' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'processed', label: 'Processed' },
+  { key: 'open', label: 'Open', tone: 'info' },
+  { key: 'pending', label: 'Pending Approval', tone: 'warn' },
+  { key: 'approved', label: 'Approved', tone: 'ok' },
+  { key: 'processed', label: 'Processed', tone: 'accent' },
 ];
 
 export default async function MemberApplicationsPage({ params, searchParams }: {

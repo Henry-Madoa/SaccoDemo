@@ -379,7 +379,12 @@ await test('a loan can be captured', async () => {
     memberId: borrower.id, productId: normProduct.id, principal: 20000000, termMonths: 12,
     purpose: 'Unit test', disburseToAccountId: borrowerFosa.id, user: admin,
   });
-  assert.strictEqual(lifecycleLoan.status, 'PENDING');
+  assert.strictEqual(lifecycleLoan.status, 'OPEN');
+});
+
+await test('a captured loan can be submitted for approval', async () => {
+  lifecycleLoan = await loanSvc.submit({ loanId: lifecycleLoan.id, user: admin });
+  assert.strictEqual(lifecycleLoan.status, 'PENDING APPROVAL');
 });
 
 await test('an unapproved loan cannot be disbursed', async () => {

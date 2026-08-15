@@ -207,6 +207,9 @@ export interface ApplyInput extends AppraiseInput {
   user: Actor;
 }
 
+/** Captures a loan application as a draft (status OPEN) — no workflow is required to exist yet;
+ *  that's only checked once the applicant actually submits it (see submit() below), mirroring
+ *  memberApplications.ts's createMemberApplication()/submitMemberApplication() split. */
 export async function apply({
   memberId, productId, principal, termMonths, purpose,
   guarantors = [], disburseToAccountId = null, user,
@@ -219,19 +222,12 @@ export async function apply({
     throw new PostingError(`Term must be between 1 and ${product.max_term_months} months`, 'INVALID_TERM');
   }
 
-  // Applying always requires routing through an admin-defined, enabled workflow —
-  // there's no falling back to a flat permission check for a fresh application. Keys here
-  // must match RUNTIME_FIELD_CAP.LOAN (lib/workflow.ts) — that cap is what stops an admin
-  // from enabling a Table Relation field here that would never actually match.
-  const matched = await findMatchingWorkflow('LOAN', { principal, product_id: productId, term_months: termMonths });
-  if (!matched) throw new PostingError('There is no enabled workflow for this document', 'NO_WORKFLOW');
-
   const id = await tx(async () => {
     const loanNo = await nextSequence('LOAN');
     const info = await run(
       `INSERT INTO loan (loan_no, member_id, product_id, principal, interest_rate, interest_method,
          term_months, purpose, status, applied_date, disburse_to_account_id, created_by)
-       VALUES (?,?,?,?,?,?,?,?,'PENDING',?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,'OPEN',?,?,?)`,
       loanNo, memberId, productId, principal, product.interest_rate, product.interest_method,
       termMonths, purpose || null, today(), disburseToAccountId || null, user.username,
     );
@@ -245,15 +241,41 @@ export async function apply({
       );
     }
 
-    await startWorkflow(matched.workflow, matched.steps, {
-      documentType: 'LOAN', entityId: String(loanId), requestedBy: user.username, amount: principal,
-    });
-
     return loanId;
   });
 
   await audit(user, 'LOAN_APPLY', 'loan', id, { principal, termMonths, productId });
   return (await getLoan(id))!;
+}
+
+export interface SubmitInput {
+  loanId: number;
+  user: Actor;
+}
+
+/** Sends a captured (OPEN) loan for approval — always requires routing through an admin-defined,
+ *  enabled workflow, with no falling back to a flat permission check. Keys passed here must match
+ *  RUNTIME_FIELD_CAP.LOAN (lib/workflowConstants.ts) — that cap is what stops an admin from
+ *  enabling a Table Relation field here that would never actually match. */
+export async function submit({ loanId, user }: SubmitInput): Promise<LoanFull> {
+  const loan = await getLoan(loanId);
+  if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
+  if (loan.status !== 'OPEN') throw new PostingError(`Loan is ${loan.status} and cannot be submitted`, 'BAD_STATUS');
+
+  const matched = await findMatchingWorkflow('LOAN', {
+    principal: loan.principal, product_id: loan.product_id, term_months: loan.term_months,
+  });
+  if (!matched) throw new PostingError('There is no enabled workflow for this document', 'NO_WORKFLOW');
+
+  await tx(async () => {
+    await run("UPDATE loan SET status='PENDING APPROVAL' WHERE id=?", loanId);
+    await startWorkflow(matched.workflow, matched.steps, {
+      documentType: 'LOAN', entityId: String(loanId), requestedBy: user.username, amount: loan.principal,
+    });
+  });
+
+  await audit(user, 'LOAN_SUBMIT', 'loan', loanId, {});
+  return (await getLoan(loanId))!;
 }
 
 export interface ApproveInput {
@@ -269,15 +291,19 @@ export async function approve(
 ): Promise<LoanFull> {
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
-  if (loan.status !== 'PENDING') throw new PostingError(`Loan is ${loan.status} and cannot be appraised`, 'BAD_STATUS');
+  if (loan.status !== 'PENDING APPROVAL') {
+    throw new PostingError(`Loan is ${loan.status} and cannot be appraised`, 'BAD_STATUS');
+  }
   if (loan.created_by === user.username) {
     throw new PostingError('Segregation of duties: you cannot approve a loan you captured', 'SOD_VIOLATION');
   }
 
   await tx(async () => {
     if (!decision) {
+      // Rejection sends the loan back to OPEN rather than a terminal state — the applicant
+      // can amend and resubmit it, the same shape as a self-service cancel-approval pull-back.
       await run(
-        "UPDATE loan SET status='REJECTED', rejected_reason=?, approved_by=?, approved_date=? WHERE id=?",
+        "UPDATE loan SET status='OPEN', rejected_reason=?, approved_by=?, approved_date=? WHERE id=?",
         reason || 'Not stated', user.username, today(), loanId,
       );
     } else {

@@ -79,16 +79,16 @@ export const toCents = (v: string | number | null | undefined): Cents =>
 /** Integer cents -> the decimal string a number input expects. */
 export const toUnits = (cents: Cents | null | undefined): string => (Number(cents || 0) / 100).toFixed(2);
 
-export type Tone = '' | 'ok' | 'warn' | 'bad' | 'info';
+export type Tone = '' | 'ok' | 'warn' | 'bad' | 'info' | 'accent';
 
 const STATUS_TONE: Record<string, Tone> = {
   ACTIVE: 'ok', POSTED: 'ok', APPROVED: 'ok', DISBURSED: 'ok', PAID: 'ok', PERFORMING: 'ok', OPEN: 'ok',
   VERIFIED: 'ok', ALLOWED: 'ok', YES: 'ok', ELIGIBLE: 'ok',
-  CLOSED: '', HEADER: '', RESTRICTED: '',
+  CLOSED: '', HEADER: '', RESTRICTED: '', ARCHIVED: '',
   PENDING: 'warn', DUE: 'warn', PARTIAL: 'warn', WATCH: 'warn', DORMANT: 'warn', APPLICATION: 'warn',
-  SUBSTANDARD: 'warn', REFERRED: 'warn',
+  SUBSTANDARD: 'warn', REFERRED: 'warn', 'PENDING APPROVAL': 'warn',
   REJECTED: 'bad', REVERSED: 'bad', SUSPENDED: 'bad', FROZEN: 'bad', DOUBTFUL: 'bad', LOSS: 'bad',
-  WRITTEN_OFF: 'bad', EXITED: 'bad', DISABLED: 'bad',
+  WRITTEN_OFF: 'bad', 'WRITTEN OFF': 'bad', EXITED: 'bad', DISABLED: 'bad',
   // "Document Status" values (e.g. member_application.status) are Title Case, not SCREAMING_CASE.
   Open: 'ok', Approved: 'ok', Committed: 'ok', Fulfilled: 'ok', Cleared: 'ok', Received: 'ok',
   'Pending Approval': 'warn', 'Pending Prepayment': 'warn', Running: 'warn',

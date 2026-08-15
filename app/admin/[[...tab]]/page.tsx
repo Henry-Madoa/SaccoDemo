@@ -19,10 +19,8 @@ import {
 } from '@/lib/pool';
 import {
   listWorkflows, listWorkflowUserGroups, listWorkflowUserGroupMembers, listApprovalUserSetup,
-  listConditionFieldDefs, listWorkflowTableRelations, listAddableTableColumns,
-  DOCUMENT_TYPE_LABELS, DOCUMENT_TABLE,
+  listWorkflowTableRelations, listDocumentTypeOptions, listWorkflowDocumentTypes, documentTypeLabel,
 } from '@/lib/workflow';
-import type { DocumentFieldDef } from '@/lib/workflow';
 import { getDimensionCaptions } from '@/lib/org';
 import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { formatDateTime } from '@/lib/format';
@@ -51,8 +49,6 @@ import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
 import { ChangeLogSetupTable } from '../change-log-setup-table';
 import { ConfigPackageFormButton } from '../config-package-form';
 import { ConfigPackageIo, DeleteConfigPackageButton } from '../config-package-io';
-import type { WorkflowDocumentType } from '@/lib/types';
-
 interface AdminTab extends TabDefinition {
   /** A tab shows up once the user can execute any one of these pages — Setup Pool
    *  merges the pages of everything nested under it. */
@@ -519,29 +515,28 @@ function DimensionValuesCard({ slot, caption, values }: {
   );
 }
 
-const WORKFLOW_DOCUMENT_TYPES = Object.keys(DOCUMENT_TYPE_LABELS) as WorkflowDocumentType[];
-
 async function WorkflowsTab() {
   const [
     workflows, users, groups, memberCategory, county, globalDimension1, globalDimension2, loanProduct,
-    captions, documentFieldEntries,
+    captions, documentTypes,
   ] = await Promise.all([
     listWorkflows(), listUsers(), listWorkflowUserGroups(),
     listActiveMemberCategories(), listActiveCounties(), listActiveDimensionValues(1), listActiveDimensionValues(2),
-    listActiveLoanProducts(), getDimensionCaptions(),
-    Promise.all(WORKFLOW_DOCUMENT_TYPES.map(async (t) => [t, await listConditionFieldDefs(t)] as const)),
+    listActiveLoanProducts(), getDimensionCaptions(), listWorkflowDocumentTypes(),
   ]);
-  const documentFields = Object.fromEntries(documentFieldEntries) as Record<WorkflowDocumentType, DocumentFieldDef[]>;
   const relationProps = {
-    memberCategory, county, globalDimension1, globalDimension2, loanProduct, documentFields,
+    memberCategory, county, globalDimension1, globalDimension2, loanProduct,
     dimensionCaption1: captions.caption1, dimensionCaption2: captions.caption2,
   };
+  const wiredByType = new Map(documentTypes.map((d) => [d.documentType, d.wired]));
 
   return (
     <>
       <Toolbar>
         <Spacer />
-        <WorkflowFormButton users={users} groups={groups} {...relationProps}>Add workflow</WorkflowFormButton>
+        <WorkflowFormButton documentTypes={documentTypes} users={users} groups={groups} {...relationProps}>
+          Add workflow
+        </WorkflowFormButton>
       </Toolbar>
       <Card>
         <CardHead title="Workflows" sub="Route approvals by document field values instead of a flat permission" />
@@ -554,11 +549,17 @@ async function WorkflowsTab() {
               {workflows.map((w) => (
                 <tr key={w.id}>
                   <td><b>{w.name}</b></td>
-                  <td>{DOCUMENT_TYPE_LABELS[w.document_type]}</td>
+                  <td>
+                    {documentTypeLabel(w.document_type)}
+                    {wiredByType.get(w.document_type) === false ? <> <Pill tone="warn">NOT YET ENFORCED</Pill></> : null}
+                  </td>
                   <td className="num">{w.steps.length}</td>
                   <td>{w.enabled ? <Pill tone="ok">ENABLED</Pill> : <Pill tone="bad">DISABLED</Pill>}</td>
                   <td className="num">
-                    <WorkflowFormButton workflow={w} users={users} groups={groups} {...relationProps} className="btn sm ghost">
+                    <WorkflowFormButton
+                      workflow={w} documentTypes={documentTypes} users={users} groups={groups}
+                      {...relationProps} className="btn sm ghost"
+                    >
                       Edit
                     </WorkflowFormButton>
                   </td>
@@ -613,13 +614,10 @@ async function WorkflowGroupsTab() {
 }
 
 async function TableRelationsTab() {
-  const [relations, addableColumns, dimensionCaptions] = await Promise.all([
-    listWorkflowTableRelations(),
-    Promise.all(WORKFLOW_DOCUMENT_TYPES.map(async (t) => [t, await listAddableTableColumns(t)] as const)),
-    getDimensionCaptions(),
+  const [documentTypes, relations, dimensionCaptions] = await Promise.all([
+    listDocumentTypeOptions(), listWorkflowTableRelations(), getDimensionCaptions(),
   ]);
   const relationByType = new Map(relations.map((r) => [r.document_type, r]));
-  const addableByType = Object.fromEntries(addableColumns) as Record<WorkflowDocumentType, string[]>;
 
   return (
     <Card>
@@ -629,20 +627,21 @@ async function TableRelationsTab() {
       />
       <TableWrap>
         <thead>
-          <tr><th>Document type</th><th>Table</th><th className="num">Fields enabled</th><th className="num" /></tr>
+          <tr><th>Document type</th><th>Table</th><th>Enforced</th><th className="num">Fields enabled</th><th className="num" /></tr>
         </thead>
         <tbody>
-          {WORKFLOW_DOCUMENT_TYPES.map((t) => {
-            const relation = relationByType.get(t) ?? null;
+          {documentTypes.map((d) => {
+            const relation = relationByType.get(d.documentType) ?? null;
             return (
-              <tr key={t}>
-                <td><b>{DOCUMENT_TYPE_LABELS[t]}</b></td>
-                <td className="mono">{DOCUMENT_TABLE[t]}</td>
+              <tr key={d.documentType}>
+                <td><b>{d.label}</b></td>
+                <td className="mono">{d.table}</td>
+                <td>{d.wired ? <Pill tone="ok">YES</Pill> : <Pill tone="warn">NOT YET</Pill>}</td>
                 <td className="num">{relation?.fields.length ?? 0}</td>
                 <td className="num">
                   <WorkflowTableRelationFormButton
-                    documentType={t} documentTypeLabel={DOCUMENT_TYPE_LABELS[t]} tableName={DOCUMENT_TABLE[t]}
-                    relation={relation} availableColumns={addableByType[t] ?? []} className="btn sm ghost"
+                    documentType={d.documentType} documentTypeLabel={d.label} tableName={d.table}
+                    relation={relation} className="btn sm ghost"
                     dimensionCaption1={dimensionCaptions.caption1} dimensionCaption2={dimensionCaptions.caption2}
                   >
                     Configure fields

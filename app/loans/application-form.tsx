@@ -59,9 +59,9 @@ function ApplicationForm({ members, products, presetMemberId, onClose }: Applica
       title="New loan application"
       onClose={onClose}
       onSubmit={applyForLoan}
-      submitLabel="Submit application"
+      submitLabel="Save application"
       successTitle="Application captured"
-      successDetail={(l) => `${l.loan_no} is now awaiting approval`}
+      successDetail={(l) => `${l.loan_no} saved — send it for approval when you're ready`}
       extraFooter={
         <button type="button" className="btn ghost" disabled={checking}
           onClick={(e) => runAppraisal(e.currentTarget.closest('.modal')?.querySelector('form') ?? null)}>

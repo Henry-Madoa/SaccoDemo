@@ -32,7 +32,7 @@ export async function getDashboard(): Promise<DashboardData> {
     ),
     one<DashboardData['loans']>(
       `SELECT COUNT(*) total,
-              SUM(CASE WHEN status='PENDING' THEN 1 ELSE 0 END) pending,
+              SUM(CASE WHEN status='PENDING APPROVAL' THEN 1 ELSE 0 END) pending,
               SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) approved,
               SUM(CASE WHEN status='DISBURSED' THEN 1 ELSE 0 END) active,
               COALESCE(SUM(CASE WHEN status='DISBURSED' THEN principal_balance ELSE 0 END),0) portfolio,

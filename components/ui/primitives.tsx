@@ -65,6 +65,10 @@ export function TableWrap({ children }: { children: ReactNode }) {
 export interface TabDefinition {
   key: string;
   label: string;
+  /** Gives this tab its own accent colour, sourced from the org's active Theme & Appearance
+   *  tokens (Admin Centre → Appearance & Theme) rather than a hardcoded colour — e.g. a
+   *  document's Open/Pending/Approved/Processed lifecycle stages. Omit for a plain tab. */
+  tone?: Tone;
 }
 
 export function Tabs({ tabs, active, hrefFor }: {
@@ -73,7 +77,10 @@ export function Tabs({ tabs, active, hrefFor }: {
   return (
     <div className="tabs">
       {tabs.map((t) => (
-        <Link key={t.key} href={hrefFor(t.key)} className={t.key === active ? 'active' : ''}>
+        <Link
+          key={t.key} href={hrefFor(t.key)} data-tone={t.tone || undefined}
+          className={t.key === active ? 'active' : ''}
+        >
           {t.label}
         </Link>
       ))}

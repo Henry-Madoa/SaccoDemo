@@ -37,6 +37,17 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   JOURNAL: 'Journal',
 };
 
+const humanizeIdentifier = (identifier: string): string => identifier
+  .replace(/_id$/, '')
+  .replace(/_/g, ' ')
+  .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** A document type's display label: the curated business name for a wired type, or the
+ *  humanized table name for any other document type returned by listDocumentTypeOptions(). */
+export function documentTypeLabel(documentType: string): string {
+  return DOCUMENT_TYPE_LABELS[documentType as WorkflowDocumentType] ?? humanizeIdentifier(documentType);
+}
+
 export const CONDITION_OPERATORS: { value: WorkflowConditionOperator; label: string }[] = [
   { value: '=', label: 'equals' },
   { value: '!=', label: 'does not equal' },
@@ -56,7 +67,7 @@ export const APPROVER_TYPES: { value: WorkflowApproverType; label: string }[] = 
 export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => string> = {
   MEMBER_APPLICATION: (id) => `/member-applications/view/${id}`,
   MEMBER_EDIT: (id) => `/member-edits/view/${id}`,
-  LOAN: (id) => `/loans/${id}`,
+  LOAN: (id) => `/loans/view/${id}`,
   JOURNAL: () => '/approvals',
 };
 

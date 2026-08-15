@@ -12,7 +12,7 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
-import { DecideButtons, DisburseButton, RepayButton } from './loan-actions';
+import { SubmitButton, DecideButtons, DisburseButton, RepayButton } from './loan-actions';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function LoanDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,15 +22,21 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
   if (!detail) notFound();
 
   const { loan: l, schedule, guarantors, transactions } = detail;
-  const [canApprove, canDisburse, canRepay, canAttach, attachments] = await Promise.all([
+  const [canApprove, canDisburse, canRepay, canCreate, attachments] = await Promise.all([
     currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
     currentCanAction('LOAN_CREATE'), listAttachments('loan', l.id),
   ]);
 
+  // Send for approval is only offered to whoever captured this loan — unless they can also
+  // approve loans, in which case only their own drafts (an approver editing someone else's
+  // captured-but-unsubmitted loan is out of scope) — same rule Member Applications' own
+  // SubmitButton eligibility uses.
+  const canSubmit = canCreate && (!canApprove || l.created_by === user.username);
+
   // Approve/Reject are only ever shown to whoever can actually decide this specific
   // loan: the routed task's current approver (or their substitute/delegate); a loan
   // with no matching workflow falls back to the coarse LOAN:APPROVE permission.
-  const routedTask = l.status === 'PENDING' ? await findPendingRoutedTask('LOAN', String(l.id)) : null;
+  const routedTask = l.status === 'PENDING APPROVAL' ? await findPendingRoutedTask('LOAN', String(l.id)) : null;
   const canDecideThis = routedTask ? await isEligibleApprover(routedTask, user.id) : canApprove;
 
   // Only the repayment modal needs the member's accounts, so fetch them lazily.
@@ -61,7 +67,8 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
         <Link href="/loans" className="btn ghost sm">← All loans</Link>
         <Link href={`/members/${l.member_id}`} className="btn ghost sm">Member 360</Link>
         <Spacer />
-        {l.status === 'PENDING' && canDecideThis ? (
+        {l.status === 'OPEN' && canSubmit ? <SubmitButton loanId={l.id} /> : null}
+        {l.status === 'PENDING APPROVAL' && canDecideThis ? (
           <DecideButtons loan={l} routedTaskId={routedTask?.id ?? null} />
         ) : null}
         {l.status === 'APPROVED' && canDisburse ? <DisburseButton loan={l} /> : null}
@@ -172,7 +179,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
             entity="loan"
             entityId={l.id}
             attachments={attachments}
-            canManage={canAttach}
+            canManage={canCreate}
             mediaEnabled={isConfigured()}
           />
 

@@ -244,7 +244,7 @@ export interface ChangeLogEntry {
 
 /* ----------------------------------------------------------------- members */
 
-export type MemberStatus = 'NOT PAID UP' | 'ACTIVE' | 'INACTIVE'|'DORMANT' | 'WITHDRAWN'|   'DECEASED'| 'CLOSED' ;
+export type MemberStatus = 'NOT PAID UP'|'ACTIVE'|'INACTIVE'|'DORMANT'|'WITHDRAWN'|'DECEASED' ;
 
 export interface Member {
   id: number;
@@ -841,7 +841,7 @@ export interface Statement {
 
 /* ------------------------------------------------------------------- loans */
 
-export type LoanStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'DISBURSED' | 'CLOSED' | 'WRITTEN_OFF';
+export type LoanStatus = 'OPEN'|'PENDING APPROVAL' | 'APPROVED' | 'DISBURSED' | 'CLOSED' |'ARCHIVED' | 'WRITTEN OFF';
 export type InterestMethod = 'REDUCING' | 'FLAT';
 export type Classification = 'PERFORMING' | 'WATCH' | 'SUBSTANDARD' | 'DOUBTFUL' | 'LOSS';
 
@@ -1054,10 +1054,25 @@ export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLE
 export interface Workflow {
   id: number;
   name: string;
-  document_type: WorkflowDocumentType;
+  /** One of the wired WorkflowDocumentType literals, or (for a workflow defined against any
+   *  other real table) that table's own name — see DocumentTypeOption / listDocumentTypeOptions(). */
+  document_type: string;
   enabled: Flag;
   created_at: IsoDateTime | null;
   created_by: string | null;
+}
+
+/** One selectable document type in a workflow's dropdown — the live, denylist-filtered set of
+ *  every real table, not just the fixed handful with a wired submission flow. */
+export interface DocumentTypeOption {
+  documentType: string;
+  table: string;
+  label: string;
+  /** Whether a submission flow actually calls findMatchingWorkflow() for this document type.
+   *  False for any table beyond the wired set: an admin can still configure conditions and
+   *  approval steps for it, but it stays inert — no code path creates a task from it — until
+   *  real integration code is added, the same way LOAN/JOURNAL/etc. were. */
+  wired: boolean;
 }
 
 export interface WorkflowCondition {
@@ -1086,12 +1101,14 @@ export interface WorkflowWithDetail extends Workflow {
 }
 
 /** Registers the one DB table backing a document type's workflow conditions — admin-managed
- *  under Admin Centre → Workflow Management → Table Relations. `table_name` always mirrors
- *  DOCUMENT_TABLE[document_type] (lib/workflowConstants.ts); it is never freely editable, since
- *  that's the only table the document's own submission code actually fetches condition values from. */
+ *  under Admin Centre → Workflow Management → Table Relations. `table_name` is never freely
+ *  editable: for a wired document type it always mirrors DOCUMENT_TABLE[document_type]
+ *  (lib/workflowConstants.ts) — the only table that type's submission code actually fetches
+ *  condition values from — and for any other document type it's forced to match the document
+ *  type itself, since that IS the table name there (see DocumentTypeOption). */
 export interface WorkflowTableRelation {
   id: number;
-  document_type: WorkflowDocumentType;
+  document_type: string;
   table_name: string;
   created_at: IsoDateTime | null;
   created_by: string | null;

@@ -5,7 +5,7 @@ import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as workflow from '@/lib/workflow';
 import { decideWorkflowTask, delegateWorkflowTask } from '@/lib/workflow';
-import type { ActionResult, FormValues, Workflow, WorkflowUserGroup, WorkflowDocumentType } from '@/lib/types';
+import type { ActionResult, DocumentTypeOption, FormValues, Workflow, WorkflowUserGroup } from '@/lib/types';
 
 export async function saveWorkflow(
   id: number | null,
@@ -17,7 +17,7 @@ export async function saveWorkflow(
     const user = await requireAction('ADMIN_WORKFLOWS_DEFINITIONS_MANAGE');
     const body: workflow.WorkflowInput = {
       name: String(values.name || '').trim(),
-      document_type: values.document_type as WorkflowDocumentType,
+      document_type: String(values.document_type || ''),
       enabled: values.enabled === undefined ? null : (Number(values.enabled) ? 1 : 0),
     };
     const result = id
@@ -25,6 +25,37 @@ export async function saveWorkflow(
       : await workflow.createWorkflow(body, conditions, steps, user);
     revalidatePath('/admin/workflows');
     return result;
+  });
+}
+
+/** The live document-type picker for the workflow creation form — every wired business document
+ *  type plus every other document type an admin has registered under Table Relations (see
+ *  listWorkflowDocumentTypes() in lib/workflow.ts), not every real table in the database. */
+export async function listWorkflowDocumentTypes(): Promise<ActionResult<DocumentTypeOption[]>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_WORKFLOWS_DEFINITIONS_MANAGE');
+    return workflow.listWorkflowDocumentTypes();
+  });
+}
+
+/** The condition fields currently enabled for a document type — fetched lazily as the workflow
+ *  form's document-type selection changes, rather than precomputed for every document type up
+ *  front, since that set can now be arbitrarily large (any real table, not just the 4 wired
+ *  types). */
+export async function getWorkflowConditionFields(documentType: string): Promise<ActionResult<workflow.DocumentFieldDef[]>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_WORKFLOWS_DEFINITIONS_MANAGE');
+    return workflow.listConditionFieldDefs(documentType);
+  });
+}
+
+/** The real, not-yet-enabled columns of a document type's table — fetched lazily by the Table
+ *  Relations "Configure fields" modal when it opens, for the same reason as
+ *  getWorkflowConditionFields() above. */
+export async function getWorkflowAddableColumns(documentType: string): Promise<ActionResult<string[]>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_WORKFLOWS_TABLES_MANAGE');
+    return workflow.listAddableTableColumns(documentType);
   });
 }
 
@@ -50,7 +81,7 @@ export async function saveWorkflowUserGroup(
 /** Replaces the enabled condition-field set for a document type's table relation — creating the
  *  relation (against its fixed, non-editable table) the first time that document type is configured. */
 export async function saveWorkflowTableRelationFields(
-  documentType: WorkflowDocumentType, fieldNames: string[],
+  documentType: string, fieldNames: string[],
 ): Promise<ActionResult<{ saved: true }>> {
   return actionResult(async () => {
     const user = await requireAction('ADMIN_WORKFLOWS_TABLES_MANAGE');
