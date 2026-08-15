@@ -88,6 +88,7 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_EDITS_APPROVE', 'ACCOUNT_OPENING_READ', 'ACCOUNT_OPENING_CREATE', 'ACCOUNT_OPENING_APPROVE',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE', 'ACCOUNT_DEACTIVATION_APPROVE',
       'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE', 'ACCOUNT_ACTIVATION_APPROVE',
+      'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW',
       'SAVINGS_REVERSE', 'LOAN_READ', 'LOAN_CREATE', 'LOAN_APPROVE', 'LOAN_DISBURSE', 'LOAN_REPAY', 'GL_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW', 'ADMIN_CHANGE_LOG_MANAGE',
@@ -110,6 +111,7 @@ export const ROLES: RoleSeed[] = [
       'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_OPENING_CREATE', 'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE',
       'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE',
+      'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW', 'LOAN_READ', 'LOAN_REPAY',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
@@ -119,8 +121,9 @@ export const ROLES: RoleSeed[] = [
     description: 'General ledger, journals and financial reporting.',
     actions: [
       'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
-      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'SAVINGS_READ',
-      'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_PERIOD_CLOSE', 'GL_ACCOUNT_MANAGE',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
+      'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE', 'GL_ACCOUNT_MANAGE',
+      'ADMIN_CHARGES_MASTER_MANAGE', 'ADMIN_CHARGES_TRANSACTION_MANAGE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -129,7 +132,7 @@ export const ROLES: RoleSeed[] = [
     description: 'Read-only across the system, including the audit trail.',
     actions: [
       'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
-      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'SAVINGS_READ',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
       'LOAN_READ', 'GL_READ', 'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
     ],
   },
@@ -173,9 +176,9 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     'emerald-standard', JSON.stringify(PRESETS['emerald-standard'].tokens), now, 'system',
   );
 
-  const INS_ACC = 'INSERT INTO gl_account (code, name, type, parent_code, is_postable) VALUES (?,?,?,?,?)';
+  const INS_ACC = 'INSERT INTO gl_account (code, name, type, parent_code, is_postable, account_type) VALUES (?,?,?,?,?,?)';
   for (const [code, name, type, parent, postable] of CHART) {
-    await run(INS_ACC, code, name, type, parent, postable);
+    await run(INS_ACC, code, name, type, parent, postable, postable ? 'POSTING' : 'HEADING');
   }
   const accId = async (code: string): Promise<number> =>
     (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;

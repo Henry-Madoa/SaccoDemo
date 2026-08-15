@@ -1,14 +1,14 @@
 import { one, all, run, nextSequence, audit } from './db.ts';
 import { AppError } from './errors.ts';
-import { trialBalance, postJournal, reverseJournal, accountBalance } from './accounting.ts';
-import { GL_ACCOUNT_TYPES, PRODUCT_STATUSES } from './constants.ts';
+import { trialBalance, postJournal, reverseJournal } from './accounting.ts';
+import { GL_ACCOUNT_TYPES, GL_ACCOUNT_STRUCTURE_TYPES, PRODUCT_STATUSES } from './constants.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
-  AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal, JournalLineInput,
-  JournalLineWithAccount, JournalListRow, LedgerLine, PostedJournal, TrialBalanceRow,
+  AccountingPeriod, Actor, Cents, GlAccount, GlAccountStructureType, GlAccountType, IsoDate, Journal,
+  JournalLineInput, JournalLineWithAccount, JournalListRow, LedgerLine, PostedJournal, TrialBalanceRow,
 } from './types.ts';
 
 export interface TrialBalanceReport {
@@ -17,9 +17,35 @@ export interface TrialBalanceReport {
   balanced: boolean;
 }
 
+/** Global Dimension 1/2 filters shared by the Chart of Accounts and Trial Balance screens —
+ *  both narrow through journal_line's own per-line dimensions (as opposed to Journals'
+ *  header-level j.global_dimension_1/2_id above). Options ship empty; the page fills them
+ *  in from listActiveDimensionValues(). Reused as-is by getAccountLedger()'s drill-down so
+ *  a filtered balance and the ledger entries behind it always agree. */
+export const GL_DIMENSION_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'global_dimension_1_id', label: 'Global Dimension 1', type: 'select', column: 'jl.global_dimension_1_id' },
+  { key: 'global_dimension_2_id', label: 'Global Dimension 2', type: 'select', column: 'jl.global_dimension_2_id' },
+];
+
+/** Trial balance's dynamic-filter registry — code/name/type are restricted to the account
+ *  columns queried before aggregation (a.code/a.name/a.type); the computed balances can't be
+ *  filtered in SQL without a HAVING clause the generic builder doesn't support. */
+export const TRIAL_BALANCE_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'code', label: 'Code', type: 'text', column: 'a.code' },
+  { key: 'name', label: 'Account Name', type: 'text', column: 'a.name' },
+  { key: 'type', label: 'Type', type: 'select', column: 'a.type', options: GL_ACCOUNT_TYPES.map((t) => ({ value: t, label: t })) },
+  ...GL_DIMENSION_FILTER_FIELDS,
+];
+
+export interface GetTrialBalanceOptions {
+  asOf?: IsoDate | null;
+  filters?: FilterCondition[];
+}
+
 /** Trial balance plus the totals and the in-balance assertion the screen shows. */
-export async function getTrialBalance(asOf?: IsoDate | null): Promise<TrialBalanceReport> {
-  const rows = await trialBalance(asOf);
+export async function getTrialBalance({ asOf, filters = [] }: GetTrialBalanceOptions = {}): Promise<TrialBalanceReport> {
+  const { clause, params } = buildFilterClause(TRIAL_BALANCE_FILTER_FIELDS, filters, 'tb');
+  const rows = await trialBalance(asOf, clause, params);
   const totals = rows.reduce(
     (a, r) => ({ debit: a.debit + r.debit_balance, credit: a.credit + r.credit_balance }),
     { debit: 0, credit: 0 },
@@ -183,19 +209,35 @@ export interface AccountLedger {
   balance: Cents;
 }
 
-export async function getAccountLedger(code: string): Promise<AccountLedger | null> {
+export interface AccountLedgerOptions {
+  asOf?: IsoDate | null;
+  filters?: FilterCondition[];
+}
+
+/** Drives the Chart of Accounts / Trial Balance balance drill-down. Applies the same As Of
+ *  date and Global Dimension filters as the balance being drilled into (via the shared
+ *  GL_DIMENSION_FILTER_FIELDS registry), so the ledger entries shown always reconcile to the
+ *  figure the user clicked rather than the account's unfiltered lifetime balance. */
+export async function getAccountLedger(code: string, { asOf, filters = [] }: AccountLedgerOptions = {}): Promise<AccountLedger | null> {
   const account = await one<GlAccount>('SELECT * FROM gl_account WHERE code = ?', code);
   if (!account) return null;
-  const [lines, balance] = await Promise.all([
+
+  const { clause: gdClause, params: gdParams } = buildFilterClause(GL_DIMENSION_FILTER_FIELDS, filters, 'lgd');
+  const params = { id: account.id, asOf: asOf || null, ...gdParams };
+
+  const [lines, tb] = await Promise.all([
     all<LedgerLine>(
       `SELECT jl.*, j.journal_no, j.value_date, j.description, j.source_module
        FROM journal_line jl JOIN journal j ON j.id = jl.journal_id
-       WHERE jl.gl_account_id = ? ORDER BY j.value_date, j.id LIMIT 500`,
-      account.id,
+       WHERE jl.gl_account_id = @id
+         AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
+         ${gdClause}
+       ORDER BY j.value_date, j.id LIMIT 500`,
+      params,
     ),
-    accountBalance(account.code),
+    trialBalance(asOf, `AND a.code = @lgcode ${gdClause}`, { lgcode: code, ...gdParams }),
   ]);
-  return { account, lines, balance };
+  return { account, lines, balance: tb[0]?.net ?? 0 };
 }
 
 /** Chart of accounts list's dynamic-filter registry — every meaningful column (id is excluded
@@ -204,6 +246,7 @@ export const GL_ACCOUNT_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'code', label: 'Code', type: 'text' },
   { key: 'name', label: 'Account Name', type: 'text' },
   { key: 'type', label: 'Type', type: 'select', options: GL_ACCOUNT_TYPES.map((t) => ({ value: t, label: t })) },
+  { key: 'account_type', label: 'Account Type', type: 'select', options: GL_ACCOUNT_STRUCTURE_TYPES },
   { key: 'parent_code', label: 'Parent Code', type: 'text' },
   { key: 'is_postable', label: 'Postable', type: 'select', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'Header' }] },
   { key: 'balance', label: 'Balance', type: 'number' },
@@ -215,11 +258,34 @@ const GL_ACCOUNT_SORT_COLUMNS: Record<string, string> = {
   code: 'code',
   name: 'name',
   type: 'type',
+  account_type: 'account_type',
   parent_code: 'parent_code',
   is_postable: 'is_postable',
   balance: 'balance',
   status: 'status',
 };
+
+/** Parses a Business Central-style Totaling filter — `|`-separated terms, each a single
+ *  account code or a `FROM..TO` inclusive range — and reports whether `code` falls in it. */
+export function matchesTotaling(code: string, totaling: string | null | undefined): boolean {
+  if (!totaling) return false;
+  return totaling.split('|').map((t) => t.trim()).filter(Boolean).some((term) => {
+    const [from, to] = term.split('..');
+    return code >= from.trim() && code <= (to ?? from).trim();
+  });
+}
+
+/** Sums the (already filter-aware) balances of every Posting account a Total/End-Total row's
+ *  Totaling range names. Always resolved against Posting accounts specifically — a numeric
+ *  range spanning a nested Heading or Total row must not double-count that row's own
+ *  (separately rolled-up) figure. */
+export function totalingBalance(
+  accounts: GlAccount[], balanceByCode: Map<string, Cents>, totaling: string | null | undefined,
+): Cents {
+  return accounts
+    .filter((a) => a.account_type === 'POSTING' && matchesTotaling(a.code, totaling))
+    .reduce((sum, a) => sum + (balanceByCode.get(a.code) ?? 0), 0);
+}
 
 export interface ListGlAccountsOptions {
   search?: string;
@@ -244,26 +310,45 @@ export const listGlAccounts = (
 export const listPostableAccounts = (): Promise<GlAccount[]> =>
   all<GlAccount>("SELECT * FROM gl_account WHERE is_postable = 1 AND status = 'ACTIVE' ORDER BY code");
 
+/** account_type drives is_postable rather than the other way round: only a Posting
+ *  account is ever postable, so there is exactly one place this is decided. Totaling
+ *  only means anything for Total/End-Total, so it's dropped for every other type
+ *  rather than left stale for a later type change to pick back up. */
+function normaliseStructure(
+  accountType: GlAccountStructureType, totaling: string | null | undefined,
+): { isPostable: 0 | 1; totaling: string | null } {
+  if (!GL_ACCOUNT_STRUCTURE_TYPES.some((t) => t.value === accountType)) {
+    throw new AppError('Invalid account type', 'VALIDATION');
+  }
+  const needsTotaling = accountType === 'TOTAL' || accountType === 'END_TOTAL';
+  if (needsTotaling && !totaling?.trim()) {
+    throw new AppError('A Totaling range is required for Total and End-Total accounts', 'VALIDATION');
+  }
+  return { isPostable: accountType === 'POSTING' ? 1 : 0, totaling: needsTotaling ? totaling!.trim() : null };
+}
+
 export interface CreateGlAccountInput {
   code: string;
   name: string;
   type: GlAccountType;
   parent_code?: string | null;
-  is_postable?: number;
+  account_type?: GlAccountStructureType;
+  totaling?: string | null;
 }
 
 export async function createGlAccount(
-  { code, name, type, parent_code = null, is_postable = 1 }: CreateGlAccountInput,
+  { code, name, type, parent_code = null, account_type = 'POSTING', totaling = null }: CreateGlAccountInput,
   user: Actor,
 ): Promise<{ id: number }> {
   if (!code || !name || !type) throw new AppError('Code, name and type are required', 'VALIDATION');
   if (!GL_ACCOUNT_TYPES.includes(type)) throw new AppError('Invalid account type', 'VALIDATION');
+  const { isPostable, totaling: cleanTotaling } = normaliseStructure(account_type, totaling);
   if (await one('SELECT 1 FROM gl_account WHERE code = ?', code)) {
     throw new AppError('Account code already exists', 'DUPLICATE');
   }
   const info = await run(
-    'INSERT INTO gl_account (code, name, type, parent_code, is_postable) VALUES (?,?,?,?,?)',
-    code, name, type, parent_code || null, is_postable ? 1 : 0,
+    'INSERT INTO gl_account (code, name, type, parent_code, is_postable, account_type, totaling) VALUES (?,?,?,?,?,?,?)',
+    code, name, type, parent_code || null, isPostable, account_type, cleanTotaling,
   );
   await audit(user, 'GL_ACCOUNT_CREATE', 'gl_account', info.lastInsertRowid, { code, name, type });
   await logTableChange('gl_account', code, 'Insertion', [
@@ -271,7 +356,8 @@ export async function createGlAccount(
     { field: 'name', oldValue: null, newValue: name },
     { field: 'type', oldValue: null, newValue: type },
     { field: 'parent_code', oldValue: null, newValue: parent_code || null },
-    { field: 'is_postable', oldValue: null, newValue: is_postable ? 1 : 0 },
+    { field: 'account_type', oldValue: null, newValue: account_type },
+    { field: 'totaling', oldValue: null, newValue: cleanTotaling },
   ], user);
   return { id: Number(info.lastInsertRowid) };
 }
@@ -280,27 +366,39 @@ export interface UpdateGlAccountInput {
   name: string;
   type: GlAccountType;
   parent_code?: string | null;
-  is_postable?: number;
+  account_type?: GlAccountStructureType;
+  totaling?: string | null;
   status?: 'ACTIVE' | 'INACTIVE';
 }
 
 /** Code is the natural key referenced throughout the ledger and by other admin
  *  screens (products' GL mappings) — it's set at creation and never renamed here. */
 export async function updateGlAccount(
-  code: string, { name, type, parent_code = null, is_postable = 1, status = 'ACTIVE' }: UpdateGlAccountInput,
+  code: string,
+  { name, type, parent_code = null, account_type = 'POSTING', totaling = null, status = 'ACTIVE' }: UpdateGlAccountInput,
   user: Actor,
 ): Promise<GlAccount> {
   const before = await one<GlAccount>('SELECT * FROM gl_account WHERE code = ?', code);
   if (!before) throw new AppError('Account not found', 'NOT_FOUND');
   if (!name || !type) throw new AppError('Name and type are required', 'VALIDATION');
   if (!GL_ACCOUNT_TYPES.includes(type)) throw new AppError('Invalid account type', 'VALIDATION');
+  const { isPostable, totaling: cleanTotaling } = normaliseStructure(account_type, totaling);
+
+  if (before.account_type === 'POSTING' && account_type !== 'POSTING') {
+    if (await one('SELECT 1 FROM journal_line WHERE gl_account_id = ?', before.id)) {
+      throw new AppError('Cannot change a Posting account with ledger entries to a non-Posting type', 'VALIDATION');
+    }
+  }
 
   const patch = {
-    name, type, parent_code: parent_code || null, is_postable: is_postable ? 1 : 0, status,
+    name, type, parent_code: parent_code || null, is_postable: isPostable,
+    account_type, totaling: cleanTotaling, status,
   };
   await run(
-    'UPDATE gl_account SET name=?, type=?, parent_code=?, is_postable=?, status=? WHERE code=?',
-    patch.name, patch.type, patch.parent_code, patch.is_postable, patch.status, code,
+    `UPDATE gl_account SET name=?, type=?, parent_code=?, is_postable=?, account_type=?, totaling=?, status=?
+     WHERE code=?`,
+    patch.name, patch.type, patch.parent_code, patch.is_postable, patch.account_type, patch.totaling,
+    patch.status, code,
   );
   const changes = diffFields(before as unknown as Record<string, unknown>, patch);
   await logTableChange('gl_account', code, 'Modification', changes, user);
@@ -310,8 +408,41 @@ export async function updateGlAccount(
   return (await one<GlAccount>('SELECT * FROM gl_account WHERE code = ?', code))!;
 }
 
-export const listPeriods = (): Promise<AccountingPeriod[]> =>
-  all<AccountingPeriod>('SELECT * FROM accounting_period ORDER BY code DESC');
+/** Accounting periods list's dynamic-filter registry — every meaningful column. */
+export const PERIOD_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'code', label: 'Period', type: 'text' },
+  { key: 'start_date', label: 'From', type: 'date' },
+  { key: 'end_date', label: 'To', type: 'date' },
+  { key: 'status', label: 'Status', type: 'select', options: [{ value: 'OPEN', label: 'Open' }, { value: 'CLOSED', label: 'Closed' }] },
+];
+
+/** Accounting periods list's sortable columns — every column shown in the table. */
+const PERIOD_SORT_COLUMNS: Record<string, string> = {
+  code: 'code',
+  start_date: 'start_date',
+  end_date: 'end_date',
+  status: 'status',
+};
+
+export interface ListPeriodsOptions {
+  search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+export const listPeriods = (
+  { search = '', filters = [], sort = null }: ListPeriodsOptions = {},
+): Promise<AccountingPeriod[]> => {
+  const { clause, params } = buildFilterClause(PERIOD_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(PERIOD_SORT_COLUMNS, sort, 'code DESC');
+  return all<AccountingPeriod>(
+    `SELECT * FROM accounting_period
+     WHERE code LIKE @like
+       ${clause}
+     ${orderBy}`,
+    { like: `%${String(search).trim()}%`, ...params },
+  );
+};
 
 export async function setPeriodStatus(code: string, status: string, user: Actor): Promise<AccountingPeriod> {
   if (status !== 'OPEN' && status !== 'CLOSED') {

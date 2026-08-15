@@ -6,11 +6,11 @@ import { actionResult } from '@/lib/errors';
 import {
   createAccountActivationRequest, updateAccountActivationRequest, submitAccountActivationRequest,
   cancelAccountActivationApproval, approveAccountActivationRequest, rejectAccountActivationRequest,
-  processAccountActivationRequest, eligibleAccountsForMember,
+  processAccountActivationRequest, eligibleAccountsForMember, debitableAccountsForMember,
 } from '@/lib/accountActivation';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import type {
-  AccountActivationRequestWithDimensions, ActionResult, FormValues, SavingsAccountWithProduct,
+  AccountActivationRequestWithDimensions, ActionResult, FormValues, SavingsAccountForDebit, SavingsAccountWithProduct,
 } from '@/lib/types';
 
 /** Starts a new activation request against one of a member's INACTIVE accounts. */
@@ -20,6 +20,8 @@ export async function requestAccountActivation(values: FormValues): Promise<Acti
     const result = await createAccountActivationRequest({
       accountId: Number(values.accountId),
       reason: String(values.reason || ''),
+      transactionChargeId: values.transactionChargeId ? Number(values.transactionChargeId) : null,
+      debitAccountId: values.debitAccountId ? Number(values.debitAccountId) : null,
     }, user);
     revalidatePath('/account-activations');
     revalidatePath('/savings');
@@ -32,9 +34,23 @@ export async function saveAccountActivationRequest(
 ): Promise<ActionResult<AccountActivationRequestWithDimensions>> {
   return actionResult(async () => {
     const user = await requireAction('ACCOUNT_ACTIVATION_CREATE');
-    const saved = await updateAccountActivationRequest(no, String(values.reason || ''), user);
+    const saved = await updateAccountActivationRequest(no, {
+      reason: String(values.reason || ''),
+      transactionChargeId: values.transactionChargeId ? Number(values.transactionChargeId) : null,
+      debitAccountId: values.debitAccountId ? Number(values.debitAccountId) : null,
+    }, user);
     revalidatePath('/account-activations');
+    revalidatePath(`/account-activations/view/${no}`);
     return saved;
+  });
+}
+
+/** Every account the member holds — the Debit Account picklist for a reactivation charge,
+ *  deliberately unfiltered by status (see debitableAccountsForMember()). */
+export async function accountsForActivationDebit(memberId: number): Promise<ActionResult<SavingsAccountForDebit[]>> {
+  return actionResult(async () => {
+    await requireAction('ACCOUNT_ACTIVATION_CREATE');
+    return debitableAccountsForMember(memberId);
   });
 }
 

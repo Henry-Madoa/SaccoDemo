@@ -271,7 +271,7 @@ export function WorkflowFormButton({
                         {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                       </select>
                     ) : (
-                      <span className="tiny">Resolved from Approval User Setup at request time</span>
+                      <span className="tiny">Resolved from User Setup at request time</span>
                     )}
                   </td>
                   <td>

@@ -586,6 +586,11 @@ export interface AccountActivationRequest {
   created_by: string | null;
   processed_at: IsoDateTime | null;
   processed_by: string | null;
+  /** The Charge Code (a transaction_charge configured for ACCOUNT_ACTIVATION) applied to this
+   *  request, and which of the member's accounts it's debited from — both null when
+   *  activation is free (no charge selected). */
+  transaction_charge_id: number | null;
+  debit_account_id: number | null;
 }
 
 export interface AccountActivationRequestWithDimensions extends AccountActivationRequest {
@@ -598,6 +603,70 @@ export interface AccountActivationRequestWithDimensions extends AccountActivatio
   member_last_name: string;
   savings_product_code: string;
   savings_product_name: string;
+  transaction_charge_code: string | null;
+  transaction_charge_description: string | null;
+  debit_account_no: string | null;
+  debit_account_balance: Cents | null;
+  debit_account_hold_amount: Cents | null;
+  debit_account_min_balance: Cents | null;
+  /** Computed live off the charge configuration (not stored) — see
+   *  lib/accountActivation.ts's withChargeAmount(). Null when no charge is selected. */
+  charge_amount: Cents | null;
+}
+
+/** The debit-account picklist row for a charged Account Activation request — every account a
+ *  member holds, any status, with just what's needed to preview an available balance and post
+ *  a charge against it. */
+export interface SavingsAccountForDebit {
+  id: number;
+  account_no: string;
+  status: SavingsAccountStatus;
+  balance: Cents;
+  hold_amount: Cents;
+  product_name: string;
+  min_balance: Cents;
+  gl_control_id: number;
+}
+
+/** An ad-hoc charge posted straight against a member's own withdrawable deposit account —
+ *  see lib/memberCharging.ts. No approval workflow: whoever creates it also posts it, so
+ *  `status` only ever moves Open -> Posted. `amount_charged` is recalculated from
+ *  transaction_charge_id/no_of_pages right up to the moment of posting, never trusted as a
+ *  stale snapshot when it matters financially. */
+export interface MemberCharging {
+  no: string;
+  description: string;
+  member_id: number;
+  source_account_id: number;
+  transaction_charge_id: number;
+  no_of_pages: number | null;
+  amount_charged: Cents;
+  status: 'Open' | 'Posted';
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface MemberChargingWithDimensions extends MemberCharging {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  source_account_no: string;
+  source_account_balance: Cents;
+  source_account_hold_amount: Cents;
+  source_account_min_balance: Cents;
+  source_account_gl_control_id: number;
+  transaction_charge_code: string;
+  transaction_charge_description: string;
+  /** Derived from the selected Charge Code, not stored — see Table 52204206's "Posting
+   *  Transaction Type". */
+  posting_transaction_type: ChargeTransactionType;
+  journal_no: string | null;
+  /** Computed live off the source account's current balance — see
+   *  lib/memberCharging.ts's withSourceBalance(). */
+  source_balance: Cents;
 }
 
 export interface MemberApplicationNextOfKin {
@@ -692,6 +761,10 @@ export interface MemberEditAttachment {
 
 export type GlAccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
 
+/** Business Central's G/L "Account Type" — the account's structural role in the chart
+ *  (see lib/constants.ts's GL_ACCOUNT_STRUCTURE_TYPES). */
+export type GlAccountStructureType = 'POSTING' | 'HEADING' | 'TOTAL' | 'BEGIN_TOTAL' | 'END_TOTAL';
+
 export interface GlAccount {
   id: number;
   code: string;
@@ -699,6 +772,10 @@ export interface GlAccount {
   type: GlAccountType;
   parent_code: string | null;
   is_postable: Flag;
+  account_type: GlAccountStructureType;
+  /** For TOTAL/END_TOTAL only — the code range(s)/list of Posting accounts this row sums,
+   *  Business Central style (e.g. "1010..1099|1200"). */
+  totaling: string | null;
   balance: Cents;
   status: 'ACTIVE' | 'INACTIVE';
 }
@@ -714,6 +791,93 @@ export interface TrialBalanceRow {
   net: Cents;
   debit_balance: Cents;
   credit_balance: Cents;
+}
+
+/* ------------------------------------------------------- charge management */
+
+/** Which SACCO transaction category a Transaction Charge attaches to — Table 52204021's
+ *  "Posting Transaction Type" (Sacco Transaction Type enum), values kept verbatim from the
+ *  source documentation including its own 'Divinded Processing' spelling. Account Activation's
+ *  reactivation fee (the one type actually wired to a posting routine so far, via
+ *  lib/charges.ts's postTransactionCharges() from lib/accountActivation.ts) reuses 'General'
+ *  rather than getting a dedicated value of its own. */
+export type ChargeTransactionType =
+  | 'General' | 'Cash Deposit' | 'Cash Withdrawal' | 'ATM' | 'Loan Disbursal' | 'Interest Due'
+  | 'Interest Paid' | 'Principal Paid' | 'Acc. Transfer' | 'Cheque Deposit' | 'Bankers Cheque'
+  | 'Fixed Deposit' | 'End Month Salary' | 'Checkoff Pay' | 'Teller-Treasury' | 'Disb. Rec'
+  | 'Penalty Due' | 'Penalty Paid' | 'Divinded Processing' | 'Charge' | 'Registration Fee'
+  | 'Standing Order' | 'Benevolent Fund' | 'Statement Charge';
+
+export type ChargeCalculationType = 'SCHEME' | 'PERCENT_OF_CHARGE';
+export type ChargeRateType = 'FLAT' | 'PERCENTAGE';
+
+/** Reusable charge code — Business Central's "Charges" master. */
+export interface Charge {
+  id: number;
+  code: string;
+  description: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+/** One amount-band rate rule for a component — Business Central's "Transaction Calc. Scheme".
+ *  upper_limit null means unbounded; the *_charge_limit fields are 0 when not capped. */
+export interface TransactionCalcScheme {
+  id: number;
+  transaction_charge_setup_id: number;
+  lower_limit: Cents;
+  upper_limit: Cents | null;
+  rate_type: ChargeRateType;
+  flat_amount: Cents;
+  percentage_rate: number;
+  upper_charge_limit: Cents;
+  lower_charge_limit: Cents;
+}
+
+/** One component of a Transaction Charge — Business Central's "Transaction Charges Setup"
+ *  line: which charge, where it posts, how it's calculated and in what priority order. */
+export interface TransactionChargeSetup {
+  id: number;
+  transaction_charge_id: number;
+  charge_id: number;
+  gl_account_id: number;
+  calculation_type: ChargeCalculationType;
+  source_setup_id: number | null;
+  priority: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+/** A component row joined with its charge code/name, posting account and (first) scheme
+ *  band, for display and for the calculation engine. */
+export interface TransactionChargeSetupDetail extends TransactionChargeSetup {
+  charge_code: string;
+  charge_description: string;
+  gl_account_code: string;
+  gl_account_name: string;
+  scheme: TransactionCalcScheme[];
+}
+
+/** The parent charge event for one transaction type — Business Central's "Transaction
+ *  Charge". */
+export interface TransactionCharge {
+  id: number;
+  code: string;
+  description: string;
+  transaction_type: ChargeTransactionType;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface TransactionChargeWithDetail extends TransactionCharge {
+  components: TransactionChargeSetupDetail[];
+}
+
+/** One resolved charge component amount, ready to post or to show as a fee preview. */
+export interface CalculatedCharge {
+  setupId: number;
+  chargeCode: string;
+  chargeDescription: string;
+  glAccountId: number;
+  glAccountCode: string;
+  amount: Cents;
 }
 
 /* ---------------------------------------------------------------- journals */

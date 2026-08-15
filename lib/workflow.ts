@@ -367,7 +367,7 @@ async function resolveApprover(
 
   throw new AppError(
     'No approver is configured for this request. Ask an administrator to set up an Approver in '
-    + 'Approval User Setup, or flag someone as an Approval Administrator.',
+    + 'User Setup, or flag someone as an Approval Administrator.',
     'NO_APPROVER',
   );
 }
@@ -780,7 +780,7 @@ export async function decideWorkflowTask(
 
 /**
  * Hands a pending task off from the current approver to their own configured
- * substitute (Approval User Setup). Only someone currently eligible to decide the
+ * substitute (User Setup). Only someone currently eligible to decide the
  * task may delegate it, and only to their own substitute — not anyone else's.
  * The delegator loses eligibility on this task; the substitute gains it, until the
  * task is decided or (for a sequenced group) its level moves on.
@@ -799,7 +799,7 @@ export async function delegateWorkflowTask(taskId: number, actingUser: Actor): P
   );
   if (!setup?.substitute_id) {
     throw new AppError(
-      'No substitute is configured for you. Ask an administrator to set one up in Approval User Setup.',
+      'No substitute is configured for you. Ask an administrator to set one up in User Setup.',
       'NO_SUBSTITUTE',
     );
   }

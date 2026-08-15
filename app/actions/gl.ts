@@ -5,8 +5,10 @@ import { requireAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import * as gl from '@/lib/gl';
 import { toCents } from '@/lib/format';
+import type { FilterCondition } from '@/lib/listFilters';
 import type {
-  AccountingPeriod, ActionResult, FormValues, GlAccount, GlAccountType, JournalLineInput, PostedJournal,
+  AccountingPeriod, ActionResult, FormValues, GlAccount, GlAccountStructureType, GlAccountType,
+  JournalLineInput, PostedJournal,
 } from '@/lib/types';
 
 /*
@@ -14,10 +16,12 @@ import type {
  * in the SPA. They fetch on open rather than shipping every account's 500-line
  * ledger with the page.
  */
-export async function fetchAccountLedger(code: string): Promise<ActionResult<gl.AccountLedger>> {
+export async function fetchAccountLedger(
+  code: string, opts: { asOf?: string; filters?: FilterCondition[] } = {},
+): Promise<ActionResult<gl.AccountLedger>> {
   return actionResult(async () => {
     await requireAction('GL_READ');
-    const ledger = await gl.getAccountLedger(code);
+    const ledger = await gl.getAccountLedger(code, { asOf: opts.asOf || null, filters: opts.filters });
     if (!ledger) throw new AppError('Account not found', 'NOT_FOUND');
     return ledger;
   });
@@ -69,7 +73,7 @@ export async function createJournal(
 
 export async function reverseJournal(id: number, values: FormValues): Promise<ActionResult<PostedJournal>> {
   return actionResult(async () => {
-    const user = await requireAction('GL_JOURNAL_APPROVE');
+    const user = await requireAction('GL_JOURNAL_REVERSE');
     const rev = await gl.reverseJournalEntry(id, String(values.reason || '').trim(), user);
     revalidatePath('/accounting');
     revalidatePath('/reports');
@@ -85,7 +89,8 @@ export async function createGlAccount(values: FormValues): Promise<ActionResult<
       name: String(values.name || '').trim(),
       type: values.type as GlAccountType,
       parent_code: String(values.parent_code || '') || null,
-      is_postable: Number(values.is_postable) ? 1 : 0,
+      account_type: (values.account_type || 'POSTING') as GlAccountStructureType,
+      totaling: String(values.totaling || '').trim() || null,
     }, user);
     revalidatePath('/accounting/accounts');
     return created;
@@ -99,7 +104,8 @@ export async function updateGlAccount(code: string, values: FormValues): Promise
       name: String(values.name || '').trim(),
       type: values.type as GlAccountType,
       parent_code: String(values.parent_code || '') || null,
-      is_postable: Number(values.is_postable) ? 1 : 0,
+      account_type: (values.account_type || 'POSTING') as GlAccountStructureType,
+      totaling: String(values.totaling || '').trim() || null,
       status: (String(values.status || 'ACTIVE') as 'ACTIVE' | 'INACTIVE'),
     }, user);
     revalidatePath('/accounting/accounts');

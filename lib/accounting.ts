@@ -187,7 +187,9 @@ export async function reverseJournal(
  * discards the NULL rows produced by the LEFT JOIN, so every account with no
  * movement silently vanished from a dated trial balance.
  */
-export async function trialBalance(asOf?: IsoDate | null): Promise<TrialBalanceRow[]> {
+export async function trialBalance(
+  asOf?: IsoDate | null, filterClause = '', filterParams: Record<string, unknown> = {},
+): Promise<TrialBalanceRow[]> {
   const rows = await all<Omit<TrialBalanceRow, 'net' | 'debit_balance' | 'credit_balance'>>(
     `SELECT a.id, a.code, a.name, a.type,
             COALESCE(SUM(jl.debit),0)  AS debit,
@@ -199,9 +201,10 @@ export async function trialBalance(asOf?: IsoDate | null): Promise<TrialBalanceR
        -- "$1 IS NULL" alone and rejects the statement without it.
        AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
      WHERE a.is_postable = 1
+       ${filterClause}
      GROUP BY a.id
      ORDER BY a.code`,
-    { asOf: asOf || null },
+    { asOf: asOf || null, ...filterParams },
   );
 
   return rows.map((r) => {

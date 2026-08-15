@@ -7,7 +7,8 @@
  * bundle, and webpack failed the build on its `require('fs')`.
  */
 import type {
-  Channel, DocumentStatus, GlAccountType, InterestMethod, LoanStatus, MemberCategoryType, MemberStatus,
+  Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, DocumentStatus,
+  GlAccountStructureType, GlAccountType, InterestMethod, LoanStatus, MemberCategoryType, MemberStatus,
   SavingsAccountStatus, SavingsCategory, UserStatus,
 } from './types.ts';
 
@@ -58,6 +59,18 @@ export const GL_ACCOUNT_TYPES: GlAccountType[] =
 /** Account types whose balance increases on the debit side. */
 export const NATURAL_DEBIT_TYPES: GlAccountType[] = ['ASSET', 'EXPENSE'];
 
+/** Business Central's G/L "Account Type" — the account's structural role in the chart,
+ *  as opposed to `type` (ASSET/LIABILITY/…) above, which is its financial-statement
+ *  category. Only POSTING accounts ever carry ledger entries or a balance of their own;
+ *  TOTAL and END_TOTAL roll one up from the Totaling range of accounts they name. */
+export const GL_ACCOUNT_STRUCTURE_TYPES: { value: GlAccountStructureType; label: string }[] = [
+  { value: 'POSTING', label: 'Posting' },
+  { value: 'HEADING', label: 'Heading' },
+  { value: 'TOTAL', label: 'Total' },
+  { value: 'BEGIN_TOTAL', label: 'Begin-Total' },
+  { value: 'END_TOTAL', label: 'End-Total' },
+];
+
 export const USER_STATUSES: UserStatus[] = ['ACTIVE', 'SUSPENDED', 'DISABLED'];
 
 export const SOCIETY_TYPES = [
@@ -76,6 +89,46 @@ export const ATTACHMENT_CATEGORIES = [
 /** The full "Document Status" vocabulary — a member application only drives itself through some of these. */
 export const DOCUMENT_STATUSES: DocumentStatus[] = [
   'Open', 'Pending Approval', 'Approved', 'Processed'
+];
+
+/** Every SACCO transaction category a Transaction Charge can be configured for — see
+ *  lib/types.ts's ChargeTransactionType for provenance (Table 52204021's Posting Transaction
+ *  Type). */
+export const CHARGE_TRANSACTION_TYPES: { value: ChargeTransactionType; label: string }[] = [
+  { value: 'General', label: 'General' },
+  { value: 'Cash Deposit', label: 'Cash Deposit' },
+  { value: 'Cash Withdrawal', label: 'Cash Withdrawal' },
+  { value: 'ATM', label: 'ATM' },
+  { value: 'Loan Disbursal', label: 'Loan Disbursal' },
+  { value: 'Interest Due', label: 'Interest Due' },
+  { value: 'Interest Paid', label: 'Interest Paid' },
+  { value: 'Principal Paid', label: 'Principal Paid' },
+  { value: 'Acc. Transfer', label: 'Acc. Transfer' },
+  { value: 'Cheque Deposit', label: 'Cheque Deposit' },
+  { value: 'Bankers Cheque', label: 'Bankers Cheque' },
+  { value: 'Fixed Deposit', label: 'Fixed Deposit' },
+  { value: 'End Month Salary', label: 'End Month Salary' },
+  { value: 'Checkoff Pay', label: 'Checkoff Pay' },
+  { value: 'Teller-Treasury', label: 'Teller-Treasury' },
+  { value: 'Disb. Rec', label: 'Disb. Rec' },
+  { value: 'Penalty Due', label: 'Penalty Due' },
+  { value: 'Penalty Paid', label: 'Penalty Paid' },
+  { value: 'Divinded Processing', label: 'Divinded Processing' },
+  { value: 'Charge', label: 'Charge' },
+  { value: 'Registration Fee', label: 'Registration Fee' },
+  { value: 'Standing Order', label: 'Standing Order' },
+  { value: 'Benevolent Fund', label: 'Benevolent Fund' },
+  { value: 'Statement Charge', label: 'Statement Charge' },
+];
+
+export const CHARGE_CALCULATION_TYPES: { value: ChargeCalculationType; label: string }[] = [
+  { value: 'SCHEME', label: 'Calculation Scheme' },
+  { value: 'PERCENT_OF_CHARGE', label: 'Percentage of Charge' },
+];
+
+export const CHARGE_RATE_TYPES: { value: ChargeRateType; label: string }[] = [
+  { value: 'FLAT', label: 'Flat Rate' },
+  { value: 'PERCENTAGE', label: 'Percentage' },
 ];
 
 export const MONTH_NAMES = [

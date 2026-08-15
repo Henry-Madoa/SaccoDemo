@@ -13,7 +13,7 @@ import {
 import { Money } from '@/components/ui/money';
 import { CardNav } from '@/components/ui/card-nav';
 import {
-  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
+  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../account-activation-actions';
 
 const ACCOUNT_ACTIVATION_VIEWS: AccountActivationView[] = ['open', 'pending', 'approved', 'processed'];
@@ -67,6 +67,7 @@ export default async function AccountActivationDetailPage({ params, searchParams
         <Link href={`/savings/${request.account_id}`} className="btn ghost sm">View account</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
+        {isOpen && canEditThis ? <EditButton request={request} className="btn ghost" /> : null}
         {isOpen && canEditThis ? <SubmitButton no={request.no} className="btn ghost" /> : null}
         {request.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={request.no} className="btn ghost" />
@@ -78,7 +79,9 @@ export default async function AccountActivationDetailPage({ params, searchParams
             <RejectButton no={request.no} className="btn ghost" />
           </>
         ) : null}
-        {request.status === 'Approved' && canApprove ? <ProcessButton no={request.no} /> : null}
+        {request.status === 'Approved' && canApprove ? (
+          <ProcessButton no={request.no} feeAmount={request.charge_amount} />
+        ) : null}
       </Toolbar>
 
       <Card>
@@ -90,6 +93,22 @@ export default async function AccountActivationDetailPage({ params, searchParams
           ['Account status', <Pill status={request.account_status} key="acct-status" />],
           ['Account balance', <Money cents={request.account_balance} key="acct-balance" />],
           ['Reason', request.reason || '—'],
+          request.transaction_charge_id ? ['Charge code', `${request.transaction_charge_code} — ${request.transaction_charge_description}`] : null,
+          request.transaction_charge_id ? ['Charge amount', <Money cents={request.charge_amount ?? 0} key="charge-amount" />] : null,
+          request.debit_account_id ? [
+            'Debit account',
+            <>
+              <span className="mono">{request.debit_account_no}</span>
+              {' — available '}
+              <Money
+                cents={Math.max(
+                  (request.debit_account_balance ?? 0) - (request.debit_account_hold_amount ?? 0)
+                    - (request.debit_account_min_balance ?? 0),
+                  0,
+                )}
+              />
+            </>,
+          ] : null,
           ['Status', <Pill status={request.status} key="status" />],
           request.decision_reason ? ['Decision reason', request.decision_reason] : null,
         ]} />

@@ -1,0 +1,80 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { requireAction } from '@/lib/session';
+import { actionResult } from '@/lib/errors';
+import * as chargesLib from '@/lib/charges';
+import type { TransactionChargeSetupDraft } from '@/lib/charges';
+import type {
+  ActionResult, CalculatedCharge, Charge, ChargeTransactionType, FormValues, TransactionCharge,
+} from '@/lib/types';
+
+export async function createCharge(values: FormValues): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_CHARGES_MASTER_MANAGE');
+    const created = await chargesLib.createCharge(String(values.code || ''), String(values.description || ''), user);
+    revalidatePath('/admin/charges');
+    return created;
+  });
+}
+
+export async function updateCharge(id: number, values: FormValues): Promise<ActionResult<Charge>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_CHARGES_MASTER_MANAGE');
+    const updated = await chargesLib.updateCharge(
+      id, String(values.description || ''), String(values.status || 'ACTIVE') as 'ACTIVE' | 'INACTIVE', user,
+    );
+    revalidatePath('/admin/charges');
+    return updated;
+  });
+}
+
+export async function saveTransactionCharge(
+  id: number | null,
+  values: FormValues,
+  components: TransactionChargeSetupDraft[],
+): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_CHARGES_TRANSACTION_MANAGE');
+    const status = String(values.status || 'ACTIVE') as 'ACTIVE' | 'INACTIVE';
+    const result = id
+      ? await chargesLib.updateTransactionCharge(
+        id, {
+          description: String(values.description || ''),
+          transaction_type: values.transaction_type as ChargeTransactionType,
+          status,
+        }, components, user,
+      )
+      : await chargesLib.createTransactionCharge({
+        code: String(values.code || ''),
+        description: String(values.description || ''),
+        transaction_type: values.transaction_type as ChargeTransactionType,
+        status,
+      }, components, user);
+    revalidatePath('/admin/charges');
+    return result;
+  });
+}
+
+/** The Charge Code picklist for Account Activation's request form — every enabled Transaction
+ *  Charge configured for 'General' (there can be more than one; the request picks which
+ *  applies rather than the system always auto-resolving a single one). Account Activation has
+ *  no dedicated ChargeTransactionType of its own, so its reactivation fee reuses 'General'. */
+export async function listAccountActivationChargeCodes(): Promise<ActionResult<TransactionCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('ACCOUNT_ACTIVATION_CREATE');
+    return chargesLib.listTransactionChargesByType('General');
+  });
+}
+
+/** Read-only fee preview for one specific Transaction Charge — the same permission that
+ *  already gates seeing/creating the triggering document, since a preview reveals nothing an
+ *  admin with rights to Charges couldn't already see in the charge's own configuration. */
+export async function previewTransactionChargeAmount(
+  transactionChargeId: number, baseAmount = 0,
+): Promise<ActionResult<CalculatedCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('ACCOUNT_ACTIVATION_CREATE');
+    return chargesLib.previewTransactionChargeById(transactionChargeId, baseAmount);
+  });
+}

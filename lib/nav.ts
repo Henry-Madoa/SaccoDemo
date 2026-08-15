@@ -46,6 +46,7 @@ export const NAV: NavGroup[] = [
     group:'FOSA',
     items:[
       { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
+      { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
     ],
   },
   {
@@ -61,9 +62,10 @@ export const NAV: NavGroup[] = [
       {
         path: '/admin', label: 'Admin Centre', icon: '⚙',
         page: [
-          'ADMIN_COMPANY', 'ADMIN_APPEARANCE', 'ADMIN_USERS', 'ADMIN_ROLES', 'ADMIN_PRODUCTS_SAVINGS',
-          'ADMIN_PRODUCTS_LOANS', 'ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES', 'ADMIN_POOL_DIMENSIONS',
-          'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_WORKFLOWS_TABLES',
+          'ADMIN_COMPANY', 'ADMIN_APPEARANCE', 'ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES',
+          'ADMIN_PRODUCTS_SAVINGS', 'ADMIN_PRODUCTS_LOANS', 'ADMIN_CHARGES_MASTER', 'ADMIN_CHARGES_TRANSACTION',
+          'ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES',
+          'ADMIN_POOL_DIMENSIONS', 'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_TABLES',
           'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA',
         ],
       },

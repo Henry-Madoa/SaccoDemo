@@ -58,20 +58,23 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ACCOUNT_OPENING', label: 'Account Opening', route: '/account-openings' },
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
   { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
+  { code: 'MEMBER_CHARGING', label: 'Member Charging', route: '/member-chargings' },
   { code: 'GL', label: 'General Ledger', route: '/accounting' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'ADMIN_COMPANY', label: 'Company Information', route: '/admin/company' },
   { code: 'ADMIN_APPEARANCE', label: 'Appearance & Theme', route: '/admin/appearance' },
   { code: 'ADMIN_PRODUCTS_SAVINGS', label: 'Savings Products', route: '/admin/products/savings' },
   { code: 'ADMIN_PRODUCTS_LOANS', label: 'Loan Products', route: '/admin/products/loans' },
+  { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/charges/master' },
+  { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/charges/transaction' },
   { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/categories' },
   { code: 'ADMIN_POOL_COUNTIES', label: 'Counties', route: '/admin/pool/counties' },
   { code: 'ADMIN_POOL_DIMENSIONS', label: 'Dimensions', route: '/admin/pool/dimensions' },
   { code: 'ADMIN_WORKFLOWS_DEFINITIONS', label: 'Workflows', route: '/admin/workflows/definitions' },
   { code: 'ADMIN_WORKFLOWS_GROUPS', label: 'Approval User Groups', route: '/admin/workflows/groups' },
-  { code: 'ADMIN_WORKFLOWS_SETUP', label: 'Approval User Setup', route: '/admin/workflows/setup' },
   { code: 'ADMIN_WORKFLOWS_TABLES', label: 'Table Relations', route: '/admin/workflows/tables' },
   { code: 'ADMIN_USERS', label: 'Users', route: '/admin/security/users' },
+  { code: 'ADMIN_WORKFLOWS_SETUP', label: 'User Setup', route: '/admin/security/setup' },
   { code: 'ADMIN_ROLES', label: 'Permission Sets', route: '/admin/security/roles' },
   { code: 'ADMIN_AUDIT', label: 'Audit Trail', route: '/admin/security/audit' },
   { code: 'ADMIN_CHANGELOG', label: 'Change Log Management', route: '/admin/security/changelog' },
@@ -176,8 +179,9 @@ export const ACTIONS = {
 
   // Account Activation — reactivates an INACTIVE savings account (only ever an account this
   // module itself, or a prior manual freeze, put in that state; see
-  // lib/accountActivation.ts's eligibleAccountsForMember()). Processing only flips the
-  // account's status back to ACTIVE, no balance movement, so no journal/txn rights are needed.
+  // lib/accountActivation.ts's eligibleAccountsForMember()). Processing flips the account's
+  // status back to ACTIVE and, when a reactivation fee is configured (Admin Centre → Charges),
+  // posts and debits it — hence the journal/txn rights alongside savings_account.
   ACCOUNT_ACTIVATION_READ: { page: 'ACCOUNT_ACTIVATION', tables: [['account_activation_request', 'read']] },
   ACCOUNT_ACTIVATION_CREATE: {
     page: 'ACCOUNT_ACTIVATION',
@@ -185,7 +189,28 @@ export const ACTIONS = {
   },
   ACCOUNT_ACTIVATION_APPROVE: {
     page: 'ACCOUNT_ACTIVATION',
-    tables: [['account_activation_request', 'modify'], ['savings_account', 'modify']],
+    tables: [
+      ['account_activation_request', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Member Charging — an ad-hoc charge posted straight against a member's own withdrawable
+  // deposit account (see lib/memberCharging.ts). No approval workflow: whoever creates the
+  // document also posts it, so — unlike Account Opening/Deactivation/Activation above — there
+  // is no separate _APPROVE action, just _CREATE (draft it) and _POST (post it); a role that
+  // should let its holder do the whole thing end to end (the norm here) is simply granted both.
+  MEMBER_CHARGING_READ: { page: 'MEMBER_CHARGING', tables: [['member_charging', 'read']] },
+  MEMBER_CHARGING_CREATE: {
+    page: 'MEMBER_CHARGING',
+    tables: [['member_charging', 'insert'], ['member_charging', 'modify'], ['member_charging', 'delete']],
+  },
+  MEMBER_CHARGING_POST: {
+    page: 'MEMBER_CHARGING',
+    tables: [
+      ['member_charging', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
   },
 
   // Savings & FOSA
@@ -211,6 +236,7 @@ export const ACTIONS = {
   GL_READ: { page: 'GL', tables: [['journal', 'read'], ['journal_line', 'read'], ['gl_account', 'read']] },
   GL_JOURNAL_CREATE: { page: 'GL', tables: [['journal', 'insert'], ['journal_line', 'insert'], ['workflow_task', 'insert']] },
   GL_JOURNAL_APPROVE: { page: 'GL', tables: [['journal', 'insert'], ['journal_line', 'insert']] },
+  GL_JOURNAL_REVERSE: { page: 'GL', tables: [['journal', 'insert'], ['journal', 'modify'], ['journal_line', 'insert']] },
   GL_PERIOD_CLOSE: { page: 'GL', tables: [['accounting_period', 'modify']] },
   GL_ACCOUNT_MANAGE: { page: 'GL', tables: [['gl_account', 'insert'], ['gl_account', 'modify'], ['change_log_entry', 'insert']] },
 
@@ -226,6 +252,15 @@ export const ACTIONS = {
   ADMIN_ROLE_MANAGE: { page: 'ADMIN_ROLES', tables: [['role', 'insert'], ['role', 'modify']] },
   ADMIN_PRODUCTS_SAVINGS_MANAGE: { page: 'ADMIN_PRODUCTS_SAVINGS', tables: [['savings_product', 'insert'], ['savings_product', 'modify']] },
   ADMIN_PRODUCTS_LOANS_MANAGE: { page: 'ADMIN_PRODUCTS_LOANS', tables: [['loan_product', 'insert'], ['loan_product', 'modify']] },
+  ADMIN_CHARGES_MASTER_MANAGE: { page: 'ADMIN_CHARGES_MASTER', tables: [['charge', 'insert'], ['charge', 'modify']] },
+  ADMIN_CHARGES_TRANSACTION_MANAGE: {
+    page: 'ADMIN_CHARGES_TRANSACTION',
+    tables: [
+      ['transaction_charge', 'insert'], ['transaction_charge', 'modify'],
+      ['transaction_charge_setup', 'insert'], ['transaction_charge_setup', 'modify'], ['transaction_charge_setup', 'delete'],
+      ['transaction_calc_scheme', 'insert'], ['transaction_calc_scheme', 'modify'], ['transaction_calc_scheme', 'delete'],
+    ],
+  },
   ADMIN_POOL_CATEGORIES_MANAGE: {
     page: 'ADMIN_POOL_CATEGORIES',
     tables: [['member_category', 'insert'], ['member_category', 'modify'], ['member_category_default_account', 'insert'], ['member_category_default_account', 'delete']],

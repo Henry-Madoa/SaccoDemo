@@ -8,13 +8,18 @@ import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
 import {
-  requestAccountActivation, submitAccountActivation,
+  requestAccountActivation, saveAccountActivationRequest, submitAccountActivation,
   cancelAccountActivationApprovalRequest, approveAccountActivation, rejectAccountActivation,
-  processAccountActivation, eligibleAccountsForActivation,
+  processAccountActivation, eligibleAccountsForActivation, accountsForActivationDebit,
 } from '@/app/actions/accountActivation';
+import { listAccountActivationChargeCodes, previewTransactionChargeAmount } from '@/app/actions/charges';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { Money } from '@/components/ui/money';
-import type { Member, SavingsAccountWithProduct } from '@/lib/types';
+import { useFormat } from '@/components/ui/format-provider';
+import type {
+  AccountActivationRequestWithDimensions, Member, SavingsAccountForDebit, SavingsAccountWithProduct,
+  TransactionCharge,
+} from '@/lib/types';
 
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
@@ -106,16 +111,24 @@ export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; c
   );
 }
 
-export function ProcessButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
+/** `feeAmount` comes straight off the request's own `charge_amount` (see
+ *  lib/accountActivation.ts's withChargeAmount()) — the fee this specific request's chosen
+ *  Charge Code resolves to right now, not a generic type-wide preview. */
+export function ProcessButton({ no, feeAmount = null, className = 'btn sm' }: {
+  no: string; feeAmount?: number | null; className?: string;
+}) {
   const showResult = useResultDialog();
   const confirm = useConfirm();
   const router = useRouter();
+  const { cur } = useFormat();
   const [busy, setBusy] = useState(false);
 
   const process = async () => {
     const ok = await confirm({
       title: 'Activate this account?',
-      message: 'The account will accept deposits and withdrawals again immediately.',
+      message: feeAmount
+        ? `A reactivation fee of ${cur(feeAmount)} will be charged. It will accept deposits and withdrawals again immediately.`
+        : 'The account will accept deposits and withdrawals again immediately.',
       confirmLabel: 'Activate account',
     });
     if (!ok) return;
@@ -137,6 +150,103 @@ export function ProcessButton({ no, className = 'btn sm' }: { no: string; classN
   );
 }
 
+/**
+ * The Charge Code + Debit Account pair, with a live fee/available-balance preview — shared by
+ * the New Request form and the Edit button for an Open request, since both let the same two
+ * fields be set and both need the same "would this even be affordable" feedback.
+ */
+function ChargeDebitFields({ memberId, chargeId, setChargeId, debitAccountId, setDebitAccountId, autoSelectFirst }: {
+  memberId: string;
+  chargeId: string;
+  setChargeId: (v: string) => void;
+  debitAccountId: string;
+  setDebitAccountId: (v: string) => void;
+  /** New requests default to the first configured Charge Code so the fee is applied unless
+   *  someone actively clears it; editing an existing request must never override what was
+   *  already (possibly deliberately) chosen or left blank. */
+  autoSelectFirst?: boolean;
+}) {
+  const { cur } = useFormat();
+  const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
+  const [debitAccounts, setDebitAccounts] = useState<SavingsAccountForDebit[]>([]);
+  const [feeAmount, setFeeAmount] = useState<number | null>(null);
+
+  // Charge Codes configured for ACCOUNT_ACTIVATION don't depend on the member — fetched once.
+  useEffect(() => {
+    listAccountActivationChargeCodes().then((res) => {
+      if (!res.ok) return;
+      setChargeCodes(res.data);
+      if (autoSelectFirst) setChargeId(chargeId || String(res.data[0]?.id ?? ''));
+    });
+    // Only ever runs once per mount — chargeId/setChargeId are read at that moment on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The debit account picklist is every account the member holds, any status.
+  useEffect(() => {
+    let cancelled = false;
+    if (!memberId) { setDebitAccounts([]); return; }
+    accountsForActivationDebit(Number(memberId)).then((res) => {
+      if (!cancelled && res.ok) setDebitAccounts(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [memberId]);
+
+  // The fee itself only depends on which Charge Code is picked, not on which account pays it.
+  useEffect(() => {
+    let cancelled = false;
+    if (!chargeId) { setFeeAmount(null); return; }
+    previewTransactionChargeAmount(Number(chargeId)).then((res) => {
+      if (!cancelled && res.ok) setFeeAmount(res.data.reduce((sum, c) => sum + c.amount, 0));
+    });
+    return () => { cancelled = true; };
+  }, [chargeId]);
+
+  const debitAccount = debitAccounts.find((a) => String(a.id) === debitAccountId);
+  const available = debitAccount ? debitAccount.balance - debitAccount.hold_amount - debitAccount.min_balance : null;
+  const insufficient = !!chargeId && feeAmount != null && available != null && feeAmount > available;
+
+  return (
+    <>
+      <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+        <div className="field">
+          <label htmlFor="f_transactionChargeId">Charge code</label>
+          <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId}
+            onChange={(e) => setChargeId(e.target.value)}>
+            <option value="">No charge</option>
+            {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="f_debitAccountId">
+            Debit account{chargeId ? <span className="req"> *</span> : null}
+          </label>
+          <select id="f_debitAccountId" name="debitAccountId" required={!!chargeId} value={debitAccountId}
+            disabled={!chargeId} onChange={(e) => setDebitAccountId(e.target.value)}>
+            <option value="">Select account…</option>
+            {debitAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {chargeId ? (
+        <div className="note" style={{ marginTop: 8 }}>
+          Charge amount: <b className={insufficient ? 'neg' : undefined}>{feeAmount != null ? cur(feeAmount) : '…'}</b>
+          {debitAccount ? (
+            <> · {debitAccount.account_no} available balance: <b>{cur(Math.max(available ?? 0, 0))}</b></>
+          ) : null}
+          {insufficient ? (
+            <div className="neg">
+              The charge exceeds the selected account's available balance — pick a different account
+              or reduce the charge before this can be sent for approval.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 interface NewRequestFormProps {
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
   presetMemberId?: number | null;
@@ -147,6 +257,8 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
   const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
   const [accountId, setAccountId] = useState('');
+  const [chargeId, setChargeId] = useState('');
+  const [debitAccountId, setDebitAccountId] = useState('');
 
   // The eligible account list depends on the member (only their INACTIVE accounts, minus
   // anything already mid-activation), so it's fetched per-member.
@@ -159,6 +271,7 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
       setAccounts(list);
       setAccountId(String(list[0]?.id ?? ''));
     });
+    setDebitAccountId('');
     return () => { cancelled = true; };
   }, [memberId]);
 
@@ -202,7 +315,45 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
           to ACTIVE once processed, and it will accept deposits and withdrawals again.
         </div>
       ) : null}
+
+      <ChargeDebitFields
+        memberId={memberId} chargeId={chargeId} setChargeId={setChargeId}
+        debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId} autoSelectFirst
+      />
     </FormModal>
+  );
+}
+
+/** Lets an Open request's Charge Code and Debit Account (and reason) be changed before it's
+ *  sent for approval — the member and the account being activated are fixed at creation, same
+ *  as Account Opening's own Edit button never lets the member change. */
+export function EditButton({ request, className = 'btn sm ghost' }: {
+  request: AccountActivationRequestWithDimensions;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [chargeId, setChargeId] = useState(String(request.transaction_charge_id ?? ''));
+  const [debitAccountId, setDebitAccountId] = useState(String(request.debit_account_id ?? ''));
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
+      {open ? (
+        <FormModal
+          title={`Edit ${request.no}`}
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => saveAccountActivationRequest(request.no, values)}
+          submitLabel="Save changes"
+          successTitle="Request updated"
+        >
+          <Field name="reason" label="Reason" type="textarea" required defaultValue={request.reason ?? ''} />
+          <ChargeDebitFields
+            memberId={String(request.member_id)} chargeId={chargeId} setChargeId={setChargeId}
+            debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId}
+          />
+        </FormModal>
+      ) : null}
+    </>
   );
 }
 

@@ -10,11 +10,15 @@ import { one, all, run, tx, nextSequence } from './db.ts';
 import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
+import { postTransactionCharges, previewTransactionChargeById } from './charges.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
-  Actor, AccountActivationRequest, AccountActivationRequestWithDimensions, SavingsAccountWithProduct,
+  Actor, AccountActivationRequest, AccountActivationRequestWithDimensions, SavingsAccountForDebit,
+  SavingsAccountWithProduct,
 } from './types.ts';
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 /** The four nav sub-views — "processed" means the account has actually been reactivated. */
 export type AccountActivationView = 'open' | 'pending' | 'approved' | 'processed';
@@ -29,11 +33,17 @@ const VIEW_CLAUSE: Record<AccountActivationView, string> = {
 const SELECT_REQUEST = `
   SELECT a.*, sa.account_no AS account_no, sa.status AS account_status, sa.balance AS account_balance,
          m.id AS member_id, m.member_no AS member_no, m.first_name AS member_first_name, m.last_name AS member_last_name,
-         p.code AS savings_product_code, p.name AS savings_product_name
+         p.code AS savings_product_code, p.name AS savings_product_name,
+         tc.code AS transaction_charge_code, tc.description AS transaction_charge_description,
+         da.account_no AS debit_account_no, da.balance AS debit_account_balance,
+         da.hold_amount AS debit_account_hold_amount, dp.min_balance AS debit_account_min_balance
   FROM account_activation_request a
   JOIN savings_account sa ON sa.id = a.account_id
   JOIN member m ON m.id = sa.member_id
-  JOIN savings_product p ON p.id = sa.product_id`;
+  JOIN savings_product p ON p.id = sa.product_id
+  LEFT JOIN transaction_charge tc ON tc.id = a.transaction_charge_id
+  LEFT JOIN savings_account da ON da.id = a.debit_account_id
+  LEFT JOIN savings_product dp ON dp.id = da.product_id`;
 
 /** Account Activation list's dynamic-filter registry — the view tabs (which remain the
  *  primary Open/Pending/Approved/Processed navigation, so `status` is deliberately left out
@@ -81,8 +91,22 @@ export const listAccountActivationRequests = (
   );
 };
 
-export const getAccountActivationRequest = (no: string): Promise<AccountActivationRequestWithDimensions | undefined> =>
-  one<AccountActivationRequestWithDimensions>(`${SELECT_REQUEST} WHERE a.no = ?`, no);
+/** Adds the charge's currently-computed amount to a fetched request — computed live off the
+ *  charge configuration rather than stored, so it always reflects the current tariff (and the
+ *  debit account's balance can be compared against a figure that's actually still true) instead
+ *  of a snapshot that could silently drift from what submitting/processing would enforce. */
+async function withChargeAmount(
+  req: AccountActivationRequestWithDimensions,
+): Promise<AccountActivationRequestWithDimensions> {
+  if (!req.transaction_charge_id) return { ...req, charge_amount: null };
+  const charges = await previewTransactionChargeById(req.transaction_charge_id, 0);
+  return { ...req, charge_amount: charges.reduce((sum, c) => sum + c.amount, 0) };
+}
+
+export async function getAccountActivationRequest(no: string): Promise<AccountActivationRequestWithDimensions | undefined> {
+  const req = await one<AccountActivationRequestWithDimensions>(`${SELECT_REQUEST} WHERE a.no = ?`, no);
+  return req ? withChargeAmount(req) : undefined;
+}
 
 /** The request immediately before/after this one by number — for the card's
  *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record
@@ -122,6 +146,21 @@ export async function eligibleAccountsForMember(memberId: number): Promise<Savin
   return accounts.filter((a) => !inFlight.has(a.id));
 }
 
+/** Every withdrawable-product savings account this member holds, any status — the picklist for
+ *  where a reactivation fee gets debited from. Status is deliberately not restricted to ACTIVE:
+ *  the account being reactivated is itself a valid choice, its balance permitting (by the time
+ *  the charge actually posts, processAccountActivationRequest() has already flipped it to
+ *  ACTIVE). The product must still permit a withdrawal, same rule lib/savings.ts's withdraw()
+ *  itself enforces — a charge is a debit like any other. */
+export const debitableAccountsForMember = (memberId: number): Promise<SavingsAccountForDebit[]> =>
+  all<SavingsAccountForDebit>(
+    `SELECT sa.id, sa.account_no, sa.status, sa.balance, sa.hold_amount, p.name AS product_name,
+            p.min_balance, p.gl_control_id
+     FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
+     WHERE sa.member_id = ? AND p.allow_withdrawal = 1 ORDER BY sa.account_no`,
+    memberId,
+  );
+
 /** Validates an account is actually eligible for a fresh activation request — the same rules
  *  eligibleAccountsForMember() filters by, checked here too since a request is staged against
  *  one specific account rather than picked off that list. */
@@ -148,44 +187,98 @@ async function assertEligible(accountId: number, excludeRequestNo?: string): Pro
   return account;
 }
 
+/** Checked at every gate a charged request passes through — creation, submit-for-approval and
+ *  processing — since either the configured tariff or the debit account's own balance can move
+ *  between those moments, and each one has to still hold true right before it lets the request
+ *  through. No-ops when no charge code is selected, so a free (unconfigured) activation is
+ *  never blocked by this. */
+async function assertChargeAffordable(
+  transactionChargeId: number | null, debitAccountId: number | null,
+): Promise<void> {
+  if (!transactionChargeId) return;
+  if (!debitAccountId) {
+    throw new AppError('A debit account is required when a charge code is selected', 'VALIDATION');
+  }
+  const acct = await one<{ account_no: string; balance: number; hold_amount: number; min_balance: number; allow_withdrawal: number }>(
+    `SELECT sa.account_no, sa.balance, sa.hold_amount, p.min_balance, p.allow_withdrawal
+     FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id WHERE sa.id = ?`,
+    debitAccountId,
+  );
+  if (!acct) throw new AppError('Debit account not found', 'NOT_FOUND');
+  if (!acct.allow_withdrawal) {
+    throw new AppError(`${acct.account_no}'s product does not permit a withdrawal, so it cannot fund this charge`, 'VALIDATION');
+  }
+
+  const charges = await previewTransactionChargeById(transactionChargeId, 0);
+  const total = charges.reduce((sum, c) => sum + c.amount, 0);
+  const available = acct.balance - acct.hold_amount - acct.min_balance;
+  if (total > available) {
+    throw new AppError(
+      `The reactivation charge of ${(total / 100).toFixed(2)} exceeds ${acct.account_no}'s available balance of ${(available / 100).toFixed(2)}`,
+      'INSUFFICIENT_FUNDS',
+    );
+  }
+}
+
 export interface CreateAccountActivationInput {
   accountId: number;
   reason: string;
+  /** The Charge Code to apply (a transaction_charge configured for ACCOUNT_ACTIVATION) and
+   *  which of the member's accounts it's debited from — both optional; leaving them unset
+   *  keeps activation free, same as before this existed. */
+  transactionChargeId?: number | null;
+  debitAccountId?: number | null;
 }
 
 export async function createAccountActivationRequest(
-  { accountId, reason }: CreateAccountActivationInput, user: Actor,
+  { accountId, reason, transactionChargeId = null, debitAccountId = null }: CreateAccountActivationInput,
+  user: Actor,
 ): Promise<{ no: string }> {
   if (!reason || !reason.trim()) throw new AppError('A reason is required to request activation', 'VALIDATION');
   await assertEligible(accountId);
+  await assertChargeAffordable(transactionChargeId, debitAccountId);
 
   const no = await nextSequence('ACCOUNT_ACTIVATION');
   await run(
-    `INSERT INTO account_activation_request (no, account_id, reason, created_at, created_by)
-     VALUES (?,?,?,?,?)`,
-    no, accountId, reason.trim(), new Date().toISOString(), user.username,
+    `INSERT INTO account_activation_request
+       (no, account_id, reason, transaction_charge_id, debit_account_id, created_at, created_by)
+     VALUES (?,?,?,?,?,?,?)`,
+    no, accountId, reason.trim(), transactionChargeId, debitAccountId, new Date().toISOString(), user.username,
   );
   await logTableChange(
     'account_activation_request', no, 'Insertion',
     [
       { field: 'account_id', oldValue: null, newValue: accountId },
       { field: 'reason', oldValue: null, newValue: reason.trim() },
+      { field: 'transaction_charge_id', oldValue: null, newValue: transactionChargeId },
+      { field: 'debit_account_id', oldValue: null, newValue: debitAccountId },
     ],
     user,
   );
   return { no };
 }
 
+export interface UpdateAccountActivationInput {
+  reason: string;
+  transactionChargeId?: number | null;
+  debitAccountId?: number | null;
+}
+
 export async function updateAccountActivationRequest(
-  no: string, reason: string, user: Actor,
+  no: string, { reason, transactionChargeId = null, debitAccountId = null }: UpdateAccountActivationInput, user: Actor,
 ): Promise<AccountActivationRequestWithDimensions> {
   if (!reason || !reason.trim()) throw new AppError('A reason is required', 'VALIDATION');
   const req = await one<AccountActivationRequest>('SELECT * FROM account_activation_request WHERE no = ?', no);
   if (!req) throw new AppError('Account activation request not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open request can be edited', 'VALIDATION');
+  await assertChargeAffordable(transactionChargeId, debitAccountId);
 
-  await run('UPDATE account_activation_request SET reason = ? WHERE no = ?', reason.trim(), no);
-  const changes = diffFields(req as unknown as Record<string, unknown>, { reason: reason.trim() });
+  const patch = { reason: reason.trim(), transaction_charge_id: transactionChargeId, debit_account_id: debitAccountId };
+  await run(
+    'UPDATE account_activation_request SET reason = ?, transaction_charge_id = ?, debit_account_id = ? WHERE no = ?',
+    patch.reason, patch.transaction_charge_id, patch.debit_account_id, no,
+  );
+  const changes = diffFields(req as unknown as Record<string, unknown>, patch);
   await logTableChange('account_activation_request', no, 'Modification', changes, user);
   return (await getAccountActivationRequest(no))!;
 }
@@ -201,6 +294,7 @@ export async function submitAccountActivationRequest(no: string, user: Actor): P
     throw new AppError('Only an open request can be submitted for approval', 'VALIDATION');
   }
   await assertEligible(req.account_id, no);
+  await assertChargeAffordable(req.transaction_charge_id, req.debit_account_id);
 
   const matched = await findMatchingWorkflow(
     'ACCOUNT_ACTIVATION', await pickConditionFields('ACCOUNT_ACTIVATION', req),
@@ -276,7 +370,10 @@ export async function rejectAccountActivationRequest(no: string, reason: string 
 
 /** Approved -> flips the target account back to ACTIVE; lib/savings.ts's deposit()/withdraw()
  *  accept postings against it again from that point on. Re-checks the account is still INACTIVE
- *  in case something else changed it after approval. */
+ *  in case something else changed it after approval. If a Transaction Charge is configured for
+ *  ACCOUNT_ACTIVATION (Admin Centre → Charges), the reactivation fee it resolves to is posted
+ *  and deducted from the account being reactivated — silently skipped when none is configured,
+ *  so activation stays free by default. */
 export async function processAccountActivationRequest(no: string, user: Actor): Promise<{ accountId: number }> {
   return tx(async () => {
     const req = await one<AccountActivationRequest>('SELECT * FROM account_activation_request WHERE no = ?', no);
@@ -284,13 +381,50 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
     if (req.status !== 'Approved') {
       throw new AppError('Only an approved request can be processed', 'VALIDATION');
     }
-    const account = await one<{ status: string }>('SELECT status FROM savings_account WHERE id = ?', req.account_id);
+    const account = await one<{ status: string; member_id: number }>(
+      'SELECT status, member_id FROM savings_account WHERE id = ?', req.account_id,
+    );
     if (!account) throw new AppError('Savings account not found', 'NOT_FOUND');
     if (account.status !== 'INACTIVE') {
       throw new AppError(`Account is no longer inactive (currently ${account.status}) — cannot activate`, 'VALIDATION');
     }
+    // Final gate: the tariff or the debit account's own balance may have moved since this
+    // request was created or submitted, so both are re-checked right before anything posts.
+    await assertChargeAffordable(req.transaction_charge_id, req.debit_account_id);
 
     await run("UPDATE savings_account SET status = 'ACTIVE' WHERE id = ?", req.account_id);
+
+    if (req.transaction_charge_id && req.debit_account_id) {
+      const debitAccount = await one<{ balance: number; account_no: string; gl_control_id: number }>(
+        `SELECT sa.balance, sa.account_no, p.gl_control_id
+         FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id WHERE sa.id = ?`,
+        req.debit_account_id,
+      );
+      if (!debitAccount) throw new AppError('Debit account not found', 'NOT_FOUND');
+
+      const charged = await postTransactionCharges({
+        transactionChargeId: req.transaction_charge_id, baseAmount: 0, debitAccountCode: debitAccount.gl_control_id,
+        valueDate: today(), module: 'SAVINGS', eventType: 'ACCOUNT_ACTIVATION',
+        memberId: account.member_id, description: `Reactivation fee — ${debitAccount.account_no}`, user,
+      });
+      if (charged) {
+        const total = charged.charges.reduce((sum, c) => sum + c.amount, 0);
+        const newBalance = debitAccount.balance - total;
+        await run(
+          'UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?',
+          newBalance, today(), req.debit_account_id,
+        );
+        await run(
+          `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
+             savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', 'FEE', account.member_id,
+          req.debit_account_id, -total, newBalance, 'SYSTEM', `Reactivation fee — ${debitAccount.account_no}`,
+          charged.journal.id, user.username,
+        );
+      }
+    }
+
     await run(
       `UPDATE account_activation_request
        SET status = 'Processed', processed_at = ?, processed_by = ? WHERE no = ?`,

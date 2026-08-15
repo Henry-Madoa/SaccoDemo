@@ -56,6 +56,25 @@ export function SearchInput({ paramName = 'q', placeholder, delay = 250 }: {
   );
 }
 
+/** Single date input bound to a query parameter, applied immediately on change —
+ *  no debounce, unlike SearchInput, since a date picker isn't typed character by character. */
+export function DateFilterInput({ paramName, label, placeholder }: {
+  paramName: string; label: string; placeholder?: string;
+}) {
+  const params = useSearchParams();
+  const { write } = useQueryWriter();
+
+  return (
+    <input
+      type="date"
+      aria-label={label}
+      placeholder={placeholder}
+      value={params.get(paramName) ?? ''}
+      onChange={(e) => write(paramName, e.target.value)}
+    />
+  );
+}
+
 /** Select bound to a query parameter, applied on change. */
 export function SelectFilter({ paramName, options, allLabel = 'All', label }: {
   paramName: string; options: SelectOption[]; allLabel?: string; label?: string;

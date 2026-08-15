@@ -90,7 +90,7 @@ const STATUS_TONE: Record<string, Tone> = {
   REJECTED: 'bad', REVERSED: 'bad', SUSPENDED: 'bad', FROZEN: 'bad', DOUBTFUL: 'bad', LOSS: 'bad',
   WRITTEN_OFF: 'bad', 'WRITTEN OFF': 'bad', EXITED: 'bad', DISABLED: 'bad', INACTIVE: 'bad',
   // "Document Status" values (e.g. member_application.status) are Title Case, not SCREAMING_CASE.
-  Open: 'ok', Approved: 'ok', Processed: 'ok', Fulfilled: 'ok', Cleared: 'ok', Received: 'ok',
+  Open: 'ok', Approved: 'ok', Processed: 'ok', Fulfilled: 'ok', Cleared: 'ok', Received: 'ok', Posted: 'ok',
   'Pending Approval': 'warn', 'Pending Prepayment': 'warn', Running: 'warn',
   Rejected: 'bad', Reversed: 'bad', Terminated: 'bad', Bounced: 'bad',
   Closed: '', Archived: '',

@@ -13,6 +13,7 @@ import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { listConfigPackages, listConfigPackageTables } from '@/lib/configPackages';
 import { listPostableAccounts } from '@/lib/gl';
+import { listCharges, listTransactionCharges, getTransactionCharge } from '@/lib/charges';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
   listDimensionValues, listActiveMemberCategories, listActiveCounties, listActiveDimensionValues,
@@ -49,6 +50,9 @@ import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
 import { ChangeLogSetupTable } from '../change-log-setup-table';
 import { ConfigPackageFormButton } from '../config-package-form';
 import { ConfigPackageCard, DeleteConfigPackageButton } from '../config-package-io';
+import { ChargeFormButton } from '../charge-form';
+import { TransactionChargeFormButton } from '../transaction-charge-form';
+import { CHARGE_TRANSACTION_TYPES } from '@/lib/constants';
 interface AdminTab extends TabDefinition {
   /** A tab shows up once the user can execute any one of these pages — Setup Pool
    *  merges the pages of everything nested under it. */
@@ -62,14 +66,15 @@ const TABS: AdminTab[] = [
   { key: 'company', label: 'Company Information', page: 'ADMIN_COMPANY' },
   { key: 'appearance', label: 'Appearance & Theme', page: 'ADMIN_APPEARANCE' },
   { key: 'products', label: 'Sacco Products', page: ['ADMIN_PRODUCTS_SAVINGS', 'ADMIN_PRODUCTS_LOANS'] },
+  { key: 'charges', label: 'Charges', page: ['ADMIN_CHARGES_MASTER', 'ADMIN_CHARGES_TRANSACTION'] },
   { key: 'pool', label: 'Setup Pool', page: ['ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES', 'ADMIN_POOL_DIMENSIONS'] },
   {
     key: 'workflows', label: 'Workflow Management',
-    page: ['ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_WORKFLOWS_TABLES'],
+    page: ['ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_TABLES'],
   },
   {
     key: 'security', label: 'System Security',
-    page: ['ADMIN_USERS', 'ADMIN_ROLES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
+    page: ['ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
   },
   { key: 'data', label: 'Data Management', page: 'ADMIN_DATA' },
 ];
@@ -78,6 +83,12 @@ const TABS: AdminTab[] = [
 const PRODUCTS_TABS: AdminTab[] = [
   { key: 'savings', label: 'Savings Products', page: 'ADMIN_PRODUCTS_SAVINGS' },
   { key: 'loans', label: 'Loan Products', page: 'ADMIN_PRODUCTS_LOANS' },
+];
+
+/** Charges' own sub-navigation. */
+const CHARGES_TABS: AdminTab[] = [
+  { key: 'master', label: 'Charge Codes', page: 'ADMIN_CHARGES_MASTER' },
+  { key: 'transaction', label: 'Transaction Charges', page: 'ADMIN_CHARGES_TRANSACTION' },
 ];
 
 /** Setup Pool's own sub-navigation — each entry is its own page rather than one long scroll. */
@@ -91,13 +102,13 @@ const POOL_TABS: AdminTab[] = [
 const WORKFLOW_TABS: AdminTab[] = [
   { key: 'definitions', label: 'Workflows', page: 'ADMIN_WORKFLOWS_DEFINITIONS' },
   { key: 'groups', label: 'Approval User Groups', page: 'ADMIN_WORKFLOWS_GROUPS' },
-  { key: 'setup', label: 'Approval User Setup', page: 'ADMIN_WORKFLOWS_SETUP' },
   { key: 'tables', label: 'Table Relations', page: 'ADMIN_WORKFLOWS_TABLES' },
 ];
 
 /** System Security's own sub-navigation. */
 const SECURITY_TABS: AdminTab[] = [
   { key: 'users', label: 'Users', page: 'ADMIN_USERS' },
+  { key: 'setup', label: 'User Setup', page: 'ADMIN_WORKFLOWS_SETUP' },
   { key: 'roles', label: 'Permission Sets', page: 'ADMIN_ROLES' },
   { key: 'audit', label: 'Audit Trail', page: 'ADMIN_AUDIT' },
   { key: 'changelog', label: 'Change Log Management', page: 'ADMIN_CHANGELOG' },
@@ -135,6 +146,12 @@ export default async function AdminPage({ params, searchParams }: {
   const productsTab = tab === 'products' && productsAllowed.some((t) => t.key === productsSub)
     ? productsSub! : productsAllowed[0]?.key;
 
+  const chargesAllowed = CHARGES_TABS.filter((t) => hasTabAccess(user, t));
+  const chargesSub = segments?.[1];
+  if (tab === 'charges' && chargesSub && !CHARGES_TABS.some((t) => t.key === chargesSub)) notFound();
+  const chargesTab = tab === 'charges' && chargesAllowed.some((t) => t.key === chargesSub)
+    ? chargesSub! : chargesAllowed[0]?.key;
+
   const poolAllowed = POOL_TABS.filter((t) => hasTabAccess(user, t));
   const poolSub = segments?.[1];
   if (tab === 'pool' && poolSub && !POOL_TABS.some((t) => t.key === poolSub)) notFound();
@@ -164,6 +181,13 @@ export default async function AdminPage({ params, searchParams }: {
           {productsTab === 'loans' ? <LoanProductsTab /> : null}
         </>
       ) : null}
+      {tab === 'charges' ? (
+        <>
+          <Tabs tabs={chargesAllowed} active={chargesTab} hrefFor={(k) => `/admin/charges/${k}`} />
+          {chargesTab === 'master' ? <ChargesMasterTab /> : null}
+          {chargesTab === 'transaction' ? <TransactionChargesTab /> : null}
+        </>
+      ) : null}
       {tab === 'pool' ? (
         <>
           <Tabs tabs={poolAllowed} active={poolTab} hrefFor={(k) => `/admin/pool/${k}`} />
@@ -177,7 +201,6 @@ export default async function AdminPage({ params, searchParams }: {
           <Tabs tabs={workflowAllowed} active={workflowTab} hrefFor={(k) => `/admin/workflows/${k}`} />
           {workflowTab === 'definitions' ? <WorkflowsTab /> : null}
           {workflowTab === 'groups' ? <WorkflowGroupsTab /> : null}
-          {workflowTab === 'setup' ? <ApprovalUserSetupTab /> : null}
           {workflowTab === 'tables' ? <TableRelationsTab /> : null}
         </>
       ) : null}
@@ -185,6 +208,7 @@ export default async function AdminPage({ params, searchParams }: {
         <>
           <Tabs tabs={securityAllowed} active={securityTab} hrefFor={(k) => `/admin/security/${k}`} />
           {securityTab === 'users' ? <UsersTab /> : null}
+          {securityTab === 'setup' ? <ApprovalUserSetupTab /> : null}
           {securityTab === 'roles' ? <RolesTab /> : null}
           {securityTab === 'audit' ? <AuditTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
           {securityTab === 'changelog' ? <ChangeLogTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
@@ -378,6 +402,101 @@ async function LoanProductsTab() {
             ))}
           </tbody>
         </TableWrap>
+      </Card>
+    </>
+  );
+}
+
+async function ChargesMasterTab() {
+  const charges = await listCharges();
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <ChargeFormButton>Add charge</ChargeFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead title="Charge codes" sub="Reusable fee codes a transaction charge's components pick from" />
+        {charges.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Code</th><th>Description</th><th>Status</th><th className="num" /></tr>
+            </thead>
+            <tbody>
+              {charges.map((c) => (
+                <tr key={c.id}>
+                  <td className="mono">{c.code}</td>
+                  <td>{c.description}</td>
+                  <td><Pill status={c.status} /></td>
+                  <td className="num">
+                    <ChargeFormButton charge={c} className="btn sm ghost">Edit</ChargeFormButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="💳" title="No charges yet" />}
+      </Card>
+    </>
+  );
+}
+
+async function TransactionChargesTab() {
+  const [charges, accounts, list] = await Promise.all([
+    listCharges(), listPostableAccounts(), listTransactionCharges(),
+  ]);
+  const details = await Promise.all(list.map((t) => getTransactionCharge(t.id)));
+  const typeLabel = (t: string): string => CHARGE_TRANSACTION_TYPES.find((o) => o.value === t)?.label ?? t;
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <TransactionChargeFormButton charges={charges} accounts={accounts}>
+          Add transaction charge
+        </TransactionChargeFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Transaction charges"
+          sub="One configured charge per transaction type — its components run in priority order when that transaction fires"
+        />
+        {list.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Description</th><th>Transaction type</th>
+                <th className="num">Components</th><th>Status</th><th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((t, i) => {
+                const detail = details[i];
+                return (
+                  <tr key={t.id}>
+                    <td className="mono">{t.code}</td>
+                    <td>{t.description}</td>
+                    <td>{typeLabel(t.transaction_type)}</td>
+                    <td className="num">{detail?.components.length ?? 0}</td>
+                    <td><Pill status={t.status} /></td>
+                    <td className="num">
+                      {detail ? (
+                        <TransactionChargeFormButton
+                          transactionCharge={detail} charges={charges} accounts={accounts} className="btn sm ghost"
+                        >
+                          Edit
+                        </TransactionChargeFormButton>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TableWrap>
+        ) : (
+          <EmptyState icon="💳" title="No transaction charges yet" sub="Configure one to charge a fee when that transaction type happens" />
+        )}
       </Card>
     </>
   );
@@ -661,7 +780,7 @@ async function ApprovalUserSetupTab() {
 
   return (
     <Card>
-      <CardHead title="Approval user setup" sub="Who approves each user's requests, their substitute, and fallback approval administrators" />
+      <CardHead title="User setup" sub="Who approves each user's requests, their substitute, and fallback approval administrators" />
       <TableWrap>
         <thead>
           <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th className="num" /></tr>

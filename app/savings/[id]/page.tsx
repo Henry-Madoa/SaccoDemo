@@ -9,19 +9,25 @@ import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { DateFilterInput } from '@/components/ui/filters';
+import { ExportButton } from '@/components/ui/export-button';
 import { Money } from '@/components/ui/money';
 import { PrintButton } from '@/components/ui/print-button';
 import { CardNav } from '@/components/ui/card-nav';
 import { TxnButton, type TxnAccount } from '../txn-form';
 import { ReverseButton } from './reverse-button';
 
-export default async function SavingsAccountPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SavingsAccountPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
   const user = await requireAction('SAVINGS_READ');
   const { id } = await params;
+  const { from, to } = await searchParams;
 
   let data;
   try {
-    data = await statement(Number(id));
+    data = await statement(Number(id), from || undefined, to || undefined);
   } catch {
     notFound();
   }
@@ -49,6 +55,7 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
     running += t.amount;
     return { txn: t, running };
   });
+  const closing = rows.length ? rows[rows.length - 1].running : opening;
 
   return (
     <>
@@ -125,6 +132,14 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
           title="Statement of account"
           sub={`${org!.name} · ${a.first_name} ${a.last_name} (${a.member_no}) · account ${a.account_no}`}
         />
+        <Toolbar>
+          <DateFilterInput paramName="from" label="From" placeholder="From" />
+          <DateFilterInput paramName="to" label="To" placeholder="To" />
+          <Spacer />
+          <ExportButton
+            href="/api/export/savings-statement" params={{ id: String(a.id), from, to }} disabled={!lines.length}
+          />
+        </Toolbar>
         {lines.length ? (
           <TableWrap>
             <thead>
@@ -170,7 +185,7 @@ export default async function SavingsAccountPage({ params }: { params: Promise<{
             <tfoot>
               <tr>
                 <td colSpan={6}>Closing balance</td>
-                <td className="num"><Money cents={a.balance} symbol={false} /></td>
+                <td className="num"><Money cents={closing} symbol={false} /></td>
                 <td />
               </tr>
             </tfoot>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Modal } from '@/components/ui/modal';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
@@ -8,9 +9,12 @@ import { DefinitionList, EmptyState, Pill, TableWrap } from '@/components/ui/pri
 import { useFormat } from '@/components/ui/format-provider';
 import { fetchAccountLedger, fetchJournal, reverseJournal } from '@/app/actions/gl';
 import { NATURAL_DEBIT_TYPES } from '@/lib/constants';
+import { parseFilters } from '@/lib/listFilters';
 import type { AccountLedger, JournalDetail } from '@/lib/gl';
 
-/** Clickable trial-balance row that opens the account's ledger. */
+/** Clickable balance that opens the account's ledger — drills through the exact same As Of
+ *  date and Global Dimension filters currently applied to the Trial Balance / Chart of
+ *  Accounts screen, so the entries shown always reconcile to the figure that was clicked. */
 export function LedgerLink({ code, children }: { code: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
@@ -23,18 +27,25 @@ export function LedgerLink({ code, children }: { code: string; children: React.R
 
 function LedgerModal({ code, onClose }: { code: string; onClose: () => void }) {
   const { cur, fdate } = useFormat();
+  const params = useSearchParams();
+  const asOf = params.get('asOf') || undefined;
+  const filters = parseFilters(params.get('filters'));
   const [data, setData] = useState<AccountLedger | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchAccountLedger(code).then((res) => {
+    fetchAccountLedger(code, { asOf, filters }).then((res) => {
       if (res.ok) setData(res.data);
       else setError(res.error);
     });
-  }, [code]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, asOf, params.get('filters')]);
 
   const title = data ? `${data.account.code} — ${data.account.name}` : `Account ${code}`;
   const naturalDebit = data ? NATURAL_DEBIT_TYPES.includes(data.account.type) : true;
+  const filtered = Boolean(asOf) || filters.some((f) => (
+    f.field === 'global_dimension_1_id' || f.field === 'global_dimension_2_id'
+  ) && f.value !== '');
   let running = 0;
 
   return (
@@ -46,6 +57,7 @@ function LedgerModal({ code, onClose }: { code: string; onClose: () => void }) {
         <>
           <div className="card-sub" style={{ marginBottom: 'calc(var(--sp)*2)' }}>
             {data.account.type} · balance {cur(data.balance)}
+            {filtered ? <> · <Pill tone="info">FILTERED{asOf ? ` AS OF ${fdate(asOf)}` : ''}</Pill></> : null}
           </div>
           {data.lines.length ? (
             <TableWrap>
