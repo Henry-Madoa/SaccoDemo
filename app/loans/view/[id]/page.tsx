@@ -98,13 +98,14 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const actNeedle = actQ.trim().toLowerCase();
   const ACTIVITY_SORT_KEYS: Record<string, (t: typeof transactions[number]) => string | number> = {
     txn_ref: (t) => t.txn_ref,
+    document_no: (t) => t.document_no || '',
     value_date: (t) => t.value_date,
     txn_type: (t) => t.txn_type,
     description: (t) => t.description || '',
     amount: (t) => t.amount,
   };
   const displayTransactions = transactions
-    .filter((t) => !actNeedle || [t.txn_ref, t.description, t.txn_type]
+    .filter((t) => !actNeedle || [t.txn_ref, t.document_no, t.description, t.txn_type]
       .some((v) => (v || '').toLowerCase().includes(actNeedle)))
     .sort((a, b) => {
       const get = actSort && ACTIVITY_SORT_KEYS[actSort.field];
@@ -293,12 +294,13 @@ export default async function LoanDetailPage({ params, searchParams }: {
             {transactions.length ? (
               <>
                 <Toolbar>
-                  <SearchInput paramName="actQ" placeholder="Find entries — reference, description or type…" />
+                  <SearchInput paramName="actQ" placeholder="Find entries — reference, document no., description or type…" />
                 </Toolbar>
                 <TableWrap>
                   <thead>
                     <tr>
                       <th><SortLink sortKey="txn_ref" paramName="actSort">Reference</SortLink></th>
+                      <th><SortLink sortKey="document_no" paramName="actSort">Document No.</SortLink></th>
                       <th><SortLink sortKey="value_date" paramName="actSort">Date</SortLink></th>
                       <th><SortLink sortKey="txn_type" paramName="actSort">Type</SortLink></th>
                       <th><SortLink sortKey="description" paramName="actSort">Description</SortLink></th>
@@ -308,12 +310,13 @@ export default async function LoanDetailPage({ params, searchParams }: {
                   <tbody>
                     {displayTransactions.length ? displayTransactions.map((t) => (
                       <tr key={t.id}>
+                        <td className="mono">{t.txn_ref}</td>
                         <td className="mono">
                           {t.journal_id ? (
                             <JournalLink id={t.journal_id} canReverse={false} caption1={caption1} caption2={caption2}>
-                              {t.txn_ref}
+                              {t.document_no || '—'}
                             </JournalLink>
-                          ) : t.txn_ref}
+                          ) : (t.document_no || '—')}
                         </td>
                         <td>{formatDate(t.value_date)}</td>
                         <td><Pill status={t.txn_type} /></td>
@@ -321,7 +324,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
                         <td className="num"><Money cents={t.amount} /></td>
                       </tr>
                     )) : (
-                      <tr><td colSpan={5}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                      <tr><td colSpan={6}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
                     )}
                   </tbody>
                 </TableWrap>

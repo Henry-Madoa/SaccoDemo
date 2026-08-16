@@ -12,7 +12,7 @@ import { buildOrderClause, type SortState } from './listSort.ts';
 import { SAVINGS_ACCOUNT_STATUSES, SAVINGS_CATEGORIES } from './constants.ts';
 import type {
   Actor, Cents, Channel, IsoDate, JournalLineInput, Member,
-  SavingsAccountFull, SavingsAccountListRow, SavingsProduct, Statement, Txn,
+  SavingsAccountFull, SavingsAccountListRow, SavingsProduct, Statement, Txn, TxnWithDocument,
 } from './types.ts';
 
 export const CHANNEL_GL: Record<Channel, string> = {
@@ -379,11 +379,12 @@ export async function statement(accountId: number, from?: IsoDate, to?: IsoDate)
   const account = await getAccount(accountId);
   if (!account) throw new PostingError('Account not found', 'NOT_FOUND');
   const [lines, prior] = await Promise.all([
-    all<Txn>(
-      `SELECT * FROM txn WHERE savings_account_id = ?
-         AND value_date >= COALESCE(?, '0000-01-01')
-         AND value_date <= COALESCE(?, '9999-12-31')
-       ORDER BY id`,
+    all<TxnWithDocument>(
+      `SELECT t.*, j.reference AS document_no FROM txn t LEFT JOIN journal j ON j.id = t.journal_id
+       WHERE t.savings_account_id = ?
+         AND t.value_date >= COALESCE(?, '0000-01-01')
+         AND t.value_date <= COALESCE(?, '9999-12-31')
+       ORDER BY t.id`,
       accountId, from || null, to || null,
     ),
     one<{ s: Cents }>(

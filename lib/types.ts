@@ -971,6 +971,7 @@ export interface PostedJournal {
 
 export interface LedgerLine extends JournalLine {
   journal_no: string;
+  reference: string | null;
   value_date: IsoDate;
   description: string | null;
   source_module: string;
@@ -1212,7 +1213,7 @@ export interface SavingsAccountListRow extends SavingsAccountWithProduct {
 export interface Statement {
   account: SavingsAccountFull;
   opening: Cents;
-  lines: Txn[];
+  lines: TxnWithDocument[];
 }
 
 /* ------------------------------------------------------------------- loans */
@@ -1367,7 +1368,7 @@ export interface LoanDetail {
   loan: LoanFull;
   schedule: LoanScheduleRow[];
   guarantors: GuarantorRow[];
-  transactions: Txn[];
+  transactions: TxnWithDocument[];
 }
 
 export interface AppraisalFactor {
@@ -1418,6 +1419,14 @@ export interface TxnWithMember extends Txn {
   member_no: string | null;
   first_name: string | null;
   last_name: string | null;
+}
+
+/** A txn carrying its posted journal's Document No. (`journal.reference` — the source
+ *  document's own number: Member Charging's/Account Activation's `no`, a loan's `loan_no`, ...)
+ *  — what a Statement of Account / Loan account activity list shows and searches by, distinct
+ *  from `txn_ref`, which is this txn's own internally-generated reference. */
+export interface TxnWithDocument extends Txn {
+  document_no: string | null;
 }
 
 /** A txn row shown as a Vendor (savings) or Customer (loan) Ledger Entry — Business Central

@@ -70,13 +70,14 @@ export default async function SavingsAccountPage({ params, searchParams }: {
   const STATEMENT_SORT_KEYS: Record<string, (r: typeof rows[number]) => string | number> = {
     value_date: (r) => r.txn.value_date,
     txn_ref: (r) => r.txn.txn_ref,
+    document_no: (r) => r.txn.document_no || '',
     description: (r) => r.txn.description || '',
     channel: (r) => r.txn.channel,
     amount: (r) => r.txn.amount,
     balance: (r) => r.running,
   };
   const displayRows = rows
-    .filter(({ txn: t }) => !needle || [t.txn_ref, t.description, t.channel]
+    .filter(({ txn: t }) => !needle || [t.txn_ref, t.document_no, t.description, t.channel]
       .some((v) => (v || '').toLowerCase().includes(needle)))
     .sort((a, b) => {
       const get = sort && STATEMENT_SORT_KEYS[sort.field];
@@ -161,7 +162,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
           sub={`${org!.name} · ${a.first_name} ${a.last_name} (${a.member_no}) · account ${a.account_no}`}
         />
         <Toolbar>
-          <SearchInput placeholder="Find entries — reference, description or channel…" disabled={empty} />
+          <SearchInput placeholder="Find entries — reference, document no., description or channel…" disabled={empty} />
           <DateFilterInput paramName="from" label="From" placeholder="From" disabled={empty} />
           <DateFilterInput paramName="to" label="To" placeholder="To" disabled={empty} />
           <Spacer />
@@ -175,6 +176,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
               <tr>
                 <th><SortLink sortKey="value_date">Date</SortLink></th>
                 <th><SortLink sortKey="txn_ref">Reference</SortLink></th>
+                <th><SortLink sortKey="document_no">Document No.</SortLink></th>
                 <th><SortLink sortKey="description">Description</SortLink></th>
                 <th><SortLink sortKey="channel">Channel</SortLink></th>
                 <th className="num"><SortLink sortKey="amount">Debit</SortLink></th>
@@ -184,7 +186,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
             </thead>
             <tbody>
               <tr>
-                <td colSpan={6}><i>Opening balance</i></td>
+                <td colSpan={7}><i>Opening balance</i></td>
                 <td className="num"><b><Money cents={opening} symbol={false} /></b></td>
                 <td />
               </tr>
@@ -193,12 +195,13 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                 return (
                   <tr key={t.id} className={reversed ? 'muted' : undefined}>
                     <td>{formatDate(t.value_date)}</td>
+                    <td className="mono">{t.txn_ref}</td>
                     <td className="mono">
                       {t.journal_id ? (
                         <JournalLink id={t.journal_id} canReverse={false} caption1={caption1} caption2={caption2}>
-                          {t.txn_ref}
+                          {t.document_no || '—'}
                         </JournalLink>
-                      ) : t.txn_ref}
+                      ) : (t.document_no || '—')}
                     </td>
                     <td>
                       {t.description || ''}
@@ -220,12 +223,12 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                   </tr>
                 );
               }) : (
-                <tr><td colSpan={8}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                <tr><td colSpan={9}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
               )}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={6}>Closing balance</td>
+                <td colSpan={7}>Closing balance</td>
                 <td className="num"><Money cents={closing} symbol={false} /></td>
                 <td />
               </tr>

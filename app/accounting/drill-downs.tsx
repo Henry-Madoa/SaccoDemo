@@ -88,6 +88,7 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
   const LEDGER_SORT_KEYS: Record<string, (r: typeof lines[number]) => string | number> = {
     value_date: (r) => r.l.value_date,
     journal_no: (r) => r.l.journal_no,
+    reference: (r) => r.l.reference || '',
     description: (r) => r.l.narration || r.l.description || '',
     source_module: (r) => r.l.source_module,
     debit: (r) => r.l.debit,
@@ -95,7 +96,7 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
     balance: (r) => r.running,
   };
   const displayLines = lines
-    .filter(({ l }) => !needle || [l.journal_no, l.narration, l.description, l.source_module]
+    .filter(({ l }) => !needle || [l.journal_no, l.reference, l.narration, l.description, l.source_module]
       .some((v) => (v || '').toLowerCase().includes(needle)))
     .sort((a, b) => {
       const get = sort && LEDGER_SORT_KEYS[sort.field];
@@ -131,6 +132,7 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
                   <tr>
                     <th><LocalSortHeader label="Date" sortKey="value_date" sort={sort} onSort={onSort} /></th>
                     <th><LocalSortHeader label="Journal" sortKey="journal_no" sort={sort} onSort={onSort} /></th>
+                    <th><LocalSortHeader label="Document No." sortKey="reference" sort={sort} onSort={onSort} /></th>
                     <th><LocalSortHeader label="Description" sortKey="description" sort={sort} onSort={onSort} /></th>
                     <th><LocalSortHeader label="Source" sortKey="source_module" sort={sort} onSort={onSort} /></th>
                     <th className="num"><LocalSortHeader label="Debit" sortKey="debit" sort={sort} onSort={onSort} /></th>
@@ -147,6 +149,7 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
                           {l.journal_no}
                         </button>
                       </td>
+                      <td className="mono muted-cell">{l.reference || '—'}</td>
                       <td>{l.narration || l.description || ''}</td>
                       <td>{l.source_module}</td>
                       <td className="num">{l.debit ? cur(l.debit, { showSymbol: false }) : ''}</td>
@@ -154,7 +157,7 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
                       <td className="num">{cur(bal, { showSymbol: false })}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={7}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                    <tr><td colSpan={8}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
                   )}
                 </tbody>
               </TableWrap>

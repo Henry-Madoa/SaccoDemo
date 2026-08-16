@@ -17,7 +17,7 @@ import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
 import type {
   Actor, Appraisal, AppraisalFactor, Cents, Channel, GuarantorRow, IsoDate, JournalLineInput,
   LoanDetail, LoanFull, LoanListRow, LoanProduct, LoanScheduleRow, Member,
-  SavingsAccount, Txn,
+  SavingsAccount, Txn, TxnWithDocument,
 } from './types.ts';
 
 const today = (): IsoDate => new Date().toISOString().slice(0, 10);
@@ -144,7 +144,11 @@ export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
        FROM loan_guarantor g JOIN member m ON m.id = g.member_id WHERE g.loan_id = ?`,
       id,
     ),
-    all<Txn>('SELECT * FROM txn WHERE loan_id = ? ORDER BY id DESC', id),
+    all<TxnWithDocument>(
+      `SELECT t.*, j.reference AS document_no FROM txn t LEFT JOIN journal j ON j.id = t.journal_id
+       WHERE t.loan_id = ? ORDER BY t.id DESC`,
+      id,
+    ),
   ]);
   return { loan, schedule, guarantors, transactions };
 }

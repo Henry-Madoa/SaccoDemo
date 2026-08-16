@@ -270,7 +270,7 @@ export async function getAccountLedger(code: string, { asOf, filters = [] }: Acc
 
   const [lines, tb] = await Promise.all([
     all<LedgerLine>(
-      `SELECT jl.*, j.journal_no, j.value_date, j.description, j.source_module
+      `SELECT jl.*, j.journal_no, j.reference, j.value_date, j.description, j.source_module
        FROM journal_line jl JOIN journal j ON j.id = jl.journal_id
        WHERE jl.gl_account_id = @id
          AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
