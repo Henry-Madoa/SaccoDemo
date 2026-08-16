@@ -8,6 +8,7 @@ import { listAttachments } from '@/lib/attachments';
 import { isConfigured } from '@/lib/cloudinary';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { parseSort } from '@/lib/listSort';
+import { getDimensionCaptions } from '@/lib/org';
 import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
@@ -17,6 +18,7 @@ import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { JournalLink } from '@/app/accounting/drill-downs';
 import { SubmitButton, DecideButtons, DisburseButton, RepayButton } from './loan-actions';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
@@ -33,12 +35,14 @@ export default async function LoanDetailPage({ params, searchParams }: {
   if (!detail) notFound();
 
   const { loan: l, schedule, guarantors, transactions } = detail;
-  const [canApprove, canDisburse, canRepay, canCreate, attachments, tasks, { prevId, nextId }] = await Promise.all([
-    currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
-    currentCanAction('LOAN_CREATE'), listAttachments('loan', l.id),
-    listWorkflowTasksForDocument('LOAN', String(l.id)),
-    getAdjacentLoanIds(l.id, tab ? LOAN_TAB_STATUS[tab] : undefined),
-  ]);
+  const [canApprove, canDisburse, canRepay, canCreate, attachments, tasks, { prevId, nextId }, { caption1, caption2 }] =
+    await Promise.all([
+      currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
+      currentCanAction('LOAN_CREATE'), listAttachments('loan', l.id),
+      listWorkflowTasksForDocument('LOAN', String(l.id)),
+      getAdjacentLoanIds(l.id, tab ? LOAN_TAB_STATUS[tab] : undefined),
+      getDimensionCaptions(),
+    ]);
 
   // Send for approval is only offered to whoever captured this loan — unless they can also
   // approve loans, in which case only their own drafts (an approver editing someone else's
@@ -304,7 +308,13 @@ export default async function LoanDetailPage({ params, searchParams }: {
                   <tbody>
                     {displayTransactions.length ? displayTransactions.map((t) => (
                       <tr key={t.id}>
-                        <td className="mono">{t.txn_ref}</td>
+                        <td className="mono">
+                          {t.journal_id ? (
+                            <JournalLink id={t.journal_id} canReverse={false} caption1={caption1} caption2={caption2}>
+                              {t.txn_ref}
+                            </JournalLink>
+                          ) : t.txn_ref}
+                        </td>
                         <td>{formatDate(t.value_date)}</td>
                         <td><Pill status={t.txn_type} /></td>
                         <td>{t.description || ''}</td>

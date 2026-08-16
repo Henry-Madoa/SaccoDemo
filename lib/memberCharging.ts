@@ -341,7 +341,7 @@ export async function postMemberCharging(no: string, user: Actor): Promise<{ jou
       transactionChargeId: req.transaction_charge_id, baseAmount: pagesBaseAmount(req.no_of_pages),
       debitAccountCode: sourceAccount.gl_control_id, valueDate: today(), module: 'SAVINGS', eventType: 'MEMBER_CHARGE',
       memberId: req.member_id, description: req.description || `Member charge — ${sourceAccount.account_no}`,
-      user, idempotencyKey: `MEMBER_CHARGING-${no}`,
+      reference: no, user, idempotencyKey: `MEMBER_CHARGING-${no}`,
     });
     if (!posted) {
       throw new AppError('This Charge Code does not resolve to a chargeable amount — check its configuration', 'VALIDATION');

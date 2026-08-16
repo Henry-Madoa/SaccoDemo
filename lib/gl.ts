@@ -78,6 +78,7 @@ export const JOURNAL_FILTER_FIELDS: FilterFieldDef[] = [
 /** Journals list's sortable columns — every column shown in the table. */
 const JOURNAL_SORT_COLUMNS: Record<string, string> = {
   journal_no: 'j.journal_no',
+  reference: 'j.reference',
   value_date: 'j.value_date',
   source_module: 'j.source_module',
   event_type: 'j.event_type',

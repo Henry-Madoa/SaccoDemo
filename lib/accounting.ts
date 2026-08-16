@@ -115,13 +115,19 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
 
   const journalNo = await nextSequence('JOURNAL');
   const now = new Date().toISOString();
+  // Document No. convention: a caller with its own source document (Member Charging, Account
+  // Activation, a loan disbursement/repayment, ...) always passes its own document number as
+  // `reference` — that's what should trace a G/L Entry back to where it came from. Only a
+  // manual G/L journal has no such document, so it's the one case this falls back to the
+  // journal's own auto-generated number instead of staying blank.
+  const effectiveReference = reference ?? (sourceModule === 'GL' && eventType === 'MANUAL' ? journalNo : null);
   const info = await run(
     `INSERT INTO journal (journal_no, value_date, posted_at, source_module, event_type,
       description, reference, member_id, amount, posted_by, idempotency_key,
       global_dimension_1_id, global_dimension_2_id)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     journalNo, valueDate, now, sourceModule, eventType,
-    description || null, reference, memberId, totalDebit,
+    description || null, effectiveReference, memberId, totalDebit,
     user ? user.username : 'system', idempotencyKey,
     headerGd1, headerGd2,
   );

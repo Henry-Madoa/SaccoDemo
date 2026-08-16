@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { statement, getAdjacentAccountIds, hasAnyTxns } from '@/lib/savings';
-import { getOrgBrand } from '@/lib/org';
+import { getOrgBrand, getDimensionCaptions } from '@/lib/org';
 import { formatDate } from '@/lib/format';
 import { imageSrc } from '@/lib/cloudinary';
 import { parseSort } from '@/lib/listSort';
@@ -15,6 +15,7 @@ import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { JournalLink } from '@/app/accounting/drill-downs';
 import { TxnButton, type TxnAccount } from '../txn-form';
 import { ReverseButton } from './reverse-button';
 
@@ -35,12 +36,15 @@ export default async function SavingsAccountPage({ params, searchParams }: {
   }
 
   const { account: a, opening, lines } = data;
-  const [org, empty, canDeposit, canWithdraw, canReverse, canDeactivate, canActivate, { prevId, nextId }] = await Promise.all([
+  const [
+    org, empty, canDeposit, canWithdraw, canReverse, canDeactivate, canActivate, { prevId, nextId }, { caption1, caption2 },
+  ] = await Promise.all([
     getOrgBrand(),
     hasAnyTxns(a.id).then((any) => !any),
     currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'), currentCanAction('SAVINGS_REVERSE'),
     currentCanAction('ACCOUNT_DEACTIVATION_CREATE'), currentCanAction('ACCOUNT_ACTIVATION_CREATE'),
     getAdjacentAccountIds(a.id),
+    getDimensionCaptions(),
   ]);
 
   const available = a.balance - a.hold_amount - a.min_balance;
@@ -189,7 +193,13 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                 return (
                   <tr key={t.id} className={reversed ? 'muted' : undefined}>
                     <td>{formatDate(t.value_date)}</td>
-                    <td className="mono">{t.txn_ref}</td>
+                    <td className="mono">
+                      {t.journal_id ? (
+                        <JournalLink id={t.journal_id} canReverse={false} caption1={caption1} caption2={caption2}>
+                          {t.txn_ref}
+                        </JournalLink>
+                      ) : t.txn_ref}
+                    </td>
                     <td>
                       {t.description || ''}
                       {reversed ? <> <Pill tone="bad">REVERSED</Pill></> : null}

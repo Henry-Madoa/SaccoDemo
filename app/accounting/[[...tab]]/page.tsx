@@ -184,6 +184,7 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
             <thead>
               <tr>
                 <th><SortLink sortKey="journal_no">Journal</SortLink></th>
+                <th><SortLink sortKey="reference">Document No.</SortLink></th>
                 <th><SortLink sortKey="value_date">Value date</SortLink></th>
                 <th><SortLink sortKey="source_module">Source</SortLink></th>
                 <th><SortLink sortKey="event_type">Event</SortLink></th>
@@ -203,6 +204,7 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
                       {j.journal_no}
                     </JournalLink>
                   </td>
+                  <td className="mono muted-cell">{j.reference || '—'}</td>
                   <td>{formatDate(j.value_date)}</td>
                   <td>{j.source_module}</td>
                   <td><Pill status={j.event_type} /></td>

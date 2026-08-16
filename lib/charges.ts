@@ -342,6 +342,10 @@ export interface PostTransactionChargesInput {
   eventType?: string;
   memberId?: number | null;
   description?: string;
+  /** The caller's own source document number (e.g. Member Charging's or Account Activation's
+   *  `no`) — carried straight through to the journal's `reference`, so the G/L Entry always
+   *  traces back to the document that caused it. */
+  reference?: string | null;
   user: Actor;
   /** Passed straight through to postJournal — lets a caller with its own natural document key
    *  (e.g. Member Charging's own No.) guarantee a retried post can never create a second
@@ -360,7 +364,7 @@ export interface PostTransactionChargesInput {
  */
 export async function postTransactionCharges({
   transactionChargeId, transactionType, baseAmount, debitAccountCode, valueDate, module: sourceModule = 'GL',
-  eventType, memberId = null, description, user, idempotencyKey = null,
+  eventType, memberId = null, description, reference = null, user, idempotencyKey = null,
 }: PostTransactionChargesInput): Promise<{ journal: PostedJournal; charges: CalculatedCharge[] } | null> {
   const charges = transactionChargeId != null
     ? await previewTransactionChargeById(transactionChargeId, baseAmount)
@@ -375,7 +379,7 @@ export async function postTransactionCharges({
   ];
   const journal = await postJournal({
     valueDate, module: sourceModule, eventType: eventType || label,
-    description: description || `${label} charge`, memberId, user, lines, idempotencyKey,
+    description: description || `${label} charge`, reference, memberId, user, lines, idempotencyKey,
   });
   await audit(user, 'TRANSACTION_CHARGE_POST', 'transaction_charge', transactionChargeId ?? label, {
     total, charges: charges.map((c) => c.chargeCode),

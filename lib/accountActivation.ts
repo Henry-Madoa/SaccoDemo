@@ -416,7 +416,8 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
       const charged = await postTransactionCharges({
         transactionChargeId: req.transaction_charge_id, baseAmount: 0, debitAccountCode: debitAccount.gl_control_id,
         valueDate: today(), module: 'SAVINGS', eventType: 'ACCOUNT_ACTIVATION',
-        memberId: account.member_id, description: `Reactivation fee — ${debitAccount.account_no}`, user,
+        memberId: account.member_id, description: `Reactivation fee — ${debitAccount.account_no}`,
+        reference: no, user,
       });
       if (charged) {
         feeJournalId = charged.journal.id;
