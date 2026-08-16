@@ -37,6 +37,9 @@ export function ApprovalUserSetupFormButton({ row, users, className = 'btn', chi
           <Field name="is_approval_administrator" label="Approval Administrator"
             type="checkbox" defaultValue={row.is_approval_administrator}
             hint="Fallback approver when a &quot;Requester's approver&quot; step can't resolve one" />
+          <Field name="can_reverse_journal" label="Can Reverse Journal"
+            type="checkbox" defaultValue={row.can_reverse_journal}
+            hint="Required to reverse a posted GL journal, on top of the General Ledger role permission" />
         </FormModal>
       ) : null}
     </>

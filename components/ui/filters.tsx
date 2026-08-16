@@ -26,8 +26,8 @@ export function useQueryWriter() {
 }
 
 /** Debounced free-text filter bound to a query parameter. */
-export function SearchInput({ paramName = 'q', placeholder, delay = 250 }: {
-  paramName?: string; placeholder?: string; delay?: number;
+export function SearchInput({ paramName = 'q', placeholder, delay = 250, disabled }: {
+  paramName?: string; placeholder?: string; delay?: number; disabled?: boolean;
 }) {
   const params = useSearchParams();
   const { write } = useQueryWriter();
@@ -46,6 +46,7 @@ export function SearchInput({ paramName = 'q', placeholder, delay = 250 }: {
       value={value}
       placeholder={placeholder}
       aria-label={placeholder}
+      disabled={disabled}
       onChange={(e) => {
         const next = e.target.value;
         setValue(next);
@@ -58,8 +59,8 @@ export function SearchInput({ paramName = 'q', placeholder, delay = 250 }: {
 
 /** Single date input bound to a query parameter, applied immediately on change —
  *  no debounce, unlike SearchInput, since a date picker isn't typed character by character. */
-export function DateFilterInput({ paramName, label, placeholder }: {
-  paramName: string; label: string; placeholder?: string;
+export function DateFilterInput({ paramName, label, placeholder, disabled }: {
+  paramName: string; label: string; placeholder?: string; disabled?: boolean;
 }) {
   const params = useSearchParams();
   const { write } = useQueryWriter();
@@ -70,14 +71,15 @@ export function DateFilterInput({ paramName, label, placeholder }: {
       aria-label={label}
       placeholder={placeholder}
       value={params.get(paramName) ?? ''}
+      disabled={disabled}
       onChange={(e) => write(paramName, e.target.value)}
     />
   );
 }
 
 /** Select bound to a query parameter, applied on change. */
-export function SelectFilter({ paramName, options, allLabel = 'All', label }: {
-  paramName: string; options: SelectOption[]; allLabel?: string; label?: string;
+export function SelectFilter({ paramName, options, allLabel = 'All', label, disabled }: {
+  paramName: string; options: SelectOption[]; allLabel?: string; label?: string; disabled?: boolean;
 }) {
   const params = useSearchParams();
   const { write } = useQueryWriter();
@@ -86,6 +88,7 @@ export function SelectFilter({ paramName, options, allLabel = 'All', label }: {
     <select
       aria-label={label || allLabel}
       value={params.get(paramName) ?? ''}
+      disabled={disabled}
       onChange={(e) => write(paramName, e.target.value)}
     >
       <option value="">{allLabel}</option>

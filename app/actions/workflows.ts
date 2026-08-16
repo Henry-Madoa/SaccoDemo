@@ -101,6 +101,7 @@ export async function saveApprovalUserSetupRow(
       approver_id: Number(values.approver_id) || null,
       substitute_id: Number(values.substitute_id) || null,
       is_approval_administrator: Number(values.is_approval_administrator) ? 1 : 0,
+      can_reverse_journal: Number(values.can_reverse_journal) ? 1 : 0,
     }, user);
     revalidatePath('/admin/workflows');
     return { updated: true };

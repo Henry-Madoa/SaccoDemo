@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listLoans, LOAN_FILTER_FIELDS, LOAN_TAB_STATUS } from '@/lib/loanService';
+import {
+  listLoans, hasAnyLoans, LOAN_FILTER_FIELDS, LOAN_TAB_STATUS,
+} from '@/lib/loanService';
 import { listActiveLoanProducts } from '@/lib/admin';
 import { listActiveMembers } from '@/lib/members';
 import { parseFilters } from '@/lib/listFilters';
@@ -55,8 +57,9 @@ export default async function LoansPage({ params, searchParams }: {
   const tabStatus = LOAN_TAB_STATUS[tab];
   const effectiveFilters = tabStatus ? [...filters, { field: 'status', operator: '=' as const, value: tabStatus }] : filters;
   const sort = parseSort(sortRaw);
-  const [rows, canCreate, members, products] = await Promise.all([
+  const [rows, empty, canCreate, members, products] = await Promise.all([
     listLoans({ search: q, filters: effectiveFilters, sort }),
+    hasAnyLoans(tabStatus).then((any) => !any),
     currentCanAction('LOAN_CREATE'),
     listActiveMembers(),
     listActiveLoanProducts(),
@@ -76,8 +79,8 @@ export default async function LoansPage({ params, searchParams }: {
     <Page title="Loans" crumb="Origination, appraisal, disbursement and collection" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => (k === 'all' ? '/loans' : `/loans/${k}`)} />
       <Toolbar>
-        <SearchInput placeholder="Search loan number, member number or name…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search loan number, member number or name…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/loans" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         <AgingButton />

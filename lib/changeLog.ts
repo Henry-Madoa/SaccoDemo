@@ -1,4 +1,4 @@
-import { one, all, run } from './db.ts';
+import { one, all, run, hasAnyRow } from './db.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type { Actor, ChangeLogEntry, ChangeLogSetup, ChangeLogType } from './types.ts';
@@ -176,3 +176,7 @@ export const listChangeLogEntries = (
     { like: `%${String(search).trim()}%`, ...params },
   );
 };
+
+/** Whether the change log has any entries at all, ignoring search and dynamic filters — lets
+ *  the page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyChangeLogEntries = (): Promise<boolean> => hasAnyRow('change_log_entry');

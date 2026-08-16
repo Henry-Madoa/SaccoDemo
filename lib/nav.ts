@@ -34,6 +34,7 @@ export const NAV: NavGroup[] = [
       { path: '/account-openings', label: 'Account Opening', icon: '🏦', page: 'ACCOUNT_OPENING' },
       { path: '/account-deactivations', label: 'Account Deactivation', icon: '🚫', page: 'ACCOUNT_DEACTIVATION' },
       { path: '/account-activations', label: 'Account Activation', icon: '✅', page: 'ACCOUNT_ACTIVATION' },
+      { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
     ],
   },
   {
@@ -46,7 +47,6 @@ export const NAV: NavGroup[] = [
     group:'FOSA',
     items:[
       { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
-      { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
     ],
   },
   {

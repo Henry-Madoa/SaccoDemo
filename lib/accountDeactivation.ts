@@ -7,7 +7,9 @@
  * processAccountDeactivationRequest() runs on an Approved request. Once INACTIVE, lib/savings.ts's
  * deposit() and withdraw() both refuse to post against the account.
  */
-import { one, all, run, tx, nextSequence } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
@@ -85,6 +87,11 @@ export const listAccountDeactivationRequests = (
 
 export const getAccountDeactivationRequest = (no: string): Promise<AccountDeactivationRequestWithDimensions | undefined> =>
   one<AccountDeactivationRequestWithDimensions>(`${SELECT_REQUEST} WHERE d.no = ?`, no);
+
+/** Whether the current view tab has any requests at all, ignoring search and dynamic filters —
+ *  lets the page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyAccountDeactivationRequests = (view?: AccountDeactivationView): Promise<boolean> =>
+  hasAnyRow('account_deactivation_request d', view ? VIEW_CLAUSE[view] : undefined);
 
 /** The request immediately before/after this one by number — for the card's
  *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record

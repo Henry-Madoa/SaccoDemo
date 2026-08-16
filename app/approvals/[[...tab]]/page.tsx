@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
 import {
   listMyWorkflowTasks, listMyDecidedWorkflowTasks, listMySubmittedWorkflowTasks,
+  myPendingWorkflowTaskCount, hasAnyDecidedWorkflowTasks, hasAnySubmittedWorkflowTasks,
   WORKFLOW_TASK_FILTER_FIELDS,
 } from '@/lib/workflow';
 import { parseFilters } from '@/lib/listFilters';
@@ -48,11 +49,20 @@ export default async function ApprovalsPage({ params, searchParams }: {
   const tab = (requested ?? 'open') as ApprovalsTab;
 
   const options = { search: q, filters, sort };
-  const rows = tab === 'history'
-    ? await listMyDecidedWorkflowTasks(user.username, options)
+  const [rows, empty] = tab === 'history'
+    ? await Promise.all([
+      listMyDecidedWorkflowTasks(user.username, options),
+      hasAnyDecidedWorkflowTasks(user.username).then((any) => !any),
+    ])
     : tab === 'sent'
-      ? await listMySubmittedWorkflowTasks(user.username, options)
-      : await listMyWorkflowTasks(user.id, user.username, options);
+      ? await Promise.all([
+        listMySubmittedWorkflowTasks(user.username, options),
+        hasAnySubmittedWorkflowTasks(user.username).then((any) => !any),
+      ])
+      : await Promise.all([
+        listMyWorkflowTasks(user.id, user.username, options),
+        myPendingWorkflowTaskCount(user.id, user.username).then((c) => c === 0),
+      ]);
 
   const showDecision = tab !== 'open';
 
@@ -64,8 +74,8 @@ export default async function ApprovalsPage({ params, searchParams }: {
     >
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => (k === 'open' ? '/approvals' : `/approvals/${k}`)} />
       <Toolbar>
-        <SearchInput placeholder="Search document no., requested by, decided by…" />
-        <DynamicFilterBar fields={WORKFLOW_TASK_FILTER_FIELDS} />
+        <SearchInput placeholder="Search document no., requested by, decided by…" disabled={empty} />
+        <DynamicFilterBar fields={WORKFLOW_TASK_FILTER_FIELDS} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/approvals" params={{ q, tab, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>

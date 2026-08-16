@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listAccounts, SAVINGS_ACCOUNT_FILTER_FIELDS } from '@/lib/savings';
+import { listAccounts, hasAnyAccounts, SAVINGS_ACCOUNT_FILTER_FIELDS } from '@/lib/savings';
 import { listActiveSavingsProducts } from '@/lib/admin';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
@@ -20,8 +20,10 @@ export default async function SavingsPage({ searchParams }: {
   const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, canDeposit, canWithdraw, products] = await Promise.all([
-    listAccounts({ search: q, filters, sort }), currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'),
+  const [rows, empty, canDeposit, canWithdraw, products] = await Promise.all([
+    listAccounts({ search: q, filters, sort }),
+    hasAnyAccounts().then((any) => !any),
+    currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'),
     listActiveSavingsProducts(),
   ]);
   const fields = SAVINGS_ACCOUNT_FILTER_FIELDS.map((f) => (
@@ -33,8 +35,8 @@ export default async function SavingsPage({ searchParams }: {
   return (
     <Page title="Savings & FOSA" crumb="Member deposit accounts and teller operations" user={user}>
       <Toolbar>
-        <SearchInput placeholder="Search account number, member number or name…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search account number, member number or name…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/savings" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>

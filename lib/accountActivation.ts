@@ -6,7 +6,9 @@
  * (flips it back to ACTIVE) once processAccountActivationRequest() runs on an Approved request.
  * Once ACTIVE again, lib/savings.ts's deposit() and withdraw() both accept postings against it.
  */
-import { one, all, run, tx, nextSequence } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
@@ -107,6 +109,11 @@ export async function getAccountActivationRequest(no: string): Promise<AccountAc
   const req = await one<AccountActivationRequestWithDimensions>(`${SELECT_REQUEST} WHERE a.no = ?`, no);
   return req ? withChargeAmount(req) : undefined;
 }
+
+/** Whether the current view tab has any requests at all, ignoring search and dynamic filters —
+ *  lets the page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyAccountActivationRequests = (view?: AccountActivationView): Promise<boolean> =>
+  hasAnyRow('account_activation_request a', view ? VIEW_CLAUSE[view] : undefined);
 
 /** The request immediately before/after this one by number — for the card's
  *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record

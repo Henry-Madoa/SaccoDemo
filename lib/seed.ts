@@ -218,12 +218,22 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
 
   // A "Requester's approver" workflow step falls back to whoever is flagged an
   // Approval Administrator when the requester has no approver configured —
-  // give a new install a working fallback out of the box.
+  // give a new install a working fallback out of the box. Also grants admin the new
+  // Can Reverse Journal setup, since — like is_approval_administrator — it's an explicit
+  // per-user grant that even the System Administrator role doesn't bypass.
   const adminId = await one<{ id: number }>('SELECT id FROM app_user WHERE username = ?', 'admin');
   if (adminId) {
     await run(
-      'INSERT INTO approval_user_setup (user_id, is_approval_administrator) VALUES (?,1)', adminId.id,
+      'INSERT INTO approval_user_setup (user_id, is_approval_administrator, can_reverse_journal) VALUES (?,1,1)',
+      adminId.id,
     );
+  }
+
+  // Finance Officer is the seeded role that actually carries GL_JOURNAL_REVERSE — grant the
+  // demo "finance" login the per-user setup too, so it can reverse a journal out of the box.
+  const financeId = await one<{ id: number }>('SELECT id FROM app_user WHERE username = ?', 'finance');
+  if (financeId) {
+    await run('INSERT INTO approval_user_setup (user_id, can_reverse_journal) VALUES (?,1)', financeId.id);
   }
 
   // accounting periods (25 months back through 2 ahead, all open)

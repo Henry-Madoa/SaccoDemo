@@ -126,6 +126,7 @@ model approval_user_setup {
   approver_id               Int?
   substitute_id             Int?
   is_approval_administrator Int      @default(0)
+  can_reverse_journal       Int      @default(0)
   user                      app_user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([is_approval_administrator], map: "ix_approval_admin")

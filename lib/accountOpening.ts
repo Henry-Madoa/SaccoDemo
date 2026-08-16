@@ -10,7 +10,9 @@
  * done afterwards through the ordinary Savings & FOSA deposit flow (lib/savings.ts deposit()),
  * not captured here.
  */
-import { one, all, run, tx, nextSequence } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
@@ -96,6 +98,11 @@ export const listAccountOpeningRequests = (
 
 export const getAccountOpeningRequest = (no: string): Promise<AccountOpeningRequestWithDimensions | undefined> =>
   one<AccountOpeningRequestWithDimensions>(`${SELECT_REQUEST} WHERE a.no = ?`, no);
+
+/** Whether the current view tab has any requests at all, ignoring search and dynamic filters —
+ *  lets the page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyAccountOpeningRequests = (view?: AccountOpeningView): Promise<boolean> =>
+  hasAnyRow('account_opening_request a', view ? VIEW_CLAUSE[view] : undefined);
 
 /** The request immediately before/after this one by number — for the card's
  *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record

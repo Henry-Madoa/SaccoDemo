@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listMemberApplications, APPLICATION_FILTER_FIELDS, type MemberApplicationView } from '@/lib/memberApplications';
+import {
+  listMemberApplications, hasAnyMemberApplications, APPLICATION_FILTER_FIELDS, type MemberApplicationView,
+} from '@/lib/memberApplications';
 import { listActiveMemberCategories, listActiveCounties, listActiveSubCounties, listActiveDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
 import { parseFilters } from '@/lib/listFilters';
@@ -39,9 +41,10 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as MemberApplicationView;
 
-  const [applications, canCreate, canApprove, categories, counties, subCounties, gd1Values, gd2Values, { caption1, caption2 }] =
+  const [applications, empty, canCreate, canApprove, categories, counties, subCounties, gd1Values, gd2Values, { caption1, caption2 }] =
     await Promise.all([
       listMemberApplications({ view: tab, search: q, filters, sort }),
+      hasAnyMemberApplications(tab).then((any) => !any),
       currentCanAction('MEMBER_APPLICATIONS_CREATE'), currentCanAction('MEMBER_APPLICATIONS_APPROVE'),
       listActiveMemberCategories(), listActiveCounties(), listActiveSubCounties(),
       listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
@@ -59,8 +62,8 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
     <Page title="Member Applications" crumb="Staged memberships, from capture through to approval" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/member-applications/${k}`} />
       <Toolbar>
-        <SearchInput placeholder="Search name, national ID or application no.…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search name, national ID or application no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/member-applications" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!applications.length} />
         {canCreate ? <Link href="/member-applications/new" className="btn">New application</Link> : null}

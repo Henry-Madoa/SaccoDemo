@@ -15,7 +15,9 @@
  * ratePerPage*pages. That is the "map it explicitly" the source documentation calls for — no
  * new tariff formula invented, no engine change.
  */
-import { one, all, run, tx, nextSequence } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { getTransactionCharge, calculateTransactionCharges, postTransactionCharges } from './charges.ts';
@@ -108,6 +110,12 @@ export async function getMemberCharging(no: string): Promise<MemberChargingWithD
   const row = await one<MemberChargingWithDimensions>(`${SELECT_ROW} WHERE mc.no = ?`, no);
   return row ? withSourceBalance(row) : undefined;
 }
+
+/** Whether the current view tab has any charging documents at all, ignoring search and dynamic
+ *  filters — lets the page grey out its filter controls only when there's truly nothing to
+ *  filter. */
+export const hasAnyMemberChargings = (view?: MemberChargingView): Promise<boolean> =>
+  hasAnyRow('member_charging mc', view ? VIEW_CLAUSE[view] : undefined);
 
 /** The document immediately before/after this one by number — the same Business-Central-style
  *  Previous/Next navigation as lib/accountActivation.ts's getAdjacentAccountActivationNos(). */

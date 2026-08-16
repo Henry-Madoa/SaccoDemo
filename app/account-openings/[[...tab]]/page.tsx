@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listAccountOpeningRequests, ACCOUNT_OPENING_FILTER_FIELDS, type AccountOpeningView } from '@/lib/accountOpening';
+import {
+  listAccountOpeningRequests, hasAnyAccountOpeningRequests, ACCOUNT_OPENING_FILTER_FIELDS, type AccountOpeningView,
+} from '@/lib/accountOpening';
 import { listActiveMembers } from '@/lib/members';
 import { listActiveSavingsProducts } from '@/lib/admin';
 import { parseFilters } from '@/lib/listFilters';
@@ -39,8 +41,9 @@ export default async function AccountOpeningsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as AccountOpeningView;
 
-  const [requests, canCreate, canApprove, members, products] = await Promise.all([
+  const [requests, empty, canCreate, canApprove, members, products] = await Promise.all([
     listAccountOpeningRequests({ view: tab, search: q, filters, sort }),
+    hasAnyAccountOpeningRequests(tab).then((any) => !any),
     currentCanAction('ACCOUNT_OPENING_CREATE'), currentCanAction('ACCOUNT_OPENING_APPROVE'),
     listActiveMembers(), listActiveSavingsProducts(),
   ]);
@@ -54,8 +57,8 @@ export default async function AccountOpeningsPage({ params, searchParams }: {
     <Page title="Account Opening" crumb="Additional savings accounts, from request through to approval" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/account-openings/${k}`} />
       <Toolbar>
-        <SearchInput placeholder="Search member name, no. or request no.…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search member name, no. or request no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/account-openings" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!requests.length} />
         {canCreate ? (

@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  listAccountDeactivationRequests, ACCOUNT_DEACTIVATION_FILTER_FIELDS, type AccountDeactivationView,
+  listAccountDeactivationRequests, hasAnyAccountDeactivationRequests, ACCOUNT_DEACTIVATION_FILTER_FIELDS,
+  type AccountDeactivationView,
 } from '@/lib/accountDeactivation';
 import { listActiveMembers } from '@/lib/members';
 import { parseFilters } from '@/lib/listFilters';
@@ -40,8 +41,9 @@ export default async function AccountDeactivationsPage({ params, searchParams }:
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as AccountDeactivationView;
 
-  const [requests, canCreate, canApprove, members] = await Promise.all([
+  const [requests, empty, canCreate, canApprove, members] = await Promise.all([
     listAccountDeactivationRequests({ view: tab, search: q, filters, sort }),
+    hasAnyAccountDeactivationRequests(tab).then((any) => !any),
     currentCanAction('ACCOUNT_DEACTIVATION_CREATE'), currentCanAction('ACCOUNT_DEACTIVATION_APPROVE'),
     listActiveMembers(),
   ]);
@@ -54,8 +56,8 @@ export default async function AccountDeactivationsPage({ params, searchParams }:
     <Page title="Account Deactivation" crumb="Deactivating existing non-default savings accounts, from request through to approval" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/account-deactivations/${k}`} />
       <Toolbar>
-        <SearchInput placeholder="Search member name, no., account no. or request no.…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search member name, no., account no. or request no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/account-deactivations" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!requests.length} />
         {canCreate ? (

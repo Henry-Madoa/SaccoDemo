@@ -1,4 +1,6 @@
-import { one, all, run, tx, audit } from './db.ts';
+import {
+  one, all, run, tx, audit, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { hashPassword } from './auth.ts';
 import { requireAction } from './session.ts';
@@ -311,4 +313,12 @@ export async function listAuditLog(
      ${orderBy} LIMIT @limit`,
     { like: `%${String(search).trim()}%`, limit: Math.min(limit, 500), ...params },
   );
+}
+
+/** Whether the audit trail has any entries at all, ignoring search and dynamic filters — lets
+ *  the page grey out its filter controls only when there's truly nothing to filter. Gated the
+ *  same as listAuditLog(). */
+export async function hasAnyAuditLog(): Promise<boolean> {
+  await requireAction('ADMIN_AUDIT_VIEW');
+  return hasAnyRow('audit_log');
 }

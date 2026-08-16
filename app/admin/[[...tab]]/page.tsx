@@ -3,11 +3,12 @@ import { requireUser } from '@/lib/session';
 import { canPage, PAGES } from '@/lib/permissions';
 import { getOrg, getTheme, themePresets, TOKEN_GROUPS } from '@/lib/org';
 import {
-  listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog, AUDIT_FILTER_FIELDS,
+  listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog, hasAnyAuditLog, AUDIT_FILTER_FIELDS,
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
 import {
-  listChangeLogSetup, listChangeLogEntries, listAvailableChangeLogTables, CHANGE_LOG_FILTER_FIELDS,
+  listChangeLogSetup, listChangeLogEntries, hasAnyChangeLogEntries, listAvailableChangeLogTables,
+  CHANGE_LOG_FILTER_FIELDS,
 } from '@/lib/changeLog';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
@@ -783,7 +784,7 @@ async function ApprovalUserSetupTab() {
       <CardHead title="User setup" sub="Who approves each user's requests, their substitute, and fallback approval administrators" />
       <TableWrap>
         <thead>
-          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th className="num" /></tr>
+          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th className="num" /></tr>
         </thead>
         <tbody>
           {rows.map((r) => (
@@ -792,6 +793,7 @@ async function ApprovalUserSetupTab() {
               <td>{r.approver_name || '—'}</td>
               <td>{r.substitute_name || '—'}</td>
               <td>{r.is_approval_administrator ? <Pill tone="info">YES</Pill> : '—'}</td>
+              <td>{r.can_reverse_journal ? <Pill tone="info">YES</Pill> : '—'}</td>
               <td className="num">
                 <ApprovalUserSetupFormButton row={r} users={rows} className="btn sm ghost">Edit</ApprovalUserSetupFormButton>
               </td>
@@ -806,13 +808,16 @@ async function ApprovalUserSetupTab() {
 async function AuditTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const rows = await listAuditLog({ search, filters, sort });
+  const [rows, empty] = await Promise.all([
+    listAuditLog({ search, filters, sort }),
+    hasAnyAuditLog().then((any) => !any),
+  ]);
 
   return (
     <>
       <Toolbar>
-        <SearchInput placeholder="Filter by user, action or entity…" />
-        <DynamicFilterBar fields={AUDIT_FILTER_FIELDS} />
+        <SearchInput placeholder="Filter by user, action or entity…" disabled={empty} />
+        <DynamicFilterBar fields={AUDIT_FILTER_FIELDS} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/audit" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>
@@ -857,8 +862,10 @@ async function AuditTab({ search, filtersRaw, sortRaw }: { search: string; filte
 async function ChangeLogTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [setup, entries, available] = await Promise.all([
-    listChangeLogSetup(), listChangeLogEntries({ search, filters, sort }), listAvailableChangeLogTables(),
+  const [setup, entries, empty, available] = await Promise.all([
+    listChangeLogSetup(), listChangeLogEntries({ search, filters, sort }),
+    hasAnyChangeLogEntries().then((any) => !any),
+    listAvailableChangeLogTables(),
   ]);
   const fields = CHANGE_LOG_FILTER_FIELDS.map((f) => (
     f.key === 'table_name' ? { ...f, options: setup.map((s) => ({ value: s.table_name, label: s.table_caption })) } : f
@@ -872,8 +879,8 @@ async function ChangeLogTab({ search, filtersRaw, sortRaw }: { search: string; f
       </Card>
 
       <Toolbar>
-        <SearchInput placeholder="Filter by record, field or user…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Filter by record, field or user…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/change-log" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!entries.length} />
       </Toolbar>

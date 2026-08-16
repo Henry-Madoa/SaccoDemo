@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { statement, getAdjacentAccountIds } from '@/lib/savings';
+import { statement, getAdjacentAccountIds, hasAnyTxns } from '@/lib/savings';
 import { getOrgBrand } from '@/lib/org';
 import { formatDate } from '@/lib/format';
 import { imageSrc } from '@/lib/cloudinary';
@@ -33,8 +33,9 @@ export default async function SavingsAccountPage({ params, searchParams }: {
   }
 
   const { account: a, opening, lines } = data;
-  const [org, canDeposit, canWithdraw, canReverse, canDeactivate, canActivate, { prevId, nextId }] = await Promise.all([
+  const [org, empty, canDeposit, canWithdraw, canReverse, canDeactivate, canActivate, { prevId, nextId }] = await Promise.all([
     getOrgBrand(),
+    hasAnyTxns(a.id).then((any) => !any),
     currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'), currentCanAction('SAVINGS_REVERSE'),
     currentCanAction('ACCOUNT_DEACTIVATION_CREATE'), currentCanAction('ACCOUNT_ACTIVATION_CREATE'),
     getAdjacentAccountIds(a.id),
@@ -133,8 +134,8 @@ export default async function SavingsAccountPage({ params, searchParams }: {
           sub={`${org!.name} · ${a.first_name} ${a.last_name} (${a.member_no}) · account ${a.account_no}`}
         />
         <Toolbar>
-          <DateFilterInput paramName="from" label="From" placeholder="From" />
-          <DateFilterInput paramName="to" label="To" placeholder="To" />
+          <DateFilterInput paramName="from" label="From" placeholder="From" disabled={empty} />
+          <DateFilterInput paramName="to" label="To" placeholder="To" disabled={empty} />
           <Spacer />
           <ExportButton
             href="/api/export/savings-statement" params={{ id: String(a.id), from, to }} disabled={!lines.length}

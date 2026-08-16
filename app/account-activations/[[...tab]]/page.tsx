@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  listAccountActivationRequests, ACCOUNT_ACTIVATION_FILTER_FIELDS, type AccountActivationView,
+  listAccountActivationRequests, hasAnyAccountActivationRequests, ACCOUNT_ACTIVATION_FILTER_FIELDS,
+  type AccountActivationView,
 } from '@/lib/accountActivation';
 import { listActiveMembers } from '@/lib/members';
 import { parseFilters } from '@/lib/listFilters';
@@ -40,8 +41,9 @@ export default async function AccountActivationsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as AccountActivationView;
 
-  const [requests, canCreate, canApprove, members] = await Promise.all([
+  const [requests, empty, canCreate, canApprove, members] = await Promise.all([
     listAccountActivationRequests({ view: tab, search: q, filters, sort }),
+    hasAnyAccountActivationRequests(tab).then((any) => !any),
     currentCanAction('ACCOUNT_ACTIVATION_CREATE'), currentCanAction('ACCOUNT_ACTIVATION_APPROVE'),
     listActiveMembers(),
   ]);
@@ -54,8 +56,8 @@ export default async function AccountActivationsPage({ params, searchParams }: {
     <Page title="Account Activation" crumb="Reactivating inactive savings accounts, from request through to approval" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/account-activations/${k}`} />
       <Toolbar>
-        <SearchInput placeholder="Search member name, no., account no. or request no.…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search member name, no., account no. or request no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/account-activations" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!requests.length} />
         {canCreate ? (

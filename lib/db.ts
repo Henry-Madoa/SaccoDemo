@@ -33,7 +33,19 @@ const globalForDb = globalThis as typeof globalThis & { __saccoPrisma?: PrismaCl
 function connect(): PrismaClient {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set — the application cannot reach its database.');
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+  return new PrismaClient({
+    adapter: new PrismaPg({
+      connectionString: url,
+      // node-postgres otherwise waits indefinitely: a connection that goes
+      // stale without a clean close (Neon's pooler reclaiming it, a laptop
+      // sleeping through a network change) leaves a query hanging forever
+      // instead of failing, wedging every request behind ensureSeeded().
+      query_timeout: 30_000,
+      statement_timeout: 30_000,
+      connectionTimeoutMillis: 10_000,
+      keepAlive: true,
+    }),
+  });
 }
 
 const db: PrismaClient = globalForDb.__saccoPrisma ?? (globalForDb.__saccoPrisma = connect());
@@ -127,6 +139,22 @@ export async function all<T>(sql: string, ...args: unknown[]): Promise<T[]> {
 
 export async function one<T>(sql: string, ...args: unknown[]): Promise<T | undefined> {
   return (await all<T>(sql, ...args))[0];
+}
+
+/**
+ * Whether `from` (e.g. `"member m"`) has any row matching `where`, ignoring search text and
+ * dynamic filters entirely — this is what tells a genuinely empty list apart from a search or
+ * filter that simply matched nothing, so a list page can grey out its filter controls only in
+ * the former case instead of trapping a user who searched a non-empty list into zero results.
+ * `where` takes this module's own `?`/`@name` placeholders, bound against `args` exactly like
+ * `all`/`one` — never interpolate a caller-supplied value straight into it.
+ */
+export async function hasAnyRow(from: string, where?: string, ...args: unknown[]): Promise<boolean> {
+  const row = await one<{ exists: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM ${from} ${where ? `WHERE ${where}` : ''}) AS "exists"`,
+    ...args,
+  );
+  return row?.exists ?? false;
 }
 
 export interface RunResult {

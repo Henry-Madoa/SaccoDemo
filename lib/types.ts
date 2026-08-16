@@ -1478,6 +1478,7 @@ export interface ApprovalUserSetup {
   approver_id: number | null;
   substitute_id: number | null;
   is_approval_administrator: Flag;
+  can_reverse_journal: Flag;
 }
 
 /** One row of the Approval User Setup grid — the user plus their configured setup, if any. */
@@ -1490,6 +1491,7 @@ export interface ApprovalUserSetupRow {
   substitute_id: number | null;
   substitute_name: string | null;
   is_approval_administrator: Flag;
+  can_reverse_journal: Flag;
 }
 
 export interface WorkflowTask {

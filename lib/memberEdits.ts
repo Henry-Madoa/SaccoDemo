@@ -1,4 +1,6 @@
-import { one, all, run, tx, nextSequence } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import {
   MEMBER_FIELDS, getMember, updateMember, type MemberField, type MemberInput,
@@ -149,6 +151,12 @@ export const listMemberEditRequests = (
 
 export const getMemberEditRequest = (no: string): Promise<MemberEditRequestWithDimensions | undefined> =>
   one<MemberEditRequestWithDimensions>(`${SELECT_EDIT_REQUEST} WHERE e.no = ?`, no);
+
+/** Whether the current view tab has any edit requests at all, ignoring search and dynamic
+ *  filters — lets the page grey out its filter controls only when there's truly nothing to
+ *  filter. */
+export const hasAnyMemberEditRequests = (view?: MemberEditView): Promise<boolean> =>
+  hasAnyRow('member_edit_request e', view ? VIEW_CLAUSE[view] : undefined);
 
 /** The edit request immediately before/after this one by number — for the card's
  *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record

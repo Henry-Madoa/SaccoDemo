@@ -1,4 +1,6 @@
-import { one, all, run, tx, nextSequence } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { createMember, type MemberInput } from './members.ts';
 import { listApplicationNextOfKin, listApplicationNominees } from './applicationNominees.ts';
@@ -137,6 +139,12 @@ export const listMemberApplications = (
 
 export const getMemberApplication = (no: string): Promise<MemberApplicationWithDimensions | undefined> =>
   one<MemberApplicationWithDimensions>(`${SELECT_APPLICATION} WHERE a.no = ?`, no);
+
+/** Whether the current view tab has any applications at all, ignoring search and dynamic
+ *  filters — lets the page grey out its filter controls only when there's truly nothing to
+ *  filter. */
+export const hasAnyMemberApplications = (view?: MemberApplicationView): Promise<boolean> =>
+  hasAnyRow('member_application a', view ? VIEW_CLAUSE[view] : undefined);
 
 /** The application immediately before/after this one by number — for the card's
  *  Business-Central-style Previous/Next navigation. Scoped to the same `view` tab the record

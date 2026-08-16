@@ -1,4 +1,6 @@
-import { one, all, run, nextSequence, audit } from './db.ts';
+import {
+  one, all, run, nextSequence, audit, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { loanableDeposits, existingExposure } from './loanService.ts';
 import { listNextOfKin, listNominees } from './nominees.ts';
@@ -130,6 +132,12 @@ export async function listMembers(
   );
   return { rows, total: rows.length ? rows[0].total_count : 0 };
 }
+
+/** Whether the current Status tab has any members at all, ignoring search and dynamic
+ *  filters — lets the page grey out its filter controls only when there's truly nothing to
+ *  filter, as opposed to a search/filter simply matching zero of an otherwise non-empty tab. */
+export const hasAnyMembers = (status: MemberStatus | null = null): Promise<boolean> =>
+  hasAnyRow('member m', status ? 'm.status = ?' : undefined, ...(status ? [status] : []));
 
 /** Members eligible to be picked in a loan application. */
 export const listActiveMembers = () =>

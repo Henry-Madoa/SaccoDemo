@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  listMemberChargings, MEMBER_CHARGING_FILTER_FIELDS, type MemberChargingView,
+  listMemberChargings, hasAnyMemberChargings, MEMBER_CHARGING_FILTER_FIELDS, type MemberChargingView,
 } from '@/lib/memberCharging';
 import { listActiveMembers } from '@/lib/members';
 import { parseFilters } from '@/lib/listFilters';
@@ -37,8 +37,9 @@ export default async function MemberChargingsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as MemberChargingView;
 
-  const [documents, canCreate, canPost, members] = await Promise.all([
+  const [documents, empty, canCreate, canPost, members] = await Promise.all([
     listMemberChargings({ view: tab, search: q, filters, sort }),
+    hasAnyMemberChargings(tab).then((any) => !any),
     currentCanAction('MEMBER_CHARGING_CREATE'), currentCanAction('MEMBER_CHARGING_POST'),
     listActiveMembers(),
   ]);
@@ -51,8 +52,8 @@ export default async function MemberChargingsPage({ params, searchParams }: {
     <Page title="Member Charging" crumb="Ad-hoc charges posted straight against a member's own withdrawable deposit account" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/member-chargings/${k}`} />
       <Toolbar>
-        <SearchInput placeholder="Search member name, no., account no. or document no.…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search member name, no., account no. or document no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/member-chargings" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!documents.length} />
         {canCreate ? (

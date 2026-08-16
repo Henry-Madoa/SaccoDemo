@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listMemberEditRequests, EDIT_FILTER_FIELDS, type MemberEditView } from '@/lib/memberEdits';
+import {
+  listMemberEditRequests, hasAnyMemberEditRequests, EDIT_FILTER_FIELDS, type MemberEditView,
+} from '@/lib/memberEdits';
 import { listActiveMembers } from '@/lib/members';
 import { listActiveMemberCategories, listActiveCounties, listActiveSubCounties, listActiveDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
@@ -40,9 +42,10 @@ export default async function MemberEditsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as MemberEditView;
 
-  const [requests, canUpdate, canApprove, members, categories, counties, subCounties, gd1Values, gd2Values, { caption1, caption2 }] =
+  const [requests, empty, canUpdate, canApprove, members, categories, counties, subCounties, gd1Values, gd2Values, { caption1, caption2 }] =
     await Promise.all([
       listMemberEditRequests({ view: tab, search: q, filters, sort }),
+      hasAnyMemberEditRequests(tab).then((any) => !any),
       currentCanAction('MEMBER_EDITS_UPDATE'), currentCanAction('MEMBER_EDITS_APPROVE'),
       listActiveMembers(),
       listActiveMemberCategories(), listActiveCounties(), listActiveSubCounties(),
@@ -61,8 +64,8 @@ export default async function MemberEditsPage({ params, searchParams }: {
     <Page title="Member Edits" crumb="Staged changes to existing members, from capture through to approval" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/member-edits/${k}`} />
       <Toolbar>
-        <SearchInput placeholder="Search member name, no. or request no.…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search member name, no. or request no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/member-edits" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!requests.length} />
         {canUpdate ? <NewEditRequestButton members={members} /> : null}

@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  getTrialBalance, listJournals, listGlAccounts, listPeriods, listPostableAccounts, totalingBalance,
+  getTrialBalance, listJournals, hasAnyJournals, listGlAccounts, hasAnyGlAccounts, listPeriods, hasAnyPeriods,
+  listPostableAccounts, totalingBalance,
   JOURNAL_FILTER_FIELDS, GL_ACCOUNT_FILTER_FIELDS, TRIAL_BALANCE_FILTER_FIELDS, PERIOD_FILTER_FIELDS,
   GL_DIMENSION_FILTER_FIELDS,
 } from '@/lib/gl';
@@ -59,8 +60,9 @@ export default async function AccountingPage({ params, searchParams }: {
 
 async function TrialBalanceTab({ filtersRaw, asOf }: { filtersRaw?: string; asOf?: string }) {
   const filters = parseFilters(filtersRaw);
-  const [{ rows, totals, balanced }, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
+  const [{ rows, totals, balanced }, empty, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
     getTrialBalance({ asOf: asOf || null, filters }),
+    hasAnyGlAccounts().then((any) => !any),
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
   ]);
   const tbFields = TRIAL_BALANCE_FILTER_FIELDS.map((f) => (
@@ -72,8 +74,8 @@ async function TrialBalanceTab({ filtersRaw, asOf }: { filtersRaw?: string; asOf
   return (
     <>
       <Toolbar>
-        <DynamicFilterBar fields={tbFields} />
-        <DateFilterInput paramName="asOf" label="As of" placeholder="As of" />
+        <DynamicFilterBar fields={tbFields} disabled={empty} />
+        <DateFilterInput paramName="asOf" label="As of" placeholder="As of" disabled={empty} />
         <Spacer />
         <ExportButton
           href="/api/export/trial-balance" params={{ filters: filtersRaw, asOf }} disabled={!rows.length}
@@ -126,9 +128,10 @@ async function TrialBalanceTab({ filtersRaw, asOf }: { filtersRaw?: string; asOf
 async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, canCreate, canReverse, postableAccounts, gd1Values, gd2Values, { caption1, caption2 }] =
+  const [rows, empty, canCreate, canReverse, postableAccounts, gd1Values, gd2Values, { caption1, caption2 }] =
     await Promise.all([
       listJournals({ search, filters, sort }),
+      hasAnyJournals().then((any) => !any),
       currentCanAction('GL_JOURNAL_CREATE'), currentCanAction('GL_JOURNAL_REVERSE'),
       listPostableAccounts(),
       listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
@@ -142,8 +145,8 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
   return (
     <>
       <Toolbar>
-        <SearchInput placeholder="Search journal number, description or reference…" />
-        <DynamicFilterBar fields={journalFields} />
+        <SearchInput placeholder="Search journal number, description or reference…" disabled={empty} />
+        <DynamicFilterBar fields={journalFields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/journal" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         {canCreate ? (
@@ -213,8 +216,9 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
   // Global Dimension filters below — so the trial balance's own per-account aggregation is
   // reused here to get a balance that actually respects them (empty filters reproduce the
   // stored figure exactly, since that's how it's maintained on every posting).
-  const [rows, canManage, { rows: tbRows }, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
+  const [rows, empty, canManage, { rows: tbRows }, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
     listGlAccounts({ search, filters, sort }),
+    hasAnyGlAccounts().then((any) => !any),
     currentCanAction('GL_ACCOUNT_MANAGE'),
     getTrialBalance({ asOf: asOf || null, filters }),
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
@@ -242,9 +246,9 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
   return (
     <>
       <Toolbar>
-        <SearchInput placeholder="Search code or name…" />
-        <DynamicFilterBar fields={accountFields} />
-        <DateFilterInput paramName="asOf" label="As of" placeholder="As of" />
+        <SearchInput placeholder="Search code or name…" disabled={empty} />
+        <DynamicFilterBar fields={accountFields} disabled={empty} />
+        <DateFilterInput paramName="asOf" label="As of" placeholder="As of" disabled={empty} />
         <Spacer />
         <ExportButton
           href="/api/export/gl-accounts" params={{ q: search, filters: filtersRaw, sort: sortRaw, asOf }}
@@ -313,15 +317,17 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
 async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, canClose] = await Promise.all([
-    listPeriods({ search, filters, sort }), currentCanAction('GL_PERIOD_CLOSE'),
+  const [rows, empty, canClose] = await Promise.all([
+    listPeriods({ search, filters, sort }),
+    hasAnyPeriods().then((any) => !any),
+    currentCanAction('GL_PERIOD_CLOSE'),
   ]);
 
   return (
     <>
       <Toolbar>
-        <SearchInput placeholder="Search period…" />
-        <DynamicFilterBar fields={PERIOD_FILTER_FIELDS} />
+        <SearchInput placeholder="Search period…" disabled={empty} />
+        <DynamicFilterBar fields={PERIOD_FILTER_FIELDS} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/periods" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>

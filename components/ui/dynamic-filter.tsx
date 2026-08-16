@@ -21,12 +21,12 @@ const emptyRow = (fields: FilterFieldDef[]): FilterCondition => ({ field: fields
 
 const inputType = (type: FilterFieldDef['type']): string => (type === 'date' ? 'date' : type === 'number' ? 'number' : 'text');
 
-function ValueControl({ def, value, onChange, label }: {
-  def: FilterFieldDef | undefined; value: string; onChange: (v: string) => void; label: string;
+function ValueControl({ def, value, onChange, label, disabled }: {
+  def: FilterFieldDef | undefined; value: string; onChange: (v: string) => void; label: string; disabled?: boolean;
 }) {
   if (def?.type === 'select') {
     return (
-      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+      <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
         <option value="">Select…</option>
         {(def.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -34,7 +34,7 @@ function ValueControl({ def, value, onChange, label }: {
   }
   return (
     <input
-      type={inputType(def?.type ?? 'text')} aria-label={label} value={value}
+      type={inputType(def?.type ?? 'text')} aria-label={label} value={value} disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
     />
   );
@@ -49,9 +49,10 @@ function ValueControl({ def, value, onChange, label }: {
  * The whole row array is kept as one query param (JSON-encoded) rather than one param per
  * row/field, since the row count is open-ended.
  */
-export function DynamicFilterBar({ fields, paramName = 'filters' }: {
+export function DynamicFilterBar({ fields, paramName = 'filters', disabled }: {
   fields: FilterFieldDef[];
   paramName?: string;
+  disabled?: boolean;
 }) {
   const params = useSearchParams();
   const { write } = useQueryWriter();
@@ -87,13 +88,13 @@ export function DynamicFilterBar({ fields, paramName = 'filters' }: {
         return (
           <span key={i} className="inline" style={{ gap: 4 }}>
             <select
-              aria-label="Filter field" value={row.field}
+              aria-label="Filter field" value={row.field} disabled={disabled}
               onChange={(e) => updateRow(i, { field: e.target.value, operator: '=', value: '', value2: '' })}
             >
               {fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
             </select>
             <select
-              aria-label="Filter operator" value={row.operator}
+              aria-label="Filter operator" value={row.operator} disabled={disabled}
               onChange={(e) => updateRow(i, { operator: e.target.value as WorkflowConditionOperator })}
             >
               {CONDITION_OPERATORS.filter((o) => operators.includes(o.value)).map((o) => (
@@ -101,20 +102,23 @@ export function DynamicFilterBar({ fields, paramName = 'filters' }: {
               ))}
             </select>
             <ValueControl
-              def={def} value={row.value} label="Filter value"
+              def={def} value={row.value} label="Filter value" disabled={disabled}
               onChange={(v) => updateRow(i, { value: v }, def?.type === 'text')}
             />
             {row.operator === 'BETWEEN' ? (
               <ValueControl
-                def={def} value={row.value2 ?? ''} label="Filter value (upper bound)"
+                def={def} value={row.value2 ?? ''} label="Filter value (upper bound)" disabled={disabled}
                 onChange={(v) => updateRow(i, { value2: v }, def?.type === 'text')}
               />
             ) : null}
-            <button type="button" className="btn sm ghost" onClick={() => removeRow(i)} aria-label="Remove filter">×</button>
+            <button
+              type="button" className="btn sm ghost" onClick={() => removeRow(i)}
+              aria-label="Remove filter" disabled={disabled}
+            >×</button>
           </span>
         );
       })}
-      <button type="button" className="btn sm ghost" onClick={addRow}>+ Add filter</button>
+      <button type="button" className="btn sm ghost" onClick={addRow} disabled={disabled}>+ Add filter</button>
     </div>
   );
 }

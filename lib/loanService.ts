@@ -3,7 +3,9 @@
  * Per section 11 of the design: the loan module raises business events and the
  * posting engine writes the money. Loan balances are derived from those events.
  */
-import { one, all, run, tx, nextSequence, audit } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, audit, hasAnyRow,
+} from './db.ts';
 import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
 import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify } from './loans.ts';
@@ -44,6 +46,11 @@ export const LOAN_TAB_STATUS: Record<string, string | undefined> = {
   'written-off': 'WRITTEN OFF',
   archived: 'ARCHIVED',
 };
+
+/** Whether the current Status tab has any loans at all, ignoring search and dynamic filters —
+ *  lets the page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyLoans = (status?: string): Promise<boolean> =>
+  hasAnyRow('loan l', status ? 'l.status = ?' : undefined, ...(status ? [status] : []));
 
 /** The loan immediately before/after this one by id — for the card's Business-Central-style
  *  Previous/Next navigation. Scoped to `status` (a LOAN_TAB_STATUS value) when given, so paging

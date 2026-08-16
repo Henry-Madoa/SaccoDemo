@@ -10,7 +10,9 @@
  * back into them with a dynamic import, so the two directions of the reference
  * never form a real circular dependency at module-evaluation time.
  */
-import { one, all, run, tx, audit } from './db.ts';
+import {
+  one, all, run, tx, audit, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { sendMail, approvalRequestedEmail, approvalDecidedEmail } from './mailer.ts';
 import { notify } from './notifications.ts';
@@ -984,6 +986,17 @@ export async function myPendingWorkflowTaskCount(userId: number, username: strin
   return row?.c ?? 0;
 }
 
+/** Whether the History tab (everything I've personally decided) has any rows at all, ignoring
+ *  search and dynamic filters — lets the page grey out its filter controls only when there's
+ *  truly nothing to filter. Same scope as listMyDecidedWorkflowTasks(). */
+export const hasAnyDecidedWorkflowTasks = (username: string): Promise<boolean> =>
+  hasAnyRow('workflow_task t', "t.decided_by = ? AND t.status != 'PENDING' AND t.workflow_id IS NOT NULL", username);
+
+/** Whether the Sent tab (everything I've ever sent for approval) has any rows at all, ignoring
+ *  search and dynamic filters. Same scope as listMySubmittedWorkflowTasks(). */
+export const hasAnySubmittedWorkflowTasks = (username: string): Promise<boolean> =>
+  hasAnyRow('workflow_task t', 't.requested_by = ? AND t.workflow_id IS NOT NULL', username);
+
 /* ------------------------------------------------------------- admin: workflows */
 
 export interface WorkflowInput {
@@ -1169,7 +1182,8 @@ export const listApprovalUserSetup = (): Promise<ApprovalUserSetupRow[]> =>
     `SELECT u.id AS user_id, u.username, u.full_name,
             s.approver_id, a.full_name AS approver_name,
             s.substitute_id, sub.full_name AS substitute_name,
-            COALESCE(s.is_approval_administrator, 0) AS is_approval_administrator
+            COALESCE(s.is_approval_administrator, 0) AS is_approval_administrator,
+            COALESCE(s.can_reverse_journal, 0) AS can_reverse_journal
      FROM app_user u
      LEFT JOIN approval_user_setup s ON s.user_id = u.id
      LEFT JOIN app_user a ON a.id = s.approver_id
@@ -1181,19 +1195,33 @@ export interface ApprovalUserSetupInput {
   approver_id?: number | null;
   substitute_id?: number | null;
   is_approval_administrator?: number;
+  can_reverse_journal?: number;
 }
 
 export async function saveApprovalUserSetup(
   userId: number, body: ApprovalUserSetupInput, user: Actor,
 ): Promise<void> {
   await run(
-    `INSERT INTO approval_user_setup (user_id, approver_id, substitute_id, is_approval_administrator)
-     VALUES (?,?,?,?)
+    `INSERT INTO approval_user_setup (user_id, approver_id, substitute_id, is_approval_administrator, can_reverse_journal)
+     VALUES (?,?,?,?,?)
      ON CONFLICT (user_id) DO UPDATE SET
        approver_id = EXCLUDED.approver_id,
        substitute_id = EXCLUDED.substitute_id,
-       is_approval_administrator = EXCLUDED.is_approval_administrator`,
-    userId, body.approver_id || null, body.substitute_id || null, body.is_approval_administrator ? 1 : 0,
+       is_approval_administrator = EXCLUDED.is_approval_administrator,
+       can_reverse_journal = EXCLUDED.can_reverse_journal`,
+    userId, body.approver_id || null, body.substitute_id || null,
+    body.is_approval_administrator ? 1 : 0, body.can_reverse_journal ? 1 : 0,
   );
   await audit(user, 'APPROVAL_USER_SETUP_SAVE', 'approval_user_setup', userId, body);
+}
+
+/** Whether `userId` is allowed to reverse a posted GL journal — a per-user grant in User
+ *  Setup, separate from (and in addition to) the role-based GL_JOURNAL_REVERSE permission,
+ *  since a reversal breaks the append-only posting trail and warrants an explicit, individually
+ *  auditable grant rather than a blanket role right. */
+export async function canReverseJournal(userId: number): Promise<boolean> {
+  const row = await one<{ can_reverse_journal: number }>(
+    'SELECT can_reverse_journal FROM approval_user_setup WHERE user_id = ?', userId,
+  );
+  return (row?.can_reverse_journal ?? 0) > 0;
 }

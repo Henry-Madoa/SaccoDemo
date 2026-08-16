@@ -1,9 +1,11 @@
-import { one, all, run, nextSequence, audit } from './db.ts';
+import {
+  one, all, run, nextSequence, audit, hasAnyRow,
+} from './db.ts';
 import { AppError } from './errors.ts';
 import { trialBalance, postJournal, reverseJournal } from './accounting.ts';
 import { GL_ACCOUNT_TYPES, GL_ACCOUNT_STRUCTURE_TYPES, PRODUCT_STATUSES } from './constants.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
-import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
+import { findMatchingWorkflow, startWorkflow, canReverseJournal } from './workflow.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
@@ -108,6 +110,10 @@ export function listJournals({ search = '', filters = [], sort = null }: ListJou
   );
 }
 
+/** Whether any journal exists at all, ignoring search and dynamic filters — lets the page grey
+ *  out its filter controls only when there's truly nothing to filter. */
+export const hasAnyJournals = (): Promise<boolean> => hasAnyRow('journal j');
+
 export interface JournalDetail {
   journal: Journal;
   lines: JournalLineWithAccount[];
@@ -198,6 +204,15 @@ export async function createJournal(input: CreateJournalInput, user: Actor): Pro
 
 export async function reverseJournalEntry(id: number, reason: string, user: Actor): Promise<PostedJournal> {
   if (!reason) throw new AppError('A reversal reason is required', 'REASON_REQUIRED');
+  // A per-user grant in User Setup, on top of the role-based GL_JOURNAL_REVERSE permission
+  // the caller already checked — reversing breaks the append-only posting trail, so it needs
+  // an individually auditable grant rather than a blanket role right.
+  if (!(await canReverseJournal(user.id))) {
+    throw new AppError(
+      'You are not set up to reverse journals — ask an administrator to grant "Can Reverse Journal" in User Setup',
+      'FORBIDDEN',
+    );
+  }
   const rev = await reverseJournal(Number(id), user, reason);
   await audit(user, 'GL_JOURNAL_REVERSE', 'journal', id, { reason });
   return rev;
@@ -306,6 +321,11 @@ export const listGlAccounts = (
     { like: `%${String(search).trim()}%`, ...params },
   );
 };
+
+/** Whether any GL account exists at all, ignoring search and dynamic filters — lets the Chart
+ *  of Accounts and Trial Balance tabs grey out their filter controls only when there's truly
+ *  nothing to filter. */
+export const hasAnyGlAccounts = (): Promise<boolean> => hasAnyRow('gl_account a');
 
 export const listPostableAccounts = (): Promise<GlAccount[]> =>
   all<GlAccount>("SELECT * FROM gl_account WHERE is_postable = 1 AND status = 'ACTIVE' ORDER BY code");
@@ -443,6 +463,10 @@ export const listPeriods = (
     { like: `%${String(search).trim()}%`, ...params },
   );
 };
+
+/** Whether any accounting period exists at all, ignoring search and dynamic filters — lets the
+ *  page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyPeriods = (): Promise<boolean> => hasAnyRow('accounting_period');
 
 export async function setPeriodStatus(code: string, status: string, user: Actor): Promise<AccountingPeriod> {
   if (status !== 'OPEN' && status !== 'CLOSED') {

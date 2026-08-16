@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { listMembers, MEMBER_FILTER_FIELDS, MEMBER_STATUSES } from '@/lib/members';
+import {
+  listMembers, hasAnyMembers, MEMBER_FILTER_FIELDS, MEMBER_STATUSES,
+} from '@/lib/members';
 import { listActiveMemberCategories, listActiveCounties, listActiveSubCounties, listActiveDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
 import { parseFilters } from '@/lib/listFilters';
@@ -41,9 +43,10 @@ export default async function MembersPage({ searchParams }: {
   const filters = parseFilters(filtersRaw);
   const effectiveFilters = activeStatus ? [...filters, { field: 'status', operator: '=' as const, value: activeStatus }] : filters;
   const sort = parseSort(sortRaw);
-  const [{ rows, total }, canCreate, { caption1, caption2 }, categories, counties, subCounties, gd1Values, gd2Values] =
+  const [{ rows, total }, empty, canCreate, { caption1, caption2 }, categories, counties, subCounties, gd1Values, gd2Values] =
     await Promise.all([
       listMembers({ search: q, filters: effectiveFilters, sort }),
+      hasAnyMembers(activeStatus).then((any) => !any),
       currentCanAction('MEMBER_APPLICATIONS_CREATE'),
       getDimensionCaptions(),
       listActiveMemberCategories(),
@@ -75,8 +78,8 @@ export default async function MembersPage({ searchParams }: {
         }}
       />
       <Toolbar>
-        <SearchInput placeholder="Search name, member number, ID or phone…" />
-        <DynamicFilterBar fields={fields} />
+        <SearchInput placeholder="Search name, member number, ID or phone…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
         <ExportButton href="/api/export/members" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
         {canCreate ? (

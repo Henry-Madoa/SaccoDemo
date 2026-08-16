@@ -2,7 +2,9 @@
  * BOSA / savings service. Balances are never written directly — every change
  * is the product of a transaction that also posts a balanced journal.
  */
-import { one, all, run, tx, nextSequence, audit } from './db.ts';
+import {
+  one, all, run, tx, nextSequence, audit, hasAnyRow,
+} from './db.ts';
 import { postJournal, reverseJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
@@ -80,6 +82,10 @@ export interface ListAccountsOptions {
   filters?: FilterCondition[];
   sort?: SortState | null;
 }
+
+/** Whether any savings account exists at all, ignoring search and dynamic filters — lets the
+ *  page grey out its filter controls only when there's truly nothing to filter. */
+export const hasAnyAccounts = (): Promise<boolean> => hasAnyRow('savings_account sa');
 
 /** Accounts matching a free-text search over account number, member number or name,
  *  further narrowed by any dynamic filter conditions. */
@@ -363,6 +369,11 @@ export async function reverseTxn(
   await audit(user, 'SAVINGS_REVERSAL', 'txn', txnId, { reason });
   return res;
 }
+
+/** Whether an account has any transactions at all, ignoring the statement's from/to range —
+ *  lets the page grey out its date filters only when there's truly nothing to filter. */
+export const hasAnyTxns = (accountId: number): Promise<boolean> =>
+  hasAnyRow('txn', 'savings_account_id = ?', accountId);
 
 export async function statement(accountId: number, from?: IsoDate, to?: IsoDate): Promise<Statement> {
   const account = await getAccount(accountId);
