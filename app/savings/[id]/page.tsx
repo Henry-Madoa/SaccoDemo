@@ -5,11 +5,13 @@ import { statement, getAdjacentAccountIds, hasAnyTxns } from '@/lib/savings';
 import { getOrgBrand } from '@/lib/org';
 import { formatDate } from '@/lib/format';
 import { imageSrc } from '@/lib/cloudinary';
+import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
-import { DateFilterInput } from '@/components/ui/filters';
+import { DateFilterInput, SearchInput } from '@/components/ui/filters';
+import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
@@ -18,11 +20,12 @@ import { ReverseButton } from './reverse-button';
 
 export default async function SavingsAccountPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; q?: string; sort?: string }>;
 }) {
   const user = await requireAction('SAVINGS_READ');
   const { id } = await params;
-  const { from, to } = await searchParams;
+  const { from, to, q = '', sort: sortRaw } = await searchParams;
+  const sort = parseSort(sortRaw);
 
   let data;
   try {
@@ -56,6 +59,28 @@ export default async function SavingsAccountPage({ params, searchParams }: {
     return { txn: t, running };
   });
   const closing = rows.length ? rows[rows.length - 1].running : opening;
+
+  // Find Entries + sorting are applied to a display copy only — opening/closing and each
+  // row's running balance stay pinned to the true chronological order computed above.
+  const needle = q.trim().toLowerCase();
+  const STATEMENT_SORT_KEYS: Record<string, (r: typeof rows[number]) => string | number> = {
+    value_date: (r) => r.txn.value_date,
+    txn_ref: (r) => r.txn.txn_ref,
+    description: (r) => r.txn.description || '',
+    channel: (r) => r.txn.channel,
+    amount: (r) => r.txn.amount,
+    balance: (r) => r.running,
+  };
+  const displayRows = rows
+    .filter(({ txn: t }) => !needle || [t.txn_ref, t.description, t.channel]
+      .some((v) => (v || '').toLowerCase().includes(needle)))
+    .sort((a, b) => {
+      const get = sort && STATEMENT_SORT_KEYS[sort.field];
+      if (!get) return 0;
+      const av = get(a); const bv = get(b);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sort!.dir === 'desc' ? -cmp : cmp;
+    });
 
   return (
     <>
@@ -132,6 +157,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
           sub={`${org!.name} · ${a.first_name} ${a.last_name} (${a.member_no}) · account ${a.account_no}`}
         />
         <Toolbar>
+          <SearchInput placeholder="Find entries — reference, description or channel…" disabled={empty} />
           <DateFilterInput paramName="from" label="From" placeholder="From" disabled={empty} />
           <DateFilterInput paramName="to" label="To" placeholder="To" disabled={empty} />
           <Spacer />
@@ -143,9 +169,13 @@ export default async function SavingsAccountPage({ params, searchParams }: {
           <TableWrap>
             <thead>
               <tr>
-                <th>Date</th><th>Reference</th><th>Description</th><th>Channel</th>
-                <th className="num">Debit</th><th className="num">Credit</th>
-                <th className="num">Balance</th><th />
+                <th><SortLink sortKey="value_date">Date</SortLink></th>
+                <th><SortLink sortKey="txn_ref">Reference</SortLink></th>
+                <th><SortLink sortKey="description">Description</SortLink></th>
+                <th><SortLink sortKey="channel">Channel</SortLink></th>
+                <th className="num"><SortLink sortKey="amount">Debit</SortLink></th>
+                <th className="num"><SortLink sortKey="amount">Credit</SortLink></th>
+                <th className="num"><SortLink sortKey="balance">Balance</SortLink></th><th />
               </tr>
             </thead>
             <tbody>
@@ -154,7 +184,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                 <td className="num"><b><Money cents={opening} symbol={false} /></b></td>
                 <td />
               </tr>
-              {rows.map(({ txn: t, running: bal }) => {
+              {displayRows.length ? displayRows.map(({ txn: t, running: bal }) => {
                 const reversed = t.status === 'REVERSED';
                 return (
                   <tr key={t.id} className={reversed ? 'muted' : undefined}>
@@ -179,7 +209,9 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                     </td>
                   </tr>
                 );
-              })}
+              }) : (
+                <tr><td colSpan={8}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+              )}
             </tbody>
             <tfoot>
               <tr>

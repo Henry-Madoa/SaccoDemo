@@ -14,6 +14,22 @@ import { parseFilters } from '@/lib/listFilters';
 import type { AccountLedger, JournalDetail } from '@/lib/gl';
 import type { JournalRelatedEntries } from '@/lib/types';
 
+type LocalSort = { field: string; dir: 'asc' | 'desc' } | null;
+
+/** A sortable column header for a client-only table (a modal's own fetched list, with no URL
+ *  of its own to keep the sort in) — same look as SortLink, driven by local state instead. */
+function LocalSortHeader({ label, sortKey, sort, onSort }: {
+  label: string; sortKey: string; sort: LocalSort; onSort: (key: string) => void;
+}) {
+  const isActive = sort?.field === sortKey;
+  return (
+    <button type="button" className="sort-link" onClick={() => onSort(sortKey)}>
+      {label}
+      {isActive ? <span className="arrow">{sort!.dir === 'desc' ? '▼' : '▲'}</span> : null}
+    </button>
+  );
+}
+
 /** Clickable balance that opens the account's ledger — drills through the exact same As Of
  *  date and Global Dimension filters currently applied to the Trial Balance / Chart of
  *  Accounts screen, so the entries shown always reconcile to the figure that was clicked. */
@@ -41,6 +57,11 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
   // A journal_no cell opens the same JournalModal used from the Journals tab — the first
   // click-through of Find Entries / Navigate, from a balance down to one posting.
   const [openJournalId, setOpenJournalId] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<LocalSort>(null);
+  const onSort = (field: string) => setSort((s) => (
+    s?.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }
+  ));
 
   useEffect(() => {
     fetchAccountLedger(code, { asOf, filters }).then((res) => {
@@ -55,7 +76,34 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
   const filtered = Boolean(asOf) || filters.some((f) => (
     f.field === 'global_dimension_1_id' || f.field === 'global_dimension_2_id'
   ) && f.value !== '');
+
+  // Find Entries + sorting are applied to a display copy only — each line's running balance
+  // stays pinned to the true chronological order the ledger query returns.
   let running = 0;
+  const lines = (data?.lines ?? []).map((l) => {
+    running += naturalDebit ? l.debit - l.credit : l.credit - l.debit;
+    return { l, running };
+  });
+  const needle = search.trim().toLowerCase();
+  const LEDGER_SORT_KEYS: Record<string, (r: typeof lines[number]) => string | number> = {
+    value_date: (r) => r.l.value_date,
+    journal_no: (r) => r.l.journal_no,
+    description: (r) => r.l.narration || r.l.description || '',
+    source_module: (r) => r.l.source_module,
+    debit: (r) => r.l.debit,
+    credit: (r) => r.l.credit,
+    balance: (r) => r.running,
+  };
+  const displayLines = lines
+    .filter(({ l }) => !needle || [l.journal_no, l.narration, l.description, l.source_module]
+      .some((v) => (v || '').toLowerCase().includes(needle)))
+    .sort((a, b) => {
+      const get = sort && LEDGER_SORT_KEYS[sort.field];
+      if (!get) return 0;
+      const av = get(a); const bv = get(b);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sort!.dir === 'desc' ? -cmp : cmp;
+    });
 
   return (
     <>
@@ -65,37 +113,49 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
         {!data && !error ? <EmptyState title="Loading…" /> : null}
         {data ? (
           <>
-            <div className="card-sub" style={{ marginBottom: 'calc(var(--sp)*2)' }}>
-              {data.account.type} · balance {cur(data.balance)}
-              {filtered ? <> · <Pill tone="info">FILTERED{asOf ? ` AS OF ${fdate(asOf)}` : ''}</Pill></> : null}
+            <div className="inline" style={{ justifyContent: 'space-between', marginBottom: 'calc(var(--sp)*2)' }}>
+              <div className="card-sub">
+                {data.account.type} · balance {cur(data.balance)}
+                {filtered ? <> · <Pill tone="info">FILTERED{asOf ? ` AS OF ${fdate(asOf)}` : ''}</Pill></> : null}
+              </div>
+              {data.lines.length ? (
+                <input
+                  type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Find entries…" aria-label="Find entries" style={{ maxWidth: 200 }}
+                />
+              ) : null}
             </div>
             {data.lines.length ? (
               <TableWrap>
                 <thead>
                   <tr>
-                    <th>Date</th><th>Journal</th><th>Description</th><th>Source</th>
-                    <th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th>
+                    <th><LocalSortHeader label="Date" sortKey="value_date" sort={sort} onSort={onSort} /></th>
+                    <th><LocalSortHeader label="Journal" sortKey="journal_no" sort={sort} onSort={onSort} /></th>
+                    <th><LocalSortHeader label="Description" sortKey="description" sort={sort} onSort={onSort} /></th>
+                    <th><LocalSortHeader label="Source" sortKey="source_module" sort={sort} onSort={onSort} /></th>
+                    <th className="num"><LocalSortHeader label="Debit" sortKey="debit" sort={sort} onSort={onSort} /></th>
+                    <th className="num"><LocalSortHeader label="Credit" sortKey="credit" sort={sort} onSort={onSort} /></th>
+                    <th className="num"><LocalSortHeader label="Balance" sortKey="balance" sort={sort} onSort={onSort} /></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.lines.map((l) => {
-                    running += naturalDebit ? l.debit - l.credit : l.credit - l.debit;
-                    return (
-                      <tr key={l.id}>
-                        <td>{fdate(l.value_date)}</td>
-                        <td className="mono">
-                          <button type="button" className="linklike" onClick={() => setOpenJournalId(l.journal_id)}>
-                            {l.journal_no}
-                          </button>
-                        </td>
-                        <td>{l.narration || l.description || ''}</td>
-                        <td>{l.source_module}</td>
-                        <td className="num">{l.debit ? cur(l.debit, { showSymbol: false }) : ''}</td>
-                        <td className="num">{l.credit ? cur(l.credit, { showSymbol: false }) : ''}</td>
-                        <td className="num">{cur(running, { showSymbol: false })}</td>
-                      </tr>
-                    );
-                  })}
+                  {displayLines.length ? displayLines.map(({ l, running: bal }) => (
+                    <tr key={l.id}>
+                      <td>{fdate(l.value_date)}</td>
+                      <td className="mono">
+                        <button type="button" className="linklike" onClick={() => setOpenJournalId(l.journal_id)}>
+                          {l.journal_no}
+                        </button>
+                      </td>
+                      <td>{l.narration || l.description || ''}</td>
+                      <td>{l.source_module}</td>
+                      <td className="num">{l.debit ? cur(l.debit, { showSymbol: false }) : ''}</td>
+                      <td className="num">{l.credit ? cur(l.credit, { showSymbol: false }) : ''}</td>
+                      <td className="num">{cur(bal, { showSymbol: false })}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={7}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                  )}
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="📖" title="No movement on this account" />}
@@ -147,7 +207,8 @@ function RelatedEntries({ journalId, glLineCount }: { journalId: number; glLineC
 
   if (!data) return null;
   const buckets = (Object.keys(BUCKET_LABELS) as (keyof typeof BUCKET_LABELS)[])
-    .map((key) => ({ key, label: BUCKET_LABELS[key], ...data[key] }));
+    .map((key) => ({ key, label: BUCKET_LABELS[key], ...data[key] }))
+    .filter((b) => b.entries.length);
 
   return (
     <div style={{ marginTop: 'calc(var(--sp)*2)' }}>
@@ -159,11 +220,10 @@ function RelatedEntries({ journalId, glLineCount }: { journalId: number; glLineC
         <div key={b.key}>
           <button
             type="button" className="notif-item" style={{ width: '100%', textAlign: 'left' }}
-            disabled={!b.entries.length}
             onClick={() => setExpanded((cur) => (cur === b.key ? null : b.key))}
           >
             {b.label} — <b>{b.entries.length}</b>
-            {b.entries.length ? <span style={{ float: 'right' }}>{expanded === b.key ? '▴' : '▾'}</span> : null}
+            <span style={{ float: 'right' }}>{expanded === b.key ? '▴' : '▾'}</span>
           </button>
           {expanded === b.key ? (
             <div style={{ padding: '4px 0 8px 12px' }}>

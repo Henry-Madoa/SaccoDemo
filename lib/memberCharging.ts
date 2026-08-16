@@ -8,12 +8,19 @@
  * one who posts it, so `status` only ever moves Open -> Posted, never Pending Approval/Approved.
  *
  * "No Of Pages" is the only quantity Table 52204206 gives GetChargesAmount besides the Charge
- * Code itself, so it is threaded straight through as the existing calculation engine's
- * `baseAmount` (lib/charges.ts's calculateTransactionCharges): a flat-rate Charge Code ignores
- * it entirely, and a per-page Charge Code (Statement Charge) is configured as a PERCENTAGE band
- * whose percentage_rate is 100x the per-page rate in cents, since (rate/100)*pages already is
- * ratePerPage*pages. That is the "map it explicitly" the source documentation calls for — no
- * new tariff formula invented, no engine change.
+ * Code itself, so it is threaded through as the existing calculation engine's `baseAmount`
+ * (lib/charges.ts's calculateTransactionCharges) via pagesBaseAmount() below: a flat-rate
+ * Charge Code ignores baseAmount entirely, and a per-page Charge Code (Statement Charge) is
+ * configured as a PERCENTAGE band. calculateFromScheme computes `(percentage_rate/100) *
+ * baseAmount` as a Cents result, so baseAmount has to already be Cents-shaped — a raw page
+ * count isn't (it's a plain count with no monetary unit), so pagesBaseAmount() scales it the
+ * same way flat_amount/lower_limit/upper_limit are scaled by toCents() in the admin form: one
+ * page counts as 100 (i.e. "KSh 1.00 of base amount" per page). With that scaling in place,
+ * percentage_rate reads exactly the way it looks: 1000% of 1 page is KSh 10.00; to charge
+ * KSh X per page, set percentage_rate to X * 100. The Tariff Matrix's live "per unit of base
+ * amount" preview (app/admin/transaction-charge-form.tsx) shows this directly rather than
+ * anyone having to do the arithmetic by hand. That is the "map it explicitly" the source
+ * documentation calls for — no new tariff formula invented, no engine change.
  */
 import {
   one, all, run, tx, nextSequence, hasAnyRow,
@@ -150,6 +157,17 @@ export interface CalculatedMemberCharge {
   postingTransactionType: ChargeTransactionType;
 }
 
+/** The calculation engine's `baseAmount` is typed `Cents` throughout (calculateFromScheme
+ *  divides percentage_rate by 100 and multiplies straight into a Cents result) — but "No Of
+ *  Pages" is a plain count, not money. Passed through unscaled, a Statement Charge's
+ *  percentage_rate ends up computing its answer in cents while every other Cents value in the
+ *  system (flat_amount, lower_limit/upper_limit, the min/max charge clamps) is entered and
+ *  read back in shillings via toCents()/toUnits(). Scaling the page count into the same
+ *  cents-shaped space the formula already assumes — one page as "100 cents" — is what makes
+ *  percentage_rate mean what it looks like it means: 1000% of 1 page is 1000 cents, KSh 10.00,
+ *  not KSh 0.10. See the file header for the worked example. */
+const pagesBaseAmount = (noOfPages: number | null | undefined): Cents => (noOfPages || 0) * 100;
+
 /** GetChargesAmount(Charge Code, No Of Pages) — see the file header for how No Of Pages maps
  *  onto the existing calculation engine's baseAmount. Returns null for an unknown/deleted
  *  Charge Code so the caller can surface a configuration error rather than crash. */
@@ -158,7 +176,7 @@ export async function calculateMemberChargingAmount(
 ): Promise<CalculatedMemberCharge | null> {
   const detail = await getTransactionCharge(transactionChargeId);
   if (!detail) return null;
-  const charges = calculateTransactionCharges(detail, noOfPages || 0);
+  const charges = calculateTransactionCharges(detail, pagesBaseAmount(noOfPages));
   return { amount: charges.reduce((sum, c) => sum + c.amount, 0), postingTransactionType: detail.transaction_type };
 }
 
@@ -216,7 +234,7 @@ async function resolveAndValidate(input: MemberChargingInput): Promise<{ amount:
   if (!charge) throw new AppError('Charge Code not found', 'NOT_FOUND');
   assertMandatoryFields(input, charge.transaction_type);
   await assertSourceAccountBelongsToMember(input.sourceAccountId, input.memberId);
-  const charges = calculateTransactionCharges(charge, input.noOfPages || 0);
+  const charges = calculateTransactionCharges(charge, pagesBaseAmount(input.noOfPages));
   const amount = charges.reduce((sum, c) => sum + c.amount, 0);
   await assertAffordable(input.sourceAccountId, amount);
   return { amount, postingTransactionType: charge.transaction_type };
@@ -320,7 +338,7 @@ export async function postMemberCharging(no: string, user: Actor): Promise<{ jou
     if (!sourceAccount) throw new AppError('Source account not found', 'NOT_FOUND');
 
     const posted = await postTransactionCharges({
-      transactionChargeId: req.transaction_charge_id, baseAmount: req.no_of_pages || 0,
+      transactionChargeId: req.transaction_charge_id, baseAmount: pagesBaseAmount(req.no_of_pages),
       debitAccountCode: sourceAccount.gl_control_id, valueDate: today(), module: 'SAVINGS', eventType: 'MEMBER_CHARGE',
       memberId: req.member_id, description: req.description || `Member charge — ${sourceAccount.account_no}`,
       user, idempotencyKey: `MEMBER_CHARGING-${no}`,

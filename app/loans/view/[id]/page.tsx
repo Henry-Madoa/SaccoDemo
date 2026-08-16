@@ -7,10 +7,13 @@ import { getMemberDetail } from '@/lib/members';
 import { listAttachments } from '@/lib/attachments';
 import { isConfigured } from '@/lib/cloudinary';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
+import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { SearchInput } from '@/components/ui/filters';
+import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
@@ -19,11 +22,13 @@ import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function LoanDetailPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; schSort?: string; actQ?: string; actSort?: string }>;
 }) {
   const user = await requireAction('LOAN_READ');
   const { id } = await params;
-  const { tab } = await searchParams;
+  const { tab, schSort: schSortRaw, actQ = '', actSort: actSortRaw } = await searchParams;
+  const schSort = parseSort(schSortRaw);
+  const actSort = parseSort(actSortRaw);
   const detail = await getLoanDetail(Number(id));
   if (!detail) notFound();
 
@@ -65,6 +70,45 @@ export default async function LoanDetailPage({ params, searchParams }: {
     { principal: 0, interest: 0, paid: 0 },
   );
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
+
+  // Sorting is applied to display copies only — the tfoot totals above are always the
+  // schedule's true (unsorted) totals.
+  const SCHEDULE_SORT_KEYS: Record<string, (s: typeof schedule[number]) => string | number> = {
+    installment_no: (s) => s.installment_no,
+    due_date: (s) => s.due_date,
+    opening_balance: (s) => s.opening_balance,
+    principal_due: (s) => s.principal_due,
+    interest_due: (s) => s.interest_due,
+    instalment: (s) => s.principal_due + s.interest_due,
+    paid: (s) => s.principal_paid + s.interest_paid,
+    status: (s) => s.status,
+  };
+  const displaySchedule = [...schedule].sort((a, b) => {
+    const get = schSort && SCHEDULE_SORT_KEYS[schSort.field];
+    if (!get) return 0;
+    const av = get(a); const bv = get(b);
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return schSort!.dir === 'desc' ? -cmp : cmp;
+  });
+
+  const actNeedle = actQ.trim().toLowerCase();
+  const ACTIVITY_SORT_KEYS: Record<string, (t: typeof transactions[number]) => string | number> = {
+    txn_ref: (t) => t.txn_ref,
+    value_date: (t) => t.value_date,
+    txn_type: (t) => t.txn_type,
+    description: (t) => t.description || '',
+    amount: (t) => t.amount,
+  };
+  const displayTransactions = transactions
+    .filter((t) => !actNeedle || [t.txn_ref, t.description, t.txn_type]
+      .some((v) => (v || '').toLowerCase().includes(actNeedle)))
+    .sort((a, b) => {
+      const get = actSort && ACTIVITY_SORT_KEYS[actSort.field];
+      if (!get) return 0;
+      const av = get(a); const bv = get(b);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return actSort!.dir === 'desc' ? -cmp : cmp;
+    });
 
   return (
     <>
@@ -192,13 +236,18 @@ export default async function LoanDetailPage({ params, searchParams }: {
               <TableWrap>
                 <thead>
                   <tr>
-                    <th className="num">#</th><th>Due date</th><th className="num">Opening</th>
-                    <th className="num">Principal</th><th className="num">Interest</th>
-                    <th className="num">Instalment</th><th className="num">Paid</th><th>Status</th>
+                    <th className="num"><SortLink sortKey="installment_no" paramName="schSort">#</SortLink></th>
+                    <th><SortLink sortKey="due_date" paramName="schSort">Due date</SortLink></th>
+                    <th className="num"><SortLink sortKey="opening_balance" paramName="schSort">Opening</SortLink></th>
+                    <th className="num"><SortLink sortKey="principal_due" paramName="schSort">Principal</SortLink></th>
+                    <th className="num"><SortLink sortKey="interest_due" paramName="schSort">Interest</SortLink></th>
+                    <th className="num"><SortLink sortKey="instalment" paramName="schSort">Instalment</SortLink></th>
+                    <th className="num"><SortLink sortKey="paid" paramName="schSort">Paid</SortLink></th>
+                    <th><SortLink sortKey="status" paramName="schSort">Status</SortLink></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {schedule.map((s) => (
+                  {displaySchedule.map((s) => (
                     <tr key={s.id}>
                       <td className="num">{s.installment_no}</td>
                       <td>{formatDate(s.due_date)}</td>
@@ -238,25 +287,35 @@ export default async function LoanDetailPage({ params, searchParams }: {
           <Card>
             <CardHead title="Loan account activity" sub="Every entry carries the journal it posted" />
             {transactions.length ? (
-              <TableWrap>
-                <thead>
-                  <tr>
-                    <th>Reference</th><th>Date</th><th>Type</th><th>Description</th>
-                    <th className="num">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((t) => (
-                    <tr key={t.id}>
-                      <td className="mono">{t.txn_ref}</td>
-                      <td>{formatDate(t.value_date)}</td>
-                      <td><Pill status={t.txn_type} /></td>
-                      <td>{t.description || ''}</td>
-                      <td className="num"><Money cents={t.amount} /></td>
+              <>
+                <Toolbar>
+                  <SearchInput paramName="actQ" placeholder="Find entries — reference, description or type…" />
+                </Toolbar>
+                <TableWrap>
+                  <thead>
+                    <tr>
+                      <th><SortLink sortKey="txn_ref" paramName="actSort">Reference</SortLink></th>
+                      <th><SortLink sortKey="value_date" paramName="actSort">Date</SortLink></th>
+                      <th><SortLink sortKey="txn_type" paramName="actSort">Type</SortLink></th>
+                      <th><SortLink sortKey="description" paramName="actSort">Description</SortLink></th>
+                      <th className="num"><SortLink sortKey="amount" paramName="actSort">Amount</SortLink></th>
                     </tr>
-                  ))}
-                </tbody>
-              </TableWrap>
+                  </thead>
+                  <tbody>
+                    {displayTransactions.length ? displayTransactions.map((t) => (
+                      <tr key={t.id}>
+                        <td className="mono">{t.txn_ref}</td>
+                        <td>{formatDate(t.value_date)}</td>
+                        <td><Pill status={t.txn_type} /></td>
+                        <td>{t.description || ''}</td>
+                        <td className="num"><Money cents={t.amount} /></td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={5}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                    )}
+                  </tbody>
+                </TableWrap>
+              </>
             ) : <EmptyState icon="🧾" title="No postings yet" />}
           </Card>
         </div>

@@ -3,6 +3,7 @@
 import { Fragment, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { useFormat } from '@/components/ui/format-provider';
 import { saveTransactionCharge } from '@/app/actions/charges';
 import type { TransactionChargeSetupDraft, TransactionCalcSchemeDraft } from '@/lib/charges';
 import {
@@ -64,6 +65,7 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
   className?: string;
   children: React.ReactNode;
 }) {
+  const { cur } = useFormat();
   const [open, setOpen] = useState(false);
   const tc = transactionCharge ?? null;
   const [rows, setRows] = useState<ComponentRow[]>(() => {
@@ -224,7 +226,10 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
                           <div className="tiny" style={{ marginBottom: 8 }}>
                             Tariff matrix — bands are matched in order against the {row.calculation_type === 'PERCENT_OF_CHARGE'
                               ? "source component's resolved amount" : "transaction's base amount"}; leave Upper limit blank for unbounded.
-                            Min/Max charge only apply to a Percentage band.
+                            Min/Max charge only apply to a Percentage band. For a flat amount per unit of base amount
+                            (e.g. Statement Charge's per-page fee), use a Percentage band and check the preview under
+                            the Rate field rather than guessing the rate — it shows exactly what each unit (each page,
+                            for Statement Charge) will be charged.
                           </div>
                           <table>
                             <thead>
@@ -254,7 +259,15 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
                                   <td>
                                     <input type="number" step="0.01" value={band.rate_sh} aria-label="Rate" style={{ width: 90 }}
                                       onChange={(e) => updateBand(i, bi, { rate_sh: e.target.value })} />
-                                    <span className="tiny">{band.rate_type === 'PERCENTAGE' ? ' %' : ''}</span>
+                                    {band.rate_type === 'PERCENTAGE' ? (
+                                      <>
+                                        <span className="tiny">%</span>
+                                        <div className="tiny muted-cell" style={{ marginTop: 2 }}>
+                                          = {cur(Math.round(Number(band.rate_sh) || 0))} per KSh 1.00 of base amount
+                                          — e.g. per page, for Statement Charge
+                                        </div>
+                                      </>
+                                    ) : null}
                                   </td>
                                   <td>
                                     <input

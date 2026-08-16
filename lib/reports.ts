@@ -1,13 +1,11 @@
 import { one, all } from './db.ts';
 import { trialBalance, accountBalances } from './accounting.ts';
 import { PROVISION_RATE, CLASSIFICATION_ORDER } from './loans.ts';
-import { pendingWorkflowTaskCount as pendingApprovalCount } from './workflow.ts';
+import { myPendingWorkflowTaskCount } from './workflow.ts';
 import type {
   BalanceSheet, Cents, DashboardData, IncomeStatement, IsoDate,
   ParRow, PortfolioAtRisk, ReportLine, TxnWithMember,
 } from './types.ts';
-
-export { pendingApprovalCount };
 
 const DEPOSIT_CODES = ['2010', '2020', '2030', '2040'] as const;
 const CASH_CODES = ['1010', '1020', '1030'] as const;
@@ -16,7 +14,7 @@ const INCOME_CODES = ['4010', '4020', '4030', '4040', '4050'] as const;
 const EXPENSE_CODES = ['5010', '5020', '5030', '5040', '5050'] as const;
 const SHARE_CODE = '3010';
 
-export async function getDashboard(): Promise<DashboardData> {
+export async function getDashboard(userId: number, username: string): Promise<DashboardData> {
   // One grouped scan for every control account the tiles need, instead of the
   // thirteen separate balance queries the old endpoint issued. The tiles are
   // independent of one another, so the whole dashboard is one wave of queries.
@@ -56,7 +54,7 @@ export async function getDashboard(): Promise<DashboardData> {
       `SELECT classification, COUNT(*) loans, COALESCE(SUM(principal_balance),0) balance
        FROM loan WHERE status='DISBURSED' GROUP BY classification`,
     ),
-    pendingApprovalCount(),
+    myPendingWorkflowTaskCount(userId, username),
     all<TxnWithMember>(
       `SELECT t.*, m.member_no, m.first_name, m.last_name
        FROM txn t LEFT JOIN member m ON m.id = t.member_id

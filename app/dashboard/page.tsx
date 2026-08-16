@@ -10,7 +10,7 @@ import { MonthlyVolumesChart, DepositMixChart } from './charts';
 
 export default async function DashboardPage() {
   const user = await requireAction('DASHBOARD_VIEW');
-  const [org, d] = await Promise.all([getOrgBrand(), getDashboard()]);
+  const [org, d] = await Promise.all([getOrgBrand(), getDashboard(user.id, user.username)]);
 
   const accountCount = d.deposits.reduce((a, x) => a + x.accounts, 0);
   const parPct = d.loans.portfolio ? (d.loans.arrears / d.loans.portfolio) * 100 : 0;

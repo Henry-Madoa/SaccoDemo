@@ -737,6 +737,14 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
      against the dialog's 100), so on phones they drop in from the top. */
   .toasts { top: 8px; bottom: auto; left: 8px; right: 8px; max-width: none; }
 
+  /* The notification panel's fixed 320px width, anchored `right: 0` off a 34px bell icon,
+   * runs past the edge of any phone-width viewport — same fix as .toasts above: pin it to
+   * the viewport instead of the icon, below the sticky topbar so it doesn't cover it. */
+  .notif-panel {
+    position: fixed; top: 64px; left: 8px; right: 8px; width: auto; max-width: none;
+    max-height: calc(100vh - 80px);
+  }
+
   .token-row { grid-template-columns: 1fr; gap: 6px; }
   .token-row .tc { justify-content: flex-start; }
   .token-row .tc input[type=text] { width: 100%; }
