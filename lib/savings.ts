@@ -380,7 +380,12 @@ export async function statement(accountId: number, from?: IsoDate, to?: IsoDate)
   if (!account) throw new PostingError('Account not found', 'NOT_FOUND');
   const [lines, prior] = await Promise.all([
     all<TxnWithDocument>(
-      `SELECT t.*, j.reference AS document_no FROM txn t LEFT JOIN journal j ON j.id = t.journal_id
+      `SELECT t.*, j.reference AS document_no,
+              gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
+       FROM txn t
+       LEFT JOIN journal j ON j.id = t.journal_id
+       LEFT JOIN global_dimension_1_value gd1 ON gd1.id = j.global_dimension_1_id
+       LEFT JOIN global_dimension_2_value gd2 ON gd2.id = j.global_dimension_2_id
        WHERE t.savings_account_id = ?
          AND t.value_date >= COALESCE(?, '0000-01-01')
          AND t.value_date <= COALESCE(?, '9999-12-31')

@@ -145,7 +145,12 @@ export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
       id,
     ),
     all<TxnWithDocument>(
-      `SELECT t.*, j.reference AS document_no FROM txn t LEFT JOIN journal j ON j.id = t.journal_id
+      `SELECT t.*, j.reference AS document_no,
+              gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
+       FROM txn t
+       LEFT JOIN journal j ON j.id = t.journal_id
+       LEFT JOIN global_dimension_1_value gd1 ON gd1.id = j.global_dimension_1_id
+       LEFT JOIN global_dimension_2_value gd2 ON gd2.id = j.global_dimension_2_id
        WHERE t.loan_id = ? ORDER BY t.id DESC`,
       id,
     ),

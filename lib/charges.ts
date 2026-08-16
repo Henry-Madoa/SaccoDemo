@@ -373,9 +373,13 @@ export async function postTransactionCharges({
 
   const label = transactionType || charges[0].chargeCode;
   const total = charges.reduce((sum, c) => sum + c.amount, 0);
+  // Every line leaves narration unset so postJournal's own fallback (line narration -> header
+  // description) applies uniformly — debit and credit legs of the same posting must read the
+  // same Description, not the debit side showing the document's description while each credit
+  // component shows its own Charge Code description instead.
   const lines: JournalLineInput[] = [
-    { account: debitAccountCode, debit: total, credit: 0, narration: description || 'Charge' },
-    ...charges.map((c) => ({ account: c.glAccountId, debit: 0, credit: c.amount, narration: c.chargeDescription })),
+    { account: debitAccountCode, debit: total, credit: 0 },
+    ...charges.map((c) => ({ account: c.glAccountId, debit: 0, credit: c.amount })),
   ];
   const journal = await postJournal({
     valueDate, module: sourceModule, eventType: eventType || label,

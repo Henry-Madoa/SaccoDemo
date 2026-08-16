@@ -975,6 +975,8 @@ export interface LedgerLine extends JournalLine {
   value_date: IsoDate;
   description: string | null;
   source_module: string;
+  global_dimension_1_code: string | null;
+  global_dimension_2_code: string | null;
 }
 
 export interface AccountingPeriod {
@@ -1427,6 +1429,8 @@ export interface TxnWithMember extends Txn {
  *  from `txn_ref`, which is this txn's own internally-generated reference. */
 export interface TxnWithDocument extends Txn {
   document_no: string | null;
+  global_dimension_1_code: string | null;
+  global_dimension_2_code: string | null;
 }
 
 /** A txn row shown as a Vendor (savings) or Customer (loan) Ledger Entry — Business Central

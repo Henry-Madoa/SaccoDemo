@@ -269,13 +269,21 @@ export async function getAccountLedger(code: string, { asOf, filters = [] }: Acc
   const params = { id: account.id, asOf: asOf || null, ...gdParams };
 
   const [lines, tb] = await Promise.all([
+    // No LIMIT here: this is a reconciliation view (its whole job is to add up to the exact
+    // balance the user clicked), so a hard cap that silently truncates the oldest end of a busy
+    // account's history — while trialBalance() below still sums every line — was actively
+    // wrong: the listed entries stopped reconciling to the balance shown once an account passed
+    // the cap. Find Entries + sorting above make an unbounded list workable to browse.
     all<LedgerLine>(
-      `SELECT jl.*, j.journal_no, j.reference, j.value_date, j.description, j.source_module
+      `SELECT jl.*, j.journal_no, j.reference, j.value_date, j.description, j.source_module,
+              gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
        FROM journal_line jl JOIN journal j ON j.id = jl.journal_id
+       LEFT JOIN global_dimension_1_value gd1 ON gd1.id = jl.global_dimension_1_id
+       LEFT JOIN global_dimension_2_value gd2 ON gd2.id = jl.global_dimension_2_id
        WHERE jl.gl_account_id = @id
          AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
          ${gdClause}
-       ORDER BY j.value_date, j.id LIMIT 500`,
+       ORDER BY j.value_date, j.id`,
       params,
     ),
     trialBalance(asOf, `AND a.code = @lgcode ${gdClause}`, { lgcode: code, ...gdParams }),

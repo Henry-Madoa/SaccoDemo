@@ -73,12 +73,15 @@ export default async function SavingsAccountPage({ params, searchParams }: {
     document_no: (r) => r.txn.document_no || '',
     description: (r) => r.txn.description || '',
     channel: (r) => r.txn.channel,
+    gd1: (r) => r.txn.global_dimension_1_code || '',
+    gd2: (r) => r.txn.global_dimension_2_code || '',
     amount: (r) => r.txn.amount,
     balance: (r) => r.running,
   };
   const displayRows = rows
-    .filter(({ txn: t }) => !needle || [t.txn_ref, t.document_no, t.description, t.channel]
-      .some((v) => (v || '').toLowerCase().includes(needle)))
+    .filter(({ txn: t }) => !needle || [
+      t.txn_ref, t.document_no, t.description, t.channel, t.global_dimension_1_code, t.global_dimension_2_code,
+    ].some((v) => (v || '').toLowerCase().includes(needle)))
     .sort((a, b) => {
       const get = sort && STATEMENT_SORT_KEYS[sort.field];
       if (!get) return 0;
@@ -179,6 +182,8 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                 <th><SortLink sortKey="document_no">Document No.</SortLink></th>
                 <th><SortLink sortKey="description">Description</SortLink></th>
                 <th><SortLink sortKey="channel">Channel</SortLink></th>
+                <th><SortLink sortKey="gd1">{caption1}</SortLink></th>
+                <th><SortLink sortKey="gd2">{caption2}</SortLink></th>
                 <th className="num"><SortLink sortKey="amount">Debit</SortLink></th>
                 <th className="num"><SortLink sortKey="amount">Credit</SortLink></th>
                 <th className="num"><SortLink sortKey="balance">Balance</SortLink></th><th />
@@ -186,7 +191,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
             </thead>
             <tbody>
               <tr>
-                <td colSpan={7}><i>Opening balance</i></td>
+                <td colSpan={9}><i>Opening balance</i></td>
                 <td className="num"><b><Money cents={opening} symbol={false} /></b></td>
                 <td />
               </tr>
@@ -208,6 +213,8 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                       {reversed ? <> <Pill tone="bad">REVERSED</Pill></> : null}
                     </td>
                     <td>{t.channel}</td>
+                    <td className="tiny">{t.global_dimension_1_code || '—'}</td>
+                    <td className="tiny">{t.global_dimension_2_code || '—'}</td>
                     <td className="num">
                       {t.amount < 0 ? <Money cents={-t.amount} symbol={false} /> : ''}
                     </td>
@@ -223,12 +230,12 @@ export default async function SavingsAccountPage({ params, searchParams }: {
                   </tr>
                 );
               }) : (
-                <tr><td colSpan={9}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                <tr><td colSpan={11}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
               )}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={7}>Closing balance</td>
+                <td colSpan={9}>Closing balance</td>
                 <td className="num"><Money cents={closing} symbol={false} /></td>
                 <td />
               </tr>
