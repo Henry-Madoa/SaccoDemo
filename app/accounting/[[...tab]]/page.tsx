@@ -6,8 +6,8 @@ import {
   listPostableAccounts, totalingBalance,
   listVendorLedgerEntries, hasAnyVendorLedgerEntries, listCustomerLedgerEntries, hasAnyCustomerLedgerEntries,
   getDormancyAging, listBankAccounts, hasAnyBankAccounts,
-  JOURNAL_FILTER_FIELDS, GL_ACCOUNT_FILTER_FIELDS, TRIAL_BALANCE_FILTER_FIELDS, PERIOD_FILTER_FIELDS,
-  GL_DIMENSION_FILTER_FIELDS, SUBLEDGER_ENTRY_FILTER_FIELDS,
+  JOURNAL_FILTER_FIELDS, GL_ACCOUNT_FILTER_FIELDS, TRIAL_BALANCE_FILTER_FIELDS, TRIAL_BALANCE_DIMENSION_FILTER_FIELDS,
+  PERIOD_FILTER_FIELDS, SUBLEDGER_ENTRY_FILTER_FIELDS,
 } from '@/lib/gl';
 import { GL_ACCOUNT_STRUCTURE_TYPES } from '@/lib/constants';
 import { listActiveDimensionValues } from '@/lib/pool';
@@ -19,7 +19,7 @@ import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
 } from '@/components/ui/primitives';
-import { SearchInput, DateFilterInput } from '@/components/ui/filters';
+import { SearchInput, DateFilterInput, DateFilterExpressionInput } from '@/components/ui/filters';
 import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
@@ -43,11 +43,13 @@ const TABS: TabDefinition[] = [
 
 export default async function AccountingPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string; filters?: string; sort?: string; asOf?: string }>;
+  searchParams: Promise<{
+    q?: string; filters?: string; sort?: string; asOf?: string; from?: string; to?: string;
+  }>;
 }) {
   const user = await requireAction('GL_READ');
   const { tab: segments } = await params;
-  const { q = '', filters: filtersRaw, sort: sortRaw, asOf } = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw, asOf, from, to } = await searchParams;
   const tab = segments?.[0] ?? 'trial-balance';
   if (!TABS.some((t) => t.key === tab)) notFound();
 
@@ -58,42 +60,55 @@ export default async function AccountingPage({ params, searchParams }: {
       user={user}
     >
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/accounting/${k}`} />
-      {tab === 'trial-balance' ? <TrialBalanceTab filtersRaw={filtersRaw} asOf={asOf} /> : null}
+      {tab === 'trial-balance' ? <TrialBalanceTab filtersRaw={filtersRaw} asOf={asOf} from={from} /> : null}
       {tab === 'journals' ? <JournalsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
-      {tab === 'accounts' ? <AccountsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} asOf={asOf} /> : null}
-      {tab === 'vendor-ledger' ? <VendorLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
-      {tab === 'customer-ledger' ? <CustomerLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
+      {tab === 'accounts' ? <AccountsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} asOf={asOf} from={from} /> : null}
+      {tab === 'vendor-ledger' ? (
+        <VendorLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} from={from} to={to} />
+      ) : null}
+      {tab === 'customer-ledger' ? (
+        <CustomerLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} from={from} to={to} />
+      ) : null}
       {tab === 'bank-accounts' ? <BankAccountsTab /> : null}
       {tab === 'periods' ? <PeriodsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
     </Page>
   );
 }
 
-async function TrialBalanceTab({ filtersRaw, asOf }: { filtersRaw?: string; asOf?: string }) {
+/** Dimensional filter fields — a Business-Central "FIN|NBI" combination/range expression per
+ *  dimension (see TRIAL_BALANCE_DIMENSION_FILTER_FIELDS), labelled with the org's own captions.
+ *  Shared by every screen that offers it: Trial Balance and Chart of Accounts. */
+const dimensionalFields = (caption1: string, caption2: string) => TRIAL_BALANCE_DIMENSION_FILTER_FIELDS.map((f) => (
+  f.key === 'gd1_filter' ? { ...f, label: caption1 } : f.key === 'gd2_filter' ? { ...f, label: caption2 } : f
+));
+
+async function TrialBalanceTab({ filtersRaw, asOf, from }: { filtersRaw?: string; asOf?: string; from?: string }) {
   const filters = parseFilters(filtersRaw);
-  const [{ rows, totals, balanced }, empty, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
-    getTrialBalance({ asOf: asOf || null, filters }),
+  const [{ rows, totals, balanced }, empty, { caption1, caption2 }] = await Promise.all([
+    getTrialBalance({ from: from || null, asOf: asOf || null, filters }),
     hasAnyGlAccounts().then((any) => !any),
-    listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
+    getDimensionCaptions(),
   ]);
-  const tbFields = TRIAL_BALANCE_FILTER_FIELDS.map((f) => (
-    f.key === 'global_dimension_1_id' ? { ...f, label: caption1, options: gd1Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
-      : f.key === 'global_dimension_2_id' ? { ...f, label: caption2, options: gd2Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
-        : f
-  ));
+  const tbFields = [...TRIAL_BALANCE_FILTER_FIELDS, ...dimensionalFields(caption1, caption2)];
+  const dimensioned = filters.some((f) => (f.field === 'gd1_filter' || f.field === 'gd2_filter') && f.value !== '');
 
   return (
     <>
       <Toolbar>
         <DynamicFilterBar fields={tbFields} disabled={empty} />
-        <DateFilterInput paramName="asOf" label="As of" placeholder="As of" disabled={empty} />
+        <DateFilterExpressionInput placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" disabled={empty} />
         <Spacer />
         <ExportButton
-          href="/api/export/trial-balance" params={{ filters: filtersRaw, asOf }} disabled={!rows.length}
+          href="/api/export/trial-balance" params={{ filters: filtersRaw, asOf, from }} disabled={!rows.length}
         />
       </Toolbar>
       <Card>
-      <CardHead title="Trial balance" sub="Derived from posted journal lines, not from stored balances — click a balance to drill into its entries">
+      <CardHead
+        title="Trial balance"
+        sub={`Derived from posted journal lines, not from stored balances — click a balance to drill into its entries${
+          from ? `. Net change ${formatDate(from)} to ${asOf ? formatDate(asOf) : 'date'}` : ''}`}
+      >
+        {dimensioned ? <Pill tone="info">DIMENSIONAL</Pill> : null}
         <Pill tone={balanced ? 'ok' : 'bad'}>{balanced ? 'IN BALANCE' : 'OUT OF BALANCE'}</Pill>
       </CardHead>
       {rows.length ? (
@@ -228,28 +243,29 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
   );
 }
 
-async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
-  search: string; filtersRaw?: string; sortRaw?: string; asOf?: string;
+async function AccountsTab({ search, filtersRaw, sortRaw, asOf, from }: {
+  search: string; filtersRaw?: string; sortRaw?: string; asOf?: string; from?: string;
 }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  // The stored gl_account.balance is a lifetime running total, unaware of the As Of date and
-  // Global Dimension filters below — so the trial balance's own per-account aggregation is
-  // reused here to get a balance that actually respects them (empty filters reproduce the
-  // stored figure exactly, since that's how it's maintained on every posting).
-  const [rows, empty, canManage, { rows: tbRows }, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
+  // The stored gl_account.balance is a lifetime running total, unaware of the date filter and
+  // Dimensional filter below — so the trial balance's own per-account aggregation is reused
+  // here to get a balance that actually respects them (empty filters reproduce the stored
+  // figure exactly, since that's how it's maintained on every posting).
+  const [rows, empty, canManage, { rows: tbRows }, { caption1, caption2 }] = await Promise.all([
     listGlAccounts({ search, filters, sort }),
     hasAnyGlAccounts().then((any) => !any),
     currentCanAction('GL_ACCOUNT_MANAGE'),
-    getTrialBalance({ asOf: asOf || null, filters }),
-    listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
+    getTrialBalance({ from: from || null, asOf: asOf || null, filters }),
+    getDimensionCaptions(),
   ]);
   const balanceByCode = new Map(tbRows.map((r) => [r.code, r.net]));
-  const accountFields = [...GL_ACCOUNT_FILTER_FIELDS, ...GL_DIMENSION_FILTER_FIELDS].map((f) => (
-    f.key === 'global_dimension_1_id' ? { ...f, label: caption1, options: gd1Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
-      : f.key === 'global_dimension_2_id' ? { ...f, label: caption2, options: gd2Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
-        : f
-  ));
+  // The Dimensional filter — a Business-Central "FIN|NBI" combination/range expression against
+  // each dimension's code, resolved by getTrialBalance() above the same way Trial Balance's own
+  // filter bar does — replaces GL_DIMENSION_FILTER_FIELDS' single-exact-value select here, so
+  // Chart of Accounts gets the same add/remove Dimensional filter Trial Balance has.
+  const accountFields = [...GL_ACCOUNT_FILTER_FIELDS, ...dimensionalFields(caption1, caption2)];
+  const dimensioned = filters.some((f) => (f.field === 'gd1_filter' || f.field === 'gd2_filter') && f.value !== '');
   const structureLabel = (t: string): string => GL_ACCOUNT_STRUCTURE_TYPES.find((s) => s.value === t)?.label ?? t;
 
   // Indentation follows Business Central's Begin-Total/End-Total bracketing, which only means
@@ -269,10 +285,10 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
       <Toolbar>
         <SearchInput placeholder="Search code or name…" disabled={empty} />
         <DynamicFilterBar fields={accountFields} disabled={empty} />
-        <DateFilterInput paramName="asOf" label="As of" placeholder="As of" disabled={empty} />
+        <DateFilterExpressionInput placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" disabled={empty} />
         <Spacer />
         <ExportButton
-          href="/api/export/gl-accounts" params={{ q: search, filters: filtersRaw, sort: sortRaw, asOf }}
+          href="/api/export/gl-accounts" params={{ q: search, filters: filtersRaw, sort: sortRaw, asOf, from }}
           disabled={!rows.length}
         />
         {canManage ? <GlAccountFormButton className="btn">Add account</GlAccountFormButton> : null}
@@ -280,8 +296,11 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
       <Card>
         <CardHead
           title="Chart of accounts"
-          sub="Only Posting accounts carry ledger entries — Total/End-Total roll one up from their Totaling range. Click a balance to drill into its entries"
-        />
+          sub={`Only Posting accounts carry ledger entries — Total/End-Total roll one up from their Totaling range. Click a balance to drill into its entries${
+            from ? `. Net change ${formatDate(from)} to ${asOf ? formatDate(asOf) : 'date'}` : ''}`}
+        >
+          {dimensioned ? <Pill tone="info">DIMENSIONAL</Pill> : null}
+        </CardHead>
         {rows.length ? (
           <TableWrap>
             <thead>
@@ -371,11 +390,15 @@ function SubledgerEntryTable({ rows }: { rows: Awaited<ReturnType<typeof listVen
   );
 }
 
-async function VendorLedgerTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
+async function VendorLedgerTab({ search, filtersRaw, sortRaw, from, to }: {
+  search: string; filtersRaw?: string; sortRaw?: string; from?: string; to?: string;
+}) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
   const [rows, empty, dormancy] = await Promise.all([
-    listVendorLedgerEntries({ search, filters, sort }),
+    listVendorLedgerEntries({
+      search, filters, sort, from: from || null, to: to || null,
+    }),
     hasAnyVendorLedgerEntries().then((any) => !any),
     getDormancyAging(),
   ]);
@@ -386,6 +409,9 @@ async function VendorLedgerTab({ search, filtersRaw, sortRaw }: { search: string
       <Toolbar>
         <SearchInput placeholder="Search txn ref, description or member…" disabled={empty} />
         <DynamicFilterBar fields={SUBLEDGER_ENTRY_FILTER_FIELDS} disabled={empty} />
+        <DateFilterExpressionInput
+          fromParam="from" toParam="to" placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" disabled={empty}
+        />
       </Toolbar>
       <Card>
         <CardHead
@@ -423,11 +449,15 @@ async function VendorLedgerTab({ search, filtersRaw, sortRaw }: { search: string
   );
 }
 
-async function CustomerLedgerTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
+async function CustomerLedgerTab({ search, filtersRaw, sortRaw, from, to }: {
+  search: string; filtersRaw?: string; sortRaw?: string; from?: string; to?: string;
+}) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
   const [rows, empty] = await Promise.all([
-    listCustomerLedgerEntries({ search, filters, sort }),
+    listCustomerLedgerEntries({
+      search, filters, sort, from: from || null, to: to || null,
+    }),
     hasAnyCustomerLedgerEntries().then((any) => !any),
   ]);
 
@@ -436,6 +466,9 @@ async function CustomerLedgerTab({ search, filtersRaw, sortRaw }: { search: stri
       <Toolbar>
         <SearchInput placeholder="Search txn ref, description or member…" disabled={empty} />
         <DynamicFilterBar fields={SUBLEDGER_ENTRY_FILTER_FIELDS} disabled={empty} />
+        <DateFilterExpressionInput
+          fromParam="from" toParam="to" placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" disabled={empty}
+        />
       </Toolbar>
       <Card>
         <CardHead

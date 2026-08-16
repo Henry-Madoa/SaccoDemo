@@ -1,7 +1,9 @@
 import { one, all } from './db.ts';
-import { trialBalance, accountBalances } from './accounting.ts';
+import { accountBalances } from './accounting.ts';
+import { getTrialBalance, resolveDimensionFilterIds, TRIAL_BALANCE_FILTER_FIELDS } from './gl.ts';
 import { PROVISION_RATE, CLASSIFICATION_ORDER } from './loans.ts';
 import { myPendingWorkflowTaskCount } from './workflow.ts';
+import { buildFilterClause, type FilterCondition } from './listFilters.ts';
 import type {
   BalanceSheet, Cents, DashboardData, IncomeStatement, IsoDate,
   ParRow, PortfolioAtRisk, ReportLine, TxnWithMember,
@@ -84,8 +86,22 @@ export async function getDashboard(userId: number, username: string): Promise<Da
   };
 }
 
-export async function getBalanceSheet(asOf?: IsoDate | null): Promise<BalanceSheet> {
-  const rows = await trialBalance(asOf);
+export interface GetBalanceSheetOptions {
+  /** One-line Date Filter range (see lib/format.ts's parseDateFilterExpression) — left unset,
+   *  the usual cumulative Balance at Date; paired with `asOf`, a Net Change for that period,
+   *  the same Date Filter FlowField behaviour as the Trial Balance this reuses. */
+  from?: IsoDate | null;
+  asOf?: IsoDate | null;
+  /** Same filter bar as the Trial Balance: Code/Name/Type plus the Dimensional filter
+   *  (Global Dimension combination/range expression) — see TRIAL_BALANCE_DIMENSION_FILTER_
+   *  FIELDS in gl.ts. */
+  filters?: FilterCondition[];
+}
+
+export async function getBalanceSheet(
+  { from, asOf, filters = [] }: GetBalanceSheetOptions = {},
+): Promise<BalanceSheet> {
+  const { rows } = await getTrialBalance({ from, asOf, filters });
   const group = (t: string): ReportLine[] =>
     rows.filter((r) => r.type === t).map((r) => ({ code: r.code, name: r.name, amount: r.net }));
   const sum = (a: ReportLine[]): Cents => a.reduce((x, y) => x + y.amount, 0);
@@ -104,16 +120,43 @@ export async function getBalanceSheet(asOf?: IsoDate | null): Promise<BalanceShe
   return { assets, liabilities, equity, surplus, totals, balanced: totals.assets === totals.equityAndLiabilities };
 }
 
-export async function getIncomeStatement(from?: string, to?: string): Promise<IncomeStatement> {
+export interface GetIncomeStatementOptions {
+  from?: string;
+  to?: string;
+  /** Same filter bar as the Trial Balance — see GetBalanceSheetOptions.filters. */
+  filters?: FilterCondition[];
+}
+
+export async function getIncomeStatement(
+  { from, to, filters = [] }: GetIncomeStatementOptions = {},
+): Promise<IncomeStatement> {
+  // A plain INNER JOIN, unlike the Trial Balance's own LEFT JOIN aggregate — an income/expense
+  // account with nothing posted in the period is meant to be absent here (the report only ever
+  // shows accounts with real activity; Section's own render already drops amount === 0 lines
+  // regardless), so a dimension/account condition is safe straight in the WHERE clause.
+  const { clause: whereClause, params: whereParams } = buildFilterClause(TRIAL_BALANCE_FILTER_FIELDS, filters, 'is');
+  const gd1 = filters.find((f) => f.field === 'gd1_filter' && f.value !== '');
+  const gd2 = filters.find((f) => f.field === 'gd2_filter' && f.value !== '');
+  const [gd1Ids, gd2Ids] = await Promise.all([
+    gd1 ? resolveDimensionFilterIds(1, gd1.value) : Promise.resolve(null),
+    gd2 ? resolveDimensionFilterIds(2, gd2.value) : Promise.resolve(null),
+  ]);
+  const dimParams: Record<string, unknown> = {};
+  const dimParts: string[] = [];
+  if (gd1Ids !== null) { dimParts.push('AND jl.global_dimension_1_id = ANY(@gd1Ids)'); dimParams.gd1Ids = gd1Ids; }
+  if (gd2Ids !== null) { dimParts.push('AND jl.global_dimension_2_id = ANY(@gd2Ids)'); dimParams.gd2Ids = gd2Ids; }
+
   const rows = await all<{ code: string; name: string; type: string; d: Cents; c: Cents }>(
     `SELECT a.code, a.name, a.type, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
      FROM gl_account a
      JOIN journal_line jl ON jl.gl_account_id = a.id
      JOIN journal j ON j.id = jl.journal_id
      WHERE a.type IN ('INCOME','EXPENSE')
-       AND j.value_date >= COALESCE(?, '0000-01-01') AND j.value_date <= COALESCE(?, '9999-12-31')
+       AND j.value_date >= COALESCE(@from::text, '0000-01-01') AND j.value_date <= COALESCE(@to::text, '9999-12-31')
+       ${whereClause}
+       ${dimParts.join(' ')}
      GROUP BY a.id ORDER BY a.code`,
-    from || null, to || null,
+    { from: from || null, to: to || null, ...whereParams, ...dimParams },
   );
   const income = rows.filter((r) => r.type === 'INCOME')
     .map((r) => ({ code: r.code, name: r.name, amount: r.c - r.d }));

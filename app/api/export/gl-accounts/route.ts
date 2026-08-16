@@ -11,11 +11,12 @@ export async function GET(request: Request): Promise<Response> {
   const filters = parseFilters(searchParams.get('filters'));
   const sort = parseSort(searchParams.get('sort'));
   const asOf = searchParams.get('asOf') || null;
+  const from = searchParams.get('from') || null;
 
   return excelExportResponse('GL_READ', async () => {
     const [rows, { rows: tbRows }] = await Promise.all([
       listGlAccounts({ search: q, filters, sort }),
-      getTrialBalance({ asOf, filters }),
+      getTrialBalance({ from, asOf, filters }),
     ]);
     const balanceByCode = new Map(tbRows.map((r) => [r.code, r.net]));
     const structureLabel = (t: string): string => GL_ACCOUNT_STRUCTURE_TYPES.find((s) => s.value === t)?.label ?? t;

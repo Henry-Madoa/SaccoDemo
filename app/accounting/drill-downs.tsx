@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/modal';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { DefinitionList, EmptyState, Pill, TableWrap } from '@/components/ui/primitives';
+import { ExportButton } from '@/components/ui/export-button';
 import { useFormat } from '@/components/ui/format-provider';
 import { fetchAccountLedger, fetchJournal, fetchJournalRelatedEntries, reverseJournal } from '@/app/actions/gl';
 import { NATURAL_DEBIT_TYPES } from '@/lib/constants';
@@ -50,8 +51,11 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
 }) {
   const { cur, fdate } = useFormat();
   const params = useSearchParams();
+  const from = params.get('from') || undefined;
   const asOf = params.get('asOf') || undefined;
   const filters = parseFilters(params.get('filters'));
+  const gd1Filter = filters.find((f) => f.field === 'gd1_filter' && f.value !== '')?.value;
+  const gd2Filter = filters.find((f) => f.field === 'gd2_filter' && f.value !== '')?.value;
   const [data, setData] = useState<AccountLedger | null>(null);
   const [error, setError] = useState('');
   // A journal_no cell opens the same JournalModal used from the Journals tab — the first
@@ -64,18 +68,19 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
   ));
 
   useEffect(() => {
-    fetchAccountLedger(code, { asOf, filters }).then((res) => {
+    fetchAccountLedger(code, { from, asOf, filters }).then((res) => {
       if (res.ok) setData(res.data);
       else setError(res.error);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, asOf, params.get('filters')]);
+  }, [code, from, asOf, params.get('filters')]);
 
   const title = data ? `${data.account.code} — ${data.account.name}` : `Account ${code}`;
   const naturalDebit = data ? NATURAL_DEBIT_TYPES.includes(data.account.type) : true;
-  const filtered = Boolean(asOf) || filters.some((f) => (
+  const filtered = Boolean(from) || Boolean(asOf) || filters.some((f) => f.value !== '' && (
     f.field === 'global_dimension_1_id' || f.field === 'global_dimension_2_id'
-  ) && f.value !== '');
+    || f.field === 'gd1_filter' || f.field === 'gd2_filter'
+  ));
 
   // Find Entries + sorting are applied to a display copy only — each line's running balance
   // stays pinned to the true chronological order the ledger query returns.
@@ -121,13 +126,28 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
             <div className="inline" style={{ justifyContent: 'space-between', marginBottom: 'calc(var(--sp)*2)' }}>
               <div className="card-sub">
                 {data.account.type} · balance {cur(data.balance)}
-                {filtered ? <> · <Pill tone="info">FILTERED{asOf ? ` AS OF ${fdate(asOf)}` : ''}</Pill></> : null}
+                {filtered ? (
+                  <> · <Pill tone="info">
+                    FILTERED
+                    {from ? ` FROM ${fdate(from)}` : ''}
+                    {asOf ? ` TO ${fdate(asOf)}` : ''}
+                    {gd1Filter ? ` · ${caption1} ${gd1Filter}` : ''}
+                    {gd2Filter ? ` · ${caption2} ${gd2Filter}` : ''}
+                  </Pill></>
+                ) : null}
               </div>
               {data.lines.length ? (
-                <input
-                  type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Find entries…" aria-label="Find entries" style={{ maxWidth: 200 }}
-                />
+                <div className="inline" style={{ gap: 8 }}>
+                  <input
+                    type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Find entries…" aria-label="Find entries" style={{ maxWidth: 200 }}
+                  />
+                  <ExportButton
+                    href="/api/export/gl-account-ledger"
+                    params={{ code, from, asOf, filters: params.get('filters') || undefined }}
+                    className="btn sm ghost"
+                  />
+                </div>
               ) : null}
             </div>
             {data.lines.length ? (

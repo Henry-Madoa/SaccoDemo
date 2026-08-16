@@ -1,12 +1,16 @@
 import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
-import { getOrgBrand } from '@/lib/org';
+import { getOrgBrand, getDimensionCaptions } from '@/lib/org';
 import { getBalanceSheet, getIncomeStatement, getPortfolioAtRisk } from '@/lib/reports';
+import { TRIAL_BALANCE_FILTER_FIELDS, TRIAL_BALANCE_DIMENSION_FILTER_FIELDS } from '@/lib/gl';
 import { formatDate, today, startOfYear } from '@/lib/format';
+import { parseFilters, type FilterFieldDef } from '@/lib/listFilters';
 import { Page } from '@/components/layout/page';
 import {
-  Card, CardHead, EmptyState, Pill, Stat, TableWrap, Tabs, type TabDefinition,
+  Card, CardHead, EmptyState, Pill, Stat, TableWrap, Tabs, Toolbar, type TabDefinition,
 } from '@/components/ui/primitives';
+import { DateFilterExpressionInput } from '@/components/ui/filters';
+import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CompositionBars } from '../composition-charts';
@@ -18,9 +22,13 @@ const TABS: TabDefinition[] = [
   { key: 'par', label: 'Risk classification & provisioning' },
 ];
 
-export default async function ReportsPage({ params }: { params: Promise<{ tab?: string[] }> }) {
+export default async function ReportsPage({ params, searchParams }: {
+  params: Promise<{ tab?: string[] }>;
+  searchParams: Promise<{ filters?: string; asOf?: string; from?: string; to?: string }>;
+}) {
   const user = await requireAction('REPORTS_VIEW');
   const { tab: segments } = await params;
+  const { filters: filtersRaw, asOf, from, to } = await searchParams;
   const tab = segments?.[0] ?? 'balance-sheet';
   if (!TABS.some((t) => t.key === tab)) notFound();
 
@@ -31,12 +39,21 @@ export default async function ReportsPage({ params }: { params: Promise<{ tab?: 
       user={user}
     >
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/reports/${k}`} />
-      {tab === 'balance-sheet' ? <BalanceSheetTab /> : null}
-      {tab === 'income' ? <IncomeTab /> : null}
+      {tab === 'balance-sheet' ? <BalanceSheetTab filtersRaw={filtersRaw} asOf={asOf} from={from} /> : null}
+      {tab === 'income' ? <IncomeTab filtersRaw={filtersRaw} from={from} to={to} /> : null}
       {tab === 'par' ? <ParTab /> : null}
     </Page>
   );
 }
+
+/** Both statements' own filter bar — Code/Name/Type plus the Dimensional filter, same registry
+ *  Trial Balance uses, labelled with the org's actual dimension captions. */
+const dimensionedFields = (caption1: string, caption2: string): FilterFieldDef[] => [
+  ...TRIAL_BALANCE_FILTER_FIELDS,
+  ...TRIAL_BALANCE_DIMENSION_FILTER_FIELDS.map((f) => (
+    f.key === 'gd1_filter' ? { ...f, label: caption1 } : f.key === 'gd2_filter' ? { ...f, label: caption2 } : f
+  )),
+];
 
 /** A labelled block of report lines with its own subtotal. */
 function Section({ label, lines, total }: { label: string; lines: ReportLine[]; total: number }) {
@@ -57,17 +74,32 @@ function Section({ label, lines, total }: { label: string; lines: ReportLine[]; 
   );
 }
 
-async function BalanceSheetTab() {
-  const [brand, d] = await Promise.all([getOrgBrand(), getBalanceSheet()]);
+async function BalanceSheetTab({ filtersRaw, asOf, from }: { filtersRaw?: string; asOf?: string; from?: string }) {
+  const filters = parseFilters(filtersRaw);
+  const [brand, d, { caption1, caption2 }] = await Promise.all([
+    getOrgBrand(),
+    getBalanceSheet({ from: from || null, asOf: asOf || null, filters }),
+    getDimensionCaptions(),
+  ]);
   const org = brand!;
+  const dimensioned = filters.some((f) => (f.field === 'gd1_filter' || f.field === 'gd2_filter') && f.value !== '');
 
   return (
-    <Card>
+    <>
+      <Toolbar>
+        <DynamicFilterBar fields={dimensionedFields(caption1, caption2)} />
+        <DateFilterExpressionInput fromParam="from" toParam="asOf" placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" />
+      </Toolbar>
+      <Card>
       <CardHead
         title="Statement of financial position"
-        sub={`${org.name} · as at ${formatDate(today())} · amounts in ${org.currency_code}`}
+        sub={`${org.name} · ${from ? `net change ${formatDate(from)} to ${asOf ? formatDate(asOf) : 'date'}` : `as at ${formatDate(asOf || today())}`} · amounts in ${org.currency_code}`}
       >
-        <DocumentActionsMenu className="btn ghost sm" excel={{ href: '/api/export/balance-sheet' }} />
+        {dimensioned ? <Pill tone="info">DIMENSIONAL</Pill> : null}
+        <DocumentActionsMenu
+          className="btn ghost sm"
+          excel={{ href: '/api/export/balance-sheet', params: { asOf, from, filters: filtersRaw } }}
+        />
       </CardHead>
       <div className="report-body">
         <table>
@@ -96,22 +128,38 @@ async function BalanceSheetTab() {
         </div>
       </div>
     </Card>
+    </>
   );
 }
 
-async function IncomeTab() {
-  const from = startOfYear();
-  const to = today();
-  const [brand, d] = await Promise.all([getOrgBrand(), getIncomeStatement(from, to)]);
+async function IncomeTab({ filtersRaw, from: fromParam, to: toParam }: {
+  filtersRaw?: string; from?: string; to?: string;
+}) {
+  const from = fromParam || startOfYear();
+  const to = toParam || today();
+  const filters = parseFilters(filtersRaw);
+  const [brand, d, { caption1, caption2 }] = await Promise.all([
+    getOrgBrand(), getIncomeStatement({ from, to, filters }), getDimensionCaptions(),
+  ]);
   const org = brand!;
+  const dimensioned = filters.some((f) => (f.field === 'gd1_filter' || f.field === 'gd2_filter') && f.value !== '');
 
   return (
-    <Card>
+    <>
+      <Toolbar>
+        <DynamicFilterBar fields={dimensionedFields(caption1, caption2)} />
+        <DateFilterExpressionInput placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" />
+      </Toolbar>
+      <Card>
       <CardHead
         title="Statement of comprehensive income"
         sub={`${org.name} · ${formatDate(from)} to ${formatDate(to)}`}
       >
-        <DocumentActionsMenu className="btn ghost sm" excel={{ href: '/api/export/income' }} />
+        {dimensioned ? <Pill tone="info">DIMENSIONAL</Pill> : null}
+        <DocumentActionsMenu
+          className="btn ghost sm"
+          excel={{ href: '/api/export/income', params: { from, to, filters: filtersRaw } }}
+        />
       </CardHead>
       <div className="grid g2">
         <div style={{ maxWidth: 560 }}>
@@ -141,6 +189,7 @@ async function IncomeTab() {
         </div>
       </div>
     </Card>
+    </>
   );
 }
 

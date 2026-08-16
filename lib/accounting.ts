@@ -209,31 +209,55 @@ export async function reverseJournal(
   return rev;
 }
 
-/**
- * Trial balance across all postable accounts.
- *
- * The `asOf` cut-off belongs in the JOIN, not the WHERE: as a WHERE predicate it
- * discards the NULL rows produced by the LEFT JOIN, so every account with no
- * movement silently vanished from a dated trial balance.
- */
-export async function trialBalance(
-  asOf?: IsoDate | null, filterClause = '', filterParams: Record<string, unknown> = {},
-): Promise<TrialBalanceRow[]> {
+export interface TrialBalanceOptions {
+  /** Only sum activity on/after this date. Left unset, the report is the usual cumulative
+   *  Balance at Date; paired with `asOf`, it becomes a Net Change (period) trial balance —
+   *  Business Central's Date Filter FlowField applied to a G/L account's Net Change. */
+  from?: IsoDate | null;
+  asOf?: IsoDate | null;
+  /** Spliced into the WHERE clause — safe only for gl_account's own columns (a.code/a.name/
+   *  a.type and the like). A condition on a journal_line/journal column belongs in
+   *  `joinClause` instead: see the note below. */
+  whereClause?: string;
+  whereParams?: Record<string, unknown>;
+  /** Spliced into the combined (journal_line join journal)'s own ON condition, alongside
+   *  `asOf`/`from` above — the only safe place for a journal_line/journal-column condition
+   *  (dimensions, ...). Tested in WHERE instead, it would discard the NULL rows the LEFT JOIN
+   *  produces for an account with no matching movement, silently dropping that account from the
+   *  report instead of showing it at zero — the same hazard `asOf` itself was written to avoid. */
+  joinClause?: string;
+  joinParams?: Record<string, unknown>;
+}
+
+/** Trial balance across all postable accounts. */
+export async function trialBalance({
+  from = null, asOf = null, whereClause = '', whereParams = {}, joinClause = '', joinParams = {},
+}: TrialBalanceOptions = {}): Promise<TrialBalanceRow[]> {
   const rows = await all<Omit<TrialBalanceRow, 'net' | 'debit_balance' | 'credit_balance'>>(
     `SELECT a.id, a.code, a.name, a.type,
             COALESCE(SUM(jl.debit),0)  AS debit,
             COALESCE(SUM(jl.credit),0) AS credit
      FROM gl_account a
-     LEFT JOIN journal_line jl ON jl.gl_account_id = a.id
-     LEFT JOIN journal j ON j.id = jl.journal_id
+     -- journal_line and journal are joined to each other FIRST, as one unit, and that whole
+     -- unit is then LEFT JOINed to the account with every date/dimension condition attached
+     -- HERE — never as a later join's own ON clause. A condition placed on a later join (e.g.
+     -- one from journal_line to journal) only ever nulls that later join's own columns; it
+     -- cannot retroactively exclude journal_line's jl.debit/jl.credit from the SUM, since those
+     -- already belong to an earlier, unconditional join. That was a real, silent bug: every
+     -- "as of" trial balance before this returned the exact same lifetime total regardless of
+     -- the date, because the cutoff sat on the wrong join.
+     LEFT JOIN (journal_line jl JOIN journal j ON j.id = jl.journal_id)
+       ON jl.gl_account_id = a.id
        -- The cast is required: PostgreSQL cannot infer a parameter's type from
        -- "$1 IS NULL" alone and rejects the statement without it.
        AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
+       AND (@from::text IS NULL OR j.value_date >= @from::text)
+       ${joinClause}
      WHERE a.is_postable = 1
-       ${filterClause}
+       ${whereClause}
      GROUP BY a.id
      ORDER BY a.code`,
-    { asOf: asOf || null, ...filterParams },
+    { asOf: asOf || null, from: from || null, ...whereParams, ...joinParams },
   );
 
   return rows.map((r) => {

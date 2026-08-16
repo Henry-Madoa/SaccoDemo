@@ -116,8 +116,36 @@ await test('a dated trial balance still lists accounts with no movement', async 
   // Regression: the as-of filter used to sit in the WHERE clause, which turned
   // the LEFT JOIN into an inner join and dropped every zero-movement account.
   const full = await accounting.trialBalance();
-  const dated = await accounting.trialBalance(today);
+  const dated = await accounting.trialBalance({ asOf: today });
   assert.strictEqual(dated.length, full.length, `dated ${dated.length} rows vs undated ${full.length}`);
+});
+
+const gd1Filter = (value: string) => [{ field: 'gd1_filter', operator: '=' as const, value }];
+
+await test('a Dimensional Trial Balance still lists every account, and combines dimension codes with |', async () => {
+  // Same hazard as the as-of regression above, applied to the new Dimensional filter: a
+  // dimension condition tested in WHERE would drop every account with no matching movement
+  // instead of showing it at zero.
+  const full = await accounting.trialBalance();
+  const filtered = await gl.getTrialBalance({ filters: gd1Filter('NO-SUCH-DIMENSION-CODE') });
+  assert.strictEqual(filtered.rows.length, full.length, `filtered ${filtered.rows.length} rows vs full ${full.length}`);
+
+  // "A|B" must equal filtering by A and by B separately and summing — the OR-combination this
+  // feature exists for ("Trial Balance for NBI|HQ").
+  const dims = await all<{ code: string }>('SELECT code FROM global_dimension_1_value LIMIT 2');
+  if (dims.length === 2) {
+    const [a, b] = dims;
+    const [byA, byB, combined] = await Promise.all([
+      gl.getTrialBalance({ filters: gd1Filter(a.code) }),
+      gl.getTrialBalance({ filters: gd1Filter(b.code) }),
+      gl.getTrialBalance({ filters: gd1Filter(`${a.code}|${b.code}`) }),
+    ]);
+    const sum = (rows: typeof byA.rows) => rows.reduce((s, r) => s + r.net, 0);
+    assert.strictEqual(
+      sum(combined.rows), sum(byA.rows) + sum(byB.rows),
+      `"${a.code}|${b.code}" should equal ${a.code} + ${b.code} summed`,
+    );
+  }
 });
 
 /* ------------------------------------------------------------------------ */

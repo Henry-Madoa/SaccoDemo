@@ -31,25 +31,80 @@ export const GL_DIMENSION_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'global_dimension_2_id', label: 'Global Dimension 2', type: 'select', column: 'jl.global_dimension_2_id' },
 ];
 
-/** Trial balance's dynamic-filter registry — code/name/type are restricted to the account
- *  columns queried before aggregation (a.code/a.name/a.type); the computed balances can't be
- *  filtered in SQL without a HAVING clause the generic builder doesn't support. */
+/** Trial balance's dynamic-filter registry — the account columns (a.code/a.name/a.type, safe
+ *  to test in the WHERE clause ahead of the LEFT JOIN aggregation — see trialBalance()'s own
+ *  TrialBalanceOptions doc) plus the Dimensional Trial Balance's own Global Dimension filter:
+ *  a free-text Business-Central "Filter Totals by" expression (matchesTotaling's `|`/`..`
+ *  syntax against each dimension's code, e.g. "NBI" or "NBI|HQ"), added to and removed from
+ *  the same filter bar as Code/Name/Type — not the single-exact-value select
+ *  GL_DIMENSION_FILTER_FIELDS uses elsewhere. The page fills in each dimension field's label
+ *  from the org's own caption. */
 export const TRIAL_BALANCE_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'code', label: 'Code', type: 'text', column: 'a.code' },
   { key: 'name', label: 'Account Name', type: 'text', column: 'a.name' },
   { key: 'type', label: 'Type', type: 'select', column: 'a.type', options: GL_ACCOUNT_TYPES.map((t) => ({ value: t, label: t })) },
-  ...GL_DIMENSION_FILTER_FIELDS,
 ];
 
+export const TRIAL_BALANCE_DIMENSION_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'gd1_filter', label: 'Global Dimension 1' },
+  { key: 'gd2_filter', label: 'Global Dimension 2' },
+].map((f) => ({ ...f, type: 'text' as const }));
+
+/** Pulls one field's raw value straight out of a FilterCondition[] — for a field handled
+ *  outside buildFilterClause's plain column-comparison model (TRIAL_BALANCE_DIMENSION_FILTER_
+ *  FIELDS' own combination/range expression, resolved via resolveDimensionFilterIds instead of
+ *  a SQL operator). `!=` marks the match set for exclusion rather than inclusion. */
+function textFilterValue(filters: FilterCondition[], field: string): { value: string; exclude: boolean } | null {
+  const c = filters.find((f) => f.field === field && f.value !== '');
+  return c ? { value: c.value, exclude: c.operator === '!=' } : null;
+}
+
+/** Builds the journal-join-scoped Global Dimension clause shared by getTrialBalance() and
+ *  getAccountLedger(): the Chart of Accounts' own exact-id condition (GL_DIMENSION_FILTER_
+ *  FIELDS, carried through `filters` unchanged so a balance stays consistent with whichever
+ *  screen computed it) plus the Dimensional Trial Balance's own code-expression one
+ *  (TRIAL_BALANCE_DIMENSION_FILTER_FIELDS, also read out of the same `filters` array). */
+async function buildDimensionJoinClause(
+  filters: FilterCondition[], paramPrefix: string,
+): Promise<{ clause: string; params: Record<string, unknown> }> {
+  const { clause: gdIdClause, params } = buildFilterClause(GL_DIMENSION_FILTER_FIELDS, filters, paramPrefix);
+  const gd1 = textFilterValue(filters, 'gd1_filter');
+  const gd2 = textFilterValue(filters, 'gd2_filter');
+  const [gd1Ids, gd2Ids] = await Promise.all([
+    gd1 ? resolveDimensionFilterIds(1, gd1.value) : Promise.resolve(null),
+    gd2 ? resolveDimensionFilterIds(2, gd2.value) : Promise.resolve(null),
+  ]);
+  const parts = [gdIdClause];
+  if (gd1Ids !== null) {
+    parts.push(`AND ${gd1!.exclude ? 'NOT ' : ''}(jl.global_dimension_1_id = ANY(@${paramPrefix}gd1Ids))`);
+    params[`${paramPrefix}gd1Ids`] = gd1Ids;
+  }
+  if (gd2Ids !== null) {
+    parts.push(`AND ${gd2!.exclude ? 'NOT ' : ''}(jl.global_dimension_2_id = ANY(@${paramPrefix}gd2Ids))`);
+    params[`${paramPrefix}gd2Ids`] = gd2Ids;
+  }
+  return { clause: parts.filter(Boolean).join(' '), params };
+}
+
 export interface GetTrialBalanceOptions {
+  /** Only sum activity on/after this date — see TrialBalanceOptions.from. */
+  from?: IsoDate | null;
   asOf?: IsoDate | null;
+  /** Every dynamic filter row from the Trial Balance's own filter bar — Code/Name/Type
+   *  (TRIAL_BALANCE_FILTER_FIELDS) and the Dimensional filter
+   *  (TRIAL_BALANCE_DIMENSION_FILTER_FIELDS) together, plus whatever exact-id Global Dimension
+   *  condition Chart of Accounts' own filter bar passes through unchanged. */
   filters?: FilterCondition[];
 }
 
 /** Trial balance plus the totals and the in-balance assertion the screen shows. */
-export async function getTrialBalance({ asOf, filters = [] }: GetTrialBalanceOptions = {}): Promise<TrialBalanceReport> {
-  const { clause, params } = buildFilterClause(TRIAL_BALANCE_FILTER_FIELDS, filters, 'tb');
-  const rows = await trialBalance(asOf, clause, params);
+export async function getTrialBalance({ from, asOf, filters = [] }: GetTrialBalanceOptions = {}): Promise<TrialBalanceReport> {
+  const { clause: whereClause, params: whereParams } = buildFilterClause(TRIAL_BALANCE_FILTER_FIELDS, filters, 'tb');
+  const { clause: joinClause, params: joinParams } = await buildDimensionJoinClause(filters, 'tbgd');
+
+  const rows = await trialBalance({
+    from, asOf, whereClause, whereParams, joinClause, joinParams,
+  });
   const totals = rows.reduce(
     (a, r) => ({ debit: a.debit + r.debit_balance, credit: a.credit + r.credit_balance }),
     { debit: 0, credit: 0 },
@@ -253,20 +308,28 @@ export interface AccountLedger {
 }
 
 export interface AccountLedgerOptions {
+  from?: IsoDate | null;
   asOf?: IsoDate | null;
+  /** Same `filters` array as GetTrialBalanceOptions — both the Chart of Accounts' exact-id
+   *  Global Dimension condition and the Trial Balance's own Dimensional expression (read out of
+   *  it the same way, via TRIAL_BALANCE_DIMENSION_FILTER_FIELDS' field keys), so a drill-down
+   *  opened from either screen reconciles to the exact figure clicked. */
   filters?: FilterCondition[];
 }
 
-/** Drives the Chart of Accounts / Trial Balance balance drill-down. Applies the same As Of
- *  date and Global Dimension filters as the balance being drilled into (via the shared
- *  GL_DIMENSION_FILTER_FIELDS registry), so the ledger entries shown always reconcile to the
- *  figure the user clicked rather than the account's unfiltered lifetime balance. */
-export async function getAccountLedger(code: string, { asOf, filters = [] }: AccountLedgerOptions = {}): Promise<AccountLedger | null> {
+/** Drives the Chart of Accounts / Trial Balance balance drill-down. Applies the same date range
+ *  and Global Dimension filters (both the Chart of Accounts' exact-id one and the Trial
+ *  Balance's own combination/range expression) as the balance being drilled into, so the ledger
+ *  entries shown always reconcile to the figure the user clicked rather than the account's
+ *  unfiltered lifetime balance. */
+export async function getAccountLedger(
+  code: string, { from, asOf, filters = [] }: AccountLedgerOptions = {},
+): Promise<AccountLedger | null> {
   const account = await one<GlAccount>('SELECT * FROM gl_account WHERE code = ?', code);
   if (!account) return null;
 
-  const { clause: gdClause, params: gdParams } = buildFilterClause(GL_DIMENSION_FILTER_FIELDS, filters, 'lgd');
-  const params = { id: account.id, asOf: asOf || null, ...gdParams };
+  const { clause: gdClause, params: dimParams } = await buildDimensionJoinClause(filters, 'lgd');
+  const params = { id: account.id, asOf: asOf || null, from: from || null, ...dimParams };
 
   const [lines, tb] = await Promise.all([
     // No LIMIT here: this is a reconciliation view (its whole job is to add up to the exact
@@ -282,11 +345,15 @@ export async function getAccountLedger(code: string, { asOf, filters = [] }: Acc
        LEFT JOIN global_dimension_2_value gd2 ON gd2.id = jl.global_dimension_2_id
        WHERE jl.gl_account_id = @id
          AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
+         AND (@from::text IS NULL OR j.value_date >= @from::text)
          ${gdClause}
        ORDER BY j.value_date, j.id`,
       params,
     ),
-    trialBalance(asOf, `AND a.code = @lgcode ${gdClause}`, { lgcode: code, ...gdParams }),
+    trialBalance({
+      from, asOf, whereClause: 'AND a.code = @lgcode', whereParams: { lgcode: code },
+      joinClause: gdClause, joinParams: dimParams,
+    }),
   ]);
   return { account, lines, balance: tb[0]?.net ?? 0 };
 }
@@ -324,6 +391,21 @@ export function matchesTotaling(code: string, totaling: string | null | undefine
     const [from, to] = term.split('..');
     return code >= from.trim() && code <= (to ?? from).trim();
   });
+}
+
+/** Resolves a Business-Central-style dimension filter expression — matchesTotaling's own
+ *  `|`-separated codes/ranges syntax, e.g. "NBI|HQ" (either) or "NBI..NKR" (a range) — against
+ *  one Global Dimension's master list, into the ids of every value it matches. A Dimensional
+ *  Trial Balance filters journal_line.global_dimension_1/2_id by this id list rather than by
+ *  code directly, since that's what's actually stored on the posted line. Returns null for a
+ *  blank expression (no filter to apply), so the caller can tell "not filtering this dimension"
+ *  apart from "filtered to nothing". */
+export async function resolveDimensionFilterIds(dimension: 1 | 2, expression: string): Promise<number[] | null> {
+  const expr = expression.trim();
+  if (!expr) return null;
+  const table = dimension === 1 ? 'global_dimension_1_value' : 'global_dimension_2_value';
+  const values = await all<{ id: number; code: string }>(`SELECT id, code FROM ${table}`);
+  return values.filter((v) => matchesTotaling(v.code, expr)).map((v) => v.id);
 }
 
 /** Sums the (already filter-aware) balances of every Posting account a Total/End-Total row's
@@ -600,11 +682,17 @@ export interface ListSubledgerEntriesOptions {
   search?: string;
   filters?: FilterCondition[];
   sort?: SortState | null;
+  /** One-line Date Filter range (see lib/format.ts's parseDateFilterExpression) — t.value_date
+   *  is a plain WHERE-safe column here (this lists individual txn rows, not a LEFT JOIN
+   *  aggregate), so unlike the Trial Balance's own date range it needs no special join
+   *  placement. */
+  from?: IsoDate | null;
+  to?: IsoDate | null;
 }
 
 async function listSubledgerEntries(
   module: 'SAVINGS' | 'LOAN',
-  { search = '', filters = [], sort = null }: ListSubledgerEntriesOptions,
+  { search = '', filters = [], sort = null, from = null, to = null }: ListSubledgerEntriesOptions,
 ): Promise<SubledgerEntryRow[]> {
   const { clause, params } = buildFilterClause(SUBLEDGER_ENTRY_FILTER_FIELDS, filters, 't');
   const orderBy = buildOrderClause(SUBLEDGER_ENTRY_SORT_COLUMNS, sort, 't.id DESC');
@@ -618,9 +706,11 @@ async function listSubledgerEntries(
      WHERE t.module = @module
        AND (t.txn_ref LIKE @like OR t.description LIKE @like OR m.first_name LIKE @like
             OR m.last_name LIKE @like OR m.member_no LIKE @like)
+       AND (@from::text IS NULL OR t.value_date >= @from::text)
+       AND (@to::text IS NULL OR t.value_date <= @to::text)
        ${clause}
      ${orderBy} LIMIT 500`,
-    { module, like: `%${String(search).trim()}%`, ...params },
+    { module, like: `%${String(search).trim()}%`, from, to, ...params },
   );
   return rows.map((r) => ({
     ...r,

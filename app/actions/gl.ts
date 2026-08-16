@@ -17,11 +17,14 @@ import type {
  * ledger with the page.
  */
 export async function fetchAccountLedger(
-  code: string, opts: { asOf?: string; filters?: FilterCondition[] } = {},
+  code: string,
+  opts: { from?: string; asOf?: string; filters?: FilterCondition[] } = {},
 ): Promise<ActionResult<gl.AccountLedger>> {
   return actionResult(async () => {
     await requireAction('GL_READ');
-    const ledger = await gl.getAccountLedger(code, { asOf: opts.asOf || null, filters: opts.filters });
+    const ledger = await gl.getAccountLedger(code, {
+      from: opts.from || null, asOf: opts.asOf || null, filters: opts.filters,
+    });
     if (!ledger) throw new AppError('Account not found', 'NOT_FOUND');
     return ledger;
   });

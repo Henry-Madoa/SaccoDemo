@@ -15,6 +15,7 @@ import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, start
 import { postTransactionCharges, previewTransactionChargeById } from './charges.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
+import { getJournal, type JournalDetail } from './gl.ts';
 import type {
   Actor, AccountActivationRequest, AccountActivationRequestWithDimensions, SavingsAccountForDebit,
   SavingsAccountWithProduct,
@@ -447,4 +448,15 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
     await logTableChange('account_activation_request', no, 'Modification', changes, user);
     return { accountId: req.account_id };
   });
+}
+
+/** Table 52204262/263's "Navigate" — the posted reactivation-fee journal and its lines, for a
+ *  processed request. Same shape as lib/memberCharging.ts's getMemberChargingJournal(); null
+ *  when the request was processed with no Charge Code configured, since activation stays free
+ *  by default and nothing was ever posted. Gated by the caller on ACCOUNT_ACTIVATION_READ rather
+ *  than GL_READ, same reasoning as Member Charging's own version. */
+export async function getAccountActivationJournal(no: string): Promise<JournalDetail | null> {
+  const row = await one<{ journal_id: number | null }>('SELECT journal_id FROM account_activation_request WHERE no = ?', no);
+  if (!row?.journal_id) return null;
+  return getJournal(row.journal_id);
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { parseDateFilterExpression, formatDateFilterExpression } from '@/lib/format';
 import type { SelectOption } from './field';
 
 /**
@@ -22,7 +23,19 @@ export function useQueryWriter() {
     startTransition(() => router.replace(`${pathname}?${next}`, { scroll: false }));
   };
 
-  return { write, pending };
+  /** Same as `write`, but for two or more keys at once — needed whenever a single field maps
+   *  to more than one URL param (DateFilterExpressionInput's one box driving `from`+`asOf`), so
+   *  the second key's update isn't silently lost to a stale base snapshot from the first. */
+  const writeMany = (entries: Record<string, string>) => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(entries)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    startTransition(() => router.replace(`${pathname}?${next}`, { scroll: false }));
+  };
+
+  return { write, writeMany, pending };
 }
 
 /** Debounced free-text filter bound to a query parameter. */
@@ -73,6 +86,43 @@ export function DateFilterInput({ paramName, label, placeholder, disabled }: {
       value={params.get(paramName) ?? ''}
       disabled={disabled}
       onChange={(e) => write(paramName, e.target.value)}
+    />
+  );
+}
+
+/** One-line Business Central-style Date Filter — `01/01/26..31/12/26`, `..T` (up to today),
+ *  `01/01/26..` (open end) — parsed into the same `from`/`to` query params a two-field date
+ *  range already used, so every existing reader of those params (the report itself, its Excel
+ *  export, a balance drill-down opened from it) needs no change at all; only how the *user*
+ *  enters the range does. See lib/format.ts's parseDateFilterExpression for the syntax. */
+export function DateFilterExpressionInput({ fromParam = 'from', toParam = 'asOf', placeholder, disabled }: {
+  fromParam?: string; toParam?: string; placeholder?: string; disabled?: boolean;
+}) {
+  const params = useSearchParams();
+  const { writeMany } = useQueryWriter();
+  const urlValue = formatDateFilterExpression(params.get(fromParam), params.get(toParam));
+  const [value, setValue] = useState(urlValue);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => { setValue(urlValue); }, [urlValue]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  return (
+    <input
+      type="text"
+      value={value}
+      placeholder={placeholder}
+      aria-label={placeholder || 'Date filter'}
+      disabled={disabled}
+      onChange={(e) => {
+        const next = e.target.value;
+        setValue(next);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
+          const { from, to } = parseDateFilterExpression(next);
+          writeMany({ [fromParam]: from ?? '', [toParam]: to ?? '' });
+        }, 400);
+      }}
     />
   );
 }

@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  getAccountActivationRequest, getAdjacentAccountActivationNos, type AccountActivationView,
+  getAccountActivationRequest, getAdjacentAccountActivationNos, getAccountActivationJournal,
+  type AccountActivationView,
 } from '@/lib/accountActivation';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDateTime } from '@/lib/format';
@@ -30,10 +31,11 @@ export default async function AccountActivationDetailPage({ params, searchParams
   const request = await getAccountActivationRequest(no);
   if (!request) notFound();
 
-  const [canCreate, canApprove, tasks, { prevNo, nextNo }] = await Promise.all([
+  const [canCreate, canApprove, tasks, { prevNo, nextNo }, journal] = await Promise.all([
     currentCanAction('ACCOUNT_ACTIVATION_CREATE'), currentCanAction('ACCOUNT_ACTIVATION_APPROVE'),
     listWorkflowTasksForDocument('ACCOUNT_ACTIVATION', no),
     getAdjacentAccountActivationNos(no, view),
+    request.status === 'Processed' ? getAccountActivationJournal(no) : Promise.resolve(null),
   ]);
 
   const isOpen = request.status === 'Open';
@@ -165,6 +167,32 @@ export default async function AccountActivationDetailPage({ params, searchParams
           </TableWrap>
         ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
       </Card>
+
+      {processed ? (
+        <Card>
+          <CardHead
+            title="Related ledger entries"
+            sub={journal ? `Journal ${journal.journal.journal_no}` : 'Navigate'}
+          />
+          {journal ? (
+            <TableWrap>
+              <thead>
+                <tr><th>Account</th><th>Narration</th><th className="num">Debit</th><th className="num">Credit</th></tr>
+              </thead>
+              <tbody>
+                {journal.lines.map((l) => (
+                  <tr key={l.id}>
+                    <td><span className="mono">{l.code}</span> — {l.name}</td>
+                    <td>{l.narration || '—'}</td>
+                    <td className="num">{l.debit ? <Money cents={l.debit} /> : '—'}</td>
+                    <td className="num">{l.credit ? <Money cents={l.credit} /> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          ) : <EmptyState icon="⚖" title="No reactivation fee was posted" sub="Activation was free — no Charge Code was configured for this request" />}
+        </Card>
+      ) : null}
       </Page>
     </>
   );

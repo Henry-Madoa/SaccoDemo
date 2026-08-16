@@ -10,7 +10,7 @@ import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
-import { DateFilterInput, SearchInput } from '@/components/ui/filters';
+import { DateFilterExpressionInput, SearchInput } from '@/components/ui/filters';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
@@ -166,8 +166,9 @@ export default async function SavingsAccountPage({ params, searchParams }: {
         />
         <Toolbar>
           <SearchInput placeholder="Find entries — reference, document no., description or channel…" disabled={empty} />
-          <DateFilterInput paramName="from" label="From" placeholder="From" disabled={empty} />
-          <DateFilterInput paramName="to" label="To" placeholder="To" disabled={empty} />
+          <DateFilterExpressionInput
+            fromParam="from" toParam="to" placeholder="Date filter — e.g. 01/01/26..31/12/26 or ..T" disabled={empty}
+          />
           <Spacer />
           <DocumentActionsMenu
             excel={{ href: '/api/export/savings-statement', params: { id: String(a.id), from, to }, disabled: !lines.length }}

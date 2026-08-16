@@ -69,6 +69,49 @@ export const today = (): string => new Date().toISOString().slice(0, 10);
 
 export const startOfYear = (): string => `${new Date().getFullYear()}-01-01`;
 
+/** One term of a Business-Central-style Date Filter — "T"/"TODAY" (case-insensitive), an ISO
+ *  `YYYY-MM-DD`, or a `DD/MM/YYYY`/`DD/MM/YY` date as typed in the BC screenshot this mirrors
+ *  ("01/01/26"). Returns null for anything unparseable, so the caller can tell a genuinely
+ *  blank side of a range apart from a typo. */
+function parseDateFilterTerm(term: string): string | null {
+  const t = term.trim();
+  if (!t) return null;
+  if (/^t(oday)?$/i.test(t)) return today();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const dmy = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (dmy) {
+    const [, d, m, y] = dmy;
+    const year = y.length === 2 ? `20${y}` : y;
+    return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  return null;
+}
+
+/** Parses a single-line Business Central Date Filter expression into a {from, to} range:
+ *  `A..B` (both bounds), `..B` (open start), `A..` (open end), or a bare `A` (that one day
+ *  only) — the exact syntax the Filter Totals "Date Filter" field takes, "T"/"TODAY" included
+ *  as today's date. Blank or fully unparseable input returns both bounds null (no filter). */
+export function parseDateFilterExpression(expr: string): { from: string | null; to: string | null } {
+  const e = (expr || '').trim();
+  if (!e) return { from: null, to: null };
+  if (e.includes('..')) {
+    const i = e.indexOf('..');
+    return { from: parseDateFilterTerm(e.slice(0, i)), to: parseDateFilterTerm(e.slice(i + 2)) };
+  }
+  const single = parseDateFilterTerm(e);
+  return { from: single, to: single };
+}
+
+/** The reverse of parseDateFilterExpression — {from, to} back into the one-line expression a
+ *  Date Filter box should display, so the field round-trips through a page reload or a Back
+ *  navigation instead of going blank. */
+export function formatDateFilterExpression(from: string | null | undefined, to: string | null | undefined): string {
+  if (from && to) return from === to ? from : `${from}..${to}`;
+  if (from) return `${from}..`;
+  if (to) return `..${to}`;
+  return '';
+}
+
 export const initials = (name: string | null | undefined): string =>
   String(name || '?').trim().split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
 

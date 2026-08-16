@@ -1,13 +1,19 @@
 import { getIncomeStatement } from '@/lib/reports';
 import { startOfYear, today } from '@/lib/format';
+import { parseFilters } from '@/lib/listFilters';
 import { buildWorkbookBuffer, excelExportResponse, type ExcelColumn } from '@/lib/excel';
 import type { Cents } from '@/lib/types';
 
 interface Row { section: string; code: string; name: string; amount: Cents }
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
+  const { searchParams } = new URL(request.url);
+  const from = searchParams.get('from') || startOfYear();
+  const to = searchParams.get('to') || today();
+  const filters = parseFilters(searchParams.get('filters'));
+
   return excelExportResponse('REPORTS_VIEW', async () => {
-    const d = await getIncomeStatement(startOfYear(), today());
+    const d = await getIncomeStatement({ from, to, filters });
     const rows: Row[] = [
       ...d.income.map((r): Row => ({ section: 'Income', code: r.code, name: r.name, amount: r.amount })),
       { section: 'Income', code: '', name: 'Total income', amount: d.totalIncome },
