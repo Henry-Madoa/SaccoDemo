@@ -1,6 +1,7 @@
 /** A small Excel-file glyph — recognizable at a glance in a toolbar, unlike a bare emoji,
- *  and fixed to Excel's own green so it reads correctly in both light and dark themes. */
-function ExcelIcon() {
+ *  and fixed to Excel's own green so it reads correctly in both light and dark themes.
+ *  Exported so DocumentActionsMenu can reuse the same glyph for its "Export to Excel" item. */
+export function ExcelIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>
       <rect x="1" y="1" width="22" height="22" rx="5" fill="#207245" />

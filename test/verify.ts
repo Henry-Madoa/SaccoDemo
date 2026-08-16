@@ -27,6 +27,7 @@ process.env.DATABASE_URL = testUrl;
 const { all, one, run } = await import('../lib/db.ts');
 const { seedIfEmpty } = await import('../lib/seed.ts');
 const accounting = await import('../lib/accounting.ts');
+const gl = await import('../lib/gl.ts');
 const savings = await import('../lib/savings.ts');
 const loanSvc = await import('../lib/loanService.ts');
 const { buildSchedule, allocateRepayment } = await import('../lib/loans.ts');
@@ -158,8 +159,37 @@ await test('savings balances equal the sum of their posted transactions', async 
   assert.strictEqual(bad.length, 0, `drift on ${bad.map((b) => b.account_no).join(', ')}`);
 });
 
+await test('bank account ledger entries reconcile to their GL control account', async () => {
+  const rows = await all<{ code: string; gl_code: string; bank_balance: number; entry_sum: number }>(
+    `SELECT ba.code, g.code gl_code, ba.balance bank_balance,
+            COALESCE((SELECT SUM(amount) FROM bank_account_ledger_entry WHERE bank_account_id = ba.id), 0) entry_sum
+     FROM bank_account ba JOIN gl_account g ON g.id = ba.gl_account_id`,
+  );
+  for (const r of rows) {
+    assert.strictEqual(r.bank_balance, r.entry_sum, `${r.code}: bank balance ${r.bank_balance} vs entries ${r.entry_sum}`);
+    const glBalance = await accounting.accountBalance(r.gl_code);
+    assert.strictEqual(r.bank_balance, glBalance, `${r.code}: bank balance ${r.bank_balance} vs GL ${glBalance}`);
+  }
+});
+
 /* ------------------------------------------------------------------------ */
 section('Posting engine controls');
+
+await test('a no-direct-posting account rejects a manual journal but still accepts subledger postings', async () => {
+  // '1020' (Bank Current Account) is one of the seeded bank_account control accounts.
+  await throws(() => gl.postManualJournal({
+    valueDate: today,
+    lines: [{ account: '1020', debit: 500, credit: 0 }, { account: '4050', debit: 0, credit: 500 }],
+  }, admin), /VALIDATION/);
+  // The same account still accepts postJournal() directly — savings/loan/charge callers,
+  // and this very test suite's own fixtures above, are unaffected by the manual-journal guard.
+  const before = await accounting.accountBalance('1020');
+  await accounting.postJournal({
+    valueDate: today, module: 'TEST', eventType: 'TEST', user: admin,
+    lines: [{ account: '1020', debit: 500, credit: 0 }, { account: '4050', debit: 0, credit: 500 }],
+  });
+  assert.strictEqual(await accounting.accountBalance('1020'), before + 500);
+});
 
 await test('an unbalanced journal is rejected', async () => {
   await throws(() => accounting.postJournal({

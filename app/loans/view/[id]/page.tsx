@@ -12,6 +12,7 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import { SubmitButton, DecideButtons, DisburseButton, RepayButton } from './loan-actions';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
@@ -86,6 +87,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
         ) : null}
         {l.status === 'APPROVED' && canDisburse ? <DisburseButton loan={l} /> : null}
         {l.status === 'DISBURSED' && canRepay ? <RepayButton loan={l} accounts={repayAccounts} /> : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <div className="grid g4 stack-2">

@@ -401,6 +401,10 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
 
     await run("UPDATE savings_account SET status = 'ACTIVE' WHERE id = ?", req.account_id);
 
+    // Set below when the reactivation fee posts — carried out to the request's own journal_id
+    // column (mirrors member_charging.journal_id) so Find Entries can trace it back here.
+    let feeJournalId: number | null = null;
+
     if (req.transaction_charge_id && req.debit_account_id) {
       const debitAccount = await one<{ balance: number; account_no: string; gl_control_id: number }>(
         `SELECT sa.balance, sa.account_no, p.gl_control_id
@@ -415,6 +419,7 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
         memberId: account.member_id, description: `Reactivation fee — ${debitAccount.account_no}`, user,
       });
       if (charged) {
+        feeJournalId = charged.journal.id;
         const total = charged.charges.reduce((sum, c) => sum + c.amount, 0);
         const newBalance = debitAccount.balance - total;
         await run(
@@ -434,8 +439,8 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
 
     await run(
       `UPDATE account_activation_request
-       SET status = 'Processed', processed_at = ?, processed_by = ? WHERE no = ?`,
-      new Date().toISOString(), user.username, no,
+       SET status = 'Processed', processed_at = ?, processed_by = ?, journal_id = ? WHERE no = ?`,
+      new Date().toISOString(), user.username, feeJournalId, no,
     );
     const changes = diffFields(req as unknown as Record<string, unknown>, { status: 'Processed' });
     await logTableChange('account_activation_request', no, 'Modification', changes, user);

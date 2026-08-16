@@ -15,6 +15,7 @@ import { Page } from '@/components/layout/page';
 import { Toolbar, Spacer } from '@/components/ui/primitives';
 import { ClientTabs } from '@/components/ui/client-tabs';
 import { CardNav } from '@/components/ui/card-nav';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../application-actions';
@@ -140,6 +141,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
           </>
         ) : null}
         {application.status === 'Approved' && canApprove ? <ProcessButton no={application.no} /> : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <ClientTabs

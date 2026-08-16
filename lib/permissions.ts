@@ -239,6 +239,10 @@ export const ACTIONS = {
   GL_JOURNAL_REVERSE: { page: 'GL', tables: [['journal', 'insert'], ['journal', 'modify'], ['journal_line', 'insert']] },
   GL_PERIOD_CLOSE: { page: 'GL', tables: [['accounting_period', 'modify']] },
   GL_ACCOUNT_MANAGE: { page: 'GL', tables: [['gl_account', 'insert'], ['gl_account', 'modify'], ['change_log_entry', 'insert']] },
+  GL_BANK_RECONCILE: {
+    page: 'GL',
+    tables: [['bank_reconciliation', 'insert'], ['bank_reconciliation', 'modify'], ['bank_account_ledger_entry', 'modify']],
+  },
 
   // Reporting — pure aggregation, execute-only (see file header).
   DASHBOARD_VIEW: { page: 'DASHBOARD', tables: [] },

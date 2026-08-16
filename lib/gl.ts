@@ -9,8 +9,10 @@ import { findMatchingWorkflow, startWorkflow, canReverseJournal } from './workfl
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
-  AccountingPeriod, Actor, Cents, GlAccount, GlAccountStructureType, GlAccountType, IsoDate, Journal,
-  JournalLineInput, JournalLineWithAccount, JournalListRow, LedgerLine, PostedJournal, TrialBalanceRow,
+  AccountingPeriod, Actor, BankAccount, BankAccountListRow, BankAccountLedgerEntryWithJournal,
+  BankReconciliation, BankReconciliationWorksheet, Cents, DormancyAgingRow, GlAccount, GlAccountStructureType,
+  GlAccountType, IsoDate, Journal, JournalLineInput, JournalLineWithAccount, JournalListRow,
+  JournalRelatedEntries, LedgerLine, PostedJournal, SubledgerEntryRow, TrialBalanceRow,
 } from './types.ts';
 
 export interface TrialBalanceReport {
@@ -143,6 +145,30 @@ export interface CreateJournalInput {
   lines: JournalLineInput[];
 }
 
+/** Business-Central-style guard: a G/L account flagged no_direct_posting is controlled by a
+ *  subledger (Bank, the savings liability control account, the loan receivable control
+ *  account) and must be posted through it instead — deposit/withdraw, disburse/repay, or a
+ *  Bank Reconciliation, all of which still post through postJournal() directly and are
+ *  unaffected by this check. Manual-journal-only, so it belongs here rather than in
+ *  postJournal() itself. */
+async function assertNoDirectPosting(lines: { account: number | string }[]): Promise<void> {
+  for (const l of lines) {
+    const acct = typeof l.account === 'number'
+      ? await one<{ code: string; no_direct_posting: number }>(
+        'SELECT code, no_direct_posting FROM gl_account WHERE id = ?', l.account,
+      )
+      : await one<{ code: string; no_direct_posting: number }>(
+        'SELECT code, no_direct_posting FROM gl_account WHERE code = ?', String(l.account),
+      );
+    if (acct?.no_direct_posting) {
+      throw new AppError(
+        `Account ${acct.code} is controlled by a subledger — post through Savings, Loans or Bank Reconciliation instead of a manual journal`,
+        'VALIDATION',
+      );
+    }
+  }
+}
+
 /** The actual posting — shared by an immediate manual entry and a workflow's finalize step. */
 export async function postManualJournal(input: CreateJournalInput, user: Actor): Promise<PostedJournal> {
   const clean = (input.lines || [])
@@ -156,6 +182,7 @@ export async function postManualJournal(input: CreateJournalInput, user: Actor):
     }))
     .filter((l) => l.account && (l.debit || l.credit));
   if (clean.length < 2) throw new AppError('A journal needs at least two lines', 'NO_LINES');
+  await assertNoDirectPosting(clean);
 
   const j = await postJournal({
     valueDate: input.valueDate || new Date().toISOString().slice(0, 10),
@@ -476,4 +503,303 @@ export async function setPeriodStatus(code: string, status: string, user: Actor)
   if (!info.changes) throw new AppError('Period not found', 'NOT_FOUND');
   await audit(user, status === 'CLOSED' ? 'PERIOD_CLOSE' : 'PERIOD_REOPEN', 'accounting_period', code);
   return (await one<AccountingPeriod>('SELECT * FROM accounting_period WHERE code = ?', code))!;
+}
+
+/* ------------------------------------------------- find entries / navigate */
+
+/** Business Central's "Navigate": every entry across every subledger that shares this
+ *  journal — the G/L lines themselves (already available via getJournal), plus whichever
+ *  source document(s) posted it, resolved through each module's own journal_id link (txn for
+ *  Savings/Loans, member_charging, account_activation_request, bank_account_ledger_entry). */
+export async function getJournalRelatedEntries(journalId: number): Promise<JournalRelatedEntries> {
+  const [glLines, savingsTxns, loanTxns, memberChargings, activations, bankEntries] = await Promise.all([
+    all<{ id: number }>('SELECT id FROM journal_line WHERE journal_id = ?', journalId),
+    all<{ id: number; txn_ref: string; amount: Cents; savings_account_id: number; account_no: string }>(
+      `SELECT t.id, t.txn_ref, t.amount, t.savings_account_id, sa.account_no
+       FROM txn t JOIN savings_account sa ON sa.id = t.savings_account_id
+       WHERE t.journal_id = ? AND t.module = 'SAVINGS'`,
+      journalId,
+    ),
+    all<{ id: number; txn_ref: string; amount: Cents; loan_id: number; loan_no: string }>(
+      `SELECT t.id, t.txn_ref, t.amount, t.loan_id, l.loan_no
+       FROM txn t JOIN loan l ON l.id = t.loan_id
+       WHERE t.journal_id = ? AND t.module = 'LOAN'`,
+      journalId,
+    ),
+    all<{ no: string; amount_charged: Cents }>(
+      'SELECT no, amount_charged FROM member_charging WHERE journal_id = ?', journalId,
+    ),
+    all<{ no: string }>('SELECT no FROM account_activation_request WHERE journal_id = ?', journalId),
+    all<{ id: number; amount: Cents; code: string; name: string }>(
+      `SELECT bale.id, bale.amount, ba.code, ba.name
+       FROM bank_account_ledger_entry bale JOIN bank_account ba ON ba.id = bale.bank_account_id
+       WHERE bale.journal_id = ?`,
+      journalId,
+    ),
+  ]);
+
+  return {
+    glLineCount: glLines.length,
+    vendor: {
+      entries: savingsTxns.map((t) => ({
+        label: `${t.account_no} · ${t.txn_ref}`, amount: t.amount, href: `/savings/${t.savings_account_id}`,
+      })),
+    },
+    customer: {
+      entries: loanTxns.map((t) => ({
+        label: `${t.loan_no} · ${t.txn_ref}`, amount: t.amount, href: `/loans/view/${t.loan_id}`,
+      })),
+    },
+    memberCharging: {
+      entries: memberChargings.map((c) => ({
+        label: c.no, amount: c.amount_charged, href: `/member-chargings/view/${c.no}`,
+      })),
+    },
+    accountActivation: {
+      entries: activations.map((a) => ({ label: a.no, amount: 0, href: `/account-activations/view/${a.no}` })),
+    },
+    bank: {
+      entries: bankEntries.map((b) => ({ label: `${b.code} — ${b.name}`, amount: b.amount, href: '' })),
+    },
+  };
+}
+
+/* --------------------------------------------------- vendor/customer ledger entries */
+
+/** Shared filter registry for both Vendor (Savings) and Customer (Loans) Ledger Entries —
+ *  same underlying `txn` table, just filtered by module. */
+export const SUBLEDGER_ENTRY_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'txn_ref', label: 'Txn Ref', type: 'text', column: 't.txn_ref' },
+  { key: 'value_date', label: 'Value Date', type: 'date', column: 't.value_date' },
+  { key: 'txn_type', label: 'Type', type: 'select', column: 't.txn_type' },
+  { key: 'channel', label: 'Channel', type: 'select', column: 't.channel' },
+  {
+    key: 'status', label: 'Status', type: 'select', column: 't.status',
+    options: [{ value: 'POSTED', label: 'Posted' }, { value: 'REVERSED', label: 'Reversed' }],
+  },
+];
+
+const SUBLEDGER_ENTRY_SORT_COLUMNS: Record<string, string> = {
+  txn_ref: 't.txn_ref',
+  value_date: 't.value_date',
+  member: 'm.first_name',
+  amount: 't.amount',
+  status: 't.status',
+};
+
+export interface ListSubledgerEntriesOptions {
+  search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
+}
+
+async function listSubledgerEntries(
+  module: 'SAVINGS' | 'LOAN',
+  { search = '', filters = [], sort = null }: ListSubledgerEntriesOptions,
+): Promise<SubledgerEntryRow[]> {
+  const { clause, params } = buildFilterClause(SUBLEDGER_ENTRY_FILTER_FIELDS, filters, 't');
+  const orderBy = buildOrderClause(SUBLEDGER_ENTRY_SORT_COLUMNS, sort, 't.id DESC');
+  const rows = await all<SubledgerEntryRow & { account_no: string | null; loan_no: string | null }>(
+    `SELECT t.*, m.member_no, m.first_name, m.last_name, sa.account_no, l.loan_no, j.journal_no
+     FROM txn t
+     LEFT JOIN member m ON m.id = t.member_id
+     LEFT JOIN savings_account sa ON sa.id = t.savings_account_id
+     LEFT JOIN loan l ON l.id = t.loan_id
+     LEFT JOIN journal j ON j.id = t.journal_id
+     WHERE t.module = @module
+       AND (t.txn_ref LIKE @like OR t.description LIKE @like OR m.first_name LIKE @like
+            OR m.last_name LIKE @like OR m.member_no LIKE @like)
+       ${clause}
+     ${orderBy} LIMIT 500`,
+    { module, like: `%${String(search).trim()}%`, ...params },
+  );
+  return rows.map((r) => ({
+    ...r,
+    document_no: module === 'SAVINGS' ? (r.account_no ?? r.txn_ref) : (r.loan_no ?? r.txn_ref),
+    document_href: module === 'SAVINGS' ? `/savings/${r.savings_account_id}` : `/loans/view/${r.loan_id}`,
+  }));
+}
+
+/** Vendor Ledger Entries — Business Central terminology for this SACCO's savings/deposit
+ *  postings: the member is the "vendor" because a deposit is a liability the SACCO owes them. */
+export const listVendorLedgerEntries = (opts: ListSubledgerEntriesOptions = {}): Promise<SubledgerEntryRow[]> =>
+  listSubledgerEntries('SAVINGS', opts);
+
+/** Customer Ledger Entries — the member is the "customer" because a loan is a receivable owed
+ *  to the SACCO. See lib/loanService.ts's runAging()/lib/reports.ts's getPortfolioAtRisk() for
+ *  the existing arrears-aging report this reuses rather than duplicates (Customer Aging). */
+export const listCustomerLedgerEntries = (opts: ListSubledgerEntriesOptions = {}): Promise<SubledgerEntryRow[]> =>
+  listSubledgerEntries('LOAN', opts);
+
+export const hasAnyVendorLedgerEntries = (): Promise<boolean> => hasAnyRow('txn', "module = 'SAVINGS'");
+export const hasAnyCustomerLedgerEntries = (): Promise<boolean> => hasAnyRow('txn', "module = 'LOAN'");
+
+/* --------------------------------------------------------------- dormancy aging */
+
+function dormancyBucket(days: number): DormancyAgingRow['bucket'] {
+  if (days <= 30) return '0-30';
+  if (days <= 90) return '31-90';
+  if (days <= 180) return '91-180';
+  return '180+';
+}
+
+/** SACCO-realistic stand-in for a Vendor Aging Report — savings deposits have no due date to
+ *  age against, so this buckets accounts by days since their last transaction instead, for
+ *  dormant-account detection. See DormancyAgingRow. */
+export async function getDormancyAging(asOf?: IsoDate): Promise<DormancyAgingRow[]> {
+  const cutoff = asOf || new Date().toISOString().slice(0, 10);
+  const rows = await all<{
+    account_id: number; account_no: string; member_no: string; first_name: string; last_name: string;
+    product_name: string; balance: Cents; last_txn_date: IsoDate | null;
+  }>(
+    `SELECT sa.id AS account_id, sa.account_no, m.member_no, m.first_name, m.last_name,
+            p.name AS product_name, sa.balance,
+            (SELECT MAX(t.value_date) FROM txn t
+             WHERE t.savings_account_id = sa.id AND t.status = 'POSTED') AS last_txn_date
+     FROM savings_account sa
+     JOIN member m ON m.id = sa.member_id
+     JOIN savings_product p ON p.id = sa.product_id
+     WHERE sa.status = 'ACTIVE'
+     ORDER BY last_txn_date NULLS FIRST`,
+  );
+  const cutoffMs = new Date(cutoff).getTime();
+  return rows.map((r) => {
+    const days = r.last_txn_date
+      ? Math.floor((cutoffMs - new Date(r.last_txn_date).getTime()) / 86_400_000)
+      : 99_999;
+    return { ...r, days_since_last_txn: days, bucket: dormancyBucket(days) };
+  });
+}
+
+/* ------------------------------------------------------------- bank accounts */
+
+export const listBankAccounts = (): Promise<BankAccountListRow[]> =>
+  all<BankAccountListRow>(
+    `SELECT ba.*, g.code AS gl_account_code, g.name AS gl_account_name
+     FROM bank_account ba JOIN gl_account g ON g.id = ba.gl_account_id
+     ORDER BY ba.code`,
+  );
+
+export const hasAnyBankAccounts = (): Promise<boolean> => hasAnyRow('bank_account');
+
+export interface CreateBankAccountInput {
+  code: string;
+  name: string;
+  gl_account_id: number;
+  bank_name?: string | null;
+  account_no?: string | null;
+}
+
+/** Creating a bank account also flags its control account no_direct_posting — from this point
+ *  on a manual G/L journal can no longer touch it; only postJournal()'s automatic subledger
+ *  posting (savings/loan/charge callers, or Bank Reconciliation adjustments) can. */
+export async function createBankAccount(input: CreateBankAccountInput, user: Actor): Promise<{ id: number }> {
+  const code = input.code.trim().toUpperCase();
+  const name = input.name.trim();
+  if (!code || !name || !input.gl_account_id) {
+    throw new AppError('Code, name and G/L account are required', 'VALIDATION');
+  }
+  if (await one('SELECT 1 FROM bank_account WHERE code = ?', code)) {
+    throw new AppError('Bank account code already exists', 'DUPLICATE');
+  }
+  if (await one('SELECT 1 FROM bank_account WHERE gl_account_id = ?', input.gl_account_id)) {
+    throw new AppError('That G/L account is already a bank account control account', 'DUPLICATE');
+  }
+  const info = await run(
+    'INSERT INTO bank_account (code, name, gl_account_id, bank_name, account_no, created_at) VALUES (?,?,?,?,?,?)',
+    code, name, input.gl_account_id, input.bank_name || null, input.account_no || null, new Date().toISOString(),
+  );
+  await run('UPDATE gl_account SET no_direct_posting = 1 WHERE id = ?', input.gl_account_id);
+  await audit(user, 'BANK_ACCOUNT_CREATE', 'bank_account', info.lastInsertRowid, { code, name });
+  return { id: Number(info.lastInsertRowid) };
+}
+
+export interface UpdateBankAccountInput {
+  name: string;
+  bank_name?: string | null;
+  account_no?: string | null;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
+export async function updateBankAccount(id: number, input: UpdateBankAccountInput, user: Actor): Promise<void> {
+  const before = await one<{ code: string }>('SELECT code FROM bank_account WHERE id = ?', id);
+  if (!before) throw new AppError('Bank account not found', 'NOT_FOUND');
+  if (!input.name?.trim()) throw new AppError('Name is required', 'VALIDATION');
+  await run(
+    'UPDATE bank_account SET name = ?, bank_name = ?, account_no = ?, status = ? WHERE id = ?',
+    input.name.trim(), input.bank_name || null, input.account_no || null, input.status || 'ACTIVE', id,
+  );
+  await audit(user, 'BANK_ACCOUNT_UPDATE', 'bank_account', id, { code: before.code });
+}
+
+/* -------------------------------------------------------- bank reconciliation */
+
+export async function startBankReconciliation(
+  bankAccountId: number, statementDate: IsoDate, statementBalance: Cents, user: Actor,
+): Promise<{ id: number }> {
+  if (!(await one('SELECT 1 FROM bank_account WHERE id = ?', bankAccountId))) {
+    throw new AppError('Bank account not found', 'NOT_FOUND');
+  }
+  if (await one("SELECT 1 FROM bank_reconciliation WHERE bank_account_id = ? AND status = 'OPEN'", bankAccountId)) {
+    throw new AppError('An open reconciliation already exists for this bank account', 'DUPLICATE');
+  }
+  const info = await run(
+    `INSERT INTO bank_reconciliation (bank_account_id, statement_date, statement_balance, created_by, created_at)
+     VALUES (?,?,?,?,?)`,
+    bankAccountId, statementDate, statementBalance, user.username, new Date().toISOString(),
+  );
+  await audit(user, 'BANK_RECONCILIATION_START', 'bank_reconciliation', info.lastInsertRowid, {
+    bankAccountId, statementDate,
+  });
+  return { id: Number(info.lastInsertRowid) };
+}
+
+/** The reconciliation worksheet: every not-yet-reconciled entry up to the statement date, plus
+ *  whatever this session has already ticked (bank_reconciliation_id = this id) — so a partially
+ *  worked session reloads with its own ticks intact rather than losing them. */
+export async function getBankReconciliationWorksheet(id: number): Promise<BankReconciliationWorksheet | null> {
+  const reconciliation = await one<BankReconciliation>('SELECT * FROM bank_reconciliation WHERE id = ?', id);
+  if (!reconciliation) return null;
+  const bankAccount = await one<BankAccount>('SELECT * FROM bank_account WHERE id = ?', reconciliation.bank_account_id);
+  if (!bankAccount) return null;
+  const entries = await all<BankAccountLedgerEntryWithJournal>(
+    `SELECT bale.*, j.journal_no, j.source_module
+     FROM bank_account_ledger_entry bale JOIN journal j ON j.id = bale.journal_id
+     WHERE bale.bank_account_id = ?
+       AND bale.posting_date <= ?
+       AND (bale.reconciled = 0 OR bale.bank_reconciliation_id = ?)
+     ORDER BY bale.posting_date, bale.id`,
+    reconciliation.bank_account_id, reconciliation.statement_date, id,
+  );
+  const clearedTotal = entries
+    .filter((e) => e.bank_reconciliation_id === id)
+    .reduce((sum, e) => sum + e.amount, 0);
+  return { reconciliation, bankAccount, entries, clearedTotal, difference: reconciliation.statement_balance - clearedTotal };
+}
+
+export async function setEntryReconciled(
+  entryId: number, reconciliationId: number, reconciled: boolean, user: Actor,
+): Promise<void> {
+  const rec = await one<{ status: string }>('SELECT status FROM bank_reconciliation WHERE id = ?', reconciliationId);
+  if (!rec) throw new AppError('Reconciliation not found', 'NOT_FOUND');
+  if (rec.status !== 'OPEN') throw new AppError('This reconciliation is already completed', 'VALIDATION');
+  await run(
+    'UPDATE bank_account_ledger_entry SET reconciled = ?, bank_reconciliation_id = ? WHERE id = ?',
+    reconciled ? 1 : 0, reconciled ? reconciliationId : null, entryId,
+  );
+  await audit(user, 'BANK_RECONCILIATION_TICK', 'bank_account_ledger_entry', entryId, { reconciliationId, reconciled });
+}
+
+export async function completeBankReconciliation(id: number, user: Actor): Promise<void> {
+  const worksheet = await getBankReconciliationWorksheet(id);
+  if (!worksheet) throw new AppError('Reconciliation not found', 'NOT_FOUND');
+  if (worksheet.reconciliation.status !== 'OPEN') throw new AppError('This reconciliation is already completed', 'VALIDATION');
+  if (worksheet.difference !== 0) {
+    throw new AppError('The reconciliation is out of balance — tick every matching entry before completing', 'VALIDATION');
+  }
+  await run(
+    "UPDATE bank_reconciliation SET status = 'COMPLETED', completed_by = ?, completed_at = ? WHERE id = ?",
+    user.username, new Date().toISOString(), id,
+  );
+  await audit(user, 'BANK_RECONCILIATION_COMPLETE', 'bank_reconciliation', id, {});
 }

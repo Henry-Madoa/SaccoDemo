@@ -16,6 +16,7 @@ import { Page } from '@/components/layout/page';
 import { Card, CardHead, Toolbar, Spacer } from '@/components/ui/primitives';
 import { ClientTabs } from '@/components/ui/client-tabs';
 import { CardNav } from '@/components/ui/card-nav';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../edit-actions';
@@ -154,6 +155,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
           </>
         ) : null}
         {request.status === 'Approved' && canApprove ? <ProcessButton no={request.no} /> : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <ChangesSummary diffs={diffs} />

@@ -10,9 +10,8 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { DateFilterInput } from '@/components/ui/filters';
-import { ExportButton } from '@/components/ui/export-button';
 import { Money } from '@/components/ui/money';
-import { PrintButton } from '@/components/ui/print-button';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import { TxnButton, type TxnAccount } from '../txn-form';
 import { ReverseButton } from './reverse-button';
@@ -83,7 +82,6 @@ export default async function SavingsAccountPage({ params, searchParams }: {
         {canActivate && a.status === 'INACTIVE' ? (
           <Link href={`/account-activations?new=${a.member_id}`} className="btn ghost">Activate account</Link>
         ) : null}
-        <PrintButton>Print statement</PrintButton>
       </Toolbar>
 
       <div className="grid g4 stack-2">
@@ -137,8 +135,8 @@ export default async function SavingsAccountPage({ params, searchParams }: {
           <DateFilterInput paramName="from" label="From" placeholder="From" disabled={empty} />
           <DateFilterInput paramName="to" label="To" placeholder="To" disabled={empty} />
           <Spacer />
-          <ExportButton
-            href="/api/export/savings-statement" params={{ id: String(a.id), from, to }} disabled={!lines.length}
+          <DocumentActionsMenu
+            excel={{ href: '/api/export/savings-statement', params: { id: String(a.id), from, to }, disabled: !lines.length }}
           />
         </Toolbar>
         {lines.length ? (

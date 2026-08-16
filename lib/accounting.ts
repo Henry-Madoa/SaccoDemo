@@ -132,10 +132,33 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
      VALUES (?,?,?,?,?,?,?,?)`;
   const UPD_BAL = 'UPDATE gl_account SET balance = balance + ? WHERE id = ?';
 
+  // Business-Central-style subledger posting: a line against a Bank Account's control
+  // account also lands a bank_account_ledger_entry, automatically and for every caller
+  // (savings/loan/charge postings and manual journals alike) — see lib/gl.ts's Bank
+  // Account CRUD for where these rows come from, and no-direct-posting for the other
+  // half of the picture (blocking a manual journal from bypassing the subledger).
+  const bankAccounts = await all<{ id: number; gl_account_id: number }>(
+    "SELECT id, gl_account_id FROM bank_account WHERE status = 'ACTIVE'",
+  );
+  const bankAccountIdByGlAccount = new Map(bankAccounts.map((b) => [b.gl_account_id, b.id]));
+  const INS_BANK_ENTRY = `INSERT INTO bank_account_ledger_entry
+     (bank_account_id, journal_id, journal_line_id, posting_date, description, amount, running_balance, created_at)
+     VALUES (?,?,?,?,?,?,?,?)`;
+  const UPD_BANK_BAL = 'UPDATE bank_account SET balance = balance + ? WHERE id = ? RETURNING balance';
+
   for (const p of prepared) {
-    await run(INS_LINE, journalId, p.lineNo, p.acct.id, p.debit, p.credit, p.narration, p.gd1, p.gd2);
+    const lineInfo = await run(INS_LINE, journalId, p.lineNo, p.acct.id, p.debit, p.credit, p.narration, p.gd1, p.gd2);
     const signed = NATURAL_DEBIT.has(p.acct.type) ? p.debit - p.credit : p.credit - p.debit;
     await run(UPD_BAL, signed, p.acct.id);
+
+    const bankAccountId = bankAccountIdByGlAccount.get(p.acct.id);
+    if (bankAccountId != null) {
+      const updated = await one<{ balance: Cents }>(UPD_BANK_BAL, signed, bankAccountId);
+      await run(
+        INS_BANK_ENTRY, bankAccountId, journalId, lineInfo.lastInsertRowid, valueDate,
+        p.narration, signed, updated!.balance, now,
+      );
+    }
   }
 
   return { id: journalId, journal_no: journalNo, amount: totalDebit };

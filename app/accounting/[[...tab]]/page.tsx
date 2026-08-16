@@ -1,10 +1,13 @@
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
+import Link from 'next/link';
 import {
   getTrialBalance, listJournals, hasAnyJournals, listGlAccounts, hasAnyGlAccounts, listPeriods, hasAnyPeriods,
   listPostableAccounts, totalingBalance,
+  listVendorLedgerEntries, hasAnyVendorLedgerEntries, listCustomerLedgerEntries, hasAnyCustomerLedgerEntries,
+  getDormancyAging, listBankAccounts, hasAnyBankAccounts,
   JOURNAL_FILTER_FIELDS, GL_ACCOUNT_FILTER_FIELDS, TRIAL_BALANCE_FILTER_FIELDS, PERIOD_FILTER_FIELDS,
-  GL_DIMENSION_FILTER_FIELDS,
+  GL_DIMENSION_FILTER_FIELDS, SUBLEDGER_ENTRY_FILTER_FIELDS,
 } from '@/lib/gl';
 import { GL_ACCOUNT_STRUCTURE_TYPES } from '@/lib/constants';
 import { listActiveDimensionValues } from '@/lib/pool';
@@ -24,12 +27,17 @@ import { ExportButton } from '@/components/ui/export-button';
 import { LedgerLink, JournalLink } from '../drill-downs';
 import { NewJournalButton } from '../journal-form';
 import { GlAccountFormButton } from '../gl-account-form';
+import { BankAccountFormButton } from '../bank-account-form';
+import { StartReconciliationButton } from '../start-reconciliation-button';
 import { PeriodToggle } from '../period-toggle';
 
 const TABS: TabDefinition[] = [
   { key: 'trial-balance', label: 'Trial balance' },
   { key: 'journals', label: 'Journals' },
   { key: 'accounts', label: 'Chart of accounts' },
+  { key: 'vendor-ledger', label: 'Vendor Ledger Entries' },
+  { key: 'customer-ledger', label: 'Customer Ledger Entries' },
+  { key: 'bank-accounts', label: 'Bank Accounts' },
   { key: 'periods', label: 'Accounting periods' },
 ];
 
@@ -53,6 +61,9 @@ export default async function AccountingPage({ params, searchParams }: {
       {tab === 'trial-balance' ? <TrialBalanceTab filtersRaw={filtersRaw} asOf={asOf} /> : null}
       {tab === 'journals' ? <JournalsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
       {tab === 'accounts' ? <AccountsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} asOf={asOf} /> : null}
+      {tab === 'vendor-ledger' ? <VendorLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
+      {tab === 'customer-ledger' ? <CustomerLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
+      {tab === 'bank-accounts' ? <BankAccountsTab /> : null}
       {tab === 'periods' ? <PeriodsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
     </Page>
   );
@@ -103,10 +114,18 @@ async function TrialBalanceTab({ filtersRaw, asOf }: { filtersRaw?: string; asOf
                 <td className="num"><Money cents={r.debit} symbol={false} decimals={0} /></td>
                 <td className="num"><Money cents={r.credit} symbol={false} decimals={0} /></td>
                 <td className="num">
-                  <b>{r.debit_balance ? <LedgerLink code={r.code}><Money cents={r.debit_balance} symbol={false} /></LedgerLink> : ''}</b>
+                  <b>{r.debit_balance ? (
+                    <LedgerLink code={r.code} caption1={caption1} caption2={caption2}>
+                      <Money cents={r.debit_balance} symbol={false} />
+                    </LedgerLink>
+                  ) : ''}</b>
                 </td>
                 <td className="num">
-                  <b>{r.credit_balance ? <LedgerLink code={r.code}><Money cents={r.credit_balance} symbol={false} /></LedgerLink> : ''}</b>
+                  <b>{r.credit_balance ? (
+                    <LedgerLink code={r.code} caption1={caption1} caption2={caption2}>
+                      <Money cents={r.credit_balance} symbol={false} />
+                    </LedgerLink>
+                  ) : ''}</b>
                 </td>
               </tr>
             ))}
@@ -295,7 +314,9 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
                     <td><Pill status={a.status} /></td>
                     <td className="num">
                       {posting ? (
-                        <LedgerLink code={a.code}><Money cents={balance ?? 0} /></LedgerLink>
+                        <LedgerLink code={a.code} caption1={caption1} caption2={caption2}>
+                          <Money cents={balance ?? 0} />
+                        </LedgerLink>
                       ) : balance !== null ? <Money cents={balance} /> : ''}
                     </td>
                     <td>
@@ -309,6 +330,182 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf }: {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="⚖" title="No accounts match" sub="Try a different search or clear the filters" />}
+      </Card>
+    </>
+  );
+}
+
+/** Shared table for Vendor (Savings) and Customer (Loans) Ledger Entries — same underlying
+ *  `txn` data, filtered by module in lib/gl.ts's listSubledgerEntries(). */
+function SubledgerEntryTable({ rows }: { rows: Awaited<ReturnType<typeof listVendorLedgerEntries>> }) {
+  return (
+    <TableWrap>
+      <thead>
+        <tr>
+          <th><SortLink sortKey="value_date">Date</SortLink></th>
+          <th><SortLink sortKey="txn_ref">Txn Ref</SortLink></th>
+          <th>Document</th>
+          <th><SortLink sortKey="member">Member</SortLink></th>
+          <th>Type</th><th>Channel</th>
+          <th className="num"><SortLink sortKey="amount">Amount</SortLink></th>
+          <th><SortLink sortKey="status">Status</SortLink></th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.id} className={r.status === 'REVERSED' ? 'muted' : undefined}>
+            <td>{formatDate(r.value_date)}</td>
+            <td className="mono">{r.txn_ref}</td>
+            <td className="mono"><Link href={r.document_href}>{r.document_no}</Link></td>
+            <td>{r.member_no ? `${r.first_name} ${r.last_name}` : '—'}</td>
+            <td><Pill status={r.txn_type} /></td>
+            <td>{r.channel}</td>
+            <td className="num"><Money cents={r.amount} /></td>
+            <td><Pill status={r.status} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </TableWrap>
+  );
+}
+
+async function VendorLedgerTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
+  const [rows, empty, dormancy] = await Promise.all([
+    listVendorLedgerEntries({ search, filters, sort }),
+    hasAnyVendorLedgerEntries().then((any) => !any),
+    getDormancyAging(),
+  ]);
+  const dormant = dormancy.filter((d) => d.bucket !== '0-30');
+
+  return (
+    <>
+      <Toolbar>
+        <SearchInput placeholder="Search txn ref, description or member…" disabled={empty} />
+        <DynamicFilterBar fields={SUBLEDGER_ENTRY_FILTER_FIELDS} disabled={empty} />
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Vendor Ledger Entries"
+          sub="Savings/deposit postings — the member is the 'vendor' since a deposit is a liability the SACCO owes them"
+        />
+        {rows.length ? <SubledgerEntryTable rows={rows} /> : <EmptyState icon="🏦" title="No entries found" />}
+      </Card>
+      <Card>
+        <CardHead title="Dormancy" sub="Active accounts bucketed by days since their last transaction" />
+        {dormant.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Account</th><th>Member</th><th>Product</th>
+                <th className="num">Balance</th><th className="num">Days idle</th><th>Bucket</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dormant.map((d) => (
+                <tr key={d.account_id}>
+                  <td className="mono"><Link href={`/savings/${d.account_id}`}>{d.account_no}</Link></td>
+                  <td>{d.first_name} {d.last_name} <span className="tiny mono">({d.member_no})</span></td>
+                  <td>{d.product_name}</td>
+                  <td className="num"><Money cents={d.balance} /></td>
+                  <td className="num">{d.days_since_last_txn}</td>
+                  <td><Pill tone={d.bucket === '180+' ? 'bad' : d.bucket === '91-180' ? 'warn' : 'info'}>{d.bucket}</Pill></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="✅" title="Nothing dormant beyond 30 days" />}
+      </Card>
+    </>
+  );
+}
+
+async function CustomerLedgerTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
+  const [rows, empty] = await Promise.all([
+    listCustomerLedgerEntries({ search, filters, sort }),
+    hasAnyCustomerLedgerEntries().then((any) => !any),
+  ]);
+
+  return (
+    <>
+      <Toolbar>
+        <SearchInput placeholder="Search txn ref, description or member…" disabled={empty} />
+        <DynamicFilterBar fields={SUBLEDGER_ENTRY_FILTER_FIELDS} disabled={empty} />
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Customer Ledger Entries"
+          sub="Loan disbursement/repayment postings — the member is the 'customer' since a loan is a receivable owed to the SACCO"
+        />
+        {rows.length ? <SubledgerEntryTable rows={rows} /> : <EmptyState icon="📄" title="No entries found" />}
+      </Card>
+      <Card>
+        <CardHead
+          title="Customer Aging Report"
+          sub="Loan arrears are already classified against SASRA's bands — this is that same report, not a duplicate"
+        />
+        <Link href="/reports/par" className="btn ghost">Open risk classification &amp; provisioning report →</Link>
+      </Card>
+    </>
+  );
+}
+
+async function BankAccountsTab() {
+  const [rows, empty, canManage, postableAccounts] = await Promise.all([
+    listBankAccounts(),
+    hasAnyBankAccounts().then((any) => !any),
+    currentCanAction('GL_ACCOUNT_MANAGE'),
+    listPostableAccounts(),
+  ]);
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        {canManage ? (
+          <BankAccountFormButton postableAccounts={postableAccounts} className="btn">Add bank account</BankAccountFormButton>
+        ) : null}
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Bank Accounts"
+          sub="Subledger masters for reconciliation — each controls its own G/L account, which a manual journal can no longer post to directly"
+        />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Name</th><th>G/L account</th><th>Bank</th>
+                <th className="num">Balance</th><th>Status</th><th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((b) => (
+                <tr key={b.id}>
+                  <td className="mono">{b.code}</td>
+                  <td>{b.name}</td>
+                  <td className="mono muted-cell">{b.gl_account_code} — {b.gl_account_name}</td>
+                  <td>{b.bank_name || '—'}{b.account_no ? <span className="tiny mono"> · {b.account_no}</span> : null}</td>
+                  <td className="num"><Money cents={b.balance} /></td>
+                  <td><Pill status={b.status} /></td>
+                  <td className="num">
+                    <div className="inline" style={{ justifyContent: 'flex-end' }}>
+                      {canManage ? <StartReconciliationButton bankAccount={b} /> : null}
+                      {canManage ? (
+                        <BankAccountFormButton bankAccount={b} postableAccounts={postableAccounts} className="btn sm ghost">
+                          Edit
+                        </BankAccountFormButton>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🏦" title={empty ? 'No bank accounts yet' : 'No bank accounts match'} />}
       </Card>
     </>
   );

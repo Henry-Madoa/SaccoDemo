@@ -122,7 +122,8 @@ export const ROLES: RoleSeed[] = [
     actions: [
       'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
-      'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE', 'GL_ACCOUNT_MANAGE',
+      'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE',
+      'GL_ACCOUNT_MANAGE', 'GL_BANK_RECONCILE',
       'ADMIN_CHARGES_MASTER_MANAGE', 'ADMIN_CHARGES_TRANSACTION_MANAGE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
@@ -252,6 +253,30 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     accId('4010'), accId('4020'), accId('4030'), accId('4040'), accId('5010'),
     accId('1110'), accId('1120'), accId('1130'), accId('1140'),
   ]);
+
+  // Bank Account subledger masters, one per CHANNEL_GL entry (lib/savings.ts) — so every
+  // channel a teller already posts through has a matching reconcilable bank account from day
+  // one, and each of these control accounts is flagged no_direct_posting so a manual G/L
+  // journal can no longer touch it (see lib/gl.ts's createJournal/postManualJournal).
+  const [a1010, a1020, a1030, a1040] = await Promise.all([
+    accId('1010'), accId('1020'), accId('1030'), accId('1040'),
+  ]);
+  const INS_BANK_ACCOUNT =
+    'INSERT INTO bank_account (code, name, gl_account_id, bank_name, account_no, created_at) VALUES (?,?,?,?,?,?)';
+  await run(INS_BANK_ACCOUNT, 'CASH', 'Cash in Hand — Tellers', a1010, null, null, now);
+  await run(INS_BANK_ACCOUNT, 'BANK', 'Bank Current Account', a1020, 'Co-operative Bank of Kenya', '01100123456789', now);
+  await run(INS_BANK_ACCOUNT, 'MPESA', 'M-Pesa Settlement Account', a1030, 'Safaricom M-Pesa', '400200', now);
+  await run(INS_BANK_ACCOUNT, 'CHECKOFF', 'Check-off Receivable Clearing', a1040, null, null, now);
+
+  const noDirectPosting = [
+    a1010, a1020, a1030, a1040, // bank accounts
+    a3010, a2010, a2020, a2030, a2040, // savings control accounts
+    a1110, a1120, a1130, a1140, // loan receivable accounts
+  ];
+  await run(
+    `UPDATE gl_account SET no_direct_posting = 1 WHERE id IN (${noDirectPosting.map(() => '?').join(',')})`,
+    ...noDirectPosting,
+  );
 
   const INS_SP =
     `INSERT INTO savings_product (code, name, category, min_balance, min_opening, interest_rate,

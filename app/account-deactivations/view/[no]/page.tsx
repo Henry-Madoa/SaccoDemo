@@ -11,6 +11,7 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
@@ -79,6 +80,7 @@ export default async function AccountDeactivationDetailPage({ params, searchPara
           </>
         ) : null}
         {request.status === 'Approved' && canApprove ? <ProcessButton no={request.no} /> : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <Card>

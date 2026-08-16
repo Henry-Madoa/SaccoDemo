@@ -10,6 +10,7 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import { EditButton, DeleteButton, PostButton } from '../../member-charging-actions';
 
@@ -56,6 +57,7 @@ export default async function MemberChargingDetailPage({ params, searchParams }:
         {isOpen && canEditThis ? <EditButton request={request} className="btn ghost" /> : null}
         {isOpen && canEditThis ? <DeleteButton no={request.no} className="btn ghost" /> : null}
         {isOpen && canPost ? <PostButton no={request.no} amount={request.amount_charged} /> : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <Card>

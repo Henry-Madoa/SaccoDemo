@@ -6,6 +6,7 @@ import { myPendingWorkflowTaskCount } from '@/lib/workflow';
 import { NAV } from '@/lib/nav';
 import { Sidebar } from '@/components/layout/sidebar';
 import { NavProvider } from '@/components/layout/nav-context';
+import { PrintPreviewMode } from '@/components/ui/print-preview-mode';
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -25,6 +26,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <NavProvider>
+      <PrintPreviewMode />
       <div className="shell">
         <Sidebar org={org} user={user} allowedPaths={allowedPaths} badges={badges} />
         <div className="main">{children}</div>

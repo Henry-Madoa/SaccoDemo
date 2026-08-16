@@ -305,7 +305,13 @@ model gl_account {
   totaling                                                       String?
   balance                                                        BigInt                     @default(0)
   status                                                         String                     @default("ACTIVE")
+  /// Blocks this account from a manual G/L journal line — it's a subledger control account
+  /// (Bank, savings liability, loan receivable) and must be posted through its subledger
+  /// instead. Enforced only at the manual-journal entry point; postJournal() itself still
+  /// posts to these accounts freely for savings/loan/charge postings. See lib/gl.ts.
+  no_direct_posting                                              Int                        @default(0)
   journal_line                                                   journal_line[]
+  bank_account                                                   bank_account?
   loan_product_loan_product_gl_fee_income_idTogl_account         loan_product[]             @relation("loan_product_gl_fee_income_idTogl_account")
   loan_product_loan_product_gl_interest_income_idTogl_account    loan_product[]             @relation("loan_product_gl_interest_income_idTogl_account")
   loan_product_loan_product_gl_penalty_income_idTogl_account     loan_product[]             @relation("loan_product_gl_penalty_income_idTogl_account")
@@ -341,7 +347,7 @@ model transaction_charge {
   status                     String                       @default("ACTIVE")
   transaction_charge_setup   transaction_charge_setup[]
   account_activation_request account_activation_request[]
-  member_charging             member_charging[]
+  member_charging            member_charging[]
 
   @@index([transaction_type], map: "ix_tc_type")
 }
@@ -418,8 +424,8 @@ model member_category_default_account {
 }
 
 model journal {
-  id                                            Int                       @id @default(autoincrement())
-  journal_no                                    String                    @unique
+  id                                            Int                          @id @default(autoincrement())
+  journal_no                                    String                       @unique
   value_date                                    String
   posted_at                                     String
   source_module                                 String
@@ -431,19 +437,21 @@ model journal {
   posted_by                                     String?
   reverses_id                                   Int?
   reversed_by_id                                Int?
-  idempotency_key                               String?                   @unique
+  idempotency_key                               String?                      @unique
   global_dimension_1_id                         Int?
   global_dimension_2_id                         Int?
-  member                                        member?                   @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  global_dimension_1_value                      global_dimension_1_value? @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  global_dimension_2_value                      global_dimension_2_value? @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  journal_journal_reversed_by_idTojournal       journal?                  @relation("journal_reversed_by_idTojournal", fields: [reversed_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  other_journal_journal_reversed_by_idTojournal journal[]                 @relation("journal_reversed_by_idTojournal")
-  journal_journal_reverses_idTojournal          journal?                  @relation("journal_reverses_idTojournal", fields: [reverses_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  other_journal_journal_reverses_idTojournal    journal[]                 @relation("journal_reverses_idTojournal")
+  member                                        member?                      @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  global_dimension_1_value                      global_dimension_1_value?    @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  global_dimension_2_value                      global_dimension_2_value?    @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal_journal_reversed_by_idTojournal       journal?                     @relation("journal_reversed_by_idTojournal", fields: [reversed_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_journal_journal_reversed_by_idTojournal journal[]                    @relation("journal_reversed_by_idTojournal")
+  journal_journal_reverses_idTojournal          journal?                     @relation("journal_reverses_idTojournal", fields: [reverses_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_journal_journal_reverses_idTojournal    journal[]                    @relation("journal_reverses_idTojournal")
   journal_line                                  journal_line[]
   txn                                           txn[]
   member_charging                               member_charging[]
+  account_activation_request                    account_activation_request[]
+  bank_account_ledger_entry                     bank_account_ledger_entry[]
 
   @@index([value_date], map: "ix_journal_date")
   @@index([global_dimension_1_id], map: "ix_journal_gd1")
@@ -452,24 +460,91 @@ model journal {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model journal_line {
-  id                       Int                       @id @default(autoincrement())
-  journal_id               Int
-  line_no                  Int
-  gl_account_id            Int
-  debit                    BigInt                    @default(0)
-  credit                   BigInt                    @default(0)
-  narration                String?
-  global_dimension_1_id    Int?
-  global_dimension_2_id    Int?
-  gl_account               gl_account                @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  journal                  journal                   @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  global_dimension_1_value global_dimension_1_value? @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  global_dimension_2_value global_dimension_2_value? @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                        Int                         @id @default(autoincrement())
+  journal_id                Int
+  line_no                   Int
+  gl_account_id             Int
+  debit                     BigInt                      @default(0)
+  credit                    BigInt                      @default(0)
+  narration                 String?
+  global_dimension_1_id     Int?
+  global_dimension_2_id     Int?
+  gl_account                gl_account                  @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal                   journal                     @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  global_dimension_1_value  global_dimension_1_value?   @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  global_dimension_2_value  global_dimension_2_value?   @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bank_account_ledger_entry bank_account_ledger_entry[]
 
   @@index([gl_account_id], map: "ix_jl_account")
   @@index([journal_id], map: "ix_jl_journal")
   @@index([global_dimension_1_id], map: "ix_jl_gd1")
   @@index([global_dimension_2_id], map: "ix_jl_gd2")
+}
+
+/// The Bank Account subledger master (Business Central's Bank Account card) — one row per
+/// real-world bank/cash/mobile-money account the SACCO holds, each mapped 1:1 to its own
+/// no-direct-posting G/L control account. Seeded to match the existing CHANNEL_GL map in
+/// lib/savings.ts (Cash Till/Bank/M-Pesa/Check-off) so every channel a teller already posts
+/// through has a matching reconcilable bank account from day one.
+model bank_account {
+  id                        Int                         @id @default(autoincrement())
+  code                      String                      @unique
+  name                      String
+  gl_account_id             Int                         @unique
+  bank_name                 String?
+  account_no                String?
+  balance                   BigInt                      @default(0)
+  status                    String                      @default("ACTIVE")
+  created_at                String?
+  gl_account                gl_account                  @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bank_account_ledger_entry bank_account_ledger_entry[]
+  bank_reconciliation       bank_reconciliation[]
+}
+
+/// One posted entry against a bank account's G/L control account — populated automatically by
+/// postJournal() (lib/accounting.ts) for every journal line that hits a bank_account's
+/// gl_account_id, whatever module posted it. This is what makes reconciliation complete: it
+/// covers manual G/L journals against the account too, not just savings/loan postings that
+/// happen to carry a txn row.
+model bank_account_ledger_entry {
+  id                     Int                  @id @default(autoincrement())
+  bank_account_id        Int
+  journal_id             Int
+  journal_line_id        Int
+  posting_date           String
+  description            String?
+  amount                 BigInt
+  running_balance        BigInt
+  reconciled             Int                  @default(0)
+  bank_reconciliation_id Int?
+  created_at             String?
+  bank_account           bank_account         @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal                journal              @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal_line           journal_line         @relation(fields: [journal_line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bank_reconciliation    bank_reconciliation? @relation(fields: [bank_reconciliation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([bank_account_id], map: "ix_bale_account")
+  @@index([journal_id], map: "ix_bale_journal")
+  @@index([bank_reconciliation_id], map: "ix_bale_reconciliation")
+}
+
+/// One reconciliation session against a bank account's statement — Business Central's Bank
+/// Account Reconciliation. Holds the header (statement date/balance); the entries it clears
+/// are the bank_account_ledger_entry rows whose bank_reconciliation_id points back at it.
+model bank_reconciliation {
+  id                        Int                         @id @default(autoincrement())
+  bank_account_id           Int
+  statement_date            String
+  statement_balance         BigInt
+  status                    String                      @default("OPEN")
+  created_by                String?
+  created_at                String?
+  completed_by              String?
+  completed_at              String?
+  bank_account              bank_account                @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bank_account_ledger_entry bank_account_ledger_entry[]
+
+  @@index([bank_account_id], map: "ix_brec_account")
 }
 
 model loan {
@@ -1118,9 +1193,13 @@ model account_activation_request {
   processed_by          String?
   transaction_charge_id Int?
   debit_account_id      Int?
+  /// Set when the optional reactivation fee posts (mirrors member_charging.journal_id) — lets
+  /// Find Entries trace the fee's journal back to this request, and vice versa.
+  journal_id            Int?
   savings_account       savings_account     @relation("aar_activated_account", fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   debit_account         savings_account?    @relation("aar_debit_account", fields: [debit_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   transaction_charge    transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal               journal?            @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([account_id], map: "ix_aar_account")
   @@index([status], map: "ix_aar_status")

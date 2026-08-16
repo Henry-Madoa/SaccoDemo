@@ -591,6 +591,9 @@ export interface AccountActivationRequest {
    *  activation is free (no charge selected). */
   transaction_charge_id: number | null;
   debit_account_id: number | null;
+  /** Set when the optional reactivation fee posts — mirrors member_charging.journal_id, and
+   *  is what lets Find Entries trace the fee back to this request. */
+  journal_id: number | null;
 }
 
 export interface AccountActivationRequestWithDimensions extends AccountActivationRequest {
@@ -778,6 +781,8 @@ export interface GlAccount {
   totaling: string | null;
   balance: Cents;
   status: 'ACTIVE' | 'INACTIVE';
+  /** Blocks this account from a manual G/L journal line — see lib/gl.ts's createJournal(). */
+  no_direct_posting: Flag;
 }
 
 export interface TrialBalanceRow {
@@ -977,6 +982,104 @@ export interface AccountingPeriod {
   start_date: IsoDate;
   end_date: IsoDate;
   status: 'OPEN' | 'CLOSED';
+}
+
+/* ------------------------------------------------- find entries / navigate */
+
+/** One row in a Find Entries / Navigate bucket — every source document type links through
+ *  its own posted-document page, so the href is resolved server-side per bucket rather than
+ *  the client guessing a route pattern per module. */
+export interface JournalRelatedEntry {
+  label: string;
+  amount: Cents;
+  href: string;
+}
+
+/** One bucket of the Navigate summary (Business Central's "Navigate" action) — a count plus
+ *  the entries themselves, for a document/table related to the journal being inspected. */
+export interface JournalRelatedBucket {
+  entries: JournalRelatedEntry[];
+}
+
+export interface JournalRelatedEntries {
+  glLineCount: number;
+  vendor: JournalRelatedBucket;   // savings (module SAVINGS) txn rows for this journal
+  customer: JournalRelatedBucket; // loan (module LOAN) txn rows for this journal
+  memberCharging: JournalRelatedBucket;
+  accountActivation: JournalRelatedBucket;
+  bank: JournalRelatedBucket;
+}
+
+/* ------------------------------------------------------------- bank subledger */
+
+export interface BankAccount {
+  id: number;
+  code: string;
+  name: string;
+  gl_account_id: number;
+  bank_name: string | null;
+  account_no: string | null;
+  balance: Cents;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface BankAccountListRow extends BankAccount {
+  gl_account_code: string;
+  gl_account_name: string;
+}
+
+export interface BankAccountLedgerEntry {
+  id: number;
+  bank_account_id: number;
+  journal_id: number;
+  journal_line_id: number;
+  posting_date: IsoDate;
+  description: string | null;
+  amount: Cents;
+  running_balance: Cents;
+  reconciled: Flag;
+  bank_reconciliation_id: number | null;
+}
+
+export interface BankAccountLedgerEntryWithJournal extends BankAccountLedgerEntry {
+  journal_no: string;
+  source_module: string;
+}
+
+export interface BankReconciliation {
+  id: number;
+  bank_account_id: number;
+  statement_date: IsoDate;
+  statement_balance: Cents;
+  status: 'OPEN' | 'COMPLETED';
+  created_by: string | null;
+  created_at: IsoDateTime | null;
+  completed_by: string | null;
+  completed_at: IsoDateTime | null;
+}
+
+export interface BankReconciliationWorksheet {
+  reconciliation: BankReconciliation;
+  bankAccount: BankAccount;
+  entries: BankAccountLedgerEntryWithJournal[];
+  clearedTotal: Cents;
+  difference: Cents;
+}
+
+/** A savings account bucketed by days since its last transaction — the SACCO-realistic
+ *  stand-in for Business Central's Vendor Aging Report, which needs invoice due dates that a
+ *  member's deposit account has no equivalent of. */
+export interface DormancyAgingRow {
+  account_id: number;
+  account_no: string;
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  product_name: string;
+  balance: Cents;
+  last_txn_date: IsoDate | null;
+  days_since_last_txn: number;
+  bucket: '0-30' | '31-90' | '91-180' | '180+';
 }
 
 /* ----------------------------------------------------------------- savings */
@@ -1315,6 +1418,16 @@ export interface TxnWithMember extends Txn {
   member_no: string | null;
   first_name: string | null;
   last_name: string | null;
+}
+
+/** A txn row shown as a Vendor (savings) or Customer (loan) Ledger Entry — Business Central
+ *  terminology for what this app already tracks as `txn`: a savings account is the "vendor"
+ *  side (a liability the SACCO owes the member), a loan is the "customer" side (a receivable
+ *  owed to the SACCO). Same underlying data, reused for both list screens. */
+export interface SubledgerEntryRow extends TxnWithMember {
+  document_no: string;
+  document_href: string;
+  journal_no: string | null;
 }
 
 /* --------------------------------------------------------------- workflow */

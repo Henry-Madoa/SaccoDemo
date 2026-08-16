@@ -8,7 +8,7 @@ import { toCents } from '@/lib/format';
 import type { FilterCondition } from '@/lib/listFilters';
 import type {
   AccountingPeriod, ActionResult, FormValues, GlAccount, GlAccountStructureType, GlAccountType,
-  JournalLineInput, PostedJournal,
+  JournalLineInput, JournalRelatedEntries, PostedJournal,
 } from '@/lib/types';
 
 /*
@@ -78,6 +78,78 @@ export async function reverseJournal(id: number, values: FormValues): Promise<Ac
     revalidatePath('/accounting');
     revalidatePath('/reports');
     return rev;
+  });
+}
+
+/** Find Entries / Navigate — every subledger entry sharing this journal, for the "Related
+ *  entries" section of the journal modal. */
+export async function fetchJournalRelatedEntries(journalId: number): Promise<ActionResult<JournalRelatedEntries>> {
+  return actionResult(async () => {
+    await requireAction('GL_READ');
+    return gl.getJournalRelatedEntries(journalId);
+  });
+}
+
+export async function createBankAccount(values: FormValues): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_ACCOUNT_MANAGE');
+    const created = await gl.createBankAccount({
+      code: String(values.code || ''),
+      name: String(values.name || ''),
+      gl_account_id: Number(values.gl_account_id),
+      bank_name: String(values.bank_name || '') || null,
+      account_no: String(values.account_no || '') || null,
+    }, user);
+    revalidatePath('/accounting');
+    return created;
+  });
+}
+
+export async function updateBankAccount(id: number, values: FormValues): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_ACCOUNT_MANAGE');
+    await gl.updateBankAccount(id, {
+      name: String(values.name || ''),
+      bank_name: String(values.bank_name || '') || null,
+      account_no: String(values.account_no || '') || null,
+      status: (String(values.status || 'ACTIVE') as 'ACTIVE' | 'INACTIVE'),
+    }, user);
+    revalidatePath('/accounting');
+    return { id };
+  });
+}
+
+export async function startBankReconciliation(
+  bankAccountId: number, values: FormValues,
+): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_BANK_RECONCILE');
+    const rec = await gl.startBankReconciliation(
+      bankAccountId, String(values.statementDate || ''), toCents(String(values.statementBalance || '0')), user,
+    );
+    revalidatePath('/accounting');
+    return rec;
+  });
+}
+
+export async function toggleReconciledEntry(
+  entryId: number, reconciliationId: number, reconciled: boolean,
+): Promise<ActionResult<{ ok: true }>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_BANK_RECONCILE');
+    await gl.setEntryReconciled(entryId, reconciliationId, reconciled, user);
+    revalidatePath(`/accounting/bank-reconciliation/${reconciliationId}`);
+    return { ok: true };
+  });
+}
+
+export async function completeBankReconciliation(id: number): Promise<ActionResult<{ ok: true }>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_BANK_RECONCILE');
+    await gl.completeBankReconciliation(id, user);
+    revalidatePath(`/accounting/bank-reconciliation/${id}`);
+    revalidatePath('/accounting');
+    return { ok: true };
   });
 }
 

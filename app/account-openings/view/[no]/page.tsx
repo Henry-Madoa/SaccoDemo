@@ -14,6 +14,7 @@ import {
 } from '../../account-opening-actions';
 import { JuniorPhotoPanel } from './junior-photo-panel';
 import { CardNav } from '@/components/ui/card-nav';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 
 const ACCOUNT_OPENING_VIEWS: AccountOpeningView[] = ['open', 'pending', 'approved', 'processed'];
 
@@ -85,6 +86,7 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
           </>
         ) : null}
         {request.status === 'Approved' && canApprove ? <ProcessButton no={request.no} /> : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <Card>

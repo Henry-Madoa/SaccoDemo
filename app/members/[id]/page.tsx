@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/primitives';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { CardNav } from '@/components/ui/card-nav';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { Money, SignedMoney } from '@/components/ui/money';
 import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
@@ -66,6 +67,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
         ) : null}
+        <DocumentActionsMenu />
       </Toolbar>
 
       <div className="grid g4 stack-2">

@@ -8,7 +8,7 @@ import {
   Card, CardHead, EmptyState, Pill, Stat, TableWrap, Tabs, type TabDefinition,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
-import { PrintButton } from '@/components/ui/print-button';
+import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CompositionBars } from '../composition-charts';
 import type { ReportLine } from '@/lib/types';
 
@@ -67,7 +67,7 @@ async function BalanceSheetTab() {
         title="Statement of financial position"
         sub={`${org.name} · as at ${formatDate(today())} · amounts in ${org.currency_code}`}
       >
-        <PrintButton className="btn ghost sm" />
+        <DocumentActionsMenu className="btn ghost sm" excel={{ href: '/api/export/balance-sheet' }} />
       </CardHead>
       <div className="report-body">
         <table>
@@ -111,7 +111,7 @@ async function IncomeTab() {
         title="Statement of comprehensive income"
         sub={`${org.name} · ${formatDate(from)} to ${formatDate(to)}`}
       >
-        <PrintButton className="btn ghost sm" />
+        <DocumentActionsMenu className="btn ghost sm" excel={{ href: '/api/export/income' }} />
       </CardHead>
       <div className="grid g2">
         <div style={{ maxWidth: 560 }}>
@@ -164,7 +164,7 @@ async function ParTab() {
           title="Risk classification of assets and provisioning"
           sub="Shaped after the SASRA Form 4 return — classification bands and provisioning rates are configurable"
         >
-          <PrintButton className="btn ghost sm" />
+          <DocumentActionsMenu className="btn ghost sm" excel={{ href: '/api/export/par' }} />
         </CardHead>
         <TableWrap>
           <thead>
