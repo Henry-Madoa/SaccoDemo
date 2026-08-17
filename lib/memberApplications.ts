@@ -19,7 +19,7 @@ import type {
 } from './types.ts';
 
 const APPLICATION_FIELDS = [
-  'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'national_id', 'kra_pin',
+  'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'identification_no', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
   'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
   'kyc_verified', 'join_date',
@@ -71,7 +71,7 @@ export const APPLICATION_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'first_name', label: 'First Name', type: 'text', column: 'a.first_name' },
   { key: 'middle_name', label: 'Middle Name', type: 'text', column: 'a.middle_name' },
   { key: 'last_name', label: 'Last Name', type: 'text', column: 'a.last_name' },
-  { key: 'national_id', label: 'Identification No.', type: 'text', column: 'a.national_id' },
+  { key: 'identification_no', label: 'Identification No.', type: 'text', column: 'a.identification_no' },
   { key: 'kra_pin', label: 'KRA PIN', type: 'text', column: 'a.kra_pin' },
   { key: 'date_of_birth', label: 'Date of Birth', type: 'date', column: 'a.date_of_birth' },
   { key: 'gender', label: 'Gender', type: 'select', column: 'a.gender', options: GENDERS.filter(Boolean).map((g) => ({ value: g, label: g })) },
@@ -110,7 +110,7 @@ export const APPLICATION_FILTER_FIELDS: FilterFieldDef[] = [
 const APPLICATION_SORT_COLUMNS: Record<string, string> = {
   no: 'a.no',
   name: 'a.first_name',
-  national_id: 'a.national_id',
+  identification_no: 'a.identification_no',
   phone: 'a.phone',
   status: 'a.status',
 };
@@ -129,7 +129,7 @@ export const listMemberApplications = (
   const orderBy = buildOrderClause(APPLICATION_SORT_COLUMNS, sort, 'a.no DESC');
   return all<MemberApplicationWithDimensions>(
     `${SELECT_APPLICATION}
-     WHERE (a.first_name LIKE @like OR a.last_name LIKE @like OR a.national_id LIKE @like OR a.no LIKE @like)
+     WHERE (a.first_name LIKE @like OR a.last_name LIKE @like OR a.identification_no LIKE @like OR a.no LIKE @like)
        ${view ? `AND ${VIEW_CLAUSE[view]}` : ''}
        ${clause}
      ${orderBy}`,
@@ -206,6 +206,32 @@ export async function submitMemberApplication(no: string, user: Actor): Promise<
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Open') {
     throw new AppError('Only an open application can be submitted for approval', 'VALIDATION');
+  }
+
+  // Validation: ensure required related records exist before submitting
+  // - INDIVIDUAL categories require at least one Next of Kin and one Nominee
+  // - Non-individual categories require at least one Signatory
+  // If member_category_id is not set, treat as INDIVIDUAL (legacy behaviour elsewhere).
+  const categoryRow = app.member_category_id
+    ? await one<{ category_type: string }>('SELECT category_type FROM member_category WHERE id = ?', app.member_category_id)
+    : null;
+  const categoryType = categoryRow?.category_type ?? 'INDIVIDUAL';
+  if (categoryType === 'INDIVIDUAL') {
+    const [nextOfKin, nominees] = await Promise.all([
+      listApplicationNextOfKin(no),
+      listApplicationNominees(no),
+    ]);
+    if (!nextOfKin || nextOfKin.length === 0) {
+      throw new AppError('Individual applications must include at least one Next of Kin', 'VALIDATION');
+    }
+    if (!nominees || nominees.length === 0) {
+      throw new AppError('Individual applications must include at least one Nominee', 'VALIDATION');
+    }
+  } else {
+    const signatories = await listApplicationSignatories(no);
+    if (!signatories || signatories.length === 0) {
+      throw new AppError('Non-individual applications must include at least one Signatory', 'VALIDATION');
+    }
   }
 
   // Submitting always requires routing through an admin-defined, enabled workflow —
@@ -302,7 +328,7 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
     const body: MemberInput = {
       member_type: app.member_type, member_category_id: app.member_category_id, title: app.title,
       first_name: app.first_name, middle_name: app.middle_name, last_name: app.last_name,
-      national_id: app.national_id, kra_pin: app.kra_pin, date_of_birth: app.date_of_birth,
+      identification_no: app.identification_no, kra_pin: app.kra_pin, date_of_birth: app.date_of_birth,
       gender: app.gender, marital_status: app.marital_status, phone: app.phone, email: app.email,
       postal_address: app.postal_address, physical_address: app.physical_address,
       county_id: app.county_id, sub_county_id: app.sub_county_id, employer: app.employer,

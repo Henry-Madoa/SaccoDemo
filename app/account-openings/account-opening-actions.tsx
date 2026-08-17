@@ -113,10 +113,10 @@ function BusinessFields({ defaults }: {
 }) {
   return (
     <div className="grid g2">
-      <Field name="businessName" label="Business Name" defaultValue={defaults?.business_name ?? ''} />
-      <Field name="businessLocation" label="Business Location" defaultValue={defaults?.business_location ?? ''} />
+      <Field name="businessName" label="Business Name" defaultValue={defaults?.business_name ?? ''} required />
+      <Field name="businessLocation" label="Business Location" defaultValue={defaults?.business_location ?? ''}required />
       <Field name="businessPaybillTillNo" label="Paybill / Till No." defaultValue={defaults?.business_paybill_till_no ?? ''} />
-      <Field name="businessPhoneNo" label="Business Phone No." defaultValue={defaults?.business_phone_no ?? ''} />
+      <Field name="businessPhoneNo" label="Business Phone No." defaultValue={defaults?.business_phone_no ?? ''} required />
     </div>
   );
 }
@@ -129,11 +129,11 @@ function JuniorFields({ defaults }: {
 }) {
   return (
     <div className="grid g2">
-      <Field name="juniorName" label="Junior's Name" defaultValue={defaults?.junior_name ?? ''} />
-      <Field name="juniorBirthCertNo" label="Birth Notification / Certificate No." required uppercase maxLength={50}
+      <Field name="juniorName" label="Junior's Name" defaultValue={defaults?.junior_name ?? ''} required />
+      <Field name="juniorBirthCertNo" label="Birth Notification / Certificate No." required uppercase maxLength={20}
         defaultValue={defaults?.junior_birth_cert_no ?? ''}
         hint="Uniquely identifies this Junior Account — must not already be in use" />
-      <Field name="juniorDateOfBirth" label="Date of Birth" type="date" defaultValue={defaults?.junior_date_of_birth ?? ''} />
+      <Field name="juniorDateOfBirth" label="Date of Birth" type="date" defaultValue={defaults?.junior_date_of_birth ?? ''} required/>
     </div>
   );
 }

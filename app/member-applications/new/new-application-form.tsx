@@ -46,7 +46,7 @@ export function NewApplicationForm({
       <CardHead title="New member application" sub="The remaining details can be filled in afterwards" />
       <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
         <div className="grid g3">
-          <Field name="member_category_id" label="Member category" type="select"
+          <Field name="member_category_id" label="Member category" type="select" 
             options={[
               { value: '', label: 'Select category…' },
               ...memberCategories.map((c) => ({ value: c.id, label: c.description })),

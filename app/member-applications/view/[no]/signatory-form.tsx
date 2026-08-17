@@ -73,15 +73,15 @@ export function ApplicationSignatoryFormButton({ applicationNo, signatories, cla
               {rows.map((row, i) => (
                 <tr key={i}>
                   <td>
-                    <input type="text" value={row.identification_no} aria-label="Identification No"
+                    <input type="text" value={row.identification_no} aria-label="Identification No" required
                       onChange={(e) => update(i, { identification_no: e.target.value })} />
                   </td>
                   <td>
-                    <input type="text" value={row.name} aria-label="Name"
+                    <input type="text" value={row.name} aria-label="Name" required
                       onChange={(e) => update(i, { name: e.target.value })} />
                   </td>
                   <td>
-                    <select value={row.designation} aria-label="Designation"
+                    <select value={row.designation} aria-label="Designation" required
                       onChange={(e) => update(i, { designation: e.target.value })}>
                       {SIGNATORY_DESIGNATIONS.map((d) => (
                         <option key={d} value={d}>{d || '—'}</option>
@@ -89,7 +89,7 @@ export function ApplicationSignatoryFormButton({ applicationNo, signatories, cla
                     </select>
                   </td>
                   <td>
-                    <input type="date" value={row.date_of_birth} aria-label="Date of birth"
+                    <input type="date" value={row.date_of_birth} aria-label="Date of birth" required
                       onChange={(e) => update(i, { date_of_birth: e.target.value })} />
                   </td>
                   <td>
@@ -97,7 +97,7 @@ export function ApplicationSignatoryFormButton({ applicationNo, signatories, cla
                       onChange={(e) => update(i, { email: e.target.value })} />
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="text" value={row.phone} aria-label="Phone" required
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>

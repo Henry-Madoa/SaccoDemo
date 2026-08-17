@@ -43,7 +43,7 @@ const VIEW_CLAUSE: Record<MemberEditView, string> = {
 const FIELD_LABELS: Record<MemberEditField, string> = {
   member_type: 'Member type', member_category_id: 'Member category', title: 'Title',
   first_name: 'First name', middle_name: 'Middle name', last_name: 'Last name',
-  national_id: 'Identification No.', kra_pin: 'KRA PIN', date_of_birth: 'Date of birth',
+  identification_no: 'Identification No.', kra_pin: 'KRA PIN', date_of_birth: 'Date of birth',
   gender: 'Gender', marital_status: 'Marital status', phone: 'Phone', email: 'Email',
   postal_address: 'Postal address', physical_address: 'Physical address',
   county_id: 'County', sub_county_id: 'Sub-county', employer: 'Employer',
@@ -84,7 +84,7 @@ export const EDIT_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'first_name', label: 'First Name', type: 'text', column: 'e.first_name' },
   { key: 'middle_name', label: 'Middle Name', type: 'text', column: 'e.middle_name' },
   { key: 'last_name', label: 'Last Name', type: 'text', column: 'e.last_name' },
-  { key: 'national_id', label: 'Identification No.', type: 'text', column: 'e.national_id' },
+  { key: 'identification_no', label: 'Identification No.', type: 'text', column: 'e.identification_no' },
   { key: 'kra_pin', label: 'KRA PIN', type: 'text', column: 'e.kra_pin' },
   { key: 'date_of_birth', label: 'Date of Birth', type: 'date', column: 'e.date_of_birth' },
   { key: 'gender', label: 'Gender', type: 'select', column: 'e.gender', options: GENDERS.filter(Boolean).map((g) => ({ value: g, label: g })) },

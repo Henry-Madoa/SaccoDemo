@@ -124,7 +124,7 @@ CREATE TABLE member (
   first_name        text NOT NULL,
   middle_name       text,
   last_name         text NOT NULL,
-  national_id       text,
+  identification_no       text,
   kra_pin           text,
   date_of_birth     text,
   gender            text,
@@ -153,8 +153,8 @@ CREATE TABLE member (
 );
 CREATE INDEX ix_member_name ON member(last_name, first_name);
 CREATE INDEX ix_member_status ON member(status);
-CREATE UNIQUE INDEX ux_member_nid ON member(national_id)
-  WHERE national_id IS NOT NULL AND national_id <> '';
+CREATE UNIQUE INDEX ux_member_nid ON member(identification_no)
+  WHERE identification_no IS NOT NULL AND identification_no <> '';
 
 -- ============================================================ CHART OF ACCOUNTS
 CREATE TABLE gl_account (

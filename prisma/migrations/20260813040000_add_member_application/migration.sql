@@ -7,7 +7,7 @@ CREATE TABLE "member_application" (
     "first_name" TEXT NOT NULL,
     "middle_name" TEXT,
     "last_name" TEXT NOT NULL,
-    "national_id" TEXT,
+    "identification_no" TEXT,
     "kra_pin" TEXT,
     "date_of_birth" TEXT,
     "gender" TEXT,

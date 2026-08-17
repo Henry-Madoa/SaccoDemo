@@ -255,7 +255,7 @@ export interface Member {
   first_name: string;
   middle_name: string | null;
   last_name: string;
-  national_id: string | null;
+  identification_no: string | null;
   kra_pin: string | null;
   date_of_birth: IsoDate | null;
   gender: string | null;
@@ -374,7 +374,7 @@ export interface MemberApplication {
   first_name: string | null;
   middle_name: string | null;
   last_name: string | null;
-  national_id: string | null;
+  identification_no: string | null;
   kra_pin: string | null;
   date_of_birth: IsoDate | null;
   gender: string | null;
@@ -447,7 +447,7 @@ export interface MemberEditRequest {
   first_name: string;
   middle_name: string | null;
   last_name: string;
-  national_id: string | null;
+  identification_no: string | null;
   kra_pin: string | null;
   date_of_birth: IsoDate | null;
   gender: string | null;

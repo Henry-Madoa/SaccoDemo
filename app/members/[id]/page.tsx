@@ -100,7 +100,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
             </div>
             <DefinitionList items={[
               ['Category', m.member_category_name || '—'],
-              ['Identification No.', <span className="mono" key="nid">{m.national_id || '—'}</span>],
+              ['Identification No.', <span className="mono" key="nid">{m.identification_no || '—'}</span>],
               ['KRA PIN', <span className="mono" key="pin">{m.kra_pin || '—'}</span>],
               ['Date of birth', formatDate(m.date_of_birth)],
               ['Gender', m.gender || '—'],

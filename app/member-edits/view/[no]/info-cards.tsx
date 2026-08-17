@@ -153,7 +153,7 @@ export function BasicInfoCard({ request: a, canEdit, startEditing = false }: Bas
         <>
           <DefinitionList items={[
             ['Name', [a.title, a.first_name, a.middle_name, a.last_name].filter(Boolean).join(' ')],
-            ['Identification No.', <span className="mono" key="nid">{a.national_id || '—'}</span>],
+            ['Identification No.', <span className="mono" key="nid">{a.identification_no || '—'}</span>],
             ['KRA PIN', <span className="mono" key="pin">{a.kra_pin || '—'}</span>],
             ['Date of birth', formatDate(a.date_of_birth)],
             ['Gender', a.gender || '—'],
@@ -176,7 +176,7 @@ export function BasicInfoCard({ request: a, canEdit, startEditing = false }: Bas
               <Field name="first_name" label="First name" defaultValue={a.first_name} required />
               <Field name="last_name" label="Last name" defaultValue={a.last_name} required />
               <Field name="middle_name" label="Middle name" defaultValue={a.middle_name} />
-              <Field name="national_id" label="Identification No." defaultValue={a.national_id} />
+              <Field name="identification_no" label="Identification No." defaultValue={a.identification_no} />
               <Field name="kra_pin" label="KRA PIN" defaultValue={a.kra_pin} />
               <Field name="date_of_birth" label="Date of birth" type="date" defaultValue={a.date_of_birth} />
               <Field name="gender" label="Gender" type="select" defaultValue={a.gender} options={GENDERS} />

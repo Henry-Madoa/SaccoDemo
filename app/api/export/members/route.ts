@@ -20,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
     const columns: ExcelColumn<MemberListRow>[] = [
       { header: 'Member no.', key: 'member_no', value: (r) => r.member_no },
       { header: 'Name', key: 'name', value: (r) => `${r.first_name} ${r.last_name}`.trim() },
-      { header: 'Identification No.', key: 'national_id', value: (r) => r.national_id },
+      { header: 'Identification No.', key: 'identification_no', value: (r) => r.identification_no },
       { header: 'Phone', key: 'phone', value: (r) => r.phone },
       { header: 'Email', key: 'email', value: (r) => r.email },
       { header: 'Category', key: 'category', value: (r) => r.member_category_name },

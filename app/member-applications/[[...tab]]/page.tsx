@@ -76,7 +76,7 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
               <tr>
                 <th><SortLink sortKey="no">No.</SortLink></th>
                 <th><SortLink sortKey="name">Name</SortLink></th>
-                <th><SortLink sortKey="national_id">Identification No.</SortLink></th>
+                <th><SortLink sortKey="identification_no">Identification No.</SortLink></th>
                 <th><SortLink sortKey="phone">Phone</SortLink></th>
                 <th><SortLink sortKey="status">Status</SortLink></th><th className="num" />
               </tr>
@@ -89,7 +89,7 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
                 <tr key={a.no}>
                   <td className="mono"><Link href={`/member-applications/view/${a.no}?view=${tab}`}>{a.no}</Link></td>
                   <td><b>{a.first_name} {a.last_name}</b></td>
-                  <td className="mono">{a.national_id || '—'}</td>
+                  <td className="mono">{a.identification_no || '—'}</td>
                   <td>{a.phone || '—'}</td>
                   <td><Pill status={a.status} /></td>
                   <td className="num">
@@ -104,7 +104,6 @@ export default async function MemberApplicationsPage({ params, searchParams }: {
                       ) : null}
                     </div>
                   </td>
-
                 </tr>
                 );
               })}

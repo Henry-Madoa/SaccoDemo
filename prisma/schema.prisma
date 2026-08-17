@@ -700,7 +700,7 @@ model member_application {
   first_name                     String?
   middle_name                    String?
   last_name                      String?
-  national_id                    String?
+  identification_no              String?
   kra_pin                        String?
   date_of_birth                  String?
   gender                         String?
@@ -831,7 +831,7 @@ model member_edit_request {
   first_name               String
   middle_name              String?
   last_name                String
-  national_id              String?
+  identification_no              String?
   kra_pin                  String?
   date_of_birth            String?
   gender                   String?
@@ -988,7 +988,7 @@ model member {
   first_name               String
   middle_name              String?
   last_name                String
-  national_id              String?                   @unique(map: "ux_member_nid", where: raw("((national_id IS NOT NULL) AND (national_id <> ''::text))"))
+  identification_no              String?                   @unique(map: "ux_member_nid", where: raw("((identification_no IS NOT NULL) AND (identification_no <> ''::text))"))
   kra_pin                  String?
   date_of_birth            String?
   gender                   String?

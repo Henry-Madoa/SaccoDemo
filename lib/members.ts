@@ -16,7 +16,7 @@ import type {
 } from './types.ts';
 
 export const MEMBER_FIELDS = [
-  'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'national_id', 'kra_pin',
+  'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'identification_no', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
   'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
   'status', 'kyc_verified', 'join_date',
@@ -44,7 +44,7 @@ export const MEMBER_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'first_name', label: 'First Name', type: 'text', column: 'm.first_name' },
   { key: 'middle_name', label: 'Middle Name', type: 'text', column: 'm.middle_name' },
   { key: 'last_name', label: 'Last Name', type: 'text', column: 'm.last_name' },
-  { key: 'national_id', label: 'Identification No.', type: 'text', column: 'm.national_id' },
+  { key: 'identification_no', label: 'Identification No.', type: 'text', column: 'm.identification_no' },
   { key: 'kra_pin', label: 'KRA PIN', type: 'text', column: 'm.kra_pin' },
   { key: 'date_of_birth', label: 'Date of Birth', type: 'date', column: 'm.date_of_birth' },
   { key: 'gender', label: 'Gender', type: 'select', column: 'm.gender', options: GENDERS.filter(Boolean).map((g) => ({ value: g, label: g })) },
@@ -81,7 +81,7 @@ export const MEMBER_FILTER_FIELDS: FilterFieldDef[] = [
 const MEMBER_SORT_COLUMNS: Record<string, string> = {
   member_no: 'm.member_no',
   name: 'm.first_name',
-  national_id: 'm.national_id',
+  identification_no: 'm.identification_no',
   phone: 'm.phone',
   gd1: 'gd1.name',
   gd2: 'gd2.name',
@@ -125,7 +125,7 @@ export async function listMembers(
      LEFT JOIN global_dimension_1_value gd1 ON gd1.id = m.global_dimension_1_id
      LEFT JOIN global_dimension_2_value gd2 ON gd2.id = m.global_dimension_2_id
      WHERE (m.member_no LIKE @like OR m.first_name LIKE @like OR m.last_name LIKE @like
-            OR m.national_id LIKE @like OR m.phone LIKE @like)
+            OR m.identification_no LIKE @like OR m.phone LIKE @like)
        ${clause}
      ${orderBy} LIMIT @limit OFFSET @offset`,
     { like: `%${String(search).trim()}%`, limit: Math.min(limit, 500), offset, ...params },
@@ -232,9 +232,9 @@ export async function createMember(body: MemberInput, user: Actor): Promise<Memb
   if (!body.first_name || !body.last_name) {
     throw new AppError('First and last name are required', 'VALIDATION');
   }
-  if (body.national_id) {
+  if (body.identification_no) {
     const dup = await one<Pick<Member, 'member_no' | 'first_name' | 'last_name'>>(
-      'SELECT member_no, first_name, last_name FROM member WHERE national_id = ?', body.national_id,
+      'SELECT member_no, first_name, last_name FROM member WHERE identification_no = ?', body.identification_no,
     );
     if (dup) {
       throw new AppError(

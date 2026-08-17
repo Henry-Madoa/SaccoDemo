@@ -345,7 +345,7 @@ async function seedMembersAndHistory(
   );
 
   const INS_MEMBER =
-    `INSERT INTO member (member_no, member_type, title, first_name, middle_name, last_name, national_id, kra_pin,
+    `INSERT INTO member (member_no, member_type, title, first_name, middle_name, last_name, identification_no, kra_pin,
       date_of_birth, gender, marital_status, phone, email, postal_address, physical_address, county_id, employer,
       employment_status, staff_no, gross_income, other_deductions,
       status, kyc_verified, join_date, created_at, created_by)

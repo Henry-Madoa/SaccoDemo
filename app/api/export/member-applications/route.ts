@@ -20,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
     const columns: ExcelColumn<MemberApplicationWithDimensions>[] = [
       { header: 'No.', key: 'no', value: (r) => r.no },
       { header: 'Name', key: 'name', value: (r) => `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() },
-      { header: 'Identification No.', key: 'national_id', value: (r) => r.national_id },
+      { header: 'Identification No.', key: 'identification_no', value: (r) => r.identification_no },
       { header: 'Phone', key: 'phone', value: (r) => r.phone },
       { header: 'Member category', key: 'category', value: (r) => r.member_category_name },
       { header: 'Status', key: 'status', value: (r) => humanise(r.status) },

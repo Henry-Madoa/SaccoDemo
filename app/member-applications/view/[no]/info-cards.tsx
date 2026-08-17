@@ -108,18 +108,18 @@ export function GeneralInfoCard({
         <>
           <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
             <div className="grid g3">
-              <Field name="member_category_id" label="Member category" type="select" defaultValue={a.member_category_id}
+              <Field name="member_category_id" label="Member category" type="select" defaultValue={a.member_category_id} required
                 options={[
                   { value: '', label: 'Select category…' },
                   ...memberCategories.map((c) => ({ value: c.id, label: c.description })),
                 ]} />
-              <Field name="join_date" label="Date joined" type="date" defaultValue={a.join_date} />
-              <Field name="global_dimension_1_id" label={caption1} type="select" defaultValue={a.global_dimension_1_id}
+              <Field name="join_date" label="Date joined" type="date" defaultValue={a.join_date} disabled/>
+              <Field name="global_dimension_1_id" label={caption1} type="select" defaultValue={a.global_dimension_1_id} required
                 options={[
                   { value: '', label: `Select ${caption1.toLowerCase()}…` },
                   ...globalDimension1Values.map((v) => ({ value: v.id, label: v.name })),
                 ]} />
-              <Field name="global_dimension_2_id" label={caption2} type="select" defaultValue={a.global_dimension_2_id}
+              <Field name="global_dimension_2_id" label={caption2} type="select" defaultValue={a.global_dimension_2_id} required
                 options={[
                   { value: '', label: `Select ${caption2.toLowerCase()}…` },
                   ...globalDimension2Values.map((v) => ({ value: v.id, label: v.name })),
@@ -155,7 +155,7 @@ export function BasicInfoCard({ application: a, canEdit, startEditing = false }:
         <>
           <DefinitionList items={[
             ['Name', [a.title, a.first_name, a.middle_name, a.last_name].filter(Boolean).join(' ')],
-            ['Identification No.', <span className="mono" key="nid">{a.national_id || '—'}</span>],
+            ['Identification No.', <span className="mono" key="nid">{a.identification_no || '—'}</span>],
             ['KRA PIN', <span className="mono" key="pin">{a.kra_pin || '—'}</span>],
             ['Date of birth', formatDate(a.date_of_birth)],
             ['Gender', a.gender || '—'],
@@ -174,13 +174,13 @@ export function BasicInfoCard({ application: a, canEdit, startEditing = false }:
         <>
           <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
             <div className="grid g3">
-              <Field name="title" label="Title" type="select" defaultValue={a.title} options={MEMBER_TITLES} />
+              <Field name="title" label="Title" type="select" defaultValue={a.title} options={MEMBER_TITLES} required />
               <Field name="first_name" label="First name" defaultValue={a.first_name} required />
-              <Field name="last_name" label="Last name" defaultValue={a.last_name} required />
               <Field name="middle_name" label="Middle name" defaultValue={a.middle_name} />
-              <Field name="national_id" label="Identification No." defaultValue={a.national_id} />
-              <Field name="kra_pin" label="KRA PIN" defaultValue={a.kra_pin} />
-              <Field name="date_of_birth" label="Date of birth" type="date" defaultValue={a.date_of_birth} />
+              <Field name="last_name" label="Last name" defaultValue={a.last_name} required />
+              <Field name="identification_no" label="Identification No." defaultValue={a.identification_no} required/>
+              <Field name="kra_pin" label="KRA PIN" defaultValue={a.kra_pin} required/>
+              <Field name="date_of_birth" label="Date of birth" type="date" defaultValue={a.date_of_birth} required/>
               <Field name="gender" label="Gender" type="select" defaultValue={a.gender} options={GENDERS} />
               <Field name="marital_status" label="Marital status" type="select" defaultValue={a.marital_status}
                 options={MARITAL_STATUSES} />
@@ -232,10 +232,10 @@ export function GroupInfoCard({ application: a, canEdit, startEditing = false }:
         <>
           <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
             <div className="grid g3">
-              <Field name="group_name" label="Group / entity name" defaultValue={a.group_name} />
+              <Field name="group_name" label="Group / entity name" defaultValue={a.group_name}required />
               <Field name="registration_no" label="Registration no." defaultValue={a.registration_no} />
               <Field name="registration_date" label="Registration date" type="date" defaultValue={a.registration_date} />
-              <Field name="member_count" label="Number of members" type="number" defaultValue={a.member_count} />
+              <Field name="member_count" label="Number of members" type="number" defaultValue={a.member_count} required/>
             </div>
           </form>
           <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />
@@ -286,8 +286,8 @@ export function ContactInfoCard({
             <div className="grid g3">
               {!isIndividual ? (
                 <>
-                  <Field name="contact_person_name" label="Contact person" defaultValue={a.contact_person_name} />
-                  <Field name="contact_person_phone" label="Contact phone" defaultValue={a.contact_person_phone} />
+                  <Field name="contact_person_name" label="Contact person" defaultValue={a.contact_person_name}required />
+                  <Field name="contact_person_phone" label="Contact phone" defaultValue={a.contact_person_phone} required/>
                   <Field name="contact_person_email" label="Contact email" type="email"
                     defaultValue={a.contact_person_email} />
                 </>

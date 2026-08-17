@@ -99,7 +99,7 @@ export default async function MembersPage({ searchParams }: {
                 <tr>
                   <th><SortLink sortKey="member_no">Member no.</SortLink></th>
                   <th><SortLink sortKey="name">Name</SortLink></th>
-                  <th><SortLink sortKey="national_id">Identification No.</SortLink></th>
+                  <th><SortLink sortKey="identification_no">Identification No.</SortLink></th>
                   <th><SortLink sortKey="phone">Phone</SortLink></th>
                   <th><SortLink sortKey="gd1">{caption1}</SortLink></th>
                   <th><SortLink sortKey="gd2">{caption2}</SortLink></th>
@@ -118,7 +118,7 @@ export default async function MembersPage({ searchParams }: {
                       <b>{m.first_name} {m.last_name}</b>
                       {m.kyc_verified ? null : <> <Pill tone="warn">KYC</Pill></>}
                     </td>
-                    <td className="mono">{m.national_id || '—'}</td>
+                    <td className="mono">{m.identification_no || '—'}</td>
                     <td>{m.phone || '—'}</td>
                     <td>{m.global_dimension_1_name || '—'}</td>
                     <td>{m.global_dimension_2_name || '—'}</td>

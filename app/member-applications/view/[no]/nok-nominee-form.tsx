@@ -75,11 +75,11 @@ export function ApplicationNomineeFormButton({ applicationNo, nominees, classNam
                 <tr key={i}>
                   <td>
                     <input type="text" value={row.name} aria-label="Name"
-                      onChange={(e) => update(i, { name: e.target.value })} />
+                      onChange={(e) => update(i, { name: e.target.value })} required />
                   </td>
                   <td>
-                    <select value={row.relationship} aria-label="Relationship"
-                      onChange={(e) => update(i, { relationship: e.target.value })}>
+                    <select value={row.relationship} aria-label="Relationship" required
+                      onChange={(e) => update(i, { relationship: e.target.value })}> 
                       {RELATIONSHIPS.map((r) => (
                         <option key={r} value={r}>{r || '—'}</option>
                       ))}
@@ -87,7 +87,7 @@ export function ApplicationNomineeFormButton({ applicationNo, nominees, classNam
                   </td>
                   <td>
                     <input type="text" value={row.phone} aria-label="Phone"
-                      onChange={(e) => update(i, { phone: e.target.value })} />
+                      onChange={(e) => update(i, { phone: e.target.value })} required/>
                   </td>
                   <td>
                     <input type="number" min={0} max={100} step="0.01" value={row.percentage}
@@ -179,10 +179,10 @@ export function ApplicationNextOfKinFormButton({ applicationNo, nextOfKin, class
                 <tr key={i}>
                   <td>
                     <input type="text" value={row.name} aria-label="Name"
-                      onChange={(e) => update(i, { name: e.target.value })} />
+                      onChange={(e) => update(i, { name: e.target.value })} required/>
                   </td>
                   <td>
-                    <select value={row.relationship} aria-label="Relationship"
+                    <select value={row.relationship} aria-label="Relationship" required
                       onChange={(e) => update(i, { relationship: e.target.value })}>
                       {RELATIONSHIPS.map((r) => (
                         <option key={r} value={r}>{r || '—'}</option>
@@ -190,7 +190,7 @@ export function ApplicationNextOfKinFormButton({ applicationNo, nextOfKin, class
                     </select>
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="text" value={row.phone} aria-label="Phone" required
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>
