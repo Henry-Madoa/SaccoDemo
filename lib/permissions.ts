@@ -59,12 +59,16 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
   { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
   { code: 'MEMBER_CHARGING', label: 'Member Charging', route: '/member-chargings' },
+  { code: 'COLLATERAL_APPLICATIONS', label: 'Collateral Applications', route: '/collateral-applications' },
+  { code: 'COLLATERAL_REGISTER', label: 'Collateral Register', route: '/collateral-register' },
+  { code: 'COLLATERAL_RELEASES', label: 'Collateral Releases', route: '/collateral-releases' },
   { code: 'GL', label: 'General Ledger', route: '/accounting' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'ADMIN_COMPANY', label: 'Company Information', route: '/admin/company' },
   { code: 'ADMIN_APPEARANCE', label: 'Appearance & Theme', route: '/admin/appearance' },
   { code: 'ADMIN_PRODUCTS_SAVINGS', label: 'Savings Products', route: '/admin/products/savings' },
   { code: 'ADMIN_PRODUCTS_LOANS', label: 'Loan Products', route: '/admin/products/loans' },
+  { code: 'ADMIN_PRODUCTS_COLLATERAL', label: 'Collateral Types', route: '/admin/products/collateral' },
   { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/charges/master' },
   { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/charges/transaction' },
   { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/categories' },
@@ -221,7 +225,13 @@ export const ACTIONS = {
 
   // Loans
   LOAN_READ: { page: 'LOANS', tables: [['loan', 'read']] },
-  LOAN_CREATE: { page: 'LOANS', tables: [['loan', 'insert'], ['loan_guarantor', 'insert'], ['workflow_task', 'insert'], ['attachment', 'insert'], ['attachment', 'delete']] },
+  LOAN_CREATE: {
+    page: 'LOANS',
+    tables: [
+      ['loan', 'insert'], ['loan_guarantor', 'insert'], ['loan_collateral', 'insert'], ['loan_collateral', 'delete'],
+      ['workflow_task', 'insert'], ['attachment', 'insert'], ['attachment', 'delete'],
+    ],
+  },
   LOAN_APPROVE: { page: 'LOANS', tables: [['loan', 'modify']] },
   LOAN_DISBURSE: {
     page: 'LOANS',
@@ -230,6 +240,37 @@ export const ACTIONS = {
   LOAN_REPAY: {
     page: 'LOANS',
     tables: [['journal', 'insert'], ['journal_line', 'insert'], ['loan_schedule', 'modify'], ['loan', 'modify'], ['savings_account', 'modify'], ['txn', 'insert']],
+  },
+
+  // Collateral — a member pledges a titled asset (vehicle, land, building) as security,
+  // alongside or instead of guarantors — see loan_collateral, the join a loan officer uses
+  // to attach an accepted register item as a loan's security (granted through LOAN_CREATE
+  // above, not here). Applications and Releases are maker-checker documents through the
+  // shared workflow engine, same shape as Account Opening; the Register is the read-only
+  // accepted-asset ledger, written only by processing an application or a release, so it
+  // carries no _CREATE/_APPROVE action of its own.
+  COLLATERAL_APPLICATIONS_READ: { page: 'COLLATERAL_APPLICATIONS', tables: [['collateral_application', 'read']] },
+  COLLATERAL_APPLICATIONS_CREATE: {
+    page: 'COLLATERAL_APPLICATIONS',
+    tables: [
+      ['collateral_application', 'insert'], ['collateral_application', 'modify'],
+      ['collateral_application_attachment', 'insert'], ['collateral_application_attachment', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  COLLATERAL_APPLICATIONS_APPROVE: {
+    page: 'COLLATERAL_APPLICATIONS',
+    tables: [['collateral_application', 'modify'], ['collateral_register', 'insert'], ['collateral_register', 'modify']],
+  },
+  COLLATERAL_REGISTER_READ: { page: 'COLLATERAL_REGISTER', tables: [['collateral_register', 'read']] },
+  COLLATERAL_RELEASES_READ: { page: 'COLLATERAL_RELEASES', tables: [['collateral_release', 'read']] },
+  COLLATERAL_RELEASES_CREATE: {
+    page: 'COLLATERAL_RELEASES',
+    tables: [['collateral_release', 'insert'], ['collateral_release', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  COLLATERAL_RELEASES_APPROVE: {
+    page: 'COLLATERAL_RELEASES',
+    tables: [['collateral_release', 'modify'], ['collateral_register', 'modify']],
   },
 
   // General Ledger
@@ -256,6 +297,7 @@ export const ACTIONS = {
   ADMIN_ROLE_MANAGE: { page: 'ADMIN_ROLES', tables: [['role', 'insert'], ['role', 'modify']] },
   ADMIN_PRODUCTS_SAVINGS_MANAGE: { page: 'ADMIN_PRODUCTS_SAVINGS', tables: [['savings_product', 'insert'], ['savings_product', 'modify']] },
   ADMIN_PRODUCTS_LOANS_MANAGE: { page: 'ADMIN_PRODUCTS_LOANS', tables: [['loan_product', 'insert'], ['loan_product', 'modify']] },
+  ADMIN_PRODUCTS_COLLATERAL_MANAGE: { page: 'ADMIN_PRODUCTS_COLLATERAL', tables: [['collateral_type', 'insert'], ['collateral_type', 'modify']] },
   ADMIN_CHARGES_MASTER_MANAGE: { page: 'ADMIN_CHARGES_MASTER', tables: [['charge', 'insert'], ['charge', 'modify']] },
   ADMIN_CHARGES_TRANSACTION_MANAGE: {
     page: 'ADMIN_CHARGES_TRANSACTION',

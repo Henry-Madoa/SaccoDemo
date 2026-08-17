@@ -126,7 +126,8 @@ export type Tone = '' | 'ok' | 'warn' | 'bad' | 'info' | 'accent';
 
 const STATUS_TONE: Record<string, Tone> = {
   ACTIVE: 'ok', POSTED: 'ok', APPROVED: 'ok', DISBURSED: 'ok', PAID: 'ok', PERFORMING: 'ok', OPEN: 'ok',
-  VERIFIED: 'ok', ALLOWED: 'ok', YES: 'ok', ELIGIBLE: 'ok',
+  VERIFIED: 'ok', ALLOWED: 'ok', YES: 'ok', ELIGIBLE: 'ok', AVAILABLE: 'ok',
+  LINKED_TO_LOAN: 'info', COLLECTED: '',
   CLOSED: '', HEADER: '', RESTRICTED: '', ARCHIVED: '',
   PENDING: 'warn', DUE: 'warn', PARTIAL: 'warn', WATCH: 'warn', DORMANT: 'warn', APPLICATION: 'warn',
   SUBSTANDARD: 'warn', REFERRED: 'warn', 'PENDING APPROVAL': 'warn',

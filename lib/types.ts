@@ -1370,7 +1370,177 @@ export interface LoanDetail {
   loan: LoanFull;
   schedule: LoanScheduleRow[];
   guarantors: GuarantorRow[];
+  collateral: LoanCollateralRow[];
   transactions: TxnWithDocument[];
+}
+
+/* ------------------------------------------------------------ collateral module */
+
+export type CollateralCategory = 'VEHICLE' | 'REAL_ESTATE';
+
+/** Setup: the acceptable collateral types, each with its own loan-to-value multiplier
+ *  (a percentage, e.g. 70 = 70%) applied to a pledged asset's market value. */
+export interface CollateralType {
+  id: number;
+  code: string;
+  description: string;
+  category: CollateralCategory;
+  value_multiplier: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface CollateralTypeWithUsage extends CollateralType {
+  applications: number;
+}
+
+/** The maker-checker request to pledge one asset — same Open -> Pending Approval ->
+ *  Approved -> Processed shape as AccountOpeningRequest. Processing writes the accepted
+ *  asset into collateral_register under the same `no` (see lib/collateralApplications.ts). */
+export interface CollateralApplication {
+  no: string;
+  member_id: number;
+  category: CollateralCategory;
+  collateral_type_id: number | null;
+  collateral_description: string | null;
+  multiplier: number;
+  collateral_value: Cents;
+  guarantee: Cents;
+  serial_reg_no: string | null;
+  multi_linking: Flag;
+  county_id: number | null;
+  last_valuation_date: IsoDate | null;
+  joint_ownership: Flag;
+  owner_name: string | null;
+  owner_id_no: string | null;
+  owner_phone_no: string | null;
+  insurance_expiry_date: IsoDate | null;
+  car_track_due_date: IsoDate | null;
+  cheque_no: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface CollateralApplicationWithDetails extends CollateralApplication {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  collateral_type_code: string | null;
+  county_name: string | null;
+}
+
+export interface CollateralApplicationAttachment {
+  id: number;
+  application_no: string;
+  public_id: string;
+  url: string;
+  filename: string;
+  resource_type: string;
+  format: string | null;
+  bytes: number;
+  category: string | null;
+  uploaded_at: IsoDateTime;
+  uploaded_by: string;
+}
+
+export type CollateralStatus = 'AVAILABLE' | 'LINKED_TO_LOAN' | 'COLLECTED';
+
+/** The register of accepted collateral — shares its primary key with CollateralApplication.
+ *  `status`, `linked_loan_balance` and `collateral_balance` are computed at query time (see
+ *  lib/collateralRegister.ts), never stored, so an invalid combination can't be persisted. */
+export interface CollateralRegisterRow {
+  no: string;
+  member_id: number;
+  category: CollateralCategory;
+  collateral_type_id: number | null;
+  collateral_description: string | null;
+  collateral_value: Cents;
+  guarantee: Cents;
+  serial_reg_no: string | null;
+  posting_date: IsoDate | null;
+  county_id: number | null;
+  owner_name: string | null;
+  owner_id_no: string | null;
+  owner_phone_no: string | null;
+  insurance_expiry_date: IsoDate | null;
+  car_track_due_date: IsoDate | null;
+  collected_at: IsoDate | null;
+  created_at: IsoDateTime | null;
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  collateral_type_code: string | null;
+  county_name: string | null;
+  /** Sum of MIN(security guarantee, loan balance) over every live loan this item secures. */
+  linked_loan_balance: Cents;
+  /** guarantee - linked_loan_balance — the unused cover still available to lend against. */
+  collateral_balance: Cents;
+  status: CollateralStatus;
+}
+
+/** A maker-checker request to hand a pledged asset back — same Open -> Pending Approval ->
+ *  Approved -> Processed shape. Processing stamps collateral_register.collected_at (see
+ *  lib/collateralReleases.ts's postCollateralRelease()). */
+export interface CollateralRelease {
+  no: string;
+  collateral_no: string;
+  member_id: number;
+  collection_date: IsoDate | null;
+  collected_by: string | null;
+  collected_by_id_no: string | null;
+  nationality: 'LOCAL' | 'DIASPORA';
+  domicile_country: string | null;
+  comments: string | null;
+  remarks: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface CollateralReleaseWithDetails extends CollateralRelease {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  collateral_description: string | null;
+  collateral_serial_reg_no: string | null;
+  /** Live figure at read time — how much loan balance this item still secures, the same
+   *  computation collateral_register's status derivation uses. Must be 0 before this release
+   *  can post (BR-10), re-checked at both submit and post time, not merely displayed. */
+  linked_loan_balance: Cents;
+}
+
+/** The join between a loan and the collateral register item(s) securing it — "Loan Securities"
+ *  narrowed to Security Type = Collateral (loan_guarantor already covers guarantor security). */
+export interface LoanCollateral {
+  id: number;
+  loan_id: number;
+  collateral_no: string;
+  guarantee: Cents;
+  status: 'ACTIVE' | 'SUBSTITUTED';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface LoanCollateralRow extends LoanCollateral {
+  collateral_description: string | null;
+  serial_reg_no: string | null;
+  collateral_value: Cents;
+}
+
+/** One collateral register item a loan officer could still pledge against a loan — narrowed
+ *  to the same member, not yet collected, with cover left over. */
+export interface AvailableCollateralRow {
+  no: string;
+  collateral_description: string | null;
+  serial_reg_no: string | null;
+  guarantee: Cents;
+  collateral_balance: Cents;
 }
 
 export interface AppraisalFactor {
@@ -1447,7 +1617,7 @@ export interface SubledgerEntryRow extends TxnWithMember {
 
 export type WorkflowDocumentType =
   | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
-  | 'ACCOUNT_ACTIVATION';
+  | 'ACCOUNT_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';

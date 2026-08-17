@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
@@ -8,11 +8,15 @@ import { DefinitionList } from '@/components/ui/primitives';
 import { useFormat } from '@/components/ui/format-provider';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useRunAction } from '@/components/ui/run-action';
 import { decideLoan, disburseLoan, repayLoan, submitLoan } from '@/app/actions/loans';
 import { delegateMyTask } from '@/app/actions/workflows';
+import {
+  attachCollateralToLoanRequest, detachCollateralFromLoanRequest, availableCollateralForMember,
+} from '@/app/actions/loanCollateral';
 import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
 import { today, toUnits } from '@/lib/format';
-import type { LoanFull, SavingsAccountWithProduct } from '@/lib/types';
+import type { AvailableCollateralRow, LoanFull, SavingsAccountWithProduct } from '@/lib/types';
 
 /** Sends a captured (OPEN) loan for approval. */
 export function SubmitButton({ loanId, className = 'btn' }: { loanId: number; className?: string }) {
@@ -191,5 +195,80 @@ export function RepayButton({ loan, accounts }: {
         </FormModal>
       ) : null}
     </>
+  );
+}
+
+/** Pledges an accepted collateral register item as security for this loan — only while the
+ *  loan is still OPEN, the same point loan_guarantor rows are fixed. */
+export function AttachCollateralButton({ loanId, memberId, className = 'btn sm ghost' }: {
+  loanId: number; memberId: number; className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [available, setAvailable] = useState<AvailableCollateralRow[]>([]);
+  const [collateralNo, setCollateralNo] = useState('');
+  const { cur } = useFormat();
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    availableCollateralForMember(memberId).then((res) => {
+      if (cancelled || !res.ok) return;
+      setAvailable(res.data);
+      setCollateralNo(res.data[0]?.no ?? '');
+    });
+    return () => { cancelled = true; };
+  }, [open, memberId]);
+
+  const chosen = available.find((c) => c.no === collateralNo);
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Attach collateral</button>
+      {open ? (
+        <FormModal
+          title="Attach collateral"
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => attachCollateralToLoanRequest(loanId, String(values.collateralNo), String(values.guaranteeSh))}
+          submitLabel="Attach"
+          successTitle="Collateral attached"
+        >
+          {available.length ? (
+            <>
+              <div className="field">
+                <label htmlFor="f_collateralNo">Collateral <span className="req">*</span></label>
+                <select id="f_collateralNo" name="collateralNo" required value={collateralNo}
+                  onChange={(e) => setCollateralNo(e.target.value)}>
+                  {available.map((c) => (
+                    <option key={c.no} value={c.no}>
+                      {c.no} — {c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left {cur(c.collateral_balance)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Field name="guaranteeSh" label="Cover to draw from this item" type="number" step="0.01" required
+                defaultValue={chosen ? toUnits(chosen.collateral_balance) : ''}
+                hint={chosen ? `Up to ${cur(chosen.collateral_balance)} still available` : undefined} />
+            </>
+          ) : (
+            <p>This member has no registered collateral with cover left to pledge.</p>
+          )}
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
+export function DetachCollateralButton({ loanId, collateralNo, className = 'btn sm ghost' }: {
+  loanId: number; collateralNo: string; className?: string;
+}) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => detachCollateralFromLoanRequest(loanId, collateralNo), {
+        confirm: { title: 'Detach this collateral?', confirmLabel: 'Detach' },
+        successTitle: 'Collateral detached',
+      })}>
+      {busy ? 'Working…' : 'Detach'}
+    </button>
   );
 }

@@ -11,6 +11,7 @@ import { PostingError } from './errors.ts';
 import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
+import { listLoanCollateral } from './loanCollateral.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
@@ -137,13 +138,14 @@ export function listLoans(
 export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
   const loan = await getLoan(id);
   if (!loan) return null;
-  const [schedule, guarantors, transactions] = await Promise.all([
+  const [schedule, guarantors, collateral, transactions] = await Promise.all([
     all<LoanScheduleRow>('SELECT * FROM loan_schedule WHERE loan_id = ? ORDER BY installment_no', id),
     all<GuarantorRow>(
       `SELECT g.*, m.member_no, m.first_name, m.last_name
        FROM loan_guarantor g JOIN member m ON m.id = g.member_id WHERE g.loan_id = ?`,
       id,
     ),
+    listLoanCollateral(id),
     all<TxnWithDocument>(
       `SELECT t.*, j.reference AS document_no,
               gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
@@ -155,7 +157,7 @@ export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
       id,
     ),
   ]);
-  return { loan, schedule, guarantors, transactions };
+  return { loan, schedule, guarantors, collateral, transactions };
 }
 
 /** Deposits that count toward the loan multiplier. */

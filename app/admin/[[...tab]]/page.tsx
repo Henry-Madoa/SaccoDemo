@@ -6,6 +6,7 @@ import {
   listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog, hasAnyAuditLog, AUDIT_FILTER_FIELDS,
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
+import { listCollateralTypes } from '@/lib/collateralTypes';
 import {
   listChangeLogSetup, listChangeLogEntries, hasAnyChangeLogEntries, listAvailableChangeLogTables,
   CHANGE_LOG_FILTER_FIELDS,
@@ -40,6 +41,7 @@ import { AppearanceEditor } from '../appearance-editor';
 import { UserFormButton } from '../user-form';
 import { RoleFormButton, RoleRow } from '../role-form';
 import { SavingsProductButton, LoanProductButton } from '../product-forms';
+import { CollateralTypeButton } from '../collateral-type-form';
 import { MemberCategoryFormButton, MemberCategoryRow } from '../member-category-form';
 import { CountyFormButton, CountyRow } from '../county-form';
 import { DimensionValueFormButton } from '../dimension-value-form';
@@ -84,6 +86,7 @@ const TABS: AdminTab[] = [
 const PRODUCTS_TABS: AdminTab[] = [
   { key: 'savings', label: 'Savings Products', page: 'ADMIN_PRODUCTS_SAVINGS' },
   { key: 'loans', label: 'Loan Products', page: 'ADMIN_PRODUCTS_LOANS' },
+  { key: 'collateral', label: 'Collateral Types', page: 'ADMIN_PRODUCTS_COLLATERAL' },
 ];
 
 /** Charges' own sub-navigation. */
@@ -180,6 +183,7 @@ export default async function AdminPage({ params, searchParams }: {
           <Tabs tabs={productsAllowed} active={productsTab} hrefFor={(k) => `/admin/products/${k}`} />
           {productsTab === 'savings' ? <SavingsProductsTab /> : null}
           {productsTab === 'loans' ? <LoanProductsTab /> : null}
+          {productsTab === 'collateral' ? <CollateralTypesTab /> : null}
         </>
       ) : null}
       {tab === 'charges' ? (
@@ -403,6 +407,50 @@ async function LoanProductsTab() {
             ))}
           </tbody>
         </TableWrap>
+      </Card>
+    </>
+  );
+}
+
+async function CollateralTypesTab() {
+  const rows = await listCollateralTypes();
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <CollateralTypeButton>Add collateral type</CollateralTypeButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Collateral types"
+          sub="Each type's loan-to-value multiplier drives the realisable security value of anything pledged under it"
+        />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Description</th><th>Category</th><th className="num">LTV multiplier</th>
+                <th className="num">Applications</th><th>Status</th><th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t) => (
+                <tr key={t.id}>
+                  <td className="mono">{t.code}</td>
+                  <td><b>{t.description}</b></td>
+                  <td>{t.category === 'VEHICLE' ? 'Vehicle' : 'Real Estate'}</td>
+                  <td className="num">{t.value_multiplier}%</td>
+                  <td className="num">{t.applications}</td>
+                  <td><Pill status={t.status} /></td>
+                  <td className="num">
+                    <CollateralTypeButton collateralType={t} className="btn sm ghost">Edit</CollateralTypeButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🏠" title="No collateral types yet" sub="Add one before collateral can be pledged against it" />}
       </Card>
     </>
   );

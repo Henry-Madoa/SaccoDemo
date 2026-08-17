@@ -31,6 +31,8 @@ export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
   ACCOUNT_OPENING: 'account_opening_request',
   ACCOUNT_DEACTIVATION: 'account_deactivation_request',
   ACCOUNT_ACTIVATION: 'account_activation_request',
+  COLLATERAL_APPLICATION: 'collateral_application',
+  COLLATERAL_RELEASE: 'collateral_release',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
@@ -41,6 +43,8 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   ACCOUNT_OPENING: 'Account Opening',
   ACCOUNT_DEACTIVATION: 'Account Deactivation',
   ACCOUNT_ACTIVATION: 'Account Activation',
+  COLLATERAL_APPLICATION: 'Collateral Application',
+  COLLATERAL_RELEASE: 'Collateral Release',
 };
 
 const humanizeIdentifier = (identifier: string): string => identifier
@@ -78,6 +82,8 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   ACCOUNT_OPENING: (id) => `/account-openings/view/${id}`,
   ACCOUNT_DEACTIVATION: (id) => `/account-deactivations/view/${id}`,
   ACCOUNT_ACTIVATION: (id) => `/account-activations/view/${id}`,
+  COLLATERAL_APPLICATION: (id) => `/collateral-applications/view/${id}`,
+  COLLATERAL_RELEASE: (id) => `/collateral-releases/view/${id}`,
 };
 
 export function documentLabel(documentType: WorkflowDocumentType, entityId: string): string {

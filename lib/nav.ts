@@ -39,8 +39,11 @@ export const NAV: NavGroup[] = [
   },
   {
     group:'Credit',
-    items:[ 
-      { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
+    items:[
+      { path: '/collateral-applications', label: 'Collateral Applications', icon: '🏠', page: 'COLLATERAL_APPLICATIONS' },
+      { path: '/collateral-register', label: 'Collateral Register', icon: '🗂', page: 'COLLATERAL_REGISTER' },
+      { path: '/collateral-releases', label: 'Collateral Releases', icon: '🔓', page: 'COLLATERAL_RELEASES' },
+     { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
     ],
   },
    {
@@ -63,7 +66,8 @@ export const NAV: NavGroup[] = [
         path: '/admin', label: 'Admin Centre', icon: '⚙',
         page: [
           'ADMIN_COMPANY', 'ADMIN_APPEARANCE', 'ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES',
-          'ADMIN_PRODUCTS_SAVINGS', 'ADMIN_PRODUCTS_LOANS', 'ADMIN_CHARGES_MASTER', 'ADMIN_CHARGES_TRANSACTION',
+          'ADMIN_PRODUCTS_SAVINGS', 'ADMIN_PRODUCTS_LOANS', 'ADMIN_PRODUCTS_COLLATERAL',
+          'ADMIN_CHARGES_MASTER', 'ADMIN_CHARGES_TRANSACTION',
           'ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES',
           'ADMIN_POOL_DIMENSIONS', 'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_TABLES',
           'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA',

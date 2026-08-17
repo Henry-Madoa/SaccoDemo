@@ -247,13 +247,15 @@ model change_log_entry {
 }
 
 model county {
-  id                  Int                   @id @default(autoincrement())
-  name                String                @unique
-  status              String                @default("ACTIVE")
-  sub_county          sub_county[]
-  member              member[]
-  member_application  member_application[]
-  member_edit_request member_edit_request[]
+  id                     Int                      @id @default(autoincrement())
+  name                   String                   @unique
+  status                 String                   @default("ACTIVE")
+  sub_county             sub_county[]
+  member                 member[]
+  member_application     member_application[]
+  member_edit_request    member_edit_request[]
+  collateral_application collateral_application[]
+  collateral_register    collateral_register[]
 }
 
 model global_dimension_1_value {
@@ -548,8 +550,8 @@ model bank_reconciliation {
 }
 
 model loan {
-  id                     Int              @id @default(autoincrement())
-  loan_no                String           @unique
+  id                     Int               @id @default(autoincrement())
+  loan_no                String            @unique
   member_id              Int
   product_id             Int
   principal              BigInt
@@ -557,33 +559,34 @@ model loan {
   interest_method        String
   term_months            Int
   purpose                String?
-  status                 String           @default("PENDING")
+  status                 String            @default("PENDING")
   applied_date           String?
   approved_date          String?
   approved_by            String?
   rejected_reason        String?
   disbursed_date         String?
   first_due_date         String?
-  installment            BigInt           @default(0)
-  total_interest         BigInt           @default(0)
-  fees_charged           BigInt           @default(0)
-  principal_balance      BigInt           @default(0)
-  interest_balance       BigInt           @default(0)
-  penalty_balance        BigInt           @default(0)
-  principal_paid         BigInt           @default(0)
-  interest_paid          BigInt           @default(0)
-  arrears_amount         BigInt           @default(0)
-  days_in_arrears        Int              @default(0)
-  classification         String           @default("PERFORMING")
+  installment            BigInt            @default(0)
+  total_interest         BigInt            @default(0)
+  fees_charged           BigInt            @default(0)
+  principal_balance      BigInt            @default(0)
+  interest_balance       BigInt            @default(0)
+  penalty_balance        BigInt            @default(0)
+  principal_paid         BigInt            @default(0)
+  interest_paid          BigInt            @default(0)
+  arrears_amount         BigInt            @default(0)
+  days_in_arrears        Int               @default(0)
+  classification         String            @default("PERFORMING")
   disburse_to_account_id Int?
   created_by             String?
-  version                Int              @default(0)
-  savings_account        savings_account? @relation(fields: [disburse_to_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  member                 member           @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  loan_product           loan_product     @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  version                Int               @default(0)
+  savings_account        savings_account?  @relation(fields: [disburse_to_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member                 member            @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_product           loan_product      @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   loan_guarantor         loan_guarantor[]
   loan_schedule          loan_schedule[]
   txn                    txn[]
+  loan_collateral        loan_collateral[]
 
   @@index([member_id], map: "ix_loan_member")
   @@index([product_id], map: "ix_loan_product")
@@ -1039,6 +1042,9 @@ model member {
   savings_account          savings_account[]
   txn                      txn[]
   member_charging          member_charging[]
+  collateral_application   collateral_application[]
+  collateral_register      collateral_register[]
+  collateral_release       collateral_release[]
 
   @@index([county_id], map: "ix_member_county")
   @@index([sub_county_id], map: "ix_member_sub_county")
@@ -1336,4 +1342,198 @@ model config_package_field {
   package    config_package @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([package_id, field_name], map: "ux_config_package_field")
+}
+
+/**
+ * Collateral Module — a SACCO member pledges a titled asset (vehicle, land, building) as
+ * security for a loan above a threshold, or instead of guarantors. Four tables carry the
+ * lifecycle: collateral_type (setup — LTV multiplier per category), collateral_application
+ * (the maker-checker request to pledge one asset), collateral_register (the accepted,
+ * read-only record of it once the application is Processed — shares its primary key with
+ * the application, a 1:1 pair), and collateral_release (the maker-checker request to hand
+ * it back). loan_collateral is the join between a loan and the register item(s) securing it
+ * — Loan Securities' "Security Type = Collateral" rows, narrowed to just this one security
+ * type since loan_guarantor already covers guarantor security separately.
+ */
+
+/// Setup: the catalogue of acceptable collateral types, each with its own loan-to-value
+/// multiplier (a percentage, e.g. 70 = 70%) applied to a pledged asset's market value to
+/// derive its realisable security value ("Guarantee").
+model collateral_type {
+  id                     Int                      @id @default(autoincrement())
+  code                   String                   @unique
+  description            String
+  /// 'VEHICLE' | 'REAL_ESTATE'
+  category               String
+  value_multiplier       Float                    @default(0)
+  status                 String                   @default("ACTIVE")
+  collateral_application collateral_application[]
+  collateral_register    collateral_register[]
+
+  @@index([category], map: "ix_ctype_category")
+}
+
+/// The transactional document: one row per request to pledge one asset. Same
+/// Open -> Pending Approval -> Approved -> Processed shape as account_opening_request —
+/// processing (see lib/collateralApplications.ts's postCollateralApplication()) writes the
+/// accepted asset into collateral_register under the same `no`.
+model collateral_application {
+  no                                String                              @id
+  member_id                         Int
+  category                          String
+  collateral_type_id                Int?
+  /// Snapshotted from collateral_type at the time it was picked — a later change to the
+  /// type's own description must not retroactively change this document.
+  collateral_description            String?
+  /// Snapshotted LTV multiplier — see collateral_description.
+  multiplier                        Float                               @default(0)
+  /// Market/appraised value, minor units.
+  collateral_value                  BigInt                              @default(0)
+  /// = collateral_value * multiplier / 100, minor units. Always recomputed alongside
+  /// collateral_value or collateral_type_id in the same service call, so it can never go
+  /// stale the way the source AL implementation's field-level trigger allowed.
+  guarantee                         BigInt                              @default(0)
+  /// Vehicle registration / title deed number — identifies the physical asset. Checked for
+  /// duplicates against the live register unless multi_linking is set.
+  serial_reg_no                     String?
+  /// Deliberately bypasses the duplicate serial/reg-no check — one asset pledged against
+  /// several loans at once.
+  multi_linking                     Int                                 @default(0)
+  county_id                         Int?
+  last_valuation_date               String?
+  joint_ownership                   Int                                 @default(0)
+  owner_name                        String?
+  owner_id_no                       String?
+  /// Registered owner's phone — a plain input, not derived from the member (the owner may
+  /// not be the member; see Joint Ownership).
+  owner_phone_no                    String?
+  /// Vehicle only.
+  insurance_expiry_date             String?
+  car_track_due_date                String?
+  cheque_no                         String?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status                            String                              @default("Open")
+  decision_reason                   String?
+  processed_at                      String?
+  processed_by                      String?
+  created_at                        String?
+  created_by                        String?
+  member                            member                              @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  collateral_type                   collateral_type?                    @relation(fields: [collateral_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  county                            county?                             @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  collateral_application_attachment collateral_application_attachment[]
+  collateral_register               collateral_register?
+
+  @@index([member_id], map: "ix_capp_member")
+  @@index([status], map: "ix_capp_status")
+  @@index([serial_reg_no], map: "ix_capp_serial")
+}
+
+model collateral_application_attachment {
+  id                     Int                    @id @default(autoincrement())
+  application_no         String
+  public_id              String                 @unique
+  url                    String
+  filename               String
+  resource_type          String                 @default("image")
+  format                 String?
+  bytes                  Int                    @default(0)
+  category               String?
+  uploaded_at            String
+  uploaded_by            String
+  collateral_application collateral_application @relation(fields: [application_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([application_no], map: "ix_capp_attachment_no")
+}
+
+/// The register of accepted collateral. Shares its primary key with collateral_application —
+/// one register row per Processed application (BR-14). Read-only through the UI; written only
+/// by postCollateralApplication() and postCollateralRelease(). `status` (Available/Linked to
+/// Loan/Collected) is deliberately not a stored column — see lib/collateralRegister.ts — it's
+/// derived from whether a live loan_collateral row consumes cover and whether collected_at is
+/// set, so an invalid combination can never be persisted.
+model collateral_register {
+  no                     String                 @id
+  member_id              Int
+  category               String
+  collateral_type_id     Int?
+  collateral_description String?
+  collateral_value       BigInt                 @default(0)
+  /// Captioned "LTV" in the UI — the realisable cover this item provides.
+  guarantee              BigInt                 @default(0)
+  serial_reg_no          String?
+  posting_date           String?
+  county_id              Int?
+  owner_name             String?
+  owner_id_no            String?
+  owner_phone_no         String?
+  insurance_expiry_date  String?
+  car_track_due_date     String?
+  /// Set once a Processed collateral_release exists against this item.
+  collected_at           String?
+  created_at             String?
+  collateral_application collateral_application @relation(fields: [no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  member                 member                 @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  collateral_type        collateral_type?       @relation(fields: [collateral_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  county                 county?                @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  collateral_release     collateral_release[]
+  loan_collateral        loan_collateral[]
+
+  @@index([member_id, collateral_type_id], map: "ix_creg_member_type")
+  @@index([serial_reg_no], map: "ix_creg_serial")
+}
+
+/// A maker-checker request to hand a pledged asset back — the same Open -> Pending Approval
+/// -> Approved -> Processed shape as every other request in this file. Processing (see
+/// lib/collateralReleases.ts's postCollateralRelease()) stamps collateral_register.collected_at,
+/// re-checking (not merely trusting the submit-time check) that the item no longer secures any
+/// outstanding loan balance.
+model collateral_release {
+  no                  String              @id
+  collateral_no       String
+  member_id           Int
+  collection_date     String?
+  collected_by        String?
+  collected_by_id_no  String?
+  /// 'LOCAL' | 'DIASPORA'
+  nationality         String              @default("LOCAL")
+  /// Only meaningful when nationality = 'DIASPORA'.
+  domicile_country    String?
+  comments            String?
+  remarks             String?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status              String              @default("Open")
+  decision_reason     String?
+  processed_at        String?
+  processed_by        String?
+  created_at          String?
+  created_by          String?
+  collateral_register collateral_register @relation(fields: [collateral_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  member              member              @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([collateral_no], map: "ix_crel_collateral")
+  @@index([status], map: "ix_crel_status")
+}
+
+/// The join between a loan and the collateral register item(s) securing it — "Loan Securities"
+/// narrowed to Security Type = Collateral (loan_guarantor already covers guarantor security
+/// separately, so this table only ever carries collateral). `guarantee` is the cover this
+/// specific loan draws from the item, snapshotted at attach time and capped to the item's own
+/// available cover — see lib/loanCollateral.ts.
+model loan_collateral {
+  id                  Int                 @id @default(autoincrement())
+  loan_id             Int
+  collateral_no       String
+  guarantee           BigInt
+  /// 'ACTIVE' | 'SUBSTITUTED' — a substituted link is excluded from cover calculations,
+  /// mirroring Loan Securities.Substituted, but kept for history rather than deleted.
+  status              String              @default("ACTIVE")
+  created_at          String?
+  created_by          String?
+  loan                loan                @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  collateral_register collateral_register @relation(fields: [collateral_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([loan_id, collateral_no], map: "ux_loan_collateral")
+  @@index([collateral_no], map: "ix_lc_collateral")
+  @@index([loan_id], map: "ix_lc_loan")
 }

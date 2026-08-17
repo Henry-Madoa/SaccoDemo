@@ -7,7 +7,7 @@
  * bundle, and webpack failed the build on its `require('fs')`.
  */
 import type {
-  Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, DocumentStatus,
+  Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CollateralCategory, DocumentStatus,
   GlAccountStructureType, GlAccountType, InterestMethod, LoanStatus, MemberCategoryType, MemberStatus,
   SavingsAccountStatus, SavingsCategory, UserStatus,
 } from './types.ts';
@@ -129,6 +129,22 @@ export const CHARGE_CALCULATION_TYPES: { value: ChargeCalculationType; label: st
 export const CHARGE_RATE_TYPES: { value: ChargeRateType; label: string }[] = [
   { value: 'FLAT', label: 'Flat Rate' },
   { value: 'PERCENTAGE', label: 'Percentage' },
+];
+
+/** Collateral module — collateral_type.category / collateral_application.category. */
+export const COLLATERAL_CATEGORIES: { value: CollateralCategory; label: string }[] = [
+  { value: 'VEHICLE', label: 'Vehicle' },
+  { value: 'REAL_ESTATE', label: 'Real Estate' },
+];
+
+/** Suggested labels for a collateral application's attachments — the field is free text. */
+export const COLLATERAL_ATTACHMENT_CATEGORIES = [
+  'Collateral Photo', 'Title Deed', 'Logbook', 'Valuation Report', 'Insurance Certificate', 'Other',
+];
+
+export const NATIONALITIES: { value: 'LOCAL' | 'DIASPORA'; label: string }[] = [
+  { value: 'LOCAL', label: 'Local' },
+  { value: 'DIASPORA', label: 'Diaspora' },
 ];
 
 export const MONTH_NAMES = [

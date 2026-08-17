@@ -19,7 +19,9 @@ import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import { JournalLink } from '@/app/accounting/drill-downs';
-import { SubmitButton, DecideButtons, DisburseButton, RepayButton } from './loan-actions';
+import {
+  SubmitButton, DecideButtons, DisburseButton, RepayButton, AttachCollateralButton, DetachCollateralButton,
+} from './loan-actions';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function LoanDetailPage({ params, searchParams }: {
@@ -34,7 +36,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const detail = await getLoanDetail(Number(id));
   if (!detail) notFound();
 
-  const { loan: l, schedule, guarantors, transactions } = detail;
+  const { loan: l, schedule, guarantors, collateral, transactions } = detail;
   const [canApprove, canDisburse, canRepay, canCreate, attachments, tasks, { prevId, nextId }, { caption1, caption2 }] =
     await Promise.all([
       currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
@@ -223,6 +225,48 @@ export default async function LoanDetailPage({ params, searchParams }: {
                     <tr key={g.id}>
                       <td><Link href={`/members/${g.member_id}`}>{g.first_name} {g.last_name}</Link></td>
                       <td className="num"><Money cents={g.amount} decimals={0} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableWrap>
+            </Card>
+          ) : null}
+
+          {l.status === 'OPEN' && canCreate ? (
+            <Card>
+              <CardHead title="Collateral security" sub="Registered assets pledged against this loan" />
+              {collateral.length ? (
+                <TableWrap>
+                  <thead><tr><th>Collateral</th><th className="num">Cover drawn</th><th className="num" /></tr></thead>
+                  <tbody>
+                    {collateral.map((c) => (
+                      <tr key={c.id}>
+                        <td>
+                          <Link href={`/collateral-register/view/${c.collateral_no}`} className="mono">{c.collateral_no}</Link>
+                          <div className="tiny">{c.collateral_description || '—'}</div>
+                        </td>
+                        <td className="num"><Money cents={c.guarantee} decimals={0} /></td>
+                        <td className="num"><DetachCollateralButton loanId={l.id} collateralNo={c.collateral_no} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              ) : <EmptyState icon="🏠" title="No collateral attached" />}
+              <Toolbar><Spacer /><AttachCollateralButton loanId={l.id} memberId={l.member_id} /></Toolbar>
+            </Card>
+          ) : collateral.length ? (
+            <Card>
+              <h3>Collateral security</h3>
+              <TableWrap>
+                <thead><tr><th>Collateral</th><th className="num">Cover drawn</th></tr></thead>
+                <tbody>
+                  {collateral.map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        <Link href={`/collateral-register/view/${c.collateral_no}`} className="mono">{c.collateral_no}</Link>
+                        <div className="tiny">{c.collateral_description || '—'}</div>
+                      </td>
+                      <td className="num"><Money cents={c.guarantee} decimals={0} /></td>
                     </tr>
                   ))}
                 </tbody>
