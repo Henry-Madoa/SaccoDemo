@@ -32,7 +32,10 @@ export async function saveAccountDeactivationRequest(
 ): Promise<ActionResult<AccountDeactivationRequestWithDimensions>> {
   return actionResult(async () => {
     const user = await requireAction('ACCOUNT_DEACTIVATION_CREATE');
-    const saved = await updateAccountDeactivationRequest(no, String(values.reason || ''), user);
+    const saved = await updateAccountDeactivationRequest(no, {
+      accountId: Number(values.accountId),
+      reason: String(values.reason || ''),
+    }, user);
     revalidatePath('/account-deactivations');
     return saved;
   });
@@ -109,11 +112,14 @@ export async function processAccountDeactivation(no: string): Promise<ActionResu
 }
 
 /** The non-default, ACTIVE accounts a member could still request deactivation for. Fetched
- *  per-member since the New Request form's account list depends on whichever member is
- *  currently selected. */
-export async function eligibleAccountsForDeactivation(memberId: number): Promise<ActionResult<SavingsAccountWithProduct[]>> {
+ *  per-member since the New Request form's (and Edit form's) account list depends on whichever
+ *  member is currently selected. `excludeRequestNo` lets an Open request's Edit form still see
+ *  the account it's already attached to (see eligibleAccountsForMember()'s own note). */
+export async function eligibleAccountsForDeactivation(
+  memberId: number, excludeRequestNo?: string,
+): Promise<ActionResult<SavingsAccountWithProduct[]>> {
   return actionResult(async () => {
     await requireAction('ACCOUNT_DEACTIVATION_CREATE');
-    return eligibleAccountsForMember(memberId);
+    return eligibleAccountsForMember(memberId, excludeRequestNo);
   });
 }

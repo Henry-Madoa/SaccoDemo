@@ -143,7 +143,7 @@ export function ConfigPackageCard({ pkg }: { pkg: ConfigPackageWithFields }) {
 
   return (
     <>
-      <button type="button" className="link-btn mono" onClick={() => setOpen(true)}>{pkg.code}</button>
+      <button type="button" className="btn sm ghost" onClick={() => setOpen(true)}>Export / Import</button>
       {open ? (
         <Modal wide title={pkg.name} onClose={() => setOpen(false)}>
           <DefinitionList items={[

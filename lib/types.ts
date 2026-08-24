@@ -319,6 +319,7 @@ export interface MemberNextOfKin {
   name: string;
   relationship: string | null;
   phone: string | null;
+  identification_no: string | null;
 }
 
 export interface MemberNominee {
@@ -327,6 +328,7 @@ export interface MemberNominee {
   name: string;
   relationship: string | null;
   phone: string | null;
+  identification_no: string | null;
   percentage: number;
   is_next_of_kin: Flag;
 }
@@ -678,6 +680,7 @@ export interface MemberApplicationNextOfKin {
   name: string;
   relationship: string | null;
   phone: string | null;
+  identification_no: string | null;
 }
 
 export interface MemberApplicationNominee {
@@ -686,6 +689,7 @@ export interface MemberApplicationNominee {
   name: string;
   relationship: string | null;
   phone: string | null;
+  identification_no: string | null;
   percentage: number;
   is_next_of_kin: Flag;
 }
@@ -722,6 +726,7 @@ export interface MemberEditNextOfKin {
   name: string;
   relationship: string | null;
   phone: string | null;
+  identification_no: string | null;
 }
 
 export interface MemberEditNominee {
@@ -730,6 +735,7 @@ export interface MemberEditNominee {
   name: string;
   relationship: string | null;
   phone: string | null;
+  identification_no: string | null;
   percentage: number;
   is_next_of_kin: Flag;
 }
@@ -883,6 +889,79 @@ export interface CalculatedCharge {
   glAccountId: number;
   glAccountCode: string;
   amount: Cents;
+}
+
+/* ------------------------------------------------------ loan product charges */
+
+/** The generic shape calculateChargeFromScheme() (lib/loans.ts) matches a base amount against —
+ *  structurally satisfied by both TransactionCalcScheme and LoanProductChargeScheme below, so
+ *  the one banded-rate engine serves Transaction Charges and Loan Product Charges alike. */
+export interface ChargeSchemeBand {
+  lower_limit: Cents;
+  upper_limit: Cents | null;
+  rate_type: ChargeRateType;
+  flat_amount: Cents;
+  percentage_rate: number;
+  upper_charge_limit: Cents;
+  lower_charge_limit: Cents;
+}
+
+/** A Loan Product Charge line's Calculation Method: a flat Percentage of the loan principal, or
+ *  Calculate from Scheme — an amount-banded tariff table (loan_product_charge_scheme). Distinct
+ *  from ChargeCalculationType (SCHEME | PERCENT_OF_CHARGE): a loan product charge's base is
+ *  always the principal, so there is no Percentage-of-Charge chaining to express here. */
+export type LoanChargeCalculationType = 'PERCENTAGE' | 'SCHEME';
+
+/** One charge a loan product levies — the raw loan_product_charge row. */
+export interface LoanProductCharge {
+  id: number;
+  product_id: number;
+  charge_id: number;
+  gl_account_id: number;
+  calculation_type: LoanChargeCalculationType;
+  percentage_rate: number;
+  /** Scales the resolved amount by termMonths/12 — for a charge priced as an annual rate but
+   *  billed once at disbursement rather than levied in full regardless of term. */
+  prorate: boolean;
+  priority: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+/** One amount-band rate rule for a Loan Product Charge line — the loan_product_charge_scheme twin
+ *  of TransactionCalcScheme, banded against the loan principal. */
+export interface LoanProductChargeScheme extends ChargeSchemeBand {
+  id: number;
+  loan_product_charge_id: number;
+}
+
+/** A Loan Product Charge line joined with its charge code/name, revenue account and scheme
+ *  bands — for admin display/editing, and (being a structural superset) the input the
+ *  calculation engine reads directly. */
+export interface LoanProductChargeDetail extends LoanProductCharge {
+  charge_code: string;
+  charge_description: string;
+  gl_account_code: string;
+  gl_account_name: string;
+  scheme: LoanProductChargeScheme[];
+}
+
+/** One resolved Loan Product Charge amount, ready to post at disbursement or to show as a
+ *  fee preview on the application form. */
+export interface CalculatedLoanCharge {
+  chargeId: number;
+  chargeCode: string;
+  chargeDescription: string;
+  glAccountId: number;
+  glAccountCode: string;
+  amount: Cents;
+  prorated: boolean;
+}
+
+/** A loan product with its own Loan Product Charges lines attached — what the New Application
+ *  form needs to preview charges client-side (lib/loans.ts's calculateLoanProductCharges) without a
+ *  server round trip for every keystroke. */
+export interface LoanProductWithCharges extends LoanProduct {
+  charges: LoanProductChargeDetail[];
 }
 
 /* ---------------------------------------------------------------- journals */
@@ -1235,14 +1314,11 @@ export interface LoanProduct {
   max_amount: Cents;
   deposit_multiplier: number;
   min_membership_months: number;
-  processing_fee_pct: number;
-  insurance_pct: number;
   penalty_rate: number;
   guarantors_required: number;
   max_dsr_pct: number;
   gl_receivable_id: number | null;
   gl_interest_income_id: number | null;
-  gl_fee_income_id: number | null;
   gl_penalty_income_id: number | null;
   status: 'ACTIVE' | 'INACTIVE';
 }
@@ -1294,7 +1370,6 @@ export interface LoanFull extends LoanWithProductName {
   product_code: string;
   gl_receivable_id: number;
   gl_interest_income_id: number;
-  gl_fee_income_id: number;
   gl_penalty_income_id: number;
   member_no: string;
   first_name: string;
@@ -1372,6 +1447,7 @@ export interface LoanDetail {
   guarantors: GuarantorRow[];
   collateral: LoanCollateralRow[];
   transactions: TxnWithDocument[];
+  appraisals: LoanAppraisalRow[];
 }
 
 /* ------------------------------------------------------------ collateral module */
@@ -1560,6 +1636,34 @@ export interface Appraisal {
   maxByMultiplier: Cents;
   dsr: number;
   monthlyObligations: Cents;
+}
+
+/** One factor row of a persisted loan_appraisal — the DB-shaped twin of AppraisalFactor. */
+export interface LoanAppraisalFactorRow {
+  code: string;
+  label: string;
+  pass: boolean;
+  detail: string | null;
+}
+
+/** A saved, dated appraisal run against a loan — Appraisal's persisted counterpart. Unlike the
+ *  ephemeral Appraisal returned while a loan is still being drafted (no loan_id exists yet),
+ *  this is written once the loan is on file and never edited — only ever superseded by a later
+ *  run, so the loan's decision history stays intact (section 5's "dated immutable result"). */
+export interface LoanAppraisalRow {
+  id: number;
+  loan_id: number;
+  decision: 'ELIGIBLE' | 'REFERRED';
+  score: number;
+  installment: Cents;
+  deposits: Cents;
+  exposure: Cents;
+  max_by_multiplier: Cents;
+  dsr: number;
+  monthly_obligations: Cents;
+  appraised_by: string | null;
+  appraised_at: IsoDateTime | null;
+  factors: LoanAppraisalFactorRow[];
 }
 
 /* ------------------------------------------------------------ transactions */

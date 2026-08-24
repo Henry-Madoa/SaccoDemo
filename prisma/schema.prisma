@@ -314,7 +314,6 @@ model gl_account {
   no_direct_posting                                              Int                        @default(0)
   journal_line                                                   journal_line[]
   bank_account                                                   bank_account?
-  loan_product_loan_product_gl_fee_income_idTogl_account         loan_product[]             @relation("loan_product_gl_fee_income_idTogl_account")
   loan_product_loan_product_gl_interest_income_idTogl_account    loan_product[]             @relation("loan_product_gl_interest_income_idTogl_account")
   loan_product_loan_product_gl_penalty_income_idTogl_account     loan_product[]             @relation("loan_product_gl_penalty_income_idTogl_account")
   loan_product_loan_product_gl_receivable_idTogl_account         loan_product[]             @relation("loan_product_gl_receivable_idTogl_account")
@@ -323,6 +322,7 @@ model gl_account {
   savings_product_savings_product_gl_interest_exp_idTogl_account savings_product[]          @relation("savings_product_gl_interest_exp_idTogl_account")
   member_category                                                member_category[]
   transaction_charge_setup                                       transaction_charge_setup[]
+  loan_product_charge                                            loan_product_charge[]
 }
 
 model charge {
@@ -331,6 +331,7 @@ model charge {
   description              String
   status                   String                     @default("ACTIVE")
   transaction_charge_setup transaction_charge_setup[]
+  loan_product_charge      loan_product_charge[]
 }
 
 /**
@@ -587,6 +588,7 @@ model loan {
   loan_schedule          loan_schedule[]
   txn                    txn[]
   loan_collateral        loan_collateral[]
+  loan_appraisal         loan_appraisal[]
 
   @@index([member_id], map: "ix_loan_member")
   @@index([product_id], map: "ix_loan_product")
@@ -607,31 +609,79 @@ model loan_guarantor {
 }
 
 model loan_product {
-  id                                                        Int         @id @default(autoincrement())
-  code                                                      String      @unique
+  id                                                        Int                   @id @default(autoincrement())
+  code                                                      String                @unique
   name                                                      String
-  interest_rate                                             Float       @default(12)
-  interest_method                                           String      @default("REDUCING")
-  max_term_months                                           Int         @default(48)
-  min_amount                                                BigInt      @default(0)
-  max_amount                                                BigInt      @default(500000000)
-  deposit_multiplier                                        Float       @default(3)
-  min_membership_months                                     Int         @default(6)
-  processing_fee_pct                                        Float       @default(1)
-  insurance_pct                                             Float       @default(0.5)
-  penalty_rate                                              Float       @default(1)
-  guarantors_required                                       Int         @default(2)
-  max_dsr_pct                                               Float       @default(66.7)
+  interest_rate                                             Float                 @default(12)
+  interest_method                                           String                @default("REDUCING")
+  max_term_months                                           Int                   @default(48)
+  min_amount                                                BigInt                @default(0)
+  max_amount                                                BigInt                @default(500000000)
+  deposit_multiplier                                        Float                 @default(3)
+  min_membership_months                                     Int                   @default(6)
+  penalty_rate                                              Float                 @default(1)
+  guarantors_required                                       Int                   @default(2)
+  max_dsr_pct                                               Float                 @default(66.7)
   gl_receivable_id                                          Int?
   gl_interest_income_id                                     Int?
-  gl_fee_income_id                                          Int?
   gl_penalty_income_id                                      Int?
-  status                                                    String      @default("ACTIVE")
+  status                                                    String                @default("ACTIVE")
   loan                                                      loan[]
-  gl_account_loan_product_gl_fee_income_idTogl_account      gl_account? @relation("loan_product_gl_fee_income_idTogl_account", fields: [gl_fee_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  gl_account_loan_product_gl_interest_income_idTogl_account gl_account? @relation("loan_product_gl_interest_income_idTogl_account", fields: [gl_interest_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  gl_account_loan_product_gl_penalty_income_idTogl_account  gl_account? @relation("loan_product_gl_penalty_income_idTogl_account", fields: [gl_penalty_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  gl_account_loan_product_gl_receivable_idTogl_account      gl_account? @relation("loan_product_gl_receivable_idTogl_account", fields: [gl_receivable_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_loan_product_gl_interest_income_idTogl_account gl_account?           @relation("loan_product_gl_interest_income_idTogl_account", fields: [gl_interest_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_loan_product_gl_penalty_income_idTogl_account  gl_account?           @relation("loan_product_gl_penalty_income_idTogl_account", fields: [gl_penalty_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account_loan_product_gl_receivable_idTogl_account      gl_account?           @relation("loan_product_gl_receivable_idTogl_account", fields: [gl_receivable_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_product_charge                                       loan_product_charge[]
+}
+
+/**
+ * One charge a loan product levies — Loan Products' own "Loan Product Charges" line, structured
+ * like Transaction Charges Setup (lib/charges.ts) but scoped to a product instead of a
+ * transaction type, and without Percentage-of-Charge chaining: every line's base is always the
+ * loan principal. `charge_id` is the same reusable Charges master (Admin Centre -> Charges ->
+ * Charge Codes) Transaction Charges draws from, so a code like "PROCESSING FEE" means the same
+ * thing everywhere it's used. Calculation Method is either a flat Percentage of the principal,
+ * or Calculate from Scheme — an amount-banded tariff table (loan_product_charge_scheme below),
+ * matched against the principal the same way a Transaction Calc. Scheme is. `prorate` scales the
+ * resolved amount by termMonths/12 — for a charge priced as an annual rate but billed once at
+ * disbursement (e.g. insurance) rather than levied in full regardless of a shorter term.
+ */
+model loan_product_charge {
+  id                         Int                          @id @default(autoincrement())
+  product_id                 Int
+  charge_id                  Int
+  gl_account_id              Int
+  calculation_type           String                       @default("PERCENTAGE")
+  percentage_rate            Float                        @default(0)
+  prorate                    Boolean                      @default(false)
+  priority                   Int                          @default(1)
+  status                     String                       @default("ACTIVE")
+  loan_product               loan_product                 @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  charge                     charge                       @relation(fields: [charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account                 gl_account                   @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_product_charge_scheme loan_product_charge_scheme[]
+
+  @@index([product_id], map: "ix_lpc_product")
+}
+
+/**
+ * Amount-band rate rule for one Loan Product Charge line whose Calculation Method is Calculate
+ * from Scheme — the loan-product-scoped twin of transaction_calc_scheme, banded against the
+ * loan principal rather than a transaction's base amount. Same shape: upper_limit null means
+ * unbounded, and the *_charge_limit fields only apply to a Percentage band.
+ */
+model loan_product_charge_scheme {
+  id                     Int                 @id @default(autoincrement())
+  loan_product_charge_id Int
+  lower_limit            BigInt              @default(0)
+  upper_limit            BigInt?
+  rate_type              String              @default("FLAT")
+  flat_amount            BigInt              @default(0)
+  percentage_rate        Float               @default(0)
+  upper_charge_limit     BigInt              @default(0)
+  lower_charge_limit     BigInt              @default(0)
+  loan_product_charge    loan_product_charge @relation(fields: [loan_product_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([loan_product_charge_id], map: "ix_lpcs_charge")
 }
 
 model loan_schedule {
@@ -650,26 +700,70 @@ model loan_schedule {
   @@index([loan_id, installment_no], map: "ix_ls_loan")
 }
 
+/**
+ * A dated, immutable credit-appraisal run against a loan — captured on submit and re-run any
+ * time before disbursement to revalidate eligibility (section 8's disburseLoan precondition).
+ * Never updated in place: staff re-appraise, they don't edit history, so the loan's decision
+ * trail always shows exactly what was known and decided at each point in time.
+ */
+model loan_appraisal {
+  id                    Int                     @id @default(autoincrement())
+  loan_id               Int
+  decision              String
+  score                 Int
+  installment           BigInt                  @default(0)
+  deposits              BigInt                  @default(0)
+  exposure              BigInt                  @default(0)
+  max_by_multiplier     BigInt                  @default(0)
+  dsr                   Float                   @default(0)
+  monthly_obligations   BigInt                  @default(0)
+  appraised_by          String?
+  appraised_at          String?
+  loan                  loan                    @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_appraisal_factor loan_appraisal_factor[]
+
+  @@index([loan_id], map: "ix_lap_loan")
+}
+
+/**
+ * One factor's pass/fail result within a loan_appraisal run — the explainable breakdown
+ * shown on the Appraisal tab and the printed Appraisal Report.
+ */
+model loan_appraisal_factor {
+  id             Int            @id @default(autoincrement())
+  appraisal_id   Int
+  seq            Int            @default(0)
+  code           String
+  label          String
+  pass           Boolean
+  detail         String?
+  loan_appraisal loan_appraisal @relation(fields: [appraisal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([appraisal_id], map: "ix_lapf_appraisal")
+}
+
 model member_next_of_kin {
-  id           Int     @id @default(autoincrement())
-  member_id    Int
-  name         String
-  relationship String?
-  phone        String?
-  member       member  @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                Int     @id @default(autoincrement())
+  member_id         Int
+  name              String
+  relationship      String?
+  phone             String?
+  identification_no String?
+  member            member  @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([member_id], map: "ix_nok_member")
 }
 
 model member_nominee {
-  id             Int     @id @default(autoincrement())
-  member_id      Int
-  name           String
-  relationship   String?
-  phone          String?
-  percentage     Float   @default(0)
-  is_next_of_kin Int     @default(0)
-  member         member  @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                Int     @id @default(autoincrement())
+  member_id         Int
+  name              String
+  relationship      String?
+  phone             String?
+  identification_no String?
+  percentage        Float   @default(0)
+  is_next_of_kin    Int     @default(0)
+  member            member  @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([member_id], map: "ix_nominee_member")
 }
@@ -784,6 +878,7 @@ model member_application_next_of_kin {
   name               String
   relationship       String?
   phone              String?
+  identification_no  String?
   member_application member_application @relation(fields: [application_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([application_no], map: "ix_app_nok_no")
@@ -795,6 +890,7 @@ model member_application_nominee {
   name               String
   relationship       String?
   phone              String?
+  identification_no  String?
   percentage         Float              @default(0)
   is_next_of_kin     Int                @default(0)
   member_application member_application @relation(fields: [application_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
@@ -831,7 +927,7 @@ model member_edit_request {
   first_name               String
   middle_name              String?
   last_name                String
-  identification_no              String?
+  identification_no        String?
   kra_pin                  String?
   date_of_birth            String?
   gender                   String?
@@ -945,6 +1041,7 @@ model member_edit_next_of_kin {
   name                String
   relationship        String?
   phone               String?
+  identification_no   String?
   member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([edit_no], map: "ix_edit_nok_no")
@@ -956,6 +1053,7 @@ model member_edit_nominee {
   name                String
   relationship        String?
   phone               String?
+  identification_no   String?
   percentage          Float               @default(0)
   is_next_of_kin      Int                 @default(0)
   member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
@@ -988,7 +1086,7 @@ model member {
   first_name               String
   middle_name              String?
   last_name                String
-  identification_no              String?                   @unique(map: "ux_member_nid", where: raw("((identification_no IS NOT NULL) AND (identification_no <> ''::text))"))
+  identification_no        String?                   @unique(map: "ux_member_nid", where: raw("((identification_no IS NOT NULL) AND (identification_no <> ''::text))"))
   kra_pin                  String?
   date_of_birth            String?
   gender                   String?

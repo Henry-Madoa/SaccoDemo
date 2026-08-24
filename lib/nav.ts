@@ -44,6 +44,7 @@ export const NAV: NavGroup[] = [
       { path: '/collateral-register', label: 'Collateral Register', icon: '🗂', page: 'COLLATERAL_REGISTER' },
       { path: '/collateral-releases', label: 'Collateral Releases', icon: '🔓', page: 'COLLATERAL_RELEASES' },
      { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
+      { path: '/loan-documents', label: 'Loan Documents', icon: '🖨', page: 'LOANS' },
     ],
   },
    {
@@ -56,8 +57,7 @@ export const NAV: NavGroup[] = [
     group: 'Finance',
     items: [
       { path: '/accounting', label: 'General Ledger', icon: '⚖', page: 'GL' },
-      { path: '/reports', label: 'Reports', icon: '📊', page: 'REPORTS' },
-    ],
+   ],
   },
   {
     group: 'Administration',
@@ -73,6 +73,13 @@ export const NAV: NavGroup[] = [
           'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA',
         ],
       },
+    ],
+  },
+    {
+    group: 'Reports',
+    items: [
+      { path: '/member-statements', label: 'Member Statement', icon: '🧾', page: 'MEMBER_STATEMENTS' },
+      { path: '/reports', label: 'Financial Reports', icon: '📊', page: 'REPORTS' },
     ],
   },
 ];

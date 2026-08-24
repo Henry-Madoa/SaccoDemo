@@ -48,6 +48,7 @@ export async function saveCollateralApplication(
   return actionResult(async () => {
     const user = await requireAction('COLLATERAL_APPLICATIONS_CREATE');
     const saved = await updateCollateralApplication(no, {
+      memberId: values.memberId !== undefined ? Number(values.memberId) : undefined,
       category: values.category !== undefined ? String(values.category) : undefined,
       collateralTypeId: values.collateralTypeId !== undefined ? Number(values.collateralTypeId) : undefined,
       collateralValue: values.collateralValueSh !== undefined ? num(values.collateralValueSh) : undefined,

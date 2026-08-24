@@ -4,17 +4,18 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
 import {
-  requestAccountDeactivation, submitAccountDeactivation,
+  requestAccountDeactivation, saveAccountDeactivationRequest, submitAccountDeactivation,
   cancelAccountDeactivationApprovalRequest, approveAccountDeactivation, rejectAccountDeactivation,
   processAccountDeactivation, eligibleAccountsForDeactivation,
 } from '@/app/actions/accountDeactivation';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { Money } from '@/components/ui/money';
-import type { Member, SavingsAccountWithProduct } from '@/lib/types';
+import type { AccountDeactivationRequestWithDimensions, Member, SavingsAccountWithProduct } from '@/lib/types';
 
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
@@ -138,6 +139,79 @@ export function ProcessButton({ no, className = 'btn sm' }: { no: string; classN
   );
 }
 
+/** Lets an Open request's Member, Account and Reason all be changed before it's sent for
+ *  approval — the account is the request's real anchor (member is only ever derived from
+ *  whichever account is chosen), so changing the member re-fetches that member's own eligible
+ *  ACTIVE (non-default) accounts exactly as the New Request form does. */
+export function EditButton({ request, members, className = 'btn sm ghost' }: {
+  request: AccountDeactivationRequestWithDimensions;
+  members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [memberId, setMemberId] = useState(String(request.member_id));
+  const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
+  const [accountId, setAccountId] = useState(String(request.account_id));
+
+  // Re-fetches whenever the member changes (including the initial fetch for the request's own
+  // member) — excludeRequestNo keeps the account already attached to this request in the list,
+  // which the generic "not already in flight" filter would otherwise hide from itself.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    if (!memberId) { setAccounts([]); return; }
+    eligibleAccountsForDeactivation(Number(memberId), request.no).then((res) => {
+      if (cancelled) return;
+      const list = res.ok ? res.data : [];
+      setAccounts(list);
+      if (!list.some((a) => String(a.id) === accountId)) setAccountId(String(list[0]?.id ?? ''));
+    });
+    return () => { cancelled = true; };
+    // Only memberId should re-trigger this — accountId is read, not depended on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, memberId, request.no]);
+
+  const account = accounts.find((a) => String(a.id) === accountId);
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
+      {open ? (
+        <FormModal
+          title={`Edit ${request.no}`}
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => saveAccountDeactivationRequest(request.no, values)}
+          submitLabel="Save changes"
+          successTitle="Request updated"
+        >
+          <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+            onChange={setMemberId} required />
+
+          <div className="field">
+            <label htmlFor="f_accountId">Account <span className="req">*</span></label>
+            <select id="f_accountId" name="accountId" required value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}>
+              {accounts.length ? null : <option value="">No eligible accounts for this member</option>}
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <Field name="reason" label="Reason" type="textarea" required defaultValue={request.reason ?? ''} />
+
+          {account ? (
+            <div className="note">
+              Current balance <Money cents={account.balance} /> — deactivating flips the account to
+              INACTIVE once processed, and it will no longer accept deposits or withdrawals.
+            </div>
+          ) : null}
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
 interface NewRequestFormProps {
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
   presetMemberId?: number | null;
@@ -145,7 +219,7 @@ interface NewRequestFormProps {
 }
 
 function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProps) {
-  const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
+  const [memberId, setMemberId] = useState(String(presetMemberId ?? ''));
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
   const [accountId, setAccountId] = useState('');
 
@@ -174,15 +248,8 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
       successTitle="Request captured"
       successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
     >
-      <div className="field">
-        <label htmlFor="f_memberId">Member <span className="req">*</span></label>
-        <select id="f_memberId" name="memberId" required value={memberId}
-          onChange={(e) => setMemberId(e.target.value)}>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
-          ))}
-        </select>
-      </div>
+      <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+        onChange={setMemberId} required />
 
       <div className="field">
         <label htmlFor="f_accountId">Account <span className="req">*</span></label>

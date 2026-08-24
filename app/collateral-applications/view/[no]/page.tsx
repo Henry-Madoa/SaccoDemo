@@ -6,6 +6,7 @@ import {
 } from '@/lib/collateralApplications';
 import { listCollateralAttachments } from '@/lib/collateralAttachments';
 import { listActiveCounties } from '@/lib/pool';
+import { listActiveMembers } from '@/lib/members';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { isConfigured } from '@/lib/cloudinary';
@@ -55,6 +56,9 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
   const registered = application.status === 'Processed';
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
+  const canEditFields = isOpen && canEditThis;
+  const editMembers = canEditFields ? await listActiveMembers() : [];
+
   return (
     <>
       <CardNav
@@ -70,9 +74,11 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
         <Link href="/collateral-applications" className="btn ghost sm">← All collateral applications</Link>
         <Link href={`/members/${application.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {isOpen && canEditThis ? <EditButton application={application} counties={counties} className="btn ghost" /> : null}
-        {isOpen && canEditThis ? <SubmitButton no={application.no} className="btn ghost" /> : null}
-        {isOpen && canEditThis ? <DeleteButton no={application.no} className="btn ghost" /> : null}
+        {canEditFields ? (
+          <EditButton application={application} members={editMembers} counties={counties} className="btn ghost" />
+        ) : null}
+        {canEditFields ? <SubmitButton no={application.no} className="btn ghost" /> : null}
+        {canEditFields ? <DeleteButton no={application.no} className="btn ghost" /> : null}
         {application.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={application.no} className="btn ghost" />
         ) : null}

@@ -132,8 +132,12 @@ export async function getAdjacentAccountActivationNos(
 
 /** Every INACTIVE account this member holds — the only accounts this module could ever have
  *  anything to do with — minus any that already have a not-yet-Processed activation request in
- *  flight (no piling up a second request behind the first). */
-export async function eligibleAccountsForMember(memberId: number): Promise<SavingsAccountWithProduct[]> {
+ *  flight (no piling up a second request behind the first). `excludeRequestNo` lets an Open
+ *  request's own Edit form still offer the account it's already attached to, the same way
+ *  assertEligible() below excludes itself from the in-flight check. */
+export async function eligibleAccountsForMember(
+  memberId: number, excludeRequestNo?: string,
+): Promise<SavingsAccountWithProduct[]> {
   const accounts = await all<SavingsAccountWithProduct>(
     `SELECT sa.*, p.name AS product_name, p.code AS product_code, p.category, p.min_balance, p.allow_withdrawal
      FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
@@ -146,8 +150,9 @@ export async function eligibleAccountsForMember(memberId: number): Promise<Savin
   const inFlight = new Set(
     (await all<{ account_id: number }>(
       `SELECT account_id FROM account_activation_request
-       WHERE account_id IN (${accountIds.map(() => '?').join(',')}) AND status != 'Processed'`,
-      ...accountIds,
+       WHERE account_id IN (${accountIds.map(() => '?').join(',')}) AND status != 'Processed'
+       ${excludeRequestNo ? 'AND no != ?' : ''}`,
+      ...accountIds, ...(excludeRequestNo ? [excludeRequestNo] : []),
     )).map((r) => r.account_id),
   );
 
@@ -267,24 +272,34 @@ export async function createAccountActivationRequest(
 }
 
 export interface UpdateAccountActivationInput {
+  accountId: number;
   reason: string;
   transactionChargeId?: number | null;
   debitAccountId?: number | null;
 }
 
 export async function updateAccountActivationRequest(
-  no: string, { reason, transactionChargeId = null, debitAccountId = null }: UpdateAccountActivationInput, user: Actor,
+  no: string,
+  { accountId, reason, transactionChargeId = null, debitAccountId = null }: UpdateAccountActivationInput,
+  user: Actor,
 ): Promise<AccountActivationRequestWithDimensions> {
   if (!reason || !reason.trim()) throw new AppError('A reason is required', 'VALIDATION');
   const req = await one<AccountActivationRequest>('SELECT * FROM account_activation_request WHERE no = ?', no);
   if (!req) throw new AppError('Account activation request not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open request can be edited', 'VALIDATION');
+  // A changed account (whether a different account for the same member, or a different member
+  // entirely) is re-validated exactly as a fresh request would be — still INACTIVE, and not
+  // already claimed by another in-flight request (excluding this one).
+  if (accountId !== req.account_id) await assertEligible(accountId, no);
   await assertChargeAffordable(transactionChargeId, debitAccountId);
 
-  const patch = { reason: reason.trim(), transaction_charge_id: transactionChargeId, debit_account_id: debitAccountId };
+  const patch = {
+    account_id: accountId, reason: reason.trim(),
+    transaction_charge_id: transactionChargeId, debit_account_id: debitAccountId,
+  };
   await run(
-    'UPDATE account_activation_request SET reason = ?, transaction_charge_id = ?, debit_account_id = ? WHERE no = ?',
-    patch.reason, patch.transaction_charge_id, patch.debit_account_id, no,
+    'UPDATE account_activation_request SET account_id = ?, reason = ?, transaction_charge_id = ?, debit_account_id = ? WHERE no = ?',
+    patch.account_id, patch.reason, patch.transaction_charge_id, patch.debit_account_id, no,
   );
   const changes = diffFields(req as unknown as Record<string, unknown>, patch);
   await logTableChange('account_activation_request', no, 'Modification', changes, user);

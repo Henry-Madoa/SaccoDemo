@@ -29,7 +29,15 @@ function PrinterIcon() {
 
 export interface DocumentActionsMenuProps {
   /** Only shown when supplied — most single-document views have no matching export route. */
-  excel?: { href: string; params?: Record<string, string | undefined>; disabled?: boolean };
+  excel?: {
+    href: string;
+    params?: Record<string, string | undefined>;
+    disabled?: boolean;
+    /** Overrides the menu item's text — e.g. "Appraisal Report (.xlsx)" where a page's export
+     *  is a narrower document than "the whole page", so a plain "Export to Excel" would
+     *  overpromise. Defaults to "Export to Excel". */
+    label?: string;
+  };
   className?: string;
   label?: string;
 }
@@ -93,11 +101,11 @@ export function DocumentActionsMenu({ excel, className = 'btn ghost', label = 'P
           {excel ? (
             excel.disabled ? (
               <span className="doc-actions-item disabled" aria-disabled="true" title="Nothing to export">
-                <ExcelIcon /> Export to Excel
+                <ExcelIcon /> {excel.label ?? 'Export to Excel'}
               </span>
             ) : (
               <a className="doc-actions-item" role="menuitem" href={excelUrl} onClick={() => setOpen(false)}>
-                <ExcelIcon /> Export to Excel
+                <ExcelIcon /> {excel.label ?? 'Export to Excel'}
               </a>
             )
           ) : null}

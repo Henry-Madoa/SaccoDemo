@@ -58,8 +58,8 @@ export function EmptyState({ icon = '·', title, sub }: {
 }
 
 /** Horizontally scrollable table shell — wide ledgers must not stretch the page. */
-export function TableWrap({ children }: { children: ReactNode }) {
-  return <div className="table-wrap"><table>{children}</table></div>;
+export function TableWrap({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`table-wrap ${className}`}><table>{children}</table></div>;
 }
 
 export interface TabDefinition {

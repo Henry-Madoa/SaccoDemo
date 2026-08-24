@@ -10,18 +10,36 @@ export interface NextOfKinDraft {
   name: string;
   relationship?: string | null;
   phone?: string | null;
+  identification_no?: string | null;
+}
+
+/** Throws if the same (non-blank) Identification No. appears more than once in a submitted
+ *  list — scoped to this one member's own next-of-kin/nominee list, not global: the same person
+ *  can perfectly reasonably be listed for several different members. */
+function assertNoDuplicateId(rows: { identification_no?: string | null }[], what: string): void {
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (!r.identification_no) continue;
+    if (seen.has(r.identification_no)) {
+      throw new AppError(`Identification No. "${r.identification_no}" is listed more than once among ${what}`, 'VALIDATION');
+    }
+    seen.add(r.identification_no);
+  }
 }
 
 /** Replaces a member's full next-of-kin list with the submitted rows — nothing else references these rows. */
 export async function replaceNextOfKin(memberId: number, rows: NextOfKinDraft[], user: Actor): Promise<void> {
-  const clean = rows.map((r) => ({ ...r, name: String(r.name || '').trim() })).filter((r) => r.name);
+  const clean = rows
+    .map((r) => ({ ...r, name: String(r.name || '').trim(), identification_no: r.identification_no?.trim() || null }))
+    .filter((r) => r.name);
+  assertNoDuplicateId(clean, 'this member\'s next of kin');
 
   await tx(async () => {
     await run('DELETE FROM member_next_of_kin WHERE member_id = ?', memberId);
     for (const r of clean) {
       await run(
-        'INSERT INTO member_next_of_kin (member_id, name, relationship, phone) VALUES (?,?,?,?)',
-        memberId, r.name, r.relationship || null, r.phone || null,
+        'INSERT INTO member_next_of_kin (member_id, name, relationship, phone, identification_no) VALUES (?,?,?,?,?)',
+        memberId, r.name, r.relationship || null, r.phone || null, r.identification_no,
       );
     }
     await audit(user, 'MEMBER_NOK_UPDATE', 'member', memberId, { count: clean.length });
@@ -36,6 +54,7 @@ export interface NomineeDraft {
   name: string;
   relationship?: string | null;
   phone?: string | null;
+  identification_no?: string | null;
   percentage: number | string;
   /** When set, the nominee is also added as a next-of-kin entry on save. */
   is_next_of_kin?: boolean | number;
@@ -51,8 +70,12 @@ export interface NomineeDraft {
  */
 export async function replaceNominees(memberId: number, rows: NomineeDraft[], user: Actor): Promise<void> {
   const clean = rows
-    .map((r) => ({ ...r, name: String(r.name || '').trim(), percentage: Number(r.percentage) || 0 }))
+    .map((r) => ({
+      ...r, name: String(r.name || '').trim(), percentage: Number(r.percentage) || 0,
+      identification_no: r.identification_no?.trim() || null,
+    }))
     .filter((r) => r.name);
+  assertNoDuplicateId(clean, 'this member\'s nominees');
 
   if (clean.length) {
     const total = Math.round(clean.reduce((sum, r) => sum + r.percentage, 0) * 100) / 100;
@@ -66,9 +89,9 @@ export async function replaceNominees(memberId: number, rows: NomineeDraft[], us
     for (const r of clean) {
       const isNok = !!r.is_next_of_kin;
       await run(
-        `INSERT INTO member_nominee (member_id, name, relationship, phone, percentage, is_next_of_kin)
-         VALUES (?,?,?,?,?,?)`,
-        memberId, r.name, r.relationship || null, r.phone || null, r.percentage, isNok ? 1 : 0,
+        `INSERT INTO member_nominee (member_id, name, relationship, phone, identification_no, percentage, is_next_of_kin)
+         VALUES (?,?,?,?,?,?,?)`,
+        memberId, r.name, r.relationship || null, r.phone || null, r.identification_no, r.percentage, isNok ? 1 : 0,
       );
       if (isNok) {
         const exists = await one(
@@ -76,8 +99,8 @@ export async function replaceNominees(memberId: number, rows: NomineeDraft[], us
         );
         if (!exists) {
           await run(
-            'INSERT INTO member_next_of_kin (member_id, name, relationship, phone) VALUES (?,?,?,?)',
-            memberId, r.name, r.relationship || null, r.phone || null,
+            'INSERT INTO member_next_of_kin (member_id, name, relationship, phone, identification_no) VALUES (?,?,?,?,?)',
+            memberId, r.name, r.relationship || null, r.phone || null, r.identification_no,
           );
         }
       }

@@ -34,9 +34,10 @@ export default async function MemberDetailPage({ params, searchParams }: {
     member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees, signatories,
   } = detail;
   const [
-    canOpen, canCreateLoan, attachments, { caption1, caption2 }, { prevId, nextId },
+    canOpen, canCreateLoan, canViewStatement, attachments, { caption1, caption2 }, { prevId, nextId },
   ] = await Promise.all([
     currentCanAction('ACCOUNT_OPENING_CREATE'), currentCanAction('LOAN_CREATE'),
+    currentCanAction('MEMBER_STATEMENTS_READ'),
     listAttachments('member', m.id),
     getDimensionCaptions(),
     getAdjacentMemberIds(m.id, status),
@@ -61,6 +62,9 @@ export default async function MemberDetailPage({ params, searchParams }: {
       <Toolbar>
         <Link href="/members" className="btn ghost sm">← All members</Link>
         <Spacer />
+        {canViewStatement ? (
+          <Link href={`/member-statements?member=${m.id}`} className="btn ghost">Statement of account</Link>
+        ) : null}
         {canOpen ? (
           <Link href={`/account-openings?new=${m.id}`} className="btn ghost">New account opening request</Link>
         ) : null}
@@ -190,20 +194,23 @@ export default async function MemberDetailPage({ params, searchParams }: {
 
           <CollapsibleCard title="Next of kin" sub="A member can have more than one">
             {nextOfKin.length ? (
-              <TableWrap>
-                <thead>
-                  <tr><th>Name</th><th>Relationship</th><th>Phone</th></tr>
-                </thead>
-                <tbody>
-                  {nextOfKin.map((n) => (
-                    <tr key={n.id}>
-                      <td><b>{n.name}</b></td>
-                      <td>{n.relationship || '—'}</td>
-                      <td>{n.phone || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableWrap>
+              <div className="scroll-list">
+                <TableWrap>
+                  <thead>
+                    <tr><th>Name</th><th>Relationship</th><th>Phone</th><th>Identification No.</th></tr>
+                  </thead>
+                  <tbody>
+                    {nextOfKin.map((n) => (
+                      <tr key={n.id}>
+                        <td><b>{n.name}</b></td>
+                        <td>{n.relationship || '—'}</td>
+                        <td>{n.phone || '—'}</td>
+                        <td className="mono">{n.identification_no || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              </div>
             ) : <EmptyState icon="👪" title="No next of kin on file" />}
           </CollapsibleCard>
 
@@ -212,7 +219,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
               <TableWrap>
                 <thead>
                   <tr>
-                    <th>Name</th><th>Relationship</th><th>Phone</th>
+                    <th>Name</th><th>Relationship</th><th>Phone</th><th>Identification No.</th>
                     <th className="num">Share</th><th>Also NOK</th>
                   </tr>
                 </thead>
@@ -222,6 +229,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
                       <td><b>{n.name}</b></td>
                       <td>{n.relationship || '—'}</td>
                       <td>{n.phone || '—'}</td>
+                      <td className="mono">{n.identification_no || '—'}</td>
                       <td className="num">{n.percentage}%</td>
                       <td>{n.is_next_of_kin ? <Pill tone="info">YES</Pill> : '—'}</td>
                     </tr>

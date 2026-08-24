@@ -4,6 +4,7 @@ import { requireAction, currentCanAction } from '@/lib/session';
 import {
   getMemberCharging, getAdjacentMemberChargingNos, getMemberChargingJournal, type MemberChargingView,
 } from '@/lib/memberCharging';
+import { listActiveMembers } from '@/lib/members';
 import { formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
@@ -38,6 +39,9 @@ export default async function MemberChargingDetailPage({ params, searchParams }:
   const canEditThis = canCreate && (!canPost || isOwn);
   const posted = request.status === 'Posted';
 
+  const canEditFields = isOpen && canEditThis;
+  const editMembers = canEditFields ? await listActiveMembers() : [];
+
   return (
     <>
       <CardNav
@@ -54,8 +58,8 @@ export default async function MemberChargingDetailPage({ params, searchParams }:
         <Link href={`/savings/${request.source_account_id}`} className="btn ghost sm">View account</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {isOpen && canEditThis ? <EditButton request={request} className="btn ghost" /> : null}
-        {isOpen && canEditThis ? <DeleteButton no={request.no} className="btn ghost" /> : null}
+        {canEditFields ? <EditButton request={request} members={editMembers} className="btn ghost" /> : null}
+        {canEditFields ? <DeleteButton no={request.no} className="btn ghost" /> : null}
         {isOpen && canPost ? <PostButton no={request.no} amount={request.amount_charged} /> : null}
         <DocumentActionsMenu />
       </Toolbar>

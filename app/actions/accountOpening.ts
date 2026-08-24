@@ -42,6 +42,7 @@ export async function saveAccountOpeningRequest(
   return actionResult(async () => {
     const user = await requireAction('ACCOUNT_OPENING_CREATE');
     const saved = await updateAccountOpeningRequest(no, {
+      memberId: values.memberId !== undefined ? Number(values.memberId) : undefined,
       productId: values.productId !== undefined ? Number(values.productId) : undefined,
       notes: values.notes !== undefined ? String(values.notes) : undefined,
       businessName: values.businessName !== undefined ? String(values.businessName) : undefined,

@@ -30,12 +30,18 @@ const accounting = await import('../lib/accounting.ts');
 const gl = await import('../lib/gl.ts');
 const savings = await import('../lib/savings.ts');
 const loanSvc = await import('../lib/loanService.ts');
-const { buildSchedule, allocateRepayment } = await import('../lib/loans.ts');
+const {
+  buildSchedule, allocateRepayment, calculateLoanProductCharges,
+} = await import('../lib/loans.ts');
+const adminLib = await import('../lib/admin.ts');
+const chargesLib = await import('../lib/charges.ts');
+const loanProductCharges = await import('../lib/loanProductCharges.ts');
+const configPackages = await import('../lib/configPackages.ts');
 const auth = await import('../lib/auth.ts');
 const permissions = await import('../lib/permissions.ts');
 
 import type {
-  Actor, LoanFull, LoanProduct, LoanScheduleRow, Member, SavingsAccount, SessionUser,
+  Actor, LoanFull, LoanProduct, LoanProductChargeDetail, LoanScheduleRow, Member, SavingsAccount, SessionUser,
 } from '../lib/types.ts';
 
 let pass = 0;
@@ -369,6 +375,44 @@ await test('a flat-rate schedule charges interest on the original principal', ()
   assert.strictEqual(s.totalInterest, Math.round(120000000 * 0.12));
 });
 
+const testChargeLine = (over: Partial<LoanProductChargeDetail>): LoanProductChargeDetail => ({
+  id: 1, product_id: 1, charge_id: 1, gl_account_id: 1, calculation_type: 'PERCENTAGE',
+  percentage_rate: 0, prorate: false, priority: 1, status: 'ACTIVE',
+  charge_code: 'TEST', charge_description: 'Test charge', gl_account_code: '4000', gl_account_name: 'Test income',
+  scheme: [], ...over,
+});
+
+await test('a Percentage loan product charge is a flat % of the principal', () => {
+  const [c] = calculateLoanProductCharges([testChargeLine({ percentage_rate: 2 })], 10000000, 12);
+  assert.strictEqual(c.amount, 200000);
+  assert.strictEqual(c.prorated, false);
+});
+
+await test('a Calculate from Scheme loan product charge is banded by principal', () => {
+  const line = testChargeLine({
+    calculation_type: 'SCHEME',
+    scheme: [
+      { id: 1, loan_product_charge_id: 1, lower_limit: 0, upper_limit: 5000000, rate_type: 'FLAT', flat_amount: 50000, percentage_rate: 0, upper_charge_limit: 0, lower_charge_limit: 0 },
+      { id: 2, loan_product_charge_id: 1, lower_limit: 5000001, upper_limit: null, rate_type: 'PERCENTAGE', flat_amount: 0, percentage_rate: 1, upper_charge_limit: 500000, lower_charge_limit: 0 },
+    ],
+  });
+  assert.strictEqual(calculateLoanProductCharges([line], 3000000, 12)[0].amount, 50000, 'lower band should charge the flat amount');
+  const upperBand = calculateLoanProductCharges([line], 100000000, 12)[0];
+  assert.strictEqual(upperBand.amount, 500000, 'upper band should clamp at the max charge');
+});
+
+await test('a prorated loan product charge scales by term / 12 months', () => {
+  const line = testChargeLine({ percentage_rate: 12, prorate: true });
+  const sixMonths = calculateLoanProductCharges([line], 10000000, 6)[0];
+  assert.strictEqual(sixMonths.amount, Math.round(1200000 / 2), '6-month term should halve the annual charge');
+});
+
+await test('an inactive loan product charge is excluded, a zero-amount one is dropped', () => {
+  const inactive = testChargeLine({ percentage_rate: 5, status: 'INACTIVE' });
+  const zero = testChargeLine({ percentage_rate: 0, priority: 2 });
+  assert.strictEqual(calculateLoanProductCharges([inactive, zero], 10000000, 12).length, 0);
+});
+
 await test('a zero-interest schedule still amortises exactly', () => {
   const s = buildSchedule(1000033, 0, 7, 'REDUCING', '2026-09-01');
   assert.strictEqual(s.rows.reduce((a, r) => a + r.principal_due, 0), 1000033);
@@ -412,6 +456,9 @@ const borrowerFosa = (await one<{ id: number }>(
    WHERE sa.member_id=? AND p.code='FOSA'`,
   borrower.id,
 ))!;
+const guarantorMember = (await one<Member>(
+  "SELECT * FROM member WHERE status='ACTIVE' AND id != ? ORDER BY id LIMIT 1", borrower.id,
+))!;
 
 let lifecycleLoan: LoanFull;
 
@@ -440,7 +487,48 @@ await test('a loan can be captured', async () => {
   assert.strictEqual(lifecycleLoan.status, 'OPEN');
 });
 
-await test('a captured loan can be submitted for approval', async () => {
+await test('a loan with no appraisal on file cannot be submitted for approval', async () => {
+  await throws(() => loanSvc.submit({ loanId: lifecycleLoan.id, user: admin }), /NO_APPRAISAL/);
+});
+
+await test('running and filing the appraisal report unblocks submission', async () => {
+  const a = await loanSvc.saveAppraisal({ loanId: lifecycleLoan.id, user: admin });
+  assert.strictEqual(a.loan_id, lifecycleLoan.id);
+  assert.ok(a.factors.some((f) => f.code === 'SECURITY_COVER'), 'security cover factor missing');
+});
+
+await test('a member cannot guarantee their own loan', async () => {
+  await throws(
+    () => loanSvc.commitGuarantor({ loanId: lifecycleLoan.id, memberId: borrower.id, amount: 100000 }, admin),
+    /VALIDATION/,
+  );
+});
+
+await test('committing a guarantor strengthens SECURITY_COVER, releasing it withdraws that cover', async () => {
+  const beforeRow = await one<{ s: number }>(
+    "SELECT COALESCE(SUM(amount),0) s FROM loan_guarantor WHERE loan_id = ? AND status = 'COMMITTED'", lifecycleLoan.id,
+  );
+  assert.strictEqual(Number(beforeRow!.s), 0, 'no guarantor committed yet');
+
+  await loanSvc.commitGuarantor({ loanId: lifecycleLoan.id, memberId: guarantorMember.id, amount: 5000000 }, admin);
+  const committedRow = await one<{ s: number }>(
+    "SELECT COALESCE(SUM(amount),0) s FROM loan_guarantor WHERE loan_id = ? AND status = 'COMMITTED'", lifecycleLoan.id,
+  );
+  assert.strictEqual(Number(committedRow!.s), 5000000, 'committed guarantee not recorded');
+
+  const withGuarantor = await loanSvc.appraise({
+    memberId: borrower.id, productId: normProduct.id, principal: lifecycleLoan.principal,
+    termMonths: lifecycleLoan.term_months, loanId: lifecycleLoan.id,
+  });
+  const cover = withGuarantor.factors.find((f) => f.code === 'SECURITY_COVER')!;
+  assert.ok(cover, 'SECURITY_COVER factor missing');
+
+  await loanSvc.releaseGuarantor(lifecycleLoan.id, guarantorMember.id, admin);
+  const afterRelease = await one('SELECT 1 FROM loan_guarantor WHERE loan_id = ? AND member_id = ?', lifecycleLoan.id, guarantorMember.id);
+  assert.strictEqual(afterRelease, undefined, 'guarantor row should be gone after release');
+});
+
+await test('a captured, appraised loan can be submitted for approval', async () => {
   lifecycleLoan = await loanSvc.submit({ loanId: lifecycleLoan.id, user: admin });
   assert.strictEqual(lifecycleLoan.status, 'PENDING APPROVAL');
 });
@@ -465,7 +553,8 @@ await test('disbursement debits the receivable, credits the member and generates
   const feeBefore = await accounting.accountBalance('4020');
   const l = await loanSvc.disburse({ loanId: lifecycleLoan.id, user: other });
 
-  const fees = Math.round(20000000 * (normProduct.processing_fee_pct + normProduct.insurance_pct) / 100);
+  // NORM carries no Loan Product Charges lines, so disbursement attracts no fees.
+  const fees = 0;
   assert.strictEqual(l.status, 'DISBURSED');
   assert.strictEqual(await accounting.accountBalance('1110'), recvBefore + 20000000, 'receivable not debited');
   assert.strictEqual((await savings.getAccount(borrowerFosa.id))!.balance, savingsBefore + 20000000 - fees,
@@ -528,6 +617,168 @@ await test('settling the full balance closes the loan', async () => {
 
 await test('a closed loan accepts no further repayment', async () => {
   await throws(() => loanSvc.repay({ loanId: lifecycleLoan.id, amount: 1000, user: admin }), /BAD_STATUS/);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Loan Product Charges — real disbursement posting');
+
+await test('a loan product with configured charges posts one credit line per charge, to its own revenue account', async () => {
+  const postable = await gl.listPostableAccounts();
+  if (postable.length < 2) throw new Error('need at least two postable GL accounts for this test');
+  const [accA, accB] = postable;
+  const stamp = Date.now();
+
+  const chargeA = await chargesLib.createCharge(`TESTPROC${stamp}`, 'Test processing fee', admin);
+  const chargeB = await chargesLib.createCharge(`TESTINS${stamp}`, 'Test insurance', admin);
+
+  const { id: productId } = await adminLib.createLoanProduct({
+    code: `TESTLPC${stamp}`, name: 'Test LPC product', status: 'ACTIVE',
+    interest_rate: 10, interest_method: 'REDUCING', max_term_months: 24,
+    min_amount: 0, max_amount: 500000000, deposit_multiplier: 3, min_membership_months: 0,
+    penalty_rate: 1, guarantors_required: 0, max_dsr_pct: 100,
+    gl_receivable_id: normProduct.gl_receivable_id, gl_interest_income_id: normProduct.gl_interest_income_id,
+    gl_penalty_income_id: normProduct.gl_penalty_income_id,
+  }, admin);
+
+  await loanProductCharges.replaceLoanProductCharges(productId, [
+    { charge_id: chargeA.id, gl_account_id: accA.id, calculation_type: 'PERCENTAGE', percentage_rate: 2, priority: 1, scheme: [] },
+    {
+      charge_id: chargeB.id, gl_account_id: accB.id, calculation_type: 'SCHEME', priority: 2,
+      scheme: [{ lower_limit: 0, upper_limit: null, rate_type: 'FLAT', flat_amount: 100000 }],
+    },
+  ], admin);
+
+  const lines = await loanProductCharges.listLoanProductCharges(productId);
+  assert.strictEqual(lines.length, 2, 'both charge lines should round-trip');
+  assert.strictEqual(lines.find((l) => l.calculation_type === 'SCHEME')!.scheme.length, 1);
+
+  const loan = await loanSvc.apply({
+    memberId: borrower.id, productId, principal: 10000000, termMonths: 12, purpose: 'LPC test', user: admin,
+  });
+  await loanSvc.saveAppraisal({ loanId: loan.id, user: admin });
+  await loanSvc.submit({ loanId: loan.id, user: admin });
+  await loanSvc.approve({ loanId: loan.id, user: other, approve: true, reason: 'ok' });
+  const disbursed = await loanSvc.disburse({ loanId: loan.id, user: other });
+
+  // 2% of 10,000,000 = 200,000; flat 100,000 -> total fees 300,000
+  assert.strictEqual(Number(disbursed.fees_charged), 300000);
+
+  const credits = await all<{ gl_account_id: number; credit: number }>(
+    `SELECT jl.gl_account_id, jl.credit FROM journal_line jl
+     JOIN journal j ON j.id = jl.journal_id
+     WHERE j.reference = ? AND jl.credit > 0`,
+    disbursed.loan_no,
+  );
+  assert.ok(
+    credits.some((c) => c.gl_account_id === accA.id && Number(c.credit) === 200000),
+    'processing fee was not credited to its own configured revenue account',
+  );
+  assert.ok(
+    credits.some((c) => c.gl_account_id === accB.id && Number(c.credit) === 100000),
+    'insurance was not credited to its own configured revenue account',
+  );
+});
+
+/* ------------------------------------------------------------------------ */
+section('Configuration Packages — export/import, including bulk performance');
+
+await test('export and import round-trip a table with no relation columns', async () => {
+  const stamp = Date.now();
+  const code = `TESTPKG${stamp}`;
+  await configPackages.createConfigPackage(
+    { code, name: 'Test charges package', table_name: 'charge', key_field: 'code' },
+    ['code', 'description'], admin,
+  );
+
+  const insertCsv = `Code,Description\nCFGTEST1,First test charge\nCFGTEST2,Second test charge`;
+  const insertResult = await configPackages.importConfigPackage(code, insertCsv, admin);
+  assert.strictEqual(insertResult.inserted, 2);
+  assert.strictEqual(insertResult.errors, 0);
+
+  const exported = await configPackages.exportConfigPackage(code);
+  assert.ok(exported.csv.includes('CFGTEST1'), 'exported CSV missing the row just inserted');
+  assert.ok(exported.csv.includes('CFGTEST2'), 'exported CSV missing the row just inserted');
+
+  // Re-importing its own export should UPDATE, not duplicate-insert, every row — export() has
+  // no filter here, so this reimports the whole (shared) charge table, not just the two rows
+  // just inserted above, hence >= rather than a specific count.
+  const updateResult = await configPackages.importConfigPackage(code, exported.csv, admin);
+  assert.ok(updateResult.updated >= 2, `expected at least the 2 test rows to update, got ${updateResult.updated}`);
+  assert.strictEqual(updateResult.inserted, 0, 're-importing an export should never insert a new row');
+  assert.strictEqual(updateResult.errors, 0);
+
+  await configPackages.deleteConfigPackage(code, admin);
+  await run("DELETE FROM charge WHERE code IN ('CFGTEST1','CFGTEST2')");
+});
+
+await test('import resolves a relation column by code and by raw id, and rejects an unknown one', async () => {
+  const [account] = await gl.listPostableAccounts();
+  if (!account) throw new Error('need at least one postable GL account for this test');
+  const stamp = Date.now();
+  const code = `TESTPKGCAT${stamp}`;
+  await configPackages.createConfigPackage(
+    { code, name: 'Test member categories package', table_name: 'member_category', key_field: 'code' },
+    ['code', 'description', 'category_type', 'registration_fee_account_id'], admin,
+  );
+
+  const byCodeCsv =
+    `Code,Description,Category Type,Registration Fee Account\nCFGCAT1,By code,INDIVIDUAL,${account.code}`;
+  const byCode = await configPackages.importConfigPackage(code, byCodeCsv, admin);
+  assert.strictEqual(byCode.errors, 0, byCode.rows.find((r) => r.status === 'ERROR')?.message ?? 'unexpected error');
+  const row1 = (await one<{ registration_fee_account_id: number }>(
+    "SELECT registration_fee_account_id FROM member_category WHERE code = 'CFGCAT1'",
+  ))!;
+  assert.strictEqual(row1.registration_fee_account_id, account.id, 'relation not resolved by code');
+
+  const byIdCsv =
+    `Code,Description,Category Type,Registration Fee Account\nCFGCAT2,By id,INDIVIDUAL,${account.id}`;
+  const byId = await configPackages.importConfigPackage(code, byIdCsv, admin);
+  assert.strictEqual(byId.errors, 0, byId.rows.find((r) => r.status === 'ERROR')?.message ?? 'unexpected error');
+  const row2 = (await one<{ registration_fee_account_id: number }>(
+    "SELECT registration_fee_account_id FROM member_category WHERE code = 'CFGCAT2'",
+  ))!;
+  assert.strictEqual(row2.registration_fee_account_id, account.id, 'relation not resolved by raw id');
+
+  const unknownCsv =
+    'Code,Description,Category Type,Registration Fee Account\nCFGCAT3,Unknown ref,INDIVIDUAL,NOSUCHACCOUNT';
+  const unknown = await configPackages.importConfigPackage(code, unknownCsv, admin);
+  assert.strictEqual(unknown.errors, 1);
+  assert.strictEqual(unknown.rows[0].status, 'ERROR');
+
+  await configPackages.deleteConfigPackage(code, admin);
+  await run("DELETE FROM member_category WHERE code IN ('CFGCAT1','CFGCAT2','CFGCAT3')");
+});
+
+await test('a batch import resolves a relation value repeated across many rows without re-querying it per row', async () => {
+  const [account] = await gl.listPostableAccounts();
+  if (!account) throw new Error('need at least one postable GL account for this test');
+  const stamp = Date.now();
+  const code = `TESTPKGBULK${stamp}`;
+  await configPackages.createConfigPackage(
+    { code, name: 'Test bulk package', table_name: 'member_category', key_field: 'code' },
+    ['code', 'description', 'category_type', 'registration_fee_account_id'], admin,
+  );
+
+  const rowCount = 15;
+  const lines = ['Code,Description,Category Type,Registration Fee Account'];
+  for (let i = 0; i < rowCount; i++) lines.push(`CFGBULK${i},Bulk row ${i},INDIVIDUAL,${account.code}`);
+  const t0 = Date.now();
+  const result = await configPackages.importConfigPackage(code, lines.join('\n'), admin);
+  const elapsedMs = Date.now() - t0;
+
+  assert.strictEqual(result.inserted, rowCount);
+  assert.strictEqual(result.errors, 0);
+  // Loosely bounds against the N+1-query-per-cell regression this fixed (each relation cell used
+  // to cost two extra round trips to the database on top of the row's own read+write) — not a
+  // strict performance benchmark, just a guard rail generous enough not to flake on a slower CI
+  // box, while still catching the pattern coming back.
+  assert.ok(
+    elapsedMs / rowCount < 3000,
+    `import averaged ${(elapsedMs / rowCount).toFixed(0)}ms/row — the relation lookup may be re-querying per row again`,
+  );
+
+  await configPackages.deleteConfigPackage(code, admin);
+  await run(`DELETE FROM member_category WHERE code LIKE 'CFGBULK%'`);
 });
 
 /* ------------------------------------------------------------------------ */

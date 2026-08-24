@@ -112,6 +112,32 @@ export function formatDateFilterExpression(from: string | null | undefined, to: 
   return '';
 }
 
+/** "24 Aug 2026 09:05:19 +03:00" in the SACCO's own timezone, regardless of what timezone the
+ *  rendering server happens to be in — a printed statement's "Date & Time generated" must not
+ *  drift with where the Next.js process is hosted. */
+export function formatStatementTimestamp(d: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-KE', {
+    timeZone: 'Africa/Nairobi', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('day')} ${get('month')} ${get('year')} ${get('hour')}:${get('minute')}:${get('second')} +03:00`;
+}
+
+/** Whole years between a date of birth and today — the Loan Application/Appraisal printouts'
+ *  "Age" field, since the member table stores date_of_birth, not a pre-computed age. */
+export function ageFromDob(dob: string | null | undefined): number | null {
+  if (!dob) return null;
+  const birth = new Date(dob);
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const beforeBirthdayThisYear = now.getMonth() < birth.getMonth()
+    || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
+  if (beforeBirthdayThisYear) age--;
+  return age;
+}
+
 export const initials = (name: string | null | undefined): string =>
   String(name || '?').trim().split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase();
 

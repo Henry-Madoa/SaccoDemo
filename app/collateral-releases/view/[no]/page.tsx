@@ -4,6 +4,7 @@ import { requireAction, currentCanAction } from '@/lib/session';
 import {
   getCollateralRelease, getAdjacentCollateralReleaseNos, type CollateralReleaseView,
 } from '@/lib/collateralReleases';
+import { listCollateralRegister } from '@/lib/collateralRegister';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
@@ -50,6 +51,11 @@ export default async function CollateralReleaseDetailPage({ params, searchParams
   const processed = release.status === 'Processed';
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
+  const canEditFields = isOpen && canEditThis;
+  const editCollateral = canEditFields
+    ? (await listCollateralRegister()).filter((r) => r.status !== 'COLLECTED')
+    : [];
+
   return (
     <>
       <CardNav
@@ -66,9 +72,9 @@ export default async function CollateralReleaseDetailPage({ params, searchParams
         <Link href={`/collateral-register/view/${release.collateral_no}`} className="btn ghost sm">View collateral</Link>
         <Link href={`/members/${release.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {isOpen && canEditThis ? <EditButton release={release} className="btn ghost" /> : null}
-        {isOpen && canEditThis ? <SubmitButton no={release.no} className="btn ghost" /> : null}
-        {isOpen && canEditThis ? <DeleteButton no={release.no} className="btn ghost" /> : null}
+        {canEditFields ? <EditButton release={release} collateral={editCollateral} className="btn ghost" /> : null}
+        {canEditFields ? <SubmitButton no={release.no} className="btn ghost" /> : null}
+        {canEditFields ? <DeleteButton no={release.no} className="btn ghost" /> : null}
         {release.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={release.no} className="btn ghost" />
         ) : null}

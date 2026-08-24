@@ -15,6 +15,7 @@ import { SearchInput } from '@/components/ui/filters';
 import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
+import { formatDate } from '@/lib/format';
 import { ExportButton } from '@/components/ui/export-button';
 import type { MemberStatus } from '@/lib/types';
 
@@ -105,6 +106,7 @@ export default async function MembersPage({ searchParams }: {
                   <th><SortLink sortKey="gd2">{caption2}</SortLink></th>
                   <th className="num"><SortLink sortKey="total_savings">Savings</SortLink></th>
                   <th className="num"><SortLink sortKey="loan_balance">Loan balance</SortLink></th>
+                  <th><SortLink sortKey="created_at">Date of Registration</SortLink></th>
                   <th><SortLink sortKey="status">Status</SortLink></th>
                 </tr>
               </thead>
@@ -126,6 +128,7 @@ export default async function MembersPage({ searchParams }: {
                     <td className="num">
                       {m.loan_balance ? <Money cents={m.loan_balance} decimals={0} /> : '—'}
                     </td>
+                    <td>{formatDate(m.created_at)}</td>
                     <td><Pill status={m.status} /></td>
                   </tr>
                 ))}

@@ -5,7 +5,7 @@ import { AppError } from './errors.ts';
 import { trialBalance, postJournal, reverseJournal } from './accounting.ts';
 import { GL_ACCOUNT_TYPES, GL_ACCOUNT_STRUCTURE_TYPES, PRODUCT_STATUSES } from './constants.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
-import { findMatchingWorkflow, startWorkflow, canReverseJournal } from './workflow.ts';
+import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
@@ -287,15 +287,9 @@ export async function createJournal(input: CreateJournalInput, user: Actor): Pro
 
 export async function reverseJournalEntry(id: number, reason: string, user: Actor): Promise<PostedJournal> {
   if (!reason) throw new AppError('A reversal reason is required', 'REASON_REQUIRED');
-  // A per-user grant in User Setup, on top of the role-based GL_JOURNAL_REVERSE permission
-  // the caller already checked — reversing breaks the append-only posting trail, so it needs
-  // an individually auditable grant rather than a blanket role right.
-  if (!(await canReverseJournal(user.id))) {
-    throw new AppError(
-      'You are not set up to reverse journals — ask an administrator to grant "Can Reverse Journal" in User Setup',
-      'FORBIDDEN',
-    );
-  }
+  // The per-user "Can Reverse Journal" grant (on top of the role-based GL_JOURNAL_REVERSE
+  // permission the caller already checked) is enforced centrally inside reverseJournal() —
+  // see lib/accounting.ts — so every reversal path honours it, not just this one.
   const rev = await reverseJournal(Number(id), user, reason);
   await audit(user, 'GL_JOURNAL_REVERSE', 'journal', id, { reason });
   return rev;

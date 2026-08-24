@@ -18,6 +18,7 @@ import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import { postJournal } from './accounting.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
+import { calculateChargeFromScheme } from './loans.ts';
 import { CHARGE_TRANSACTION_TYPES } from './constants.ts';
 import type {
   Actor, CalculatedCharge, Cents, Charge, ChargeCalculationType, ChargeRateType, ChargeTransactionType,
@@ -257,25 +258,8 @@ export async function updateTransactionCharge(
 }
 
 /* ------------------------------------------------------------- calculation */
-
-/** Finds the amount band whose Lower/Upper Limit contains `baseAmount`, computes the flat or
- *  percentage rate against it, then clamps by the band's Upper/Lower Charge Limit when set
- *  (non-zero) — the same rule for a direct Calculation Scheme lookup and for the second stage
- *  of a Percentage of Charge calculation; only the base amount handed in differs between them. */
-function calculateFromScheme(scheme: TransactionCalcScheme[], baseAmount: Cents): Cents {
-  const band = scheme.find((b) => (
-    baseAmount >= b.lower_limit && (b.upper_limit == null || baseAmount <= b.upper_limit)
-  ));
-  if (!band) return 0;
-  let amount = band.rate_type === 'FLAT'
-    ? band.flat_amount
-    : Math.round((band.percentage_rate / 100) * baseAmount);
-  if (band.rate_type === 'PERCENTAGE') {
-    if (band.lower_charge_limit > 0) amount = Math.max(amount, band.lower_charge_limit);
-    if (band.upper_charge_limit > 0) amount = Math.min(amount, band.upper_charge_limit);
-  }
-  return Math.max(amount, 0);
-}
+// The banded-rate lookup itself (calculateChargeFromScheme) now lives in lib/loans.ts, shared
+// with Loan Product Charges' own tariff-matrix engine — see its doc comment there.
 
 /** Runs every enabled component of a Transaction Charge against `baseAmount` — direct-Scheme
  *  components first (their resolved amount is what a Percentage of Charge component may then
@@ -290,12 +274,12 @@ export function calculateTransactionCharges(
   const resolved = new Map<number, Cents>();
 
   for (const c of active) {
-    if (c.calculation_type === 'SCHEME') resolved.set(c.id, calculateFromScheme(c.scheme, baseAmount));
+    if (c.calculation_type === 'SCHEME') resolved.set(c.id, calculateChargeFromScheme(c.scheme, baseAmount));
   }
   for (const c of active) {
     if (c.calculation_type !== 'PERCENT_OF_CHARGE') continue;
     const sourceAmount = c.source_setup_id != null ? resolved.get(c.source_setup_id) ?? 0 : 0;
-    resolved.set(c.id, calculateFromScheme(c.scheme, sourceAmount));
+    resolved.set(c.id, calculateChargeFromScheme(c.scheme, sourceAmount));
   }
 
   return active

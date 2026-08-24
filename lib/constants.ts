@@ -8,8 +8,8 @@
  */
 import type {
   Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CollateralCategory, DocumentStatus,
-  GlAccountStructureType, GlAccountType, InterestMethod, LoanStatus, MemberCategoryType, MemberStatus,
-  SavingsAccountStatus, SavingsCategory, UserStatus,
+  GlAccountStructureType, GlAccountType, InterestMethod, LoanChargeCalculationType, LoanStatus,
+  MemberCategoryType, MemberStatus, SavingsAccountStatus, SavingsCategory, UserStatus,
 } from './types.ts';
 
 export const MEMBER_STATUSES: MemberStatus[] =
@@ -23,7 +23,7 @@ export const EMPLOYMENT_STATUSES = ['', 'PERMANENT', 'CONTRACT', 'SELF_EMPLOYED'
 
 /** Relationship options for next-of-kin and nominee records. */
 export const RELATIONSHIPS = [
-  '', 'Spouse', 'Son', 'Daughter', 'Father', 'Mother', 'Brother', 'Sister', 'Guardian', 'Other',
+  '', 'Spouse', 'Son', 'Daughter', 'Father', 'Mother', 'Brother', 'Sister', 'Nephew', 'Niece','Guardian', 'Other',
 ];
 
 /** Designation options for a non-individual member's signatories. */
@@ -129,6 +129,15 @@ export const CHARGE_CALCULATION_TYPES: { value: ChargeCalculationType; label: st
 export const CHARGE_RATE_TYPES: { value: ChargeRateType; label: string }[] = [
   { value: 'FLAT', label: 'Flat Rate' },
   { value: 'PERCENTAGE', label: 'Percentage' },
+];
+
+/** Loan Product Charges' own Calculation Method — a flat Percentage of the loan principal, or
+ *  Calculate from Scheme (an amount-banded tariff table). Distinct from the generic
+ *  CHARGE_CALCULATION_TYPES above: a loan product charge's base is always the principal, so
+ *  there's no Percentage-of-Charge chaining to offer here. */
+export const LOAN_CHARGE_CALCULATION_TYPES: { value: LoanChargeCalculationType; label: string }[] = [
+  { value: 'PERCENTAGE', label: 'Percentage' },
+  { value: 'SCHEME', label: 'Calculate from Scheme' },
 ];
 
 /** Collateral module — collateral_type.category / collateral_application.category. */

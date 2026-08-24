@@ -87,6 +87,7 @@ const MEMBER_SORT_COLUMNS: Record<string, string> = {
   gd2: 'gd2.name',
   total_savings: 'total_savings',
   loan_balance: 'loan_balance',
+  created_at: 'm.created_at',
   status: 'm.status',
 };
 
@@ -143,6 +144,17 @@ export const hasAnyMembers = (status: MemberStatus | null = null): Promise<boole
 export const listActiveMembers = () =>
   all<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>>(
     "SELECT id, member_no, first_name, last_name FROM member WHERE status = 'ACTIVE' ORDER BY member_no",
+  );
+
+/** A member's identity by their Identification No. — the Next of Kin / Nominee forms' "this
+ *  person is already a member" lookup: entering an ID that matches a live member auto-fills
+ *  their name and phone rather than asking the officer to retype what's already on file. */
+export const findMemberByIdentificationNo = (
+  identificationNo: string,
+): Promise<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name' | 'phone'> | undefined> =>
+  one<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name' | 'phone'>>(
+    'SELECT id, member_no, first_name, last_name, phone FROM member WHERE identification_no = ?',
+    identificationNo,
   );
 
 export const getMember = (id: number): Promise<MemberWithDimensions | undefined> =>

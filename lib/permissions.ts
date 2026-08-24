@@ -54,6 +54,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'LOANS', label: 'Loans', route: '/loans' },
   { code: 'MEMBER_APPLICATIONS', label: 'Member Application', route: '/member-applications' },
   { code: 'MEMBERS', label: 'Members', route: '/members' },
+  { code: 'MEMBER_STATEMENTS', label: 'Member Statement', route: '/member-statements' },
   { code: 'MEMBER_EDITS', label: 'Member Editing', route: '/member-edits' },
   { code: 'ACCOUNT_OPENING', label: 'Account Opening', route: '/account-openings' },
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
@@ -115,6 +116,15 @@ export const ACTIONS = {
       ['member_next_of_kin', 'insert'], ['member_next_of_kin', 'delete'],
       ['member_nominee', 'insert'], ['member_nominee', 'delete'],
     ],
+  },
+  // Member Statement — read-only, multi-filter statement of account and loan activity, drawn
+  // straight from the member/savings/loan tables plus the shared txn ledger they already grant
+  // MEMBERS_READ/SAVINGS_READ/LOAN_READ on individually; this action bundles read of all four
+  // behind the statement's own page so a role can be given the printout without also being
+  // given the underlying Members/Savings/Loans screens.
+  MEMBER_STATEMENTS_READ: {
+    page: 'MEMBER_STATEMENTS',
+    tables: [['member', 'read'], ['savings_account', 'read'], ['loan', 'read'], ['txn', 'read']],
   },
   // Member Application
   MEMBER_APPLICATIONS_READ: { page: 'MEMBER_APPLICATIONS', tables: [['member_application', 'read']] },
@@ -228,7 +238,9 @@ export const ACTIONS = {
   LOAN_CREATE: {
     page: 'LOANS',
     tables: [
-      ['loan', 'insert'], ['loan_guarantor', 'insert'], ['loan_collateral', 'insert'], ['loan_collateral', 'delete'],
+      ['loan', 'insert'], ['loan_guarantor', 'insert'], ['loan_guarantor', 'delete'],
+      ['loan_collateral', 'insert'], ['loan_collateral', 'delete'],
+      ['loan_appraisal', 'insert'], ['loan_appraisal_factor', 'insert'],
       ['workflow_task', 'insert'], ['attachment', 'insert'], ['attachment', 'delete'],
     ],
   },
@@ -296,7 +308,14 @@ export const ACTIONS = {
   ADMIN_USER_MANAGE: { page: 'ADMIN_USERS', tables: [['app_user', 'insert'], ['app_user', 'modify']] },
   ADMIN_ROLE_MANAGE: { page: 'ADMIN_ROLES', tables: [['role', 'insert'], ['role', 'modify']] },
   ADMIN_PRODUCTS_SAVINGS_MANAGE: { page: 'ADMIN_PRODUCTS_SAVINGS', tables: [['savings_product', 'insert'], ['savings_product', 'modify']] },
-  ADMIN_PRODUCTS_LOANS_MANAGE: { page: 'ADMIN_PRODUCTS_LOANS', tables: [['loan_product', 'insert'], ['loan_product', 'modify']] },
+  ADMIN_PRODUCTS_LOANS_MANAGE: {
+    page: 'ADMIN_PRODUCTS_LOANS',
+    tables: [
+      ['loan_product', 'insert'], ['loan_product', 'modify'],
+      ['loan_product_charge', 'insert'], ['loan_product_charge', 'modify'], ['loan_product_charge', 'delete'],
+      ['loan_product_charge_scheme', 'insert'], ['loan_product_charge_scheme', 'modify'], ['loan_product_charge_scheme', 'delete'],
+    ],
+  },
   ADMIN_PRODUCTS_COLLATERAL_MANAGE: { page: 'ADMIN_PRODUCTS_COLLATERAL', tables: [['collateral_type', 'insert'], ['collateral_type', 'modify']] },
   ADMIN_CHARGES_MASTER_MANAGE: { page: 'ADMIN_CHARGES_MASTER', tables: [['charge', 'insert'], ['charge', 'modify']] },
   ADMIN_CHARGES_TRANSACTION_MANAGE: {

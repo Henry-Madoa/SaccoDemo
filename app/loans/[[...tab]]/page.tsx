@@ -4,7 +4,7 @@ import { requireAction, currentCanAction } from '@/lib/session';
 import {
   listLoans, hasAnyLoans, LOAN_FILTER_FIELDS, LOAN_TAB_STATUS,
 } from '@/lib/loanService';
-import { listActiveLoanProducts } from '@/lib/admin';
+import { listActiveLoanProductsWithCharges } from '@/lib/admin';
 import { listActiveMembers } from '@/lib/members';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
@@ -62,7 +62,7 @@ export default async function LoansPage({ params, searchParams }: {
     hasAnyLoans(tabStatus).then((any) => !any),
     currentCanAction('LOAN_CREATE'),
     listActiveMembers(),
-    listActiveLoanProducts(),
+    listActiveLoanProductsWithCharges(),
   ]);
   // The Status tabs above are now the primary way to narrow by status, so it's dropped from the
   // dynamic filter bar — it stays in LOAN_FILTER_FIELDS itself since buildFilterClause still

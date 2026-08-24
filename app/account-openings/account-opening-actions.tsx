@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -138,39 +139,43 @@ function JuniorFields({ defaults }: {
   );
 }
 
-/** Edits the product/notes/business/junior details of a still-Open request — the member
- *  itself isn't editable, since the request was captured for a specific member. Also carries
- *  the Junior Profile Picture upload, so a Junior account's details can be finished in one
- *  place rather than needing the detail page as well. */
-export function EditButton({ request, className = 'btn sm ghost', juniorPhotoSrc = null, mediaEnabled = false }: {
+/** Edits the member/product/notes/business/junior details of a still-Open request. Also carries
+ *  the Junior Profile Picture upload, so a Junior account's details can be finished in one place
+ *  rather than needing the detail page as well. */
+export function EditButton({ request, members, className = 'btn sm ghost', juniorPhotoSrc = null, mediaEnabled = false }: {
   request: AccountOpeningRequestWithDimensions;
+  members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
   className?: string;
   juniorPhotoSrc?: string | null;
   mediaEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [memberId, setMemberId] = useState(String(request.member_id));
   const [products, setProducts] = useState<SavingsProduct[]>([]);
   const [productId, setProductId] = useState(String(request.savings_product_id));
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !memberId) return;
     let cancelled = false;
-    eligibleProductsForMember(request.member_id).then((res) => {
+    eligibleProductsForMember(Number(memberId)).then((res) => {
       if (!cancelled && res.ok) setProducts(res.data);
     });
     return () => { cancelled = true; };
-  }, [open, request.member_id]);
+  }, [open, memberId]);
 
   // The currently-saved product is always offered too, even though eligibleProductsForMember()
   // (correctly) excludes it once it's picked — otherwise re-opening this form with the request's
-  // own product would show an empty selection.
-  const candidates = [
-    {
-      id: request.savings_product_id, code: request.savings_product_code, name: request.savings_product_name,
-      category: request.savings_product_category, is_business_account: request.savings_product_is_business_account,
-    },
-    ...products.filter((p) => p.id !== request.savings_product_id),
-  ];
+  // own member and product would show an empty selection. Only meaningful while the member
+  // hasn't changed — a different member's eligible list stands on its own.
+  const candidates = memberId === String(request.member_id)
+    ? [
+        {
+          id: request.savings_product_id, code: request.savings_product_code, name: request.savings_product_name,
+          category: request.savings_product_category, is_business_account: request.savings_product_is_business_account,
+        },
+        ...products.filter((p) => p.id !== request.savings_product_id),
+      ]
+    : products;
   const product = candidates.find((p) => String(p.id) === productId);
 
   return (
@@ -184,10 +189,14 @@ export function EditButton({ request, className = 'btn sm ghost', juniorPhotoSrc
           submitLabel="Save changes"
           successTitle="Request updated"
         >
+          <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+            onChange={(id) => { setMemberId(id); setProductId(''); }} required />
+
           <div className="field">
             <label htmlFor="f_productId">Product <span className="req">*</span></label>
             <select id="f_productId" name="productId" required value={productId}
               onChange={(e) => setProductId(e.target.value)}>
+              {candidates.length ? null : <option value="">No eligible products for this member</option>}
               {candidates.map((p) => (
                 <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
               ))}
@@ -255,7 +264,7 @@ interface NewRequestFormProps {
 }
 
 function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProps) {
-  const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
+  const [memberId, setMemberId] = useState(String(presetMemberId ?? ''));
   const [products, setProducts] = useState<SavingsProduct[]>([]);
   const [productId, setProductId] = useState('');
   const { cur } = useFormat();
@@ -285,15 +294,8 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
       successTitle="Request captured"
       successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
     >
-      <div className="field">
-        <label htmlFor="f_memberId">Member <span className="req">*</span></label>
-        <select id="f_memberId" name="memberId" required value={memberId}
-          onChange={(e) => setMemberId(e.target.value)}>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
-          ))}
-        </select>
-      </div>
+      <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+        onChange={setMemberId} required />
 
       <div className="field">
         <label htmlFor="f_productId">Product <span className="req">*</span></label>

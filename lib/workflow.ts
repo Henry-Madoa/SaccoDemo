@@ -1215,10 +1215,13 @@ export async function saveApprovalUserSetup(
   await audit(user, 'APPROVAL_USER_SETUP_SAVE', 'approval_user_setup', userId, body);
 }
 
-/** Whether `userId` is allowed to reverse a posted GL journal — a per-user grant in User
- *  Setup, separate from (and in addition to) the role-based GL_JOURNAL_REVERSE permission,
- *  since a reversal breaks the append-only posting trail and warrants an explicit, individually
- *  auditable grant rather than a blanket role right. */
+/** Whether `userId` is allowed to reverse a posted journal — a per-user grant in User Setup,
+ *  separate from (and in addition to) whichever role-based permission governs the specific
+ *  document being reversed (GL_JOURNAL_REVERSE, SAVINGS_REVERSE, ...), since a reversal breaks
+ *  the append-only posting trail and warrants an explicit, individually auditable grant rather
+ *  than a blanket role right. Enforced once, centrally, in accounting.ts's reverseJournal() —
+ *  every reversal path in the system posts its compensating entry through that one function, so
+ *  checking it there covers GL, Savings and any future reversal (loans, teller, ...) alike. */
 export async function canReverseJournal(userId: number): Promise<boolean> {
   const row = await one<{ can_reverse_journal: number }>(
     'SELECT can_reverse_journal FROM approval_user_setup WHERE user_id = ?', userId,

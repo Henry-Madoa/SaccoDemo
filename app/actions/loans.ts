@@ -8,7 +8,7 @@ import { getMemberDetail } from '@/lib/members';
 import { findPendingRoutedTask, decideWorkflowTask, recordLegacyDecision } from '@/lib/workflow';
 import { toCents } from '@/lib/format';
 import type {
-  ActionResult, Appraisal, Channel, FormValues, LoanFull, SavingsAccountWithProduct,
+  ActionResult, Appraisal, Channel, FormValues, LoanAppraisalRow, LoanFull, SavingsAccountWithProduct,
 } from '@/lib/types';
 
 /** Active savings accounts a disbursement may be credited to. */
@@ -34,6 +34,18 @@ export async function appraiseLoan(values: FormValues): Promise<ActionResult<App
   });
 }
 
+/** Re-runs the credit appraisal against an already-captured loan and files the result — the
+ *  persisted counterpart to appraiseLoan() above, which is used only for the pre-save preview
+ *  in the New Application modal, before a loan_id exists to attach a record to. */
+export async function runLoanAppraisal(loanId: number): Promise<ActionResult<LoanAppraisalRow>> {
+  return actionResult(async () => {
+    const user = await requireAction('LOAN_CREATE');
+    const record = await loanSvc.saveAppraisal({ loanId, user });
+    revalidatePath(`/loans/view/${loanId}`);
+    return record;
+  });
+}
+
 export async function applyForLoan(values: FormValues): Promise<ActionResult<LoanFull>> {
   return actionResult(async () => {
     const user = await requireAction('LOAN_CREATE');
@@ -47,6 +59,26 @@ export async function applyForLoan(values: FormValues): Promise<ActionResult<Loa
       user,
     });
     revalidatePath('/loans');
+    revalidatePath(`/members/${values.memberId}`);
+    return loan;
+  });
+}
+
+export async function updateLoanApplication(loanId: number, values: FormValues): Promise<ActionResult<LoanFull>> {
+  return actionResult(async () => {
+    const user = await requireAction('LOAN_CREATE');
+    const loan = await loanSvc.update({
+      loanId,
+      memberId: Number(values.memberId),
+      productId: Number(values.productId),
+      principal: toCents(values.principal),
+      termMonths: Number(values.termMonths),
+      purpose: String(values.purpose || ''),
+      disburseToAccountId: values.disburseToAccountId ? Number(values.disburseToAccountId) : null,
+      user,
+    });
+    revalidatePath('/loans');
+    revalidatePath(`/loans/view/${loanId}`);
     revalidatePath(`/members/${values.memberId}`);
     return loan;
   });

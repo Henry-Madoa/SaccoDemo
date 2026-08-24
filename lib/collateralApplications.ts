@@ -220,6 +220,14 @@ export async function updateCollateralApplication(
   const serialRegNo = body.serialRegNo !== undefined ? body.serialRegNo : req.serial_reg_no;
 
   const cols: Record<string, unknown> = {};
+  if (body.memberId !== undefined) {
+    const member = await one<Member>('SELECT * FROM member WHERE id = ?', body.memberId);
+    if (!member) throw new AppError('Member not found', 'NOT_FOUND');
+    if (member.status === 'WITHDRAWN' || member.status === 'DECEASED') {
+      throw new AppError('This member has exited the society', 'VALIDATION');
+    }
+    cols.member_id = body.memberId;
+  }
   if (body.category !== undefined) cols.category = body.category;
   if (body.countyId !== undefined) cols.county_id = body.countyId || null;
   if (body.lastValuationDate !== undefined) cols.last_valuation_date = body.lastValuationDate || null;

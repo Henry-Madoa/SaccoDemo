@@ -5,6 +5,7 @@ import {
   getAccountDeactivationRequest, getAdjacentAccountDeactivationNos, type AccountDeactivationView,
 } from '@/lib/accountDeactivation';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
+import { listActiveMembers } from '@/lib/members';
 import { formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
@@ -14,7 +15,7 @@ import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import {
-  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
+  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../account-deactivation-actions';
 
 const ACCOUNT_DEACTIVATION_VIEWS: AccountDeactivationView[] = ['open', 'pending', 'approved', 'processed'];
@@ -52,6 +53,9 @@ export default async function AccountDeactivationDetailPage({ params, searchPara
   const processed = request.status === 'Processed';
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
+  const canEditFields = isOpen && canEditThis;
+  const editMembers = canEditFields ? await listActiveMembers() : [];
+
   return (
     <>
       <CardNav
@@ -68,7 +72,8 @@ export default async function AccountDeactivationDetailPage({ params, searchPara
         <Link href={`/savings/${request.account_id}`} className="btn ghost sm">View account</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {isOpen && canEditThis ? <SubmitButton no={request.no} className="btn ghost" /> : null}
+        {canEditFields ? <EditButton request={request} members={editMembers} className="btn ghost" /> : null}
+        {canEditFields ? <SubmitButton no={request.no} className="btn ghost" /> : null}
         {request.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={request.no} className="btn ghost" />
         ) : null}

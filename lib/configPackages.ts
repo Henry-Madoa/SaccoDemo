@@ -313,22 +313,43 @@ export async function exportConfigPackage(
 
 /* ---------------------------------------------------------------------------------- import */
 
+/** A relation table's whole id/display-column mapping, loaded once — not per cell. Configuration
+ *  Package relation targets are reference tables (categories, GL accounts, charge codes), small
+ *  enough to hold in memory for the length of one import, so resolveCell() below never touches
+ *  the database at all: what used to be two queries (an information_schema lookup for the
+ *  display column, then a row lookup) *per relation cell* — over 100 rows, well over a minute of
+ *  pure round-trip latency against a remote database — becomes one query per relation table,
+ *  used for the whole file. */
+interface RelationLookup {
+  byId: Set<number>;
+  byDisplay: Map<string, number>;
+}
+
+async function loadRelationLookup(table: string): Promise<RelationLookup> {
+  const display = await displayColumnFor(table);
+  const rows = await all<{ id: number; display: string | number }>(`SELECT id, "${display}" AS display FROM "${table}"`);
+  return {
+    byId: new Set(rows.map((r) => r.id)),
+    byDisplay: new Map(rows.map((r) => [String(r.display), r.id])),
+  };
+}
+
 /** Resolves one CSV cell to the value that should actually be written: a plain scalar for a
  *  normal column, or (for a foreign key) the referenced row's id — accepting either a raw id
- *  or the same code/name value export() would have produced. */
-async function resolveCell(cell: string, col: ConfigPackageColumn): Promise<string | number | null> {
+ *  or the same code/name value export() would have produced, against the relation's lookup
+ *  preloaded once for the whole import (see loadRelationLookup() above). */
+function resolveCell(
+  cell: string, col: ConfigPackageColumn, relationLookups: Map<string, RelationLookup>,
+): string | number | null {
   const trimmed = cell.trim();
   if (!trimmed) return null;
   if (!col.relation_table) return trimmed;
 
-  if (/^\d+$/.test(trimmed)) {
-    const byId = await one<{ id: number }>(`SELECT id FROM "${col.relation_table}" WHERE id = ?`, Number(trimmed));
-    if (byId) return Number(trimmed);
-  }
-  const display = await displayColumnFor(col.relation_table);
-  const match = await one<{ id: number }>(`SELECT id FROM "${col.relation_table}" WHERE "${display}" = ?`, trimmed);
-  if (!match) throw new AppError(`No ${humanize(col.relation_table)} found for "${trimmed}" in ${col.label}`, 'LOOKUP_FAILED');
-  return match.id;
+  const lookup = relationLookups.get(col.relation_table)!;
+  if (/^\d+$/.test(trimmed) && lookup.byId.has(Number(trimmed))) return Number(trimmed);
+  const match = lookup.byDisplay.get(trimmed);
+  if (match == null) throw new AppError(`No ${humanize(col.relation_table)} found for "${trimmed}" in ${col.label}`, 'LOOKUP_FAILED');
+  return match;
 }
 
 export async function importConfigPackage(code: string, csvText: string, user: Actor): Promise<ConfigImportResult> {
@@ -347,6 +368,16 @@ export async function importConfigPackage(code: string, csvText: string, user: A
   // clear message instead of a raw Postgres "null value in column ... violates not-null
   // constraint" the moment the insert runs.
   const requiredFields = columns.filter((c) => c.required).map((c) => c.name);
+
+  // Preloaded once, for every relation column this package's fields touch — see
+  // loadRelationLookup()'s doc comment for why this matters far more than it looks like it
+  // should.
+  const relationTables = [...new Set(
+    fieldNames.map((f) => byName.get(f)!.relation_table).filter((t): t is string => !!t),
+  )];
+  const relationLookups = new Map(
+    await Promise.all(relationTables.map(async (t): Promise<[string, RelationLookup]> => [t, await loadRelationLookup(t)])),
+  );
 
   const allRows = parseCsv(csvText);
   if (!allRows.length) throw new AppError('The file is empty', 'VALIDATION');
@@ -373,48 +404,52 @@ export async function importConfigPackage(code: string, csvText: string, user: A
       for (let c = 0; c < headerFields.length; c++) {
         const field = headerFields[c];
         if (!field) continue;
-        values[field] = await resolveCell(raw[c] ?? '', byName.get(field)!);
+        values[field] = resolveCell(raw[c] ?? '', byName.get(field)!, relationLookups);
       }
       const setFields = fieldNames.filter((f) => f in values);
       if (!setFields.length) throw new AppError('No recognised columns in this row', 'VALIDATION');
 
-      const status = await tx(async () => {
-        let existingId: number | null = null;
-        if (pkg.key_field && values[pkg.key_field] != null) {
-          const existing = await one<{ id: number }>(
-            `SELECT id FROM "${pkg.table_name}" WHERE "${pkg.key_field}" = ? ORDER BY id LIMIT 1`,
-            values[pkg.key_field],
+      // Deliberately not wrapped in tx(): each row is a single write statement (the existing-row
+      // lookup just above is a plain read with nothing to roll back), and this loop runs
+      // sequentially within one import — an explicit BEGIN/COMMIT round trip per row bought no
+      // extra correctness here, only added transaction overhead multiplied by every row.
+      let existingId: number | null = null;
+      if (pkg.key_field && values[pkg.key_field] != null) {
+        const existing = await one<{ id: number }>(
+          `SELECT id FROM "${pkg.table_name}" WHERE "${pkg.key_field}" = ? ORDER BY id LIMIT 1`,
+          values[pkg.key_field],
+        );
+        existingId = existing?.id ?? null;
+      }
+      if (!existingId) {
+        const missing = requiredFields.filter((f) => values[f] == null);
+        if (missing.length) {
+          const why = pkg.key_field
+            ? `no existing ${humanize(pkg.table_name)} matched "${values[pkg.key_field] ?? ''}" for ${byName.get(pkg.key_field)!.label}, so this row would insert a new one`
+            : 'this package has no Key Field set, so every row inserts as new';
+          throw new AppError(
+            `Cannot import row ${rowNo} — ${why}, but it's missing required field(s): ${missing.map((f) => byName.get(f)!.label).join(', ')}.`,
+            'MISSING_REQUIRED_FIELDS',
           );
-          existingId = existing?.id ?? null;
         }
-        if (!existingId) {
-          const missing = requiredFields.filter((f) => values[f] == null);
-          if (missing.length) {
-            const why = pkg.key_field
-              ? `no existing ${humanize(pkg.table_name)} matched "${values[pkg.key_field] ?? ''}" for ${byName.get(pkg.key_field)!.label}, so this row would insert a new one`
-              : 'this package has no Key Field set, so every row inserts as new';
-            throw new AppError(
-              `Cannot import row ${rowNo} — ${why}, but it's missing required field(s): ${missing.map((f) => byName.get(f)!.label).join(', ')}.`,
-              'MISSING_REQUIRED_FIELDS',
-            );
-          }
-        }
-        if (existingId) {
-          const setClause = setFields.map((f) => `"${f}" = ?`).join(', ');
-          await run(
-            `UPDATE "${pkg.table_name}" SET ${setClause} WHERE id = ?`,
-            ...setFields.map((f) => values[f]), existingId,
-          );
-          return 'UPDATED' as const;
-        }
+      }
+      let status: 'UPDATED' | 'INSERTED';
+      if (existingId) {
+        const setClause = setFields.map((f) => `"${f}" = ?`).join(', ');
+        await run(
+          `UPDATE "${pkg.table_name}" SET ${setClause} WHERE id = ?`,
+          ...setFields.map((f) => values[f]), existingId,
+        );
+        status = 'UPDATED';
+      } else {
         const colList = setFields.map((f) => `"${f}"`).join(', ');
         const placeholders = setFields.map(() => '?').join(', ');
         await run(
           `INSERT INTO "${pkg.table_name}" (${colList}) VALUES (${placeholders})`,
           ...setFields.map((f) => values[f]),
         );
-        return 'INSERTED' as const;
-      });
+        status = 'INSERTED';
+      }
 
       if (status === 'UPDATED') updated++; else inserted++;
       results.push({ row: rowNo, status });

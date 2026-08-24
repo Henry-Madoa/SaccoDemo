@@ -111,7 +111,9 @@ export async function getAdjacentAccountDeactivationNos(
  *  account except whichever ones are that member's category's default accounts (those are
  *  never deactivated here) and any account that already has a not-yet-Processed deactivation
  *  request in flight (no piling up a second request behind the first). */
-export async function eligibleAccountsForMember(memberId: number): Promise<SavingsAccountWithProduct[]> {
+export async function eligibleAccountsForMember(
+  memberId: number, excludeRequestNo?: string,
+): Promise<SavingsAccountWithProduct[]> {
   const member = await one<Member>('SELECT * FROM member WHERE id = ?', memberId);
   if (!member) throw new AppError('Member not found', 'NOT_FOUND');
   const accounts = await all<SavingsAccountWithProduct>(
@@ -129,8 +131,9 @@ export async function eligibleAccountsForMember(memberId: number): Promise<Savin
   const inFlight = new Set(
     (await all<{ account_id: number }>(
       `SELECT account_id FROM account_deactivation_request
-       WHERE account_id IN (${accountIds.map(() => '?').join(',')}) AND status != 'Processed'`,
-      ...accountIds,
+       WHERE account_id IN (${accountIds.map(() => '?').join(',')}) AND status != 'Processed'
+       ${excludeRequestNo ? 'AND no != ?' : ''}`,
+      ...accountIds, ...(excludeRequestNo ? [excludeRequestNo] : []),
     )).map((r) => r.account_id),
   );
 
@@ -201,16 +204,29 @@ export async function createAccountDeactivationRequest(
   return { no };
 }
 
+export interface UpdateAccountDeactivationInput {
+  accountId: number;
+  reason: string;
+}
+
 export async function updateAccountDeactivationRequest(
-  no: string, reason: string, user: Actor,
+  no: string, { accountId, reason }: UpdateAccountDeactivationInput, user: Actor,
 ): Promise<AccountDeactivationRequestWithDimensions> {
   if (!reason || !reason.trim()) throw new AppError('A reason is required', 'VALIDATION');
   const req = await one<AccountDeactivationRequest>('SELECT * FROM account_deactivation_request WHERE no = ?', no);
   if (!req) throw new AppError('Account deactivation request not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open request can be edited', 'VALIDATION');
+  // A changed account (different account, or a different member's account entirely) is
+  // re-validated exactly as a fresh request would be — still ACTIVE, not a category default,
+  // and not already claimed by another in-flight request (excluding this one).
+  if (accountId !== req.account_id) await assertEligible(accountId, no);
 
-  await run('UPDATE account_deactivation_request SET reason = ? WHERE no = ?', reason.trim(), no);
-  const changes = diffFields(req as unknown as Record<string, unknown>, { reason: reason.trim() });
+  const patch = { account_id: accountId, reason: reason.trim() };
+  await run(
+    'UPDATE account_deactivation_request SET account_id = ?, reason = ? WHERE no = ?',
+    patch.account_id, patch.reason, no,
+  );
+  const changes = diffFields(req as unknown as Record<string, unknown>, patch);
   await logTableChange('account_deactivation_request', no, 'Modification', changes, user);
   return (await getAccountDeactivationRequest(no))!;
 }

@@ -4,22 +4,30 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useFormat } from '@/components/ui/format-provider';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
-import { decideLoan, disburseLoan, repayLoan, submitLoan } from '@/app/actions/loans';
+import { decideLoan, disburseLoan, repayLoan, runLoanAppraisal, submitLoan } from '@/app/actions/loans';
 import { delegateMyTask } from '@/app/actions/workflows';
 import {
   attachCollateralToLoanRequest, detachCollateralFromLoanRequest, availableCollateralForMember,
 } from '@/app/actions/loanCollateral';
+import {
+  commitGuarantorToLoanRequest, releaseGuarantorFromLoanRequest, availableGuarantorsForLoan,
+} from '@/app/actions/loanGuarantors';
 import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
 import { today, toUnits } from '@/lib/format';
-import type { AvailableCollateralRow, LoanFull, SavingsAccountWithProduct } from '@/lib/types';
+import type { AvailableCollateralRow, LoanFull, Member, SavingsAccountWithProduct } from '@/lib/types';
 
-/** Sends a captured (OPEN) loan for approval. */
-export function SubmitButton({ loanId, className = 'btn' }: { loanId: number; className?: string }) {
+/** Sends a captured (OPEN) loan for approval — only once a credit appraisal is on file
+ *  (section 13: the appraisal report must be run before a loan is sent up); the server enforces
+ *  this too (loanService.submit()), this is just the friendlier front end for it. */
+export function SubmitButton({ loanId, hasAppraisal, className = 'btn' }: {
+  loanId: number; hasAppraisal: boolean; className?: string;
+}) {
   const router = useRouter();
   const showResult = useResultDialog();
   const confirm = useConfirm();
@@ -46,6 +54,14 @@ export function SubmitButton({ loanId, className = 'btn' }: { loanId: number; cl
       setBusy(false);
     }
   };
+
+  if (!hasAppraisal) {
+    return (
+      <span className="hint" title="Run appraisal above first — it must be on file before this loan can be sent for approval.">
+        Run appraisal before sending for approval
+      </span>
+    );
+  }
 
   return (
     <button type="button" className={className} disabled={busy} onClick={submit}>
@@ -255,6 +271,82 @@ export function AttachCollateralButton({ loanId, memberId, className = 'btn sm g
         </FormModal>
       ) : null}
     </>
+  );
+}
+
+/** Commits another member's guarantee to this loan — the "or from other members" half of the
+ *  Appraisal tab's SECURITY_COVER check — only while the loan is still OPEN, the same point
+ *  AttachCollateralButton above is offered. */
+export function AddGuarantorButton({ loanId, memberId, existingMemberIds, className = 'btn sm ghost' }: {
+  loanId: number; memberId: number; existingMemberIds: number[]; className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [available, setAvailable] = useState<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[]>([]);
+  const [guarantorId, setGuarantorId] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    availableGuarantorsForLoan(memberId, existingMemberIds).then((res) => {
+      if (!cancelled && res.ok) setAvailable(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [open, memberId, existingMemberIds]);
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Add guarantor</button>
+      {open ? (
+        <FormModal
+          title="Add guarantor"
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => commitGuarantorToLoanRequest(loanId, Number(values.memberId), String(values.amountSh))}
+          submitLabel="Commit guarantee"
+          successTitle="Guarantor committed"
+        >
+          {available.length ? (
+            <>
+              <MemberSelect id="f_guarantorId" name="memberId" label="Guarantor" members={available}
+                value={guarantorId} onChange={setGuarantorId} required />
+              <Field name="amountSh" label="Amount guaranteed" type="number" step="0.01" required
+                hint="How much of this loan the member is committing to guarantee" />
+            </>
+          ) : (
+            <p>No other eligible members are available to guarantee this loan.</p>
+          )}
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
+export function RemoveGuarantorButton({ loanId, memberId, className = 'btn sm ghost' }: {
+  loanId: number; memberId: number; className?: string;
+}) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => releaseGuarantorFromLoanRequest(loanId, memberId), {
+        confirm: { title: 'Release this guarantor?', confirmLabel: 'Release' },
+        successTitle: 'Guarantor released',
+      })}>
+      {busy ? 'Working…' : 'Release'}
+    </button>
+  );
+}
+
+/** Re-runs and files a fresh credit appraisal against this loan — offered while it is still
+ *  OPEN/PENDING APPROVAL/APPROVED (the same window saveAppraisal() itself enforces server-side),
+ *  so an officer can revalidate eligibility right up to the point of disbursement. */
+export function RunAppraisalButton({ loanId, className = 'btn ghost' }: { loanId: number; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => runLoanAppraisal(loanId), {
+        successTitle: (a) => `Appraisal filed — ${a.decision === 'ELIGIBLE' ? 'eligible' : 'referred'} (${a.score}/100)`,
+      })}>
+      {busy ? 'Appraising…' : 'Run appraisal'}
+    </button>
   );
 }
 

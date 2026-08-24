@@ -3,27 +3,15 @@
 import { Fragment, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
-import { useFormat } from '@/components/ui/format-provider';
 import { saveTransactionCharge } from '@/app/actions/charges';
+import {
+  TariffMatrix, emptyBand, bandFromScheme, bandToDraft, schemeSummary, type SchemeBandRow,
+} from '@/components/admin/tariff-matrix';
 import type { TransactionChargeSetupDraft, TransactionCalcSchemeDraft } from '@/lib/charges';
 import {
-  CHARGE_TRANSACTION_TYPES, CHARGE_CALCULATION_TYPES, CHARGE_RATE_TYPES, PRODUCT_STATUSES,
+  CHARGE_TRANSACTION_TYPES, CHARGE_CALCULATION_TYPES, PRODUCT_STATUSES,
 } from '@/lib/constants';
-import { toCents, toUnits } from '@/lib/format';
-import type { Charge, ChargeCalculationType, ChargeRateType, GlAccount, TransactionChargeWithDetail } from '@/lib/types';
-
-/** One row of a component's Tariff Matrix — the amount band the rate applies to (against the
- *  transaction's base amount for a Calculation Scheme component, or against the source
- *  component's own resolved amount for a Percentage of Charge one), and whether that band is a
- *  flat amount or a percentage rate, with optional min/max charge clamps for a percentage. */
-interface SchemeBandRow {
-  lower_limit_sh: string;
-  upper_limit_sh: string;
-  rate_type: ChargeRateType;
-  rate_sh: string;
-  lower_charge_limit_sh: string;
-  upper_charge_limit_sh: string;
-}
+import type { Charge, ChargeCalculationType, GlAccount, TransactionChargeWithDetail } from '@/lib/types';
 
 interface ComponentRow {
   charge_id: number | '';
@@ -36,23 +24,9 @@ interface ComponentRow {
   scheme: SchemeBandRow[];
 }
 
-const emptyBand = (): SchemeBandRow => ({
-  lower_limit_sh: '0', upper_limit_sh: '', rate_type: 'FLAT', rate_sh: '0',
-  lower_charge_limit_sh: '0', upper_charge_limit_sh: '0',
-});
-
 const emptyRow = (priority: number): ComponentRow => ({
   charge_id: '', gl_account_id: '', calculation_type: 'SCHEME', source_index: '', priority, status: 'ACTIVE',
   scheme: [emptyBand()],
-});
-
-const bandFromScheme = (band: TransactionChargeWithDetail['components'][number]['scheme'][number]): SchemeBandRow => ({
-  lower_limit_sh: toUnits(band.lower_limit),
-  upper_limit_sh: band.upper_limit != null ? toUnits(band.upper_limit) : '',
-  rate_type: band.rate_type,
-  rate_sh: band.rate_type === 'FLAT' ? toUnits(band.flat_amount) : String(band.percentage_rate),
-  lower_charge_limit_sh: toUnits(band.lower_charge_limit),
-  upper_charge_limit_sh: toUnits(band.upper_charge_limit),
 });
 
 export function TransactionChargeFormButton({ transactionCharge, charges, accounts, className = 'btn', children }: {
@@ -65,7 +39,6 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
   className?: string;
   children: React.ReactNode;
 }) {
-  const { cur } = useFormat();
   const [open, setOpen] = useState(false);
   const tc = transactionCharge ?? null;
   const [rows, setRows] = useState<ComponentRow[]>(() => {
@@ -92,16 +65,8 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
     setExpanded((cur) => (cur === i ? null : cur));
   };
 
-  const updateBand = (rowIndex: number, bandIndex: number, patch: Partial<SchemeBandRow>) =>
-    setRows((cur) => cur.map((r, k) => (
-      k !== rowIndex ? r : { ...r, scheme: r.scheme.map((b, bk) => (bk === bandIndex ? { ...b, ...patch } : b)) }
-    )));
-  const addBand = (rowIndex: number) =>
-    setRows((cur) => cur.map((r, k) => (k === rowIndex ? { ...r, scheme: [...r.scheme, emptyBand()] } : r)));
-  const removeBand = (rowIndex: number, bandIndex: number) =>
-    setRows((cur) => cur.map((r, k) => (
-      k !== rowIndex ? r : { ...r, scheme: r.scheme.filter((_, bk) => bk !== bandIndex) }
-    )));
+  const updateScheme = (rowIndex: number, scheme: SchemeBandRow[]) =>
+    setRows((cur) => cur.map((r, k) => (k === rowIndex ? { ...r, scheme } : r)));
 
   const toDrafts = (): TransactionChargeSetupDraft[] => rows.map((r) => ({
     charge_id: Number(r.charge_id) || 0,
@@ -110,25 +75,8 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
     source_index: r.calculation_type === 'PERCENT_OF_CHARGE' && r.source_index !== '' ? Number(r.source_index) : null,
     priority: r.priority,
     status: r.status,
-    scheme: r.scheme.map((b): TransactionCalcSchemeDraft => ({
-      lower_limit: toCents(b.lower_limit_sh),
-      upper_limit: b.upper_limit_sh === '' ? null : toCents(b.upper_limit_sh),
-      rate_type: b.rate_type,
-      flat_amount: b.rate_type === 'FLAT' ? toCents(b.rate_sh) : 0,
-      percentage_rate: b.rate_type === 'PERCENTAGE' ? Number(b.rate_sh) || 0 : 0,
-      lower_charge_limit: toCents(b.lower_charge_limit_sh),
-      upper_charge_limit: toCents(b.upper_charge_limit_sh),
-    })),
+    scheme: r.scheme.map((b): TransactionCalcSchemeDraft => bandToDraft(b)),
   }));
-
-  const schemeSummary = (r: ComponentRow): string => {
-    if (!r.scheme.length) return 'No rates configured';
-    if (r.scheme.length === 1) {
-      const b = r.scheme[0];
-      return b.rate_type === 'FLAT' ? `Flat ${b.rate_sh || 0}` : `${b.rate_sh || 0}%`;
-    }
-    return `${r.scheme.length} bands`;
-  };
 
   return (
     <>
@@ -213,7 +161,7 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
                       <td>
                         <button type="button" className="btn sm ghost" aria-expanded={expanded === i}
                           onClick={() => setExpanded((cur) => (cur === i ? null : i))}>
-                          {expanded === i ? '▾' : '▸'} {schemeSummary(row)}
+                          {expanded === i ? '▾' : '▸'} {schemeSummary(row.scheme)}
                         </button>
                       </td>
                       <td>
@@ -223,79 +171,13 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
                     {expanded === i ? (
                       <tr key={`${i}-scheme`}>
                         <td colSpan={7} style={{ background: 'var(--surface-2)', padding: '10px 10px 14px 30px' }}>
-                          <div className="tiny" style={{ marginBottom: 8 }}>
-                            Tariff matrix — bands are matched in order against the {row.calculation_type === 'PERCENT_OF_CHARGE'
-                              ? "source component's resolved amount" : "transaction's base amount"}; leave Upper limit blank for unbounded.
-                            Min/Max charge only apply to a Percentage band. For a flat amount per unit of base amount
-                            (e.g. Statement Charge's per-page fee), use a Percentage band and check the preview under
-                            the Rate field rather than guessing the rate — it shows exactly what each unit (each page,
-                            for Statement Charge) will be charged.
-                          </div>
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>Lower limit</th><th>Upper limit</th><th>Rate type</th><th>Rate</th>
-                                <th>Min charge</th><th>Max charge</th><th style={{ width: 40 }} />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {row.scheme.map((band, bi) => (
-                                <tr key={bi}>
-                                  <td>
-                                    <input type="number" step="0.01" value={band.lower_limit_sh} aria-label="Lower limit" style={{ width: 100 }}
-                                      onChange={(e) => updateBand(i, bi, { lower_limit_sh: e.target.value })} />
-                                  </td>
-                                  <td>
-                                    <input type="number" step="0.01" value={band.upper_limit_sh} aria-label="Upper limit" style={{ width: 100 }}
-                                      placeholder="Unbounded"
-                                      onChange={(e) => updateBand(i, bi, { upper_limit_sh: e.target.value })} />
-                                  </td>
-                                  <td>
-                                    <select value={band.rate_type} aria-label="Rate type"
-                                      onChange={(e) => updateBand(i, bi, { rate_type: e.target.value as ChargeRateType })}>
-                                      {CHARGE_RATE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                    </select>
-                                  </td>
-                                  <td>
-                                    <input type="number" step="0.01" value={band.rate_sh} aria-label="Rate" style={{ width: 90 }}
-                                      onChange={(e) => updateBand(i, bi, { rate_sh: e.target.value })} />
-                                    {band.rate_type === 'PERCENTAGE' ? (
-                                      <>
-                                        <span className="tiny">%</span>
-                                        <div className="tiny muted-cell" style={{ marginTop: 2 }}>
-                                          = {cur(Math.round(Number(band.rate_sh) || 0))} per KSh 1.00 of base amount
-                                          — e.g. per page, for Statement Charge
-                                        </div>
-                                      </>
-                                    ) : null}
-                                  </td>
-                                  <td>
-                                    <input
-                                      type="number" step="0.01" value={band.lower_charge_limit_sh} aria-label="Minimum charge"
-                                      style={{ width: 100 }} disabled={band.rate_type !== 'PERCENTAGE'}
-                                      onChange={(e) => updateBand(i, bi, { lower_charge_limit_sh: e.target.value })}
-                                    />
-                                  </td>
-                                  <td>
-                                    <input
-                                      type="number" step="0.01" value={band.upper_charge_limit_sh} aria-label="Maximum charge"
-                                      style={{ width: 100 }} disabled={band.rate_type !== 'PERCENTAGE'}
-                                      onChange={(e) => updateBand(i, bi, { upper_charge_limit_sh: e.target.value })}
-                                    />
-                                  </td>
-                                  <td>
-                                    <button type="button" className="btn sm ghost" onClick={() => removeBand(i, bi)} aria-label="Remove band">×</button>
-                                  </td>
-                                </tr>
-                              ))}
-                              {!row.scheme.length ? (
-                                <tr><td colSpan={7} className="tiny">No bands — this component will never calculate an amount.</td></tr>
-                              ) : null}
-                            </tbody>
-                          </table>
-                          <div className="inline" style={{ marginTop: 8 }}>
-                            <button type="button" className="btn ghost sm" onClick={() => addBand(i)}>Add band</button>
-                          </div>
+                          <TariffMatrix
+                            bands={row.scheme}
+                            baseLabel={row.calculation_type === 'PERCENT_OF_CHARGE'
+                              ? "the source component's resolved amount" : "the transaction's base amount"}
+                            hint="For a flat amount per unit of base amount (e.g. a per-page statement fee), use a Percentage band and check the preview under the Rate field rather than guessing the rate."
+                            onChange={(next) => updateScheme(i, next)}
+                          />
                         </td>
                       </tr>
                     ) : null}

@@ -95,7 +95,6 @@ export function GeneralInfoCard({
           ['Application no.', <span className="mono" key="no">{a.no}</span>],
           ['Status', <Pill status={a.status} key="status" />],
           ['Member category', a.member_category_name || '—'],
-          ['Join date', formatDate(a.join_date)],
           ['KYC verified', a.kyc_verified
             ? <Pill tone="ok" key="kyc">VERIFIED</Pill>
             : <Pill tone="warn" key="kyc">PENDING</Pill>],
@@ -113,7 +112,6 @@ export function GeneralInfoCard({
                   { value: '', label: 'Select category…' },
                   ...memberCategories.map((c) => ({ value: c.id, label: c.description })),
                 ]} />
-              <Field name="join_date" label="Date joined" type="date" defaultValue={a.join_date} disabled/>
               <Field name="global_dimension_1_id" label={caption1} type="select" defaultValue={a.global_dimension_1_id} required
                 options={[
                   { value: '', label: `Select ${caption1.toLowerCase()}…` },

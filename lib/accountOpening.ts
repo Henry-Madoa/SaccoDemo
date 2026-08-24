@@ -253,6 +253,7 @@ export async function createAccountOpeningRequest(
 }
 
 export interface UpdateAccountOpeningInput {
+  memberId?: number;
   productId?: number;
   notes?: string | null;
   businessName?: string | null;
@@ -273,6 +274,14 @@ export async function updateAccountOpeningRequest(
   if (req.status !== 'Open') throw new AppError('Only an open request can be edited', 'VALIDATION');
 
   const cols: Record<string, unknown> = {};
+  if (body.memberId !== undefined) {
+    const member = await one<Member>('SELECT * FROM member WHERE id = ?', body.memberId);
+    if (!member) throw new AppError('Member not found', 'NOT_FOUND');
+    if (member.status === 'WITHDRAWN' || member.status === 'DECEASED') {
+      throw new AppError('This member has exited the society', 'VALIDATION');
+    }
+    cols.member_id = body.memberId;
+  }
   if (body.productId !== undefined) cols.savings_product_id = body.productId;
   if (body.notes !== undefined) cols.notes = body.notes;
   if (body.businessName !== undefined) cols.business_name = body.businessName;
@@ -285,13 +294,14 @@ export async function updateAccountOpeningRequest(
   if (body.juniorPhoto !== undefined) cols.junior_photo = body.juniorPhoto;
 
   // Only re-validate the Junior/Business rules when something they actually depend on is
-  // changing — a product switch, or the cert no itself — not on every field edit.
-  if (body.productId !== undefined || body.juniorBirthCertNo !== undefined) {
+  // changing — a member or product switch, or the cert no itself — not on every field edit.
+  if (body.memberId !== undefined || body.productId !== undefined || body.juniorBirthCertNo !== undefined) {
+    const effectiveMemberId = body.memberId ?? req.member_id;
     const effectiveProductId = body.productId ?? req.savings_product_id;
     const product = await one<SavingsProduct>('SELECT * FROM savings_product WHERE id = ?', effectiveProductId);
     if (!product) throw new AppError('Savings product not found', 'NOT_FOUND');
     const effectiveJuniorCert = body.juniorBirthCertNo !== undefined ? body.juniorBirthCertNo : req.junior_birth_cert_no;
-    const { normalizedJuniorBirthCertNo } = await validateProductRules(req.member_id, product, effectiveJuniorCert, no);
+    const { normalizedJuniorBirthCertNo } = await validateProductRules(effectiveMemberId, product, effectiveJuniorCert, no);
     if (body.juniorBirthCertNo !== undefined) cols.junior_birth_cert_no = normalizedJuniorBirthCertNo;
   }
 

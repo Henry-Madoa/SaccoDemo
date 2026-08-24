@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
-  createMemberEditRequest, updateMemberEditRequest, submitMemberEditRequest, cancelEditApproval,
+  createMemberEditRequest, updateMemberEditRequest, changeMemberEditRequestMember,
+  getMemberEditRequestMemberId, submitMemberEditRequest, cancelEditApproval,
   approveMemberEdit, rejectMemberEdit, processMemberEdit, type MemberEditInput,
 } from '@/lib/memberEdits';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
@@ -43,6 +44,21 @@ export async function saveMemberEditRequest(
 ): Promise<ActionResult<MemberEditRequestWithDimensions>> {
   return actionResult(async () => {
     const user = await requireAction('MEMBER_EDITS_UPDATE');
+
+    // GeneralInfoCard's Member picker submits member_id alongside its own other fields
+    // (category, join date, dimensions). A changed member re-targets — and re-snapshots — the
+    // whole request instead of patching individual fields; whatever else was picked in that
+    // same submission is discarded along with it, same as the card's own warning says.
+    if (values.member_id !== undefined) {
+      const currentMemberId = await getMemberEditRequestMemberId(no);
+      const newMemberId = Number(values.member_id);
+      if (currentMemberId !== undefined && newMemberId !== currentMemberId) {
+        const saved = await changeMemberEditRequestMember(no, newMemberId, user);
+        revalidatePath('/member-edits');
+        return saved;
+      }
+    }
+
     const body = normalise(values);
     const saved = await updateMemberEditRequest(no, body, user);
     revalidatePath('/member-edits');

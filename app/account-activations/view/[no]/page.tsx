@@ -6,6 +6,7 @@ import {
   type AccountActivationView,
 } from '@/lib/accountActivation';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
+import { listActiveMembers } from '@/lib/members';
 import { formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
@@ -54,6 +55,9 @@ export default async function AccountActivationDetailPage({ params, searchParams
   const processed = request.status === 'Processed';
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
+  const canEditFields = isOpen && canEditThis;
+  const editMembers = canEditFields ? await listActiveMembers() : [];
+
   return (
     <>
       <CardNav
@@ -70,8 +74,8 @@ export default async function AccountActivationDetailPage({ params, searchParams
         <Link href={`/savings/${request.account_id}`} className="btn ghost sm">View account</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {isOpen && canEditThis ? <EditButton request={request} className="btn ghost" /> : null}
-        {isOpen && canEditThis ? <SubmitButton no={request.no} className="btn ghost" /> : null}
+        {canEditFields ? <EditButton request={request} members={editMembers} className="btn ghost" /> : null}
+        {canEditFields ? <SubmitButton no={request.no} className="btn ghost" /> : null}
         {request.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={request.no} className="btn ghost" />
         ) : null}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -193,7 +194,7 @@ interface NewDocumentFormProps {
 }
 
 function NewDocumentForm({ members, presetMemberId, onClose }: NewDocumentFormProps) {
-  const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
+  const [memberId, setMemberId] = useState(String(presetMemberId ?? ''));
   const [sourceAccountId, setSourceAccountId] = useState('');
   const [chargeId, setChargeId] = useState('');
   const [noOfPages, setNoOfPages] = useState('');
@@ -207,15 +208,8 @@ function NewDocumentForm({ members, presetMemberId, onClose }: NewDocumentFormPr
       successTitle="Document captured"
       successDetail={(d) => `${d.no} saved — post it when you're ready`}
     >
-      <div className="field">
-        <label htmlFor="f_memberId">Member <span className="req">*</span></label>
-        <select id="f_memberId" name="memberId" required value={memberId}
-          onChange={(e) => { setMemberId(e.target.value); setSourceAccountId(''); }}>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
-          ))}
-        </select>
-      </div>
+      <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+        onChange={(id) => { setMemberId(id); setSourceAccountId(''); }} required />
 
       <ChargeFields
         memberId={memberId} sourceAccountId={sourceAccountId} setSourceAccountId={setSourceAccountId}
@@ -228,14 +222,16 @@ function NewDocumentForm({ members, presetMemberId, onClose }: NewDocumentFormPr
   );
 }
 
-/** Lets an Open document's Source Account, Charge Code, No Of Pages and Description be changed
- *  before it's posted — the member is fixed at creation, same as Account Activation's own Edit
- *  button never lets the member change. */
-export function EditButton({ request, className = 'btn sm ghost' }: {
+/** Lets an Open document's Member, Source Account, Charge Code, No Of Pages and Description all
+ *  be changed before it's posted. Changing the member clears Source Account, since the previous
+ *  selection belonged to whoever was picked before. */
+export function EditButton({ request, members, className = 'btn sm ghost' }: {
   request: MemberChargingWithDimensions;
+  members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [memberId, setMemberId] = useState(String(request.member_id));
   const [sourceAccountId, setSourceAccountId] = useState(String(request.source_account_id));
   const [chargeId, setChargeId] = useState(String(request.transaction_charge_id));
   const [noOfPages, setNoOfPages] = useState(request.no_of_pages != null ? String(request.no_of_pages) : '');
@@ -251,8 +247,11 @@ export function EditButton({ request, className = 'btn sm ghost' }: {
           submitLabel="Save changes"
           successTitle="Document updated"
         >
+          <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+            onChange={(id) => { setMemberId(id); setSourceAccountId(''); }} required />
+
           <ChargeFields
-            memberId={String(request.member_id)} sourceAccountId={sourceAccountId} setSourceAccountId={setSourceAccountId}
+            memberId={memberId} sourceAccountId={sourceAccountId} setSourceAccountId={setSourceAccountId}
             chargeId={chargeId} setChargeId={setChargeId} noOfPages={noOfPages} setNoOfPages={setNoOfPages}
           />
           <Field name="description" label="Description" type="textarea" required defaultValue={request.description} />

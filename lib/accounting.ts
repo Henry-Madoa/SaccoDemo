@@ -11,6 +11,7 @@
  */
 import { one, all, run, nextSequence } from './db.ts';
 import { PostingError } from './errors.ts';
+import { canReverseJournal } from './workflow.ts';
 import type {
   AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal,
   JournalLine, PostJournalOptions, PostedJournal, TrialBalanceRow,
@@ -177,6 +178,17 @@ export async function reverseJournal(
   reason?: string,
   valueDate?: IsoDate,
 ): Promise<PostedJournal> {
+  // The one choke point every reversal path posts its compensating entry through (GL's own
+  // reversal, a savings transaction reversal, ...), so the per-user "Can Reverse Journal" grant
+  // from User Setup is enforced once, here, rather than duplicated in each caller. A null user
+  // (system-driven reversal, if one is ever added) is left ungated, same as elsewhere in this
+  // module — there is no session to check a grant against.
+  if (user && !(await canReverseJournal(user.id))) {
+    throw new PostingError(
+      'You are not set up to reverse journals — ask an administrator to grant "Can Reverse Journal" in User Setup',
+      'FORBIDDEN',
+    );
+  }
   const original = await one<Journal>('SELECT * FROM journal WHERE id = ?', journalId);
   if (!original) throw new PostingError('Journal not found', 'NOT_FOUND');
   if (original.reversed_by_id) throw new PostingError('Journal has already been reversed', 'ALREADY_REVERSED');

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -110,6 +111,7 @@ export function NewEditRequestButton({ members }: {
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [memberId, setMemberId] = useState('');
   return (
     <>
       <button type="button" className="btn" onClick={() => setOpen(true)}>New edit request</button>
@@ -126,8 +128,8 @@ export function NewEditRequestButton({ members }: {
           successTitle="Edit request created"
           successDetail={(d) => `${d.no} is open for editing`}
         >
-          <Field name="memberId" label="Member" type="select" required
-            options={members.map((m) => ({ value: m.id, label: `${m.member_no} — ${m.first_name} ${m.last_name}` }))} />
+          <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+            onChange={setMemberId} required />
         </FormModal>
       ) : null}
     </>

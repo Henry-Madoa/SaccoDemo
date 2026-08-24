@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { getAccountOpeningRequest, getAdjacentAccountOpeningNos, type AccountOpeningView } from '@/lib/accountOpening';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
+import { listActiveMembers } from '@/lib/members';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { Page } from '@/components/layout/page';
@@ -51,6 +52,9 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
   const processed = request.status === 'Processed';
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
 
+  const canEditFields = isOpen && canEditThis;
+  const editMembers = canEditFields ? await listActiveMembers() : [];
+
   return (
     <>
       <CardNav
@@ -66,15 +70,16 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
         <Link href="/account-openings" className="btn ghost sm">← All account opening requests</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {isOpen && canEditThis ? (
+        {canEditFields ? (
           <EditButton
             request={request}
+            members={editMembers}
             className="btn ghost"
             juniorPhotoSrc={imageSrc(request.junior_photo, { width: 140, height: 140 })}
             mediaEnabled={isConfigured()}
           />
         ) : null}
-        {isOpen && canEditThis ? <SubmitButton no={request.no} className="btn ghost" /> : null}
+        {canEditFields ? <SubmitButton no={request.no} className="btn ghost" /> : null}
         {request.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={request.no} className="btn ghost" />
         ) : null}

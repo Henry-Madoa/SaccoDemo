@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -250,7 +251,7 @@ interface NewRequestFormProps {
 }
 
 function NewRequestForm({ members, counties, presetMemberId, onClose }: NewRequestFormProps) {
-  const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
+  const [memberId, setMemberId] = useState(String(presetMemberId ?? ''));
   const [category, setCategory] = useState('VEHICLE');
 
   return (
@@ -263,15 +264,8 @@ function NewRequestForm({ members, counties, presetMemberId, onClose }: NewReque
       successTitle="Application captured"
       successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
     >
-      <div className="field">
-        <label htmlFor="f_memberId">Member <span className="req">*</span></label>
-        <select id="f_memberId" name="memberId" required value={memberId}
-          onChange={(e) => setMemberId(e.target.value)}>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
-          ))}
-        </select>
-      </div>
+      <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+        onChange={setMemberId} required />
       <CollateralFields category={category} setCategory={setCategory} counties={counties} />
     </FormModal>
   );
@@ -300,12 +294,14 @@ export function NewCollateralApplicationButton({ members, counties, presetMember
   );
 }
 
-export function EditButton({ application, counties, className = 'btn sm ghost' }: {
+export function EditButton({ application, members, counties, className = 'btn sm ghost' }: {
   application: CollateralApplicationWithDetails;
+  members: MemberOption[];
   counties: CountyOption[];
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [memberId, setMemberId] = useState(String(application.member_id));
   const [category, setCategory] = useState<string>(application.category);
 
   return (
@@ -320,6 +316,8 @@ export function EditButton({ application, counties, className = 'btn sm ghost' }
           submitLabel="Save changes"
           successTitle="Application updated"
         >
+          <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+            onChange={setMemberId} required />
           <CollateralFields defaults={application} category={category} setCategory={setCategory} counties={counties} />
         </FormModal>
       ) : null}

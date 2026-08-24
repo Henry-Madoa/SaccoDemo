@@ -4,22 +4,51 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field, readForm } from '@/components/ui/field';
-import { Card, CardHead, Pill, TableWrap } from '@/components/ui/primitives';
-import { useFormat } from '@/components/ui/format-provider';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useToast } from '@/components/ui/toast';
-import { appraiseLoan, applyForLoan, memberDisbursementAccounts } from '@/app/actions/loans';
-import type { Appraisal, LoanProduct, Member, SavingsAccountWithProduct } from '@/lib/types';
+import { Card, CardHead, TableWrap } from '@/components/ui/primitives';
+import { Money } from '@/components/ui/money';
+import { AppraisalCard } from '@/components/loans/appraisal-card';
+import { appraiseLoan, applyForLoan, memberDisbursementAccounts, updateLoanApplication } from '@/app/actions/loans';
+import { calculateLoanProductCharges } from '@/lib/loans';
+import { toCents, toUnits } from '@/lib/format';
+import type { Appraisal, Cents, LoanProductWithCharges, Member, SavingsAccountWithProduct } from '@/lib/types';
 
 export interface ApplicationFormProps {
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
-  products: LoanProduct[];
+  products: LoanProductWithCharges[];
   presetMemberId?: number | null;
   onClose: () => void;
 }
 
-function ApplicationForm({ members, products, presetMemberId, onClose }: ApplicationFormProps) {
+/** The loan fields Edit needs pre-filled — a subset of LoanFull, so callers don't have to
+ *  assemble a bespoke shape just to open the same form pre-populated. */
+export interface EditableLoan {
+  id: number;
+  loan_no: string;
+  member_id: number;
+  product_id: number;
+  principal: Cents;
+  term_months: number;
+  purpose: string | null;
+  disburse_to_account_id: number | null;
+}
+
+interface LoanFormProps {
+  members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
+  products: LoanProductWithCharges[];
+  presetMemberId?: number | null;
+  /** Present only for Edit — prefills every field and switches the form to updateLoanApplication. */
+  loan?: EditableLoan | null;
+  onClose: () => void;
+}
+
+function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanFormProps) {
   const toast = useToast();
-  const [memberId, setMemberId] = useState(String(presetMemberId ?? members[0]?.id ?? ''));
+  const [memberId, setMemberId] = useState(String(loan?.member_id ?? presetMemberId ?? ''));
+  const [productId, setProductId] = useState(loan ? String(loan.product_id) : '');
+  const [principal, setPrincipal] = useState(loan ? toUnits(loan.principal) : '');
+  const [termMonths, setTermMonths] = useState(loan ? String(loan.term_months) : '24');
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
   const [appraisal, setAppraisal] = useState<Appraisal | null>(null);
   const [checking, setChecking] = useState(false);
@@ -35,6 +64,24 @@ function ApplicationForm({ members, products, presetMemberId, onClose }: Applica
     });
     return () => { cancelled = true; };
   }, [memberId]);
+
+  // Section 3's pricing rule: the product must be picked before an amount means anything (its
+  // min/max range and charge % gate everything downstream), so the amount field stays disabled
+  // until then — and clearing the product back out clears whatever was typed against it.
+  const product = products.find((p) => String(p.id) === productId);
+  useEffect(() => {
+    if (!product) setPrincipal('');
+  }, [product]);
+
+  // Live charge preview — section 3's "the proposed system must show the formula result and
+  // every charge line before submission" — the Loan Product Charges computation module
+  // (lib/loans.ts's calculateLoanProductCharges), itemised, computed the instant an amount is
+  // typed against the chosen product.
+  const principalCents = toCents(principal);
+  const charges = product && principalCents > 0
+    ? calculateLoanProductCharges(product.charges, principalCents, Number(termMonths) || 0)
+    : [];
+  const chargesTotal = charges.reduce((s, c) => s + c.amount, 0);
 
   const runAppraisal = async (form: HTMLFormElement | null) => {
     if (!form) return;
@@ -56,12 +103,12 @@ function ApplicationForm({ members, products, presetMemberId, onClose }: Applica
   return (
     <FormModal
       wide
-      title="New loan application"
+      title={loan ? `Edit ${loan.loan_no}` : 'New loan application'}
       onClose={onClose}
-      onSubmit={applyForLoan}
-      submitLabel="Save application"
-      successTitle="Application captured"
-      successDetail={(l) => `${l.loan_no} saved — send it for approval when you're ready`}
+      onSubmit={loan ? (values) => updateLoanApplication(loan.id, values) : applyForLoan}
+      submitLabel={loan ? 'Save changes' : 'Save application'}
+      successTitle={loan ? 'Application updated' : 'Application captured'}
+      successDetail={(l) => (loan ? `${l.loan_no} updated` : `${l.loan_no} saved — send it for approval when you're ready`)}
       extraFooter={
         <button type="button" className="btn ghost" disabled={checking}
           onClick={(e) => runAppraisal(e.currentTarget.closest('.modal')?.querySelector('form') ?? null)}>
@@ -70,73 +117,86 @@ function ApplicationForm({ members, products, presetMemberId, onClose }: Applica
       }
     >
       <div className="grid g2">
+        <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+          onChange={setMemberId} required />
+
         <div className="field">
-          <label htmlFor="f_memberId">Member <span className="req">*</span></label>
-          <select id="f_memberId" name="memberId" required value={memberId}
-            onChange={(e) => setMemberId(e.target.value)}>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
+          <label htmlFor="f_productId">Loan product <span className="req">*</span></label>
+          <select id="f_productId" name="productId" required value={productId}
+            onChange={(e) => setProductId(e.target.value)}>
+            <option value="">— Select a product first —</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>{p.name} ({p.interest_rate}% {p.interest_method.toLowerCase()})</option>
             ))}
           </select>
         </div>
 
-        <Field name="productId" label="Loan product" type="select" required
-          options={products.map((p) => ({
-            value: p.id,
-            label: `${p.name} (${p.interest_rate}% ${p.interest_method.toLowerCase()})`,
-          }))} />
+        <div className="field">
+          <label htmlFor="f_principal">Amount applied for <span className="req">*</span></label>
+          <input id="f_principal" name="principal" type="number" step="0.01" required
+            value={principal} disabled={!product}
+            onChange={(e) => setPrincipal(e.target.value)} />
+          <div className="hint">
+            {product
+              ? `${product.name} range: ${(product.min_amount / 100).toLocaleString()} – ${(product.max_amount / 100).toLocaleString()}`
+              : 'Choose a loan product above to enter an amount'}
+          </div>
+        </div>
 
-        <Field name="principal" label="Amount applied for" type="number" step="0.01" required />
-        <Field name="termMonths" label="Repayment period (months)" type="number" defaultValue={24} required />
-        <Field name="purpose" label="Purpose" placeholder="e.g. Business expansion" />
-        <Field name="disburseToAccountId" label="Disburse to" type="select"
+        <div className="field">
+          <label htmlFor="f_termMonths">Repayment period (months) <span className="req">*</span></label>
+          <input id="f_termMonths" name="termMonths" type="number" required
+            value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
+        </div>
+        <Field name="purpose" label="Purpose" placeholder="e.g. Business expansion" defaultValue={loan?.purpose ?? ''} />
+        {/* Keyed on the loaded account count: accounts arrive async (fetched once memberId is
+            known), and an uncontrolled select only applies defaultValue at mount — remounting
+            once real options exist is what lets Edit's saved disbursement account come back
+            pre-selected instead of silently falling back to "Pay out through the bank". */}
+        <Field key={accounts.length} name="disburseToAccountId" label="Disburse to" type="select"
+          defaultValue={loan?.disburse_to_account_id ?? ''}
           options={[
             { value: '', label: 'Pay out through the bank' },
             ...accounts.map((a) => ({ value: a.id, label: `${a.account_no} — ${a.product_name}` })),
           ]} />
       </div>
 
+      {charges.length ? (
+        <Card className="inset">
+          <CardHead title="Loan charges" sub="Computed automatically from the product's charge parameters" />
+          <TableWrap>
+            <thead><tr><th>Charge</th><th className="num">Amount</th></tr></thead>
+            <tbody>
+              {charges.map((c) => (
+                <tr key={c.chargeId}>
+                  <td>{c.chargeDescription || c.chargeCode}{c.prorated ? ' (prorated)' : ''}</td>
+                  <td className="num"><Money cents={c.amount} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total charges</td>
+                <td className="num"><b><Money cents={chargesTotal} /></b></td>
+              </tr>
+              <tr>
+                <td>Net amount payable</td>
+                <td className="num"><b><Money cents={principalCents - chargesTotal} /></b></td>
+              </tr>
+            </tfoot>
+          </TableWrap>
+        </Card>
+      ) : null}
+
       {appraisal ? <AppraisalCard appraisal={appraisal} /> : null}
     </FormModal>
-  );
-}
-
-function AppraisalCard({ appraisal: a }: { appraisal: Appraisal }) {
-  const { cur } = useFormat();
-  return (
-    <Card className="inset">
-      <CardHead
-        title={<>Credit appraisal — <Pill status={a.decision} /></>}
-        sub={`Policy score ${a.score}/100 · every factor is shown so the decision is explainable`}
-      />
-      <TableWrap>
-        <thead><tr><th /><th>Factor</th><th>Assessment</th></tr></thead>
-        <tbody>
-          {a.factors.map((f) => (
-            <tr key={f.code}>
-              <td style={{ width: 26 }}>
-                <span className={f.pass ? 'factor-ok' : 'factor-no'}>{f.pass ? '✔' : '✖'}</span>
-              </td>
-              <td>{f.label}</td>
-              <td className="muted-cell">{f.detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </TableWrap>
-      <div className="grid g4" style={{ marginTop: 'calc(var(--sp)*2)' }}>
-        <div><div className="metric-label">Monthly instalment</div><b>{cur(a.installment)}</b></div>
-        <div><div className="metric-label">Deposit ceiling</div><b>{cur(a.maxByMultiplier, { decimals: 0 })}</b></div>
-        <div><div className="metric-label">Existing exposure</div><b>{cur(a.exposure, { decimals: 0 })}</b></div>
-        <div><div className="metric-label">Deduction ratio</div><b>{a.dsr}%</b></div>
-      </div>
-    </Card>
   );
 }
 
 /** Opens the application form, optionally preset from `?new=<memberId>`. */
 export function NewApplicationButton({ members, products, presetMemberId }: {
   members: ApplicationFormProps['members'];
-  products: LoanProduct[];
+  products: LoanProductWithCharges[];
   presetMemberId?: number | null;
 }) {
   const router = useRouter();
@@ -152,8 +212,29 @@ export function NewApplicationButton({ members, products, presetMemberId }: {
     <>
       <button type="button" className="btn" onClick={() => setOpen(true)}>New application</button>
       {open ? (
-        <ApplicationForm members={members} products={products}
+        <LoanForm members={members} products={products}
           presetMemberId={presetMemberId} onClose={close} />
+      ) : null}
+    </>
+  );
+}
+
+/** Opens the same form pre-filled against an existing loan — only meaningful while it's still
+ *  OPEN (the same window loan-actions.tsx's SubmitButton offers Send for approval), since once
+ *  submitted the terms are what the workflow was routed against. */
+export function EditLoanButton({ members, products, loan, className = 'btn ghost' }: {
+  members: ApplicationFormProps['members'];
+  products: LoanProductWithCharges[];
+  loan: EditableLoan;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
+      {open ? (
+        <LoanForm members={members} products={products} loan={loan} onClose={() => setOpen(false)} />
       ) : null}
     </>
   );

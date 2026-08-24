@@ -7,9 +7,59 @@
  * server code and client components (the schedule preview runs in the browser).
  */
 import type {
-  Cents, Classification, InterestMethod, IsoDate, LoanScheduleRow,
-  RepaymentAllocation, Schedule, ScheduleDraftRow,
+  CalculatedLoanCharge, Cents, ChargeSchemeBand, Classification, InterestMethod, IsoDate,
+  LoanProductChargeDetail, LoanScheduleRow, RepaymentAllocation, Schedule, ScheduleDraftRow,
 } from './types.ts';
+
+/** Finds the amount band whose Lower/Upper Limit contains `baseAmount`, computes the flat or
+ *  percentage rate against it, then clamps by the band's Upper/Lower Charge Limit when set
+ *  (non-zero). Shared by lib/charges.ts's Transaction Charges (banded against a transaction's
+ *  base amount) and calculateLoanProductCharges() below (banded against a loan's principal) —
+ *  one tariff-matrix engine, two callers. */
+export function calculateChargeFromScheme(scheme: ChargeSchemeBand[], baseAmount: Cents): Cents {
+  const band = scheme.find((b) => (
+    baseAmount >= b.lower_limit && (b.upper_limit == null || baseAmount <= b.upper_limit)
+  ));
+  if (!band) return 0;
+  let amount = band.rate_type === 'FLAT'
+    ? band.flat_amount
+    : Math.round((band.percentage_rate / 100) * baseAmount);
+  if (band.rate_type === 'PERCENTAGE') {
+    if (band.lower_charge_limit > 0) amount = Math.max(amount, band.lower_charge_limit);
+    if (band.upper_charge_limit > 0) amount = Math.min(amount, band.upper_charge_limit);
+  }
+  return Math.max(amount, 0);
+}
+
+/**
+ * Runs every active Loan Product Charge line against a principal (+ term, for proration) — the
+ * Loan Products table's own charge computation module, structured like Transaction Charges
+ * Setup but scoped to one product instead of one transaction type. Each line resolves either a
+ * flat Percentage of the principal, or a Calculate from Scheme tariff banded against it; a line
+ * flagged to prorate then scales by termMonths/12. Pure, so the New Application form can preview
+ * it in the browser the moment a product and amount are chosen, using the exact same maths
+ * disburse() posts for real — one credit line per charge, to its own configured revenue account.
+ */
+export function calculateLoanProductCharges(
+  lines: LoanProductChargeDetail[], principal: Cents, termMonths: number,
+): CalculatedLoanCharge[] {
+  if (!(principal > 0)) return [];
+  return lines
+    .filter((l) => l.status === 'ACTIVE')
+    .sort((a, b) => a.priority - b.priority)
+    .map((l): CalculatedLoanCharge => {
+      let amount = l.calculation_type === 'PERCENTAGE'
+        ? Math.round((principal * l.percentage_rate) / 100)
+        : calculateChargeFromScheme(l.scheme, principal);
+      if (l.prorate && termMonths > 0) amount = Math.round((amount * termMonths) / 12);
+      return {
+        chargeId: l.charge_id, chargeCode: l.charge_code, chargeDescription: l.charge_description,
+        glAccountId: l.gl_account_id, glAccountCode: l.gl_account_code,
+        amount: Math.max(amount, 0), prorated: l.prorate,
+      };
+    })
+    .filter((c) => c.amount > 0);
+}
 
 export function addMonths(isoDate: IsoDate, n: number): IsoDate {
   const d = new Date(isoDate + 'T00:00:00Z');

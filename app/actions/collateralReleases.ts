@@ -34,6 +34,7 @@ export async function saveCollateralRelease(
   return actionResult(async () => {
     const user = await requireAction('COLLATERAL_RELEASES_CREATE');
     const saved = await updateCollateralRelease(no, {
+      collateralNo: values.collateralNo !== undefined ? String(values.collateralNo) : undefined,
       collectionDate: values.collectionDate !== undefined ? String(values.collectionDate) : undefined,
       collectedBy: values.collectedBy !== undefined ? String(values.collectedBy) : undefined,
       collectedByIdNo: values.collectedByIdNo !== undefined ? String(values.collectedByIdNo) : undefined,

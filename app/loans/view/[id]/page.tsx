@@ -3,16 +3,20 @@ import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { getLoanDetail, getAdjacentLoanIds, LOAN_TAB_STATUS } from '@/lib/loanService';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
-import { getMemberDetail } from '@/lib/members';
+import { getMemberDetail, listActiveMembers } from '@/lib/members';
+import { listActiveLoanProductsWithCharges } from '@/lib/admin';
 import { listAttachments } from '@/lib/attachments';
 import { isConfigured } from '@/lib/cloudinary';
+import { calculateLoanProductCharges } from '@/lib/loans';
+import { listLoanProductCharges } from '@/lib/loanProductCharges';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { parseSort } from '@/lib/listSort';
 import { getDimensionCaptions } from '@/lib/org';
 import { Page } from '@/components/layout/page';
 import {
-  Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
+  DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { SearchInput } from '@/components/ui/filters';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
@@ -21,8 +25,12 @@ import { CardNav } from '@/components/ui/card-nav';
 import { JournalLink } from '@/app/accounting/drill-downs';
 import {
   SubmitButton, DecideButtons, DisburseButton, RepayButton, AttachCollateralButton, DetachCollateralButton,
+  AddGuarantorButton, RemoveGuarantorButton, RunAppraisalButton,
 } from './loan-actions';
+import { EditLoanButton } from '../../application-form';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
+import { AppraisalCard, AppraisalHistoryTable, AppraisalMeta, toAppraisal } from '@/components/loans/appraisal-card';
+import { ChargesBreakdownButton } from '@/components/loans/charges-breakdown';
 
 export default async function LoanDetailPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
@@ -36,7 +44,9 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const detail = await getLoanDetail(Number(id));
   if (!detail) notFound();
 
-  const { loan: l, schedule, guarantors, collateral, transactions } = detail;
+  const { loan: l, schedule, guarantors, collateral, transactions, appraisals } = detail;
+  const latestAppraisal = appraisals[0] ?? null;
+  const canAppraise = ['OPEN', 'PENDING APPROVAL', 'APPROVED'].includes(l.status);
   const [canApprove, canDisburse, canRepay, canCreate, attachments, tasks, { prevId, nextId }, { caption1, caption2 }] =
     await Promise.all([
       currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
@@ -64,8 +74,21 @@ export default async function LoanDetailPage({ params, searchParams }: {
       .filter((a) => a.status === 'ACTIVE' && a.allow_withdrawal)
     : [];
 
+  // Edit is offered under the same rule and the same OPEN-only window as Send for approval, so
+  // the member/product picklists it needs are fetched only when it will actually be shown.
+  const canEdit = l.status === 'OPEN' && canSubmit;
+  const [editMembers, editProducts] = canEdit
+    ? await Promise.all([listActiveMembers(), listActiveLoanProductsWithCharges()])
+    : [[], []];
+
   const outstanding = l.principal_balance + l.interest_balance + l.penalty_balance;
   const paidPct = l.principal ? Math.min(100, (l.principal_paid / l.principal) * 100) : 0;
+  // Charges auto-computed by the Loan Product Charges module (lib/loans.ts's
+  // calculateLoanProductCharges) — the same list disburse() itself posts, one credit line per
+  // charge to its own revenue account — shown here (click the amount to see the breakdown) right
+  // through appraisal and approval, not just at the point of application.
+  const chargeLines = await listLoanProductCharges(l.product_id);
+  const computedCharges = calculateLoanProductCharges(chargeLines, l.principal, l.term_months);
 
   const totals = schedule.reduce(
     (a, s) => ({
@@ -131,14 +154,31 @@ export default async function LoanDetailPage({ params, searchParams }: {
       <Toolbar>
         <Link href="/loans" className="btn ghost sm">← All loans</Link>
         <Link href={`/members/${l.member_id}`} className="btn ghost sm">Member 360</Link>
+        <Link href={`/loan-documents?loan=${l.id}`} className="btn ghost sm">Loan Documents</Link>
         <Spacer />
-        {l.status === 'OPEN' && canSubmit ? <SubmitButton loanId={l.id} /> : null}
+        {canEdit ? (
+          <EditLoanButton
+            members={editMembers} products={editProducts}
+            loan={{
+              id: l.id, loan_no: l.loan_no, member_id: l.member_id, product_id: l.product_id,
+              principal: l.principal, term_months: l.term_months, purpose: l.purpose,
+              disburse_to_account_id: l.disburse_to_account_id,
+            }}
+          />
+        ) : null}
+        {l.status === 'OPEN' && canSubmit ? <SubmitButton loanId={l.id} hasAppraisal={!!latestAppraisal} /> : null}
         {l.status === 'PENDING APPROVAL' && canDecideThis ? (
           <DecideButtons loan={l} routedTaskId={routedTask?.id ?? null} />
         ) : null}
         {l.status === 'APPROVED' && canDisburse ? <DisburseButton loan={l} /> : null}
         {l.status === 'DISBURSED' && canRepay ? <RepayButton loan={l} accounts={repayAccounts} /> : null}
-        <DocumentActionsMenu />
+        {canAppraise && canCreate ? <RunAppraisalButton loanId={l.id} /> : null}
+        <DocumentActionsMenu
+          excel={{
+            href: '/api/export/loan-appraisal', params: { id: String(l.id) }, disabled: !latestAppraisal,
+            label: 'Appraisal Report (.xlsx)',
+          }}
+        />
       </Toolbar>
 
       <div className="grid g4 stack-2">
@@ -158,9 +198,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
 
       <div className="grid split-side-sm">
         <div>
-          <Card>
-            <h3>Facility details</h3>
-            <div className="card-sub">Status <Pill status={l.status} /></div>
+          <CollapsibleCard title="Facility details" sub={<>Status <Pill status={l.status} /></>}>
             <DefinitionList items={[
               ['Loan number', <span className="mono" key="no">{l.loan_no}</span>],
               ['Member', <>{l.first_name} {l.last_name} <span className="mono">({l.member_no})</span></>],
@@ -172,17 +210,40 @@ export default async function LoanDetailPage({ params, searchParams }: {
               ['Disbursed', formatDate(l.disbursed_date)],
               ['First instalment', formatDate(l.first_due_date)],
               ['Total interest', <Money cents={l.total_interest} key="ti" />],
-              ['Charges recovered', <Money cents={l.fees_charged} key="fees" />],
+              l.status === 'DISBURSED' || l.status === 'CLOSED'
+                ? ['Charges recovered',
+                  <ChargesBreakdownButton key="fees" charges={computedCharges} totalOverride={l.fees_charged}
+                    label="Charges recovered at disbursement" />]
+                : ['Estimated charges',
+                  <ChargesBreakdownButton key="fees" charges={computedCharges} label="Estimated charges" />],
               ['Principal repaid', <Money cents={l.principal_paid} key="pp" />],
               ['Interest repaid', <Money cents={l.interest_paid} key="ip" />],
             ]} />
-          </Card>
+          </CollapsibleCard>
 
-          <Card>
-            <CardHead
-              title="Approval details"
-              sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
-            />
+          <CollapsibleCard
+            title="Appraisal"
+            sub={latestAppraisal
+              ? `Latest run · ${appraisals.length} on file`
+              : 'No appraisal has been run against this application yet'}
+          >
+            {latestAppraisal ? (
+              <>
+                <AppraisalMeta appraisal={latestAppraisal} />
+                <AppraisalCard appraisal={toAppraisal(latestAppraisal)} />
+              </>
+            ) : (
+              <EmptyState icon="🧮" title="Not yet appraised"
+                sub={canAppraise && canCreate ? 'Run appraisal above to file the first decision.' : undefined} />
+            )}
+          </CollapsibleCard>
+
+          <AppraisalHistoryTable appraisals={appraisals} />
+
+          <CollapsibleCard
+            title="Approval details"
+            sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+          >
             {tasks.length ? (
               <TableWrap>
                 <thead>
@@ -213,11 +274,32 @@ export default async function LoanDetailPage({ params, searchParams }: {
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
-          </Card>
+          </CollapsibleCard>
 
-          {guarantors.length ? (
-            <Card>
-              <h3>Guarantors</h3>
+          {l.status === 'OPEN' && canCreate ? (
+            <CollapsibleCard title="Guarantors" sub="Members who have committed to guarantee this loan">
+              {guarantors.length ? (
+                <TableWrap>
+                  <thead><tr><th>Member</th><th className="num">Committed</th><th className="num" /></tr></thead>
+                  <tbody>
+                    {guarantors.map((g) => (
+                      <tr key={g.id}>
+                        <td><Link href={`/members/${g.member_id}`}>{g.first_name} {g.last_name}</Link></td>
+                        <td className="num"><Money cents={g.amount} decimals={0} /></td>
+                        <td className="num"><RemoveGuarantorButton loanId={l.id} memberId={g.member_id} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              ) : <EmptyState icon="🤝" title="No guarantors committed" />}
+              <Toolbar>
+                <Spacer />
+                <AddGuarantorButton loanId={l.id} memberId={l.member_id}
+                  existingMemberIds={guarantors.map((g) => g.member_id)} />
+              </Toolbar>
+            </CollapsibleCard>
+          ) : guarantors.length ? (
+            <CollapsibleCard title="Guarantors">
               <TableWrap>
                 <thead><tr><th>Member</th><th className="num">Committed</th></tr></thead>
                 <tbody>
@@ -229,12 +311,11 @@ export default async function LoanDetailPage({ params, searchParams }: {
                   ))}
                 </tbody>
               </TableWrap>
-            </Card>
+            </CollapsibleCard>
           ) : null}
 
           {l.status === 'OPEN' && canCreate ? (
-            <Card>
-              <CardHead title="Collateral security" sub="Registered assets pledged against this loan" />
+            <CollapsibleCard title="Collateral security" sub="Registered assets pledged against this loan">
               {collateral.length ? (
                 <TableWrap>
                   <thead><tr><th>Collateral</th><th className="num">Cover drawn</th><th className="num" /></tr></thead>
@@ -253,10 +334,9 @@ export default async function LoanDetailPage({ params, searchParams }: {
                 </TableWrap>
               ) : <EmptyState icon="🏠" title="No collateral attached" />}
               <Toolbar><Spacer /><AttachCollateralButton loanId={l.id} memberId={l.member_id} /></Toolbar>
-            </Card>
+            </CollapsibleCard>
           ) : collateral.length ? (
-            <Card>
-              <h3>Collateral security</h3>
+            <CollapsibleCard title="Collateral security">
               <TableWrap>
                 <thead><tr><th>Collateral</th><th className="num">Cover drawn</th></tr></thead>
                 <tbody>
@@ -271,16 +351,15 @@ export default async function LoanDetailPage({ params, searchParams }: {
                   ))}
                 </tbody>
               </TableWrap>
-            </Card>
+            </CollapsibleCard>
           ) : null}
         </div>
 
         <div>
-          <Card>
-            <CardHead
-              title="Repayment schedule"
-              sub={`${l.interest_method === 'REDUCING' ? 'Reducing balance amortisation' : 'Flat rate'} · ${schedule.length} instalments`}
-            />
+          <CollapsibleCard
+            title="Repayment schedule"
+            sub={`${l.interest_method === 'REDUCING' ? 'Reducing balance amortisation' : 'Flat rate'} · ${schedule.length} instalments`}
+          >
             {schedule.length ? (
               <TableWrap>
                 <thead>
@@ -323,7 +402,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
                 </tfoot>
               </TableWrap>
             ) : <EmptyState icon="📅" title="The schedule is generated on disbursement" />}
-          </Card>
+          </CollapsibleCard>
 
           <AttachmentPanel
             entity="loan"
@@ -333,8 +412,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
             mediaEnabled={isConfigured()}
           />
 
-          <Card>
-            <CardHead title="Loan account activity" sub="Every entry carries the journal it posted" />
+          <CollapsibleCard title="Loan account activity" sub="Every entry carries the journal it posted">
             {transactions.length ? (
               <>
                 <Toolbar>
@@ -374,7 +452,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
                 </TableWrap>
               </>
             ) : <EmptyState icon="🧾" title="No postings yet" />}
-          </Card>
+          </CollapsibleCard>
         </div>
       </div>
       </Page>

@@ -83,7 +83,7 @@ export const ROLES: RoleSeed[] = [
     name: 'Branch Manager',
     description: 'Approves loans and oversees branch operations.',
     actions: [
-      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
       'MEMBERS_UPDATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_EDITS_UPDATE', 'MEMBER_APPLICATIONS_APPROVE',
       'MEMBER_EDITS_APPROVE', 'ACCOUNT_OPENING_READ', 'ACCOUNT_OPENING_CREATE', 'ACCOUNT_OPENING_APPROVE',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE', 'ACCOUNT_DEACTIVATION_APPROVE',
@@ -101,7 +101,7 @@ export const ROLES: RoleSeed[] = [
     name: 'Loans Officer',
     description: 'Captures and appraises loan applications. Cannot approve own work.',
     actions: [
-      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
       'MEMBERS_UPDATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_EDITS_UPDATE', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ',
       'SAVINGS_READ', 'LOAN_READ', 'LOAN_CREATE', 'LOAN_REPAY',
@@ -114,7 +114,7 @@ export const ROLES: RoleSeed[] = [
     name: 'Teller',
     description: 'Front-office cash operations.',
     actions: [
-      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_OPENING_CREATE', 'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE',
       'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE',
       'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
@@ -127,7 +127,7 @@ export const ROLES: RoleSeed[] = [
     name: 'Finance Officer',
     description: 'General ledger, journals and financial reporting.',
     actions: [
-      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
       'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE',
       'GL_ACCOUNT_MANAGE', 'GL_BANK_RECONCILE',
@@ -140,7 +140,7 @@ export const ROLES: RoleSeed[] = [
     name: 'Internal Auditor',
     description: 'Read-only across the system, including the audit trail.',
     actions: [
-      'MEMBERS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
       'LOAN_READ', 'GL_READ', 'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
@@ -256,10 +256,10 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   }
 
   // The control accounts every product points at, resolved once.
-  const [a2010, a2020, a2030, a2040, a3010, a4010, a4020, a4030, a4040, a5010,
+  const [a2010, a2020, a2030, a2040, a3010, a4010, a4030, a4040, a5010,
     a1110, a1120, a1130, a1140] = await Promise.all([
     accId('2010'), accId('2020'), accId('2030'), accId('2040'), accId('3010'),
-    accId('4010'), accId('4020'), accId('4030'), accId('4040'), accId('5010'),
+    accId('4010'), accId('4030'), accId('4040'), accId('5010'),
     accId('1110'), accId('1120'), accId('1130'), accId('1140'),
   ]);
 
@@ -300,17 +300,17 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
 
   const INS_LP =
     `INSERT INTO loan_product (code, name, interest_rate, interest_method, max_term_months, min_amount,
-      max_amount, deposit_multiplier, min_membership_months, processing_fee_pct, insurance_pct, penalty_rate,
-      guarantors_required, max_dsr_pct, gl_receivable_id, gl_interest_income_id, gl_fee_income_id, gl_penalty_income_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  await run(INS_LP, 'NORM', 'Normal Loan', 12, 'REDUCING', 48, K(10000), K(4000000), 3, 6, 1, 0.5, 1, 2, 66.7,
-    a1110, a4010, a4020, a4030);
-  await run(INS_LP, 'EMER', 'Emergency Loan', 12, 'REDUCING', 12, K(5000), K(300000), 1, 3, 1, 0.5, 1, 1, 66.7,
-    a1120, a4010, a4020, a4030);
-  await run(INS_LP, 'SCHL', 'School Fees Loan', 12, 'REDUCING', 12, K(5000), K(500000), 2, 6, 1, 0.5, 1, 2, 66.7,
-    a1130, a4010, a4020, a4030);
-  await run(INS_LP, 'DEV', 'Development Loan', 14, 'REDUCING', 60, K(50000), K(6000000), 3, 12, 1.5, 0.5, 1, 3, 66.7,
-    a1140, a4010, a4020, a4030);
+      max_amount, deposit_multiplier, min_membership_months, penalty_rate,
+      guarantors_required, max_dsr_pct, gl_receivable_id, gl_interest_income_id, gl_penalty_income_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  await run(INS_LP, 'NORM', 'Normal Loan', 12, 'REDUCING', 48, K(10000), K(4000000), 3, 6, 1, 2, 66.7,
+    a1110, a4010, a4030);
+  await run(INS_LP, 'EMER', 'Emergency Loan', 12, 'REDUCING', 12, K(5000), K(300000), 1, 3, 1, 1, 66.7,
+    a1120, a4010, a4030);
+  await run(INS_LP, 'SCHL', 'School Fees Loan', 12, 'REDUCING', 12, K(5000), K(500000), 2, 6, 1, 2, 66.7,
+    a1130, a4010, a4030);
+  await run(INS_LP, 'DEV', 'Development Loan', 14, 'REDUCING', 60, K(50000), K(6000000), 3, 12, 1, 3, 66.7,
+    a1140, a4010, a4030);
 }
 
 async function seedMembersAndHistory(

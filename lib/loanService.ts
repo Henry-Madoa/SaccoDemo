@@ -8,17 +8,18 @@ import {
 } from './db.ts';
 import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
-import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify } from './loans.ts';
+import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify, calculateLoanProductCharges } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import { listLoanCollateral } from './loanCollateral.ts';
+import { listLoanProductCharges } from './loanProductCharges.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
 import type {
-  Actor, Appraisal, AppraisalFactor, Cents, Channel, GuarantorRow, IsoDate, JournalLineInput,
-  LoanDetail, LoanFull, LoanListRow, LoanProduct, LoanScheduleRow, Member,
-  SavingsAccount, Txn, TxnWithDocument,
+  Actor, Appraisal, AppraisalFactor, CalculatedLoanCharge, Cents, Channel, GuarantorRow, IsoDate,
+  JournalLineInput, LoanAppraisalFactorRow, LoanAppraisalRow, LoanDetail, LoanFull, LoanListRow,
+  LoanProduct, LoanScheduleRow, Member, SavingsAccount, Txn, TxnWithDocument,
 } from './types.ts';
 
 const today = (): IsoDate => new Date().toISOString().slice(0, 10);
@@ -26,7 +27,7 @@ const today = (): IsoDate => new Date().toISOString().slice(0, 10);
 export function getLoan(id: number): Promise<LoanFull | undefined> {
   return one<LoanFull>(
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
-            p.gl_receivable_id, p.gl_interest_income_id, p.gl_fee_income_id, p.gl_penalty_income_id,
+            p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id,
             m.member_no, m.first_name, m.last_name, m.gross_income, m.other_deductions
      FROM loan l JOIN loan_product p ON p.id = l.product_id
      JOIN member m ON m.id = l.member_id WHERE l.id = ?`,
@@ -135,10 +136,28 @@ export function listLoans(
   );
 }
 
+/** Every loan_appraisal run on record for a loan, newest first, each with its factor
+ *  breakdown attached — the Appraisal tab's history and the printable Appraisal Report both
+ *  read this. */
+export async function listLoanAppraisals(loanId: number): Promise<LoanAppraisalRow[]> {
+  const [appraisals, factors] = await Promise.all([
+    all<Omit<LoanAppraisalRow, 'factors'>>(
+      'SELECT * FROM loan_appraisal WHERE loan_id = ? ORDER BY id DESC', loanId,
+    ),
+    all<LoanAppraisalFactorRow & { appraisal_id: number }>(
+      `SELECT f.* FROM loan_appraisal_factor f
+       JOIN loan_appraisal a ON a.id = f.appraisal_id
+       WHERE a.loan_id = ? ORDER BY f.appraisal_id, f.seq`,
+      loanId,
+    ),
+  ]);
+  return appraisals.map((a) => ({ ...a, factors: factors.filter((f) => f.appraisal_id === a.id) }));
+}
+
 export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
   const loan = await getLoan(id);
   if (!loan) return null;
-  const [schedule, guarantors, collateral, transactions] = await Promise.all([
+  const [schedule, guarantors, collateral, transactions, appraisals] = await Promise.all([
     all<LoanScheduleRow>('SELECT * FROM loan_schedule WHERE loan_id = ? ORDER BY installment_no', id),
     all<GuarantorRow>(
       `SELECT g.*, m.member_no, m.first_name, m.last_name
@@ -156,8 +175,9 @@ export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
        WHERE t.loan_id = ? ORDER BY t.id DESC`,
       id,
     ),
+    listLoanAppraisals(id),
   ]);
-  return { loan, schedule, guarantors, collateral, transactions };
+  return { loan, schedule, guarantors, collateral, transactions, appraisals };
 }
 
 /** Deposits that count toward the loan multiplier. */
@@ -190,16 +210,32 @@ export interface AppraiseInput {
   productId: number;
   principal: Cents;
   termMonths: number;
+  /** When appraising an already-captured loan, its committed guarantors and attached
+   *  collateral count toward the SECURITY_COVER factor below. Omitted for the ephemeral
+   *  pre-save preview in the New Application modal, before a loan_id exists to read either
+   *  from — the factor then falls back to self-guarantee (deposits) alone. */
+  loanId?: number;
+}
+
+/** Committed guarantee amounts + attached collateral cover on file for a loan — the "from
+ *  other members" and "through collateral" halves of the SECURITY_COVER factor below. */
+async function committedSecurity(loanId: number): Promise<{ guarantors: Cents; collateral: Cents }> {
+  const [g, c] = await Promise.all([
+    one<{ s: Cents }>("SELECT COALESCE(SUM(amount),0) s FROM loan_guarantor WHERE loan_id = ? AND status = 'COMMITTED'", loanId),
+    one<{ s: Cents }>("SELECT COALESCE(SUM(guarantee),0) s FROM loan_collateral WHERE loan_id = ? AND status = 'ACTIVE'", loanId),
+  ]);
+  return { guarantors: g!.s, collateral: c!.s };
 }
 
 /** Credit appraisal — returns an explainable decision with individual factor results. */
-export async function appraise({ memberId, productId, principal, termMonths }: AppraiseInput): Promise<Appraisal> {
-  const [member, product, deposits, exposure, obligations] = await Promise.all([
+export async function appraise({ memberId, productId, principal, termMonths, loanId }: AppraiseInput): Promise<Appraisal> {
+  const [member, product, deposits, exposure, obligations, security] = await Promise.all([
     one<Member>('SELECT * FROM member WHERE id = ?', memberId),
     one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', productId),
     loanableDeposits(memberId),
     existingExposure(memberId),
     monthlyObligations(memberId),
+    loanId ? committedSecurity(loanId) : Promise.resolve({ guarantors: 0, collateral: 0 }),
   ]);
   if (!member) throw new PostingError('Member not found', 'MEMBER_NOT_FOUND');
   if (!product) throw new PostingError('Loan product not found', 'PRODUCT_NOT_FOUND');
@@ -213,6 +249,14 @@ export async function appraise({ memberId, productId, principal, termMonths }: A
   );
   const totalDeductions = obligations + member.other_deductions + installment;
   const dsr = member.gross_income > 0 ? (totalDeductions / member.gross_income) * 100 : 999;
+
+  // Fully secured = self-guarantee (the applicant's own withdrawable deposits) plus whatever
+  // other members have committed as guarantors plus whatever collateral is attached — section
+  // 6/7's guarantee and security-management rules narrowed to a single pass/fail cover check.
+  // Pre-save (no loanId yet) only self-guarantee is known; guarantors/collateral read as zero
+  // until the officer attaches them and re-runs the appraisal against the saved loan.
+  const selfGuarantee = Math.min(deposits, principal);
+  const securityCover = selfGuarantee + security.guarantors + security.collateral;
 
   const factors: AppraisalFactor[] = [
     { code: 'MEMBER_STATUS', label: 'Member in good standing', pass: member.status === 'ACTIVE',
@@ -232,6 +276,12 @@ export async function appraise({ memberId, productId, principal, termMonths }: A
     { code: 'AFFORDABILITY', label: `Deduction ratio ≤ ${product.max_dsr_pct}%`,
       pass: dsr <= product.max_dsr_pct,
       detail: `Total deductions ${(totalDeductions / 100).toLocaleString()} of income ${(member.gross_income / 100).toLocaleString()} = ${dsr.toFixed(1)}%` },
+    { code: 'SECURITY_COVER', label: 'Fully secured — guarantors and/or collateral cover the principal',
+      pass: securityCover >= principal,
+      detail: `Self deposits ${(selfGuarantee / 100).toLocaleString()} + guarantors ${(security.guarantors / 100).toLocaleString()}`
+        + ` + collateral ${(security.collateral / 100).toLocaleString()} = ${(securityCover / 100).toLocaleString()}`
+        + ` against principal ${(principal / 100).toLocaleString()}`
+        + (loanId ? '' : ' (attach guarantors/collateral on the saved application, then re-run)') },
   ];
 
   const passed = factors.filter((f) => f.pass).length;
@@ -245,6 +295,69 @@ export async function appraise({ memberId, productId, principal, termMonths }: A
     maxByMultiplier,
     dsr: Number(dsr.toFixed(1)),
     monthlyObligations: obligations,
+  };
+}
+
+export interface SaveAppraisalInput {
+  loanId: number;
+  user: Actor;
+}
+
+/**
+ * Runs the same explainable appraisal as appraise() above, but against an already-captured loan,
+ * and persists the result as a new loan_appraisal row instead of letting it evaporate once the
+ * screen closes. Never overwrites a prior run — each call adds one more dated entry — so the
+ * loan's Appraisal tab always shows exactly what was known and decided at each point in time
+ * (section 5's "dated immutable result"), right through to a final re-check before disbursement.
+ */
+export async function saveAppraisal({ loanId, user }: SaveAppraisalInput): Promise<LoanAppraisalRow> {
+  const loan = await getLoan(loanId);
+  if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
+  if (!['OPEN', 'PENDING APPROVAL', 'APPROVED'].includes(loan.status)) {
+    throw new PostingError(`Loan is ${loan.status} and cannot be appraised`, 'BAD_STATUS');
+  }
+
+  const result = await appraise({
+    memberId: loan.member_id, productId: loan.product_id, principal: loan.principal, termMonths: loan.term_months,
+    loanId,
+  });
+  const appraisedAt = new Date().toISOString();
+
+  const id = await tx(async () => {
+    const info = await run(
+      `INSERT INTO loan_appraisal
+         (loan_id, decision, score, installment, deposits, exposure, max_by_multiplier, dsr,
+          monthly_obligations, appraised_by, appraised_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      loanId, result.decision, result.score, result.installment, result.deposits, result.exposure,
+      result.maxByMultiplier, result.dsr, result.monthlyObligations, user.username, appraisedAt,
+    );
+    const appraisalId = Number(info.lastInsertRowid);
+    let seq = 0;
+    for (const f of result.factors) {
+      await run(
+        'INSERT INTO loan_appraisal_factor (appraisal_id, seq, code, label, pass, detail) VALUES (?,?,?,?,?,?)',
+        appraisalId, seq++, f.code, f.label, f.pass, f.detail,
+      );
+    }
+    return appraisalId;
+  });
+
+  await audit(user, 'LOAN_APPRAISE', 'loan_appraisal', id, { loanId, decision: result.decision, score: result.score });
+  return {
+    id,
+    loan_id: loanId,
+    decision: result.decision,
+    score: result.score,
+    installment: result.installment,
+    deposits: result.deposits,
+    exposure: result.exposure,
+    max_by_multiplier: result.maxByMultiplier,
+    dsr: result.dsr,
+    monthly_obligations: result.monthlyObligations,
+    appraised_by: user.username,
+    appraised_at: appraisedAt,
+    factors: result.factors.map((f): LoanAppraisalFactorRow => ({ ...f })),
   };
 }
 
@@ -296,6 +409,89 @@ export async function apply({
   return (await getLoan(id))!;
 }
 
+export interface UpdateLoanInput {
+  loanId: number;
+  memberId: number;
+  productId: number;
+  principal: Cents;
+  termMonths: number;
+  purpose?: string | null;
+  disburseToAccountId?: number | null;
+  user: Actor;
+}
+
+/** Edits a captured application — only while it is still OPEN, the same window apply()'s own
+ *  guarantor/collateral attachments stay open, so a draft can be corrected before it is ever
+ *  routed for approval. Re-validates against the (possibly newly chosen) product exactly as
+ *  apply() does, and re-copies its interest rate/method, since switching products mid-edit
+ *  should re-price the loan the same way starting a fresh application would. */
+export async function update({
+  loanId, memberId, productId, principal, termMonths, purpose = null, disburseToAccountId = null, user,
+}: UpdateLoanInput): Promise<LoanFull> {
+  const loan = await getLoan(loanId);
+  if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
+  if (loan.status !== 'OPEN') throw new PostingError(`Loan is ${loan.status} and cannot be edited`, 'BAD_STATUS');
+
+  principal = Math.round(principal);
+  const product = await one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', productId);
+  if (!product) throw new PostingError('Loan product not found', 'PRODUCT_NOT_FOUND');
+  if (principal <= 0) throw new PostingError('Loan amount must be greater than zero', 'INVALID_AMOUNT');
+  if (termMonths <= 0 || termMonths > product.max_term_months) {
+    throw new PostingError(`Term must be between 1 and ${product.max_term_months} months`, 'INVALID_TERM');
+  }
+
+  await run(
+    `UPDATE loan SET member_id=?, product_id=?, principal=?, interest_rate=?, interest_method=?,
+       term_months=?, purpose=?, disburse_to_account_id=?, version = version + 1
+     WHERE id=?`,
+    memberId, productId, principal, product.interest_rate, product.interest_method,
+    termMonths, purpose || null, disburseToAccountId || null, loanId,
+  );
+
+  await audit(user, 'LOAN_UPDATE', 'loan', loanId, { principal, termMonths, productId, memberId });
+  return (await getLoan(loanId))!;
+}
+
+export interface CommitGuarantorInput {
+  loanId: number;
+  memberId: number;
+  amount: Cents;
+}
+
+/** Commits a member's guarantee to a loan application — the "from other members" half of
+ *  SECURITY_COVER above, and only while the loan is still OPEN, the same point loan_collateral
+ *  is fixed (section 6's "lock guarantor capacity in one transaction"). The applicant's own
+ *  self-guarantee is already counted from their deposits, so they cannot also guarantee their
+ *  own loan here. */
+export async function commitGuarantor({ loanId, memberId, amount }: CommitGuarantorInput, user: Actor): Promise<void> {
+  const loan = await one<{ member_id: number; status: string }>('SELECT member_id, status FROM loan WHERE id = ?', loanId);
+  if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
+  if (loan.status !== 'OPEN') throw new PostingError('Guarantors can only be committed while the loan is still open', 'BAD_STATUS');
+  if (memberId === loan.member_id) {
+    throw new PostingError('A member cannot guarantee their own loan — that capacity is already counted as self-guarantee', 'VALIDATION');
+  }
+  if (!(await one('SELECT 1 FROM member WHERE id = ?', memberId))) throw new PostingError('Member not found', 'NOT_FOUND');
+
+  const amt = Math.round(amount);
+  if (amt <= 0) throw new PostingError('Guarantee amount must be greater than zero', 'INVALID_AMOUNT');
+
+  await run(
+    `INSERT INTO loan_guarantor (loan_id, member_id, amount) VALUES (?,?,?)
+     ON CONFLICT (loan_id, member_id) DO UPDATE SET amount = EXCLUDED.amount, status = 'COMMITTED'`,
+    loanId, memberId, amt,
+  );
+  await audit(user, 'LOAN_GUARANTOR_COMMIT', 'loan', loanId, { memberId, amount: amt });
+}
+
+export async function releaseGuarantor(loanId: number, memberId: number, user: Actor): Promise<void> {
+  const loan = await one<{ status: string }>('SELECT status FROM loan WHERE id = ?', loanId);
+  if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
+  if (loan.status !== 'OPEN') throw new PostingError('Guarantors can only be released while the loan is still open', 'BAD_STATUS');
+
+  await run('DELETE FROM loan_guarantor WHERE loan_id = ? AND member_id = ?', loanId, memberId);
+  await audit(user, 'LOAN_GUARANTOR_RELEASE', 'loan', loanId, { memberId });
+}
+
 export interface SubmitInput {
   loanId: number;
   user: Actor;
@@ -304,11 +500,18 @@ export interface SubmitInput {
 /** Sends a captured (OPEN) loan for approval — always requires routing through an admin-defined,
  *  enabled workflow, with no falling back to a flat permission check. Keys passed here must match
  *  RUNTIME_FIELD_CAP.LOAN (lib/workflowConstants.ts) — that cap is what stops an admin from
- *  enabling a Table Relation field here that would never actually match. */
+ *  enabling a Table Relation field here that would never actually match. Also requires a credit
+ *  appraisal already on file (section 13's approval flow assumes one ran): a loan with no
+ *  loan_appraisal row cannot be sent up until the officer runs and files the appraisal report —
+ *  the same precondition DocumentActionsMenu's own Appraisal Report export already reflects by
+ *  staying disabled until then. */
 export async function submit({ loanId, user }: SubmitInput): Promise<LoanFull> {
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
   if (loan.status !== 'OPEN') throw new PostingError(`Loan is ${loan.status} and cannot be submitted`, 'BAD_STATUS');
+  if (!(await one('SELECT 1 FROM loan_appraisal WHERE loan_id = ?', loanId))) {
+    throw new PostingError('Run the credit appraisal report before sending this loan for approval', 'NO_APPRAISAL');
+  }
 
   const matched = await findMatchingWorkflow('LOAN', {
     principal: loan.principal, product_id: loan.product_id, term_months: loan.term_months,
@@ -387,8 +590,11 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
   const firstDue = addMonths(vd, 1);
   const sched = buildSchedule(loan.principal, loan.interest_rate, loan.term_months, loan.interest_method, firstDue);
 
-  const fees = Math.round((loan.principal * product.processing_fee_pct) / 100)
-    + Math.round((loan.principal * product.insurance_pct) / 100);
+  // The Loan Product Charges computation module (lib/loans.ts's calculateLoanProductCharges):
+  // every configured charge line, each posting to its own revenue account.
+  const chargeLines = await listLoanProductCharges(product.id);
+  const charges = calculateLoanProductCharges(chargeLines, loan.principal, loan.term_months);
+  const fees = charges.reduce((sum, c) => sum + c.amount, 0);
 
   const target = loan.disburse_to_account_id
     ? await one<SavingsAccount & { gl_control_id: number }>(
@@ -404,13 +610,14 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
     ];
     if (target) {
       lines.push({ account: target.gl_control_id, debit: 0, credit: loan.principal, narration: 'Credit to member account' });
-      if (fees > 0) {
-        lines.push({ account: target.gl_control_id, debit: fees, credit: 0, narration: 'Loan charges recovered' });
-        lines.push({ account: loan.gl_fee_income_id, debit: 0, credit: fees, narration: 'Processing fee & insurance' });
-      }
+      if (fees > 0) lines.push({ account: target.gl_control_id, debit: fees, credit: 0, narration: 'Loan charges recovered' });
     } else {
       lines.push({ account: CHANNEL_GL[channel] || CHANNEL_GL.BANK, debit: 0, credit: loan.principal - fees, narration: 'Net paid out' });
-      if (fees > 0) lines.push({ account: loan.gl_fee_income_id, debit: 0, credit: fees, narration: 'Processing fee & insurance' });
+    }
+    // One credit line per charge, to its own configured revenue account — Loan Product
+    // Charges' "Revenue account" only means something if it's actually where the money lands.
+    for (const c of charges) {
+      lines.push({ account: c.glAccountId, debit: 0, credit: c.amount, narration: c.chargeDescription || c.chargeCode });
     }
 
     const j = await postJournal({

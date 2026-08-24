@@ -6,6 +6,7 @@ import { actionResult } from '@/lib/errors';
 import * as admin from '@/lib/admin';
 import { updateOrg, updateTheme } from '@/lib/org';
 import { toCents } from '@/lib/format';
+import type { LoanProductChargeDraft } from '@/lib/loanProductCharges';
 import type {
   ActionResult, FormValues, Organisation, PermissionTableOption, Role, SavingsProduct,
   LoanProduct, Theme, ThemeTokens, UserStatus,
@@ -120,14 +121,15 @@ export async function saveSavingsProduct(
 /* ----------------------------------------------------------- loan products */
 const LOAN_NUMERIC = [
   'interest_rate', 'max_term_months', 'deposit_multiplier', 'min_membership_months',
-  'processing_fee_pct', 'insurance_pct', 'penalty_rate', 'guarantors_required', 'max_dsr_pct',
-  'gl_receivable_id', 'gl_interest_income_id', 'gl_fee_income_id', 'gl_penalty_income_id',
+  'penalty_rate', 'guarantors_required', 'max_dsr_pct',
+  'gl_receivable_id', 'gl_interest_income_id', 'gl_penalty_income_id',
 ] as const;
 
 export async function saveLoanProduct(
   id: number | null,
   values: FormValues,
-): Promise<ActionResult<LoanProduct | { id: number }>> {
+  chargeLines: LoanProductChargeDraft[] = [],
+): Promise<ActionResult<LoanProduct>> {
   return actionResult(async () => {
     const user = await requireAction('ADMIN_PRODUCTS_LOANS_MANAGE');
     const body: admin.LoanProductInput = {
@@ -140,9 +142,7 @@ export async function saveLoanProduct(
     };
     for (const key of LOAN_NUMERIC) body[key] = Number(values[key]) || 0;
 
-    const result = id
-      ? await admin.updateLoanProduct(id, body, user)
-      : await admin.createLoanProduct(body, user);
+    const result = await admin.saveLoanProductWithCharges(id, body, chargeLines, user);
     revalidatePath('/admin/loans');
     return result;
   });

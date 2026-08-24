@@ -149,7 +149,7 @@ export async function createCollateralRelease(
   return { no };
 }
 
-export interface UpdateCollateralReleaseInput extends Partial<Omit<CreateCollateralReleaseInput, 'collateralNo'>> {}
+export interface UpdateCollateralReleaseInput extends Partial<CreateCollateralReleaseInput> {}
 
 export async function updateCollateralRelease(
   no: string, body: UpdateCollateralReleaseInput, user: Actor,
@@ -165,6 +165,25 @@ export async function updateCollateralRelease(
   }
 
   const cols: Record<string, unknown> = {};
+  // A changed collateral item (whether re-targeting the same member's other pledge, or a
+  // different member's entirely) is re-validated exactly as a fresh release would be — still
+  // uncollected, and not already claimed by another live release (excluding this one) — and
+  // member_id is re-derived from the newly chosen item's own register row, the same way it was
+  // set at creation, so the two never disagree about whose asset this is.
+  if (body.collateralNo !== undefined && body.collateralNo !== req.collateral_no) {
+    const register = await one<{ no: string; member_id: number; collected_at: string | null }>(
+      'SELECT no, member_id, collected_at FROM collateral_register WHERE no = ?', body.collateralNo,
+    );
+    if (!register) throw new AppError('Collateral register item not found', 'NOT_FOUND');
+    if (register.collected_at) throw new AppError('This collateral item has already been collected', 'VALIDATION');
+    const live = await one(
+      "SELECT 1 FROM collateral_release WHERE collateral_no = ? AND status <> 'Processed' AND no <> ?",
+      body.collateralNo, no,
+    );
+    if (live) throw new AppError('A release request is already open or in progress for this collateral item', 'VALIDATION');
+    cols.collateral_no = body.collateralNo;
+    cols.member_id = register.member_id;
+  }
   if (body.collectionDate !== undefined) cols.collection_date = body.collectionDate || null;
   if (body.collectedBy !== undefined) cols.collected_by = body.collectedBy || null;
   if (body.collectedByIdNo !== undefined) cols.collected_by_id_no = body.collectedByIdNo || null;

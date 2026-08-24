@@ -353,6 +353,11 @@ tbody tr.header-row { background: var(--surface-2); font-weight: 600; }
 .sort-link:hover { color: var(--brand-primary); }
 .sort-link .arrow { font-size: 9px; }
 .table-wrap { overflow-x: auto; margin: 0 calc(var(--sp) * -2.5) calc(var(--sp) * -2.5); padding: 0 calc(var(--sp) * 2.5) 0; }
+/* Caps a long list's height and scrolls internally instead of pushing the rest of the card
+   (and the page) down — the table's own header row stays put as you scroll its body. */
+.scroll-list { max-height: 260px; overflow-y: auto; }
+.scroll-list .table-wrap { margin: 0; padding: 0; }
+.scroll-list thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight: 600; }
 
 .btn {
@@ -387,6 +392,18 @@ textarea { min-height: 74px; resize: vertical; }
 .inline { display: flex; gap: var(--sp); align-items: center; flex-wrap: wrap; }
 .checkline { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 6px; }
 .checkline label { margin: 0; cursor: pointer; }
+
+.combobox { position: relative; }
+.combobox-list {
+  position: absolute; z-index: 20; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 4px;
+  list-style: none; max-height: 260px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+.combobox-list li { padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; }
+.combobox-list li:hover, .combobox-list li.active { background: var(--surface-2); }
+.combobox-list li.combobox-empty { cursor: default; color: var(--text-muted); }
+.combobox-list li.combobox-empty:hover { background: none; }
 
 /* Every boolean field is a real <input type=checkbox> under the hood (keyboard
    support, form data and accessibility all come for free); this just restyles
@@ -423,6 +440,28 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 .pill.warn { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
 .pill.bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
 .pill.info { background: var(--brand-primary-soft); color: var(--brand-primary); border-color: color-mix(in srgb, var(--brand-primary) 35%, transparent); }
+
+/* Multi-select filter chips (components/ui/multi-select-filter.tsx) — reuses the .pill shape
+   with a small inline remove button. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.pill.chip { display: inline-flex; align-items: center; gap: 5px; }
+.pill.chip button {
+  background: none; border: none; padding: 0; margin: 0; line-height: 1; font-size: 13px;
+  color: inherit; cursor: pointer;
+}
+.pill.chip button:hover { opacity: .7; }
+
+/* Member Statement (app/member-statements) — letterhead, print pagination and toolbar sizing
+   for its three multi-select filters. */
+.toolbar .field.combobox.multi { margin-bottom: 0; min-width: 220px; }
+.statement-block { margin-bottom: calc(var(--sp) * 3); }
+.statement-letterhead {
+  display: flex; align-items: center; gap: calc(var(--sp) * 1.5);
+  padding-bottom: calc(var(--sp) * 1.5); margin-bottom: calc(var(--sp) * 1.5); border-bottom: 1px solid var(--border);
+}
+.statement-logo { width: 56px; height: 56px; object-fit: contain; flex: none; }
+.statement-org-name { font-weight: 650; font-size: 15px; }
+.statement-footnote { color: var(--text-muted); font-size: 11.5px; text-align: center; margin-top: calc(var(--sp) * 2); }
 
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: calc(var(--sp) * 2.5); overflow-x: auto; }
 .tabs a, .tabs button {
@@ -770,7 +809,18 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
   .sidebar, .topbar, .toolbar, .btn, .tabs, .toasts, .result-back, .nav-backdrop, .card-nav-btn, .doc-actions { display: none !important; }
   .shell { grid-template-columns: 1fr; }
   .card { border: none; padding: 0; }
+  /* Member Statement printout: one member's statement per page, table headers repeat across a
+     ledger that spans a page break, and a single ledger row is never split across pages. */
+  .statement-block + .statement-block { break-before: page; page-break-before: always; }
+  .statement-ledger thead { display: table-header-group; }
+  .statement-ledger tr { break-inside: avoid; }
+  /* Loan Documents printout (app/loan-documents): one loan's document per page. */
+  .loan-doc-block + .loan-doc-block { break-before: page; page-break-before: always; }
 }
+
+/* Loan Documents (app/loan-documents) — signature boxes, constrained so a missing signature's
+   placeholder text doesn't distort row heights in the guarantor table. */
+.signature-img { max-height: 12mm; max-width: 60mm; object-fit: contain; }
 
 /* Same rules as @media print above, applied unconditionally so a `?preview=1` tab
  * (opened by DocumentActionsMenu's Preview action, see PrintPreviewMode) shows the

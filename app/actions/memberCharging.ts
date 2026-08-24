@@ -31,9 +31,6 @@ export async function requestMemberCharging(values: FormValues): Promise<ActionR
   });
 }
 
-/** Member No. is fixed at creation — the same rule lib/accountActivation.ts's own EditButton
- *  follows for its Account — so the document's existing member is always what gets revalidated
- *  against here, never one resubmitted from the client. */
 export async function saveMemberCharging(
   no: string, values: FormValues,
 ): Promise<ActionResult<MemberChargingWithDimensions>> {
@@ -41,7 +38,7 @@ export async function saveMemberCharging(
     const user = await requireAction('MEMBER_CHARGING_CREATE');
     const existing = await getMemberCharging(no);
     if (!existing) throw new AppError('Member charging document not found', 'NOT_FOUND');
-    const saved = await updateMemberCharging(no, { ...toInput(values), memberId: existing.member_id }, user);
+    const saved = await updateMemberCharging(no, toInput(values), user);
     revalidatePath('/member-chargings');
     revalidatePath(`/member-chargings/view/${no}`);
     return saved;

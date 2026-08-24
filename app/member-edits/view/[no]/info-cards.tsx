@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardHead, DefinitionList, Pill } from '@/components/ui/primitives';
 import { Field, readForm } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
 import { useToast } from '@/components/ui/toast';
 import { useBeforeNext, useContinueEditing, useGoNext } from '@/components/ui/client-tabs';
 import { Money } from '@/components/ui/money';
@@ -13,7 +14,7 @@ import {
   MEMBER_TITLES, GENDERS, MARITAL_STATUSES, EMPLOYMENT_STATUSES,
 } from '@/lib/constants';
 import type {
-  County, DimensionValue, MemberCategory, MemberEditRequestWithDimensions, SubCounty,
+  County, DimensionValue, Member, MemberCategory, MemberEditRequestWithDimensions, SubCounty,
 } from '@/lib/types';
 
 /** Shared edit-toggle plumbing for an inline-editable request card. Registers with the
@@ -72,26 +73,41 @@ export interface GeneralInfoCardProps {
   globalDimension2Values: DimensionValue[];
   caption1: string;
   caption2: string;
+  /** Every existing member — this card's own Member picker. Picking a different one re-targets
+   *  the whole request onto them: every other tab is re-snapshotted from their current live
+   *  data, exactly as if the request had been opened against them to begin with (see
+   *  lib/memberEdits.ts's changeMemberEditRequestMember()). This is not renaming the current
+   *  member's number — it's "wrong member was picked at capture time, start over on the right
+   *  one." */
+  members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
   canEdit: boolean;
 }
 
 export function GeneralInfoCard({
   request: a, memberCategories,
-  globalDimension1Values, globalDimension2Values, caption1, caption2, canEdit,
+  globalDimension1Values, globalDimension2Values, caption1, caption2, members, canEdit,
 }: GeneralInfoCardProps) {
   const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no);
+  const [memberId, setMemberId] = useState(String(a.member_id));
 
   return (
     <Card>
       <CardHead title="General information" sub="Workflow status and routing">
         {canEdit && !editing ? (
-          <button type="button" className="btn sm ghost" onClick={() => setEditing(true)}>Edit</button>
+          // memberId lives in this component's own state rather than inside the conditionally
+          // rendered <form> below, so — unlike every other (uncontrolled) field here, which gets
+          // a clean slate for free each time the form unmounts/remounts on Cancel — it needs an
+          // explicit reset on the way back in, or an abandoned pick would silently still be
+          // sitting in state the next time Save actually runs.
+          <button type="button" className="btn sm ghost"
+            onClick={() => { setMemberId(String(a.member_id)); setEditing(true); }}>Edit</button>
         ) : null}
       </CardHead>
 
       {!editing ? (
         <DefinitionList items={[
           ['Request no.', <span className="mono" key="no">{a.no}</span>],
+          ['Member', <>{a.member_first_name} {a.member_last_name} <span className="mono">({a.member_no})</span></>],
           ['Status', <Pill status={a.status} key="status" />],
           ['Member category', a.member_category_name || '—'],
           ['Join date', formatDate(a.join_date)],
@@ -106,6 +122,8 @@ export function GeneralInfoCard({
         <>
           <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
             <div className="grid g3">
+              <MemberSelect id="f_member_id" name="member_id" members={members} value={memberId}
+                onChange={setMemberId} required />
               <Field name="member_category_id" label="Member category" type="select" defaultValue={a.member_category_id}
                 options={[
                   { value: '', label: 'Select category…' },
@@ -123,6 +141,13 @@ export function GeneralInfoCard({
                   ...globalDimension2Values.map((v) => ({ value: v.id, label: v.name })),
                 ]} />
             </div>
+            {memberId !== String(a.member_id) ? (
+              <div className="note">
+                Saving will replace every tab on this card — name, contact details, employment,
+                next of kin, nominees, signatories and KYC documents — with the newly selected
+                member&apos;s own current information, discarding whatever was staged for {a.member_first_name} {a.member_last_name}.
+              </div>
+            ) : null}
             <Field name="kyc_verified" label="KYC documents verified" type="checkbox" defaultValue={a.kyc_verified} />
           </form>
           <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />

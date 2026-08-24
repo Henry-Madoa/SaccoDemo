@@ -16,6 +16,7 @@ import { parseSort } from '@/lib/listSort';
 import { listConfigPackages, listConfigPackageTables } from '@/lib/configPackages';
 import { listPostableAccounts } from '@/lib/gl';
 import { listCharges, listTransactionCharges, getTransactionCharge } from '@/lib/charges';
+import { listLoanProductCharges } from '@/lib/loanProductCharges';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
   listDimensionValues, listActiveMemberCategories, listActiveCounties, listActiveDimensionValues,
@@ -365,13 +366,16 @@ async function SavingsProductsTab() {
 }
 
 async function LoanProductsTab() {
-  const [rows, accounts] = await Promise.all([listLoanProducts(), listPostableAccounts()]);
+  const [rows, accounts, charges] = await Promise.all([
+    listLoanProducts(), listPostableAccounts(), listCharges(),
+  ]);
+  const chargeLinesByProduct = await Promise.all(rows.map((p) => listLoanProductCharges(p.id)));
 
   return (
     <>
       <Toolbar>
         <Spacer />
-        <LoanProductButton accounts={accounts}>Add product</LoanProductButton>
+        <LoanProductButton charges={charges} accounts={accounts}>Add product</LoanProductButton>
       </Toolbar>
       <Card>
         <CardHead
@@ -382,12 +386,12 @@ async function LoanProductsTab() {
           <thead>
             <tr>
               <th>Code</th><th>Product</th><th className="num">Rate</th><th>Method</th>
-              <th className="num">Max term</th><th className="num">Multiplier</th><th className="num">Fees</th>
+              <th className="num">Max term</th><th className="num">Multiplier</th><th className="num">Charges</th>
               <th className="num">Live loans</th><th className="num">Portfolio</th><th className="num" />
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => (
+            {rows.map((p, i) => (
               <tr key={p.id}>
                 <td className="mono">{p.code}</td>
                 <td><b>{p.name}</b></td>
@@ -395,11 +399,18 @@ async function LoanProductsTab() {
                 <td>{p.interest_method}</td>
                 <td className="num">{p.max_term_months}m</td>
                 <td className="num">{p.deposit_multiplier}×</td>
-                <td className="num">{p.processing_fee_pct}% + {p.insurance_pct}%</td>
+                <td className="num">
+                  {chargeLinesByProduct[i].length
+                    ? `${chargeLinesByProduct[i].length} configured`
+                    : 'None configured'}
+                </td>
                 <td className="num">{p.active_loans}</td>
                 <td className="num"><Money cents={p.portfolio} decimals={0} /></td>
                 <td className="num">
-                  <LoanProductButton product={p} accounts={accounts} className="btn sm ghost">
+                  <LoanProductButton
+                    product={p} chargeLines={chargeLinesByProduct[i]} charges={charges} accounts={accounts}
+                    className="btn sm ghost"
+                  >
                     Edit
                   </LoanProductButton>
                 </td>
@@ -1000,13 +1011,14 @@ async function DataManagementTab() {
             <tbody>
               {packages.map((p) => (
                 <tr key={p.id}>
-                  <td><ConfigPackageCard pkg={p} /></td>
+                  <td className="mono">{p.code}</td>
                   <td><b>{p.name}</b></td>
                   <td className="mono tiny">{p.table_name}</td>
                   <td className="num">{p.fields.length}</td>
                   <td className="tiny">{p.key_field || '—'}</td>
                   <td className="num">
                     <div className="inline" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                      <ConfigPackageCard pkg={p} />
                       <ConfigPackageFormButton pkg={p} tables={tables} className="btn sm ghost">Edit</ConfigPackageFormButton>
                       <DeleteConfigPackageButton code={p.code} />
                     </div>

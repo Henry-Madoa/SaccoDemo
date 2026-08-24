@@ -8,8 +8,9 @@ import { passwordStrengthError } from './password.ts';
 import { listPermissionTables } from './permissions.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
+import { replaceLoanProductCharges, listLoanProductCharges, type LoanProductChargeDraft } from './loanProductCharges.ts';
 import type {
-  Actor, AuditEntry, LoanProduct, LoanProductWithUsage, PermissionSetLine, Role,
+  Actor, AuditEntry, LoanProduct, LoanProductWithCharges, LoanProductWithUsage, PermissionSetLine, Role,
   RoleWithUsage, SavingsProduct, SavingsProductWithUsage, UserListRow, UserStatus,
 } from './types.ts';
 
@@ -219,8 +220,8 @@ export async function updateSavingsProduct(
 /* ------------------------------------------------------------- loan products */
 const LOAN_PRODUCT_FIELDS = [
   'code', 'name', 'interest_rate', 'interest_method', 'max_term_months', 'min_amount', 'max_amount',
-  'deposit_multiplier', 'min_membership_months', 'processing_fee_pct', 'insurance_pct', 'penalty_rate',
-  'guarantors_required', 'max_dsr_pct', 'gl_receivable_id', 'gl_interest_income_id', 'gl_fee_income_id',
+  'deposit_multiplier', 'min_membership_months', 'penalty_rate',
+  'guarantors_required', 'max_dsr_pct', 'gl_receivable_id', 'gl_interest_income_id',
   'gl_penalty_income_id', 'status',
 ] as const satisfies readonly (keyof LoanProduct)[];
 
@@ -238,6 +239,15 @@ export const listLoanProducts = (): Promise<LoanProductWithUsage[]> =>
 
 export const listActiveLoanProducts = (): Promise<LoanProduct[]> =>
   all<LoanProduct>("SELECT * FROM loan_product WHERE status = 'ACTIVE' ORDER BY id");
+
+/** Every active loan product with its own Loan Product Charges lines attached — the New
+ *  Application form's product picklist, so it can preview charges (lib/loans.ts's
+ *  calculateLoanProductCharges) in the browser without a round trip for every keystroke. */
+export async function listActiveLoanProductsWithCharges(): Promise<LoanProductWithCharges[]> {
+  const products = await listActiveLoanProducts();
+  const charges = await Promise.all(products.map((p) => listLoanProductCharges(p.id)));
+  return products.map((p, i) => ({ ...p, charges: charges[i] }));
+}
 
 export async function createLoanProduct(body: LoanProductInput, user: Actor): Promise<{ id: number }> {
   if (!body.code || !body.name || !body.gl_receivable_id) {
@@ -266,6 +276,25 @@ export async function updateLoanProduct(
   }
   await audit(user, 'LOAN_PRODUCT_UPDATE', 'loan_product', id, { fields: cols });
   return (await one<LoanProduct>('SELECT * FROM loan_product WHERE id=?', id))!;
+}
+
+/** Saves a loan product's own fields together with its Loan Product Charges lines in one
+ *  transaction, so the two can never drift apart (a product half-saved with orphaned or
+ *  half-replaced charge lines). Charge lines are always wholesale-replaced, the same shape
+ *  lib/charges.ts's Transaction Charge components are. */
+export async function saveLoanProductWithCharges(
+  id: number | null,
+  body: LoanProductInput,
+  chargeLines: LoanProductChargeDraft[],
+  user: Actor,
+): Promise<LoanProduct> {
+  return tx(async () => {
+    const productId = id
+      ? (await updateLoanProduct(id, body, user)).id
+      : (await createLoanProduct(body, user)).id;
+    await replaceLoanProductCharges(productId, chargeLines, user);
+    return (await one<LoanProduct>('SELECT * FROM loan_product WHERE id=?', productId))!;
+  });
 }
 
 /* --------------------------------------------------------------- audit trail */

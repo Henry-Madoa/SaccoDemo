@@ -169,8 +169,18 @@ function CollectorFields({ defaults }: { defaults?: Partial<CollateralReleaseWit
   );
 }
 
+type ReleasableCollateral = Pick<
+  CollateralRegisterRow,
+  'no' | 'collateral_description' | 'serial_reg_no' | 'status' | 'member_no' | 'member_first_name' | 'member_last_name'
+>;
+
+const collateralLabel = (c: ReleasableCollateral): string =>
+  `${c.no} — ${c.member_no} ${c.member_first_name} ${c.member_last_name} — `
+  + `${c.collateral_description || c.serial_reg_no || 'Untitled'} `
+  + `(${c.status === 'LINKED_TO_LOAN' ? 'Linked to loan' : 'Available'})`;
+
 interface NewReleaseFormProps {
-  collateral: Pick<CollateralRegisterRow, 'no' | 'collateral_description' | 'serial_reg_no' | 'status'>[];
+  collateral: ReleasableCollateral[];
   presetCollateralNo?: string | null;
   onClose: () => void;
 }
@@ -189,11 +199,7 @@ function NewReleaseForm({ collateral, presetCollateralNo, onClose }: NewReleaseF
       <div className="field">
         <label htmlFor="f_collateralNo">Collateral <span className="req">*</span></label>
         <select id="f_collateralNo" name="collateralNo" required defaultValue={presetCollateralNo ?? collateral[0]?.no ?? ''}>
-          {collateral.map((c) => (
-            <option key={c.no} value={c.no}>
-              {c.no} — {c.collateral_description || c.serial_reg_no || 'Untitled'} ({c.status === 'LINKED_TO_LOAN' ? 'Linked to loan' : 'Available'})
-            </option>
-          ))}
+          {collateral.map((c) => <option key={c.no} value={c.no}>{collateralLabel(c)}</option>)}
         </select>
       </div>
       <CollectorFields />
@@ -223,11 +229,32 @@ export function NewCollateralReleaseButton({ collateral, presetCollateralNo }: {
   );
 }
 
-export function EditButton({ release, className = 'btn sm ghost' }: {
+/** Lets an Open release's target Collateral item — and, since the member is only ever derived
+ *  from whichever item is chosen (see lib/collateralReleases.ts's updateCollateralRelease()), the
+ *  member — be changed, alongside the collector details, before it's sent for approval. */
+export function EditButton({ release, collateral, className = 'btn sm ghost' }: {
   release: CollateralReleaseWithDetails;
+  collateral: ReleasableCollateral[];
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [collateralNo, setCollateralNo] = useState(release.collateral_no);
+
+  // The item currently attached to this release is always offered, even if it's since been
+  // filtered out of the live `collateral` list for some other reason — otherwise re-opening this
+  // form would show an empty/mismatched selection.
+  const candidates = collateral.some((c) => c.no === release.collateral_no)
+    ? collateral
+    : [
+        {
+          no: release.collateral_no, collateral_description: release.collateral_description,
+          serial_reg_no: release.collateral_serial_reg_no, status: 'AVAILABLE' as const,
+          member_no: release.member_no, member_first_name: release.member_first_name,
+          member_last_name: release.member_last_name,
+        },
+        ...collateral,
+      ];
+
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
@@ -240,6 +267,13 @@ export function EditButton({ release, className = 'btn sm ghost' }: {
           submitLabel="Save changes"
           successTitle="Release updated"
         >
+          <div className="field">
+            <label htmlFor="f_collateralNo">Collateral <span className="req">*</span></label>
+            <select id="f_collateralNo" name="collateralNo" required value={collateralNo}
+              onChange={(e) => setCollateralNo(e.target.value)}>
+              {candidates.map((c) => <option key={c.no} value={c.no}>{collateralLabel(c)}</option>)}
+            </select>
+          </div>
           <CollectorFields defaults={release} />
         </FormModal>
       ) : null}

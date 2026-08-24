@@ -152,6 +152,12 @@ export const listMemberEditRequests = (
 export const getMemberEditRequest = (no: string): Promise<MemberEditRequestWithDimensions | undefined> =>
   one<MemberEditRequestWithDimensions>(`${SELECT_EDIT_REQUEST} WHERE e.no = ?`, no);
 
+/** Just the member_id column — lets saveMemberEditRequest() below decide whether an incoming
+ *  save is an ordinary field patch or a member re-target, without paying for the full joined
+ *  getMemberEditRequest() just to find out. */
+export const getMemberEditRequestMemberId = (no: string): Promise<number | undefined> =>
+  one<{ member_id: number }>('SELECT member_id FROM member_edit_request WHERE no = ?', no).then((r) => r?.member_id);
+
 /** Whether the current view tab has any edit requests at all, ignoring search and dynamic
  *  filters — lets the page grey out its filter controls only when there's truly nothing to
  *  filter. */
@@ -224,6 +230,68 @@ export async function createMemberEditRequest(memberId: number, user: Actor): Pr
     await logTableChange('member_edit_request', no, 'Insertion', changes, user);
   });
   return { no };
+}
+
+/** Re-targets an Open edit request onto a different member, replacing the entire staged
+ *  snapshot — every flat field, next of kin, nominee, signatory and KYC attachment — with that
+ *  member's own current data, exactly as createMemberEditRequest() does for a brand new request.
+ *  Used when the wrong member was picked at capture time: the request's own no., workflow
+ *  status, created_at/by are untouched, but every other tab now reflects the newly chosen
+ *  member as if the request had been opened against them from the start. */
+export async function changeMemberEditRequestMember(
+  no: string, newMemberId: number, user: Actor,
+): Promise<MemberEditRequestWithDimensions> {
+  const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
+  if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
+  if (req.status !== 'Open') throw new AppError('Only an open edit request can be edited', 'VALIDATION');
+
+  const member = await getMember(newMemberId);
+  if (!member) throw new AppError('Member not found', 'NOT_FOUND');
+
+  if (newMemberId !== req.member_id) {
+    const inFlight = await one<{ no: string }>(
+      "SELECT no FROM member_edit_request WHERE member_id = ? AND status != 'Processed' AND no != ?",
+      newMemberId, no,
+    );
+    if (inFlight) {
+      throw new AppError(
+        `${member.member_no} already has an edit request in flight (${inFlight.no}) — finish or cancel it first`,
+        'DUPLICATE_REQUEST',
+      );
+    }
+  }
+
+  const values = EDIT_FIELDS.map((f) => (member as unknown as Record<string, string | number | null>)[f]);
+
+  await tx(async () => {
+    await run(
+      `UPDATE member_edit_request SET member_id = ?, ${EDIT_FIELDS.map((f) => `${f}=?`).join(',')} WHERE no = ?`,
+      newMemberId, ...values, no,
+    );
+
+    const [nok, nominees, signatories] = await Promise.all([
+      listNextOfKin(newMemberId), listNominees(newMemberId), listSignatories(newMemberId),
+    ]);
+    await replaceEditNextOfKin(no, nok);
+    await replaceEditNominees(no, nominees);
+    await replaceEditSignatories(no, signatories);
+    // cloneMemberAttachmentsToEdit() only ever appends — clear whatever was staged for the
+    // previous member first (just the index rows, not the underlying Cloudinary assets: a
+    // cloned row shares its public_id with the live member's own attachment, so destroying the
+    // asset here would delete their real file, not just this request's reference to it).
+    await run('DELETE FROM member_edit_attachment WHERE edit_no = ?', no);
+    await cloneMemberAttachmentsToEdit(newMemberId, no);
+
+    const changes = [
+      { field: 'member_id', oldValue: req.member_id, newValue: newMemberId },
+      ...EDIT_FIELDS.map((f, i) => ({
+        field: f, oldValue: (req as unknown as Record<string, unknown>)[f], newValue: values[i],
+      })),
+    ];
+    await logTableChange('member_edit_request', no, 'Modification', changes, user);
+  });
+
+  return (await getMemberEditRequest(no))!;
 }
 
 export async function updateMemberEditRequest(

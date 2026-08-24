@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { getMemberEditRequest, diffMemberEditFields, getAdjacentEditRequestNos, type MemberEditView } from '@/lib/memberEdits';
-import { getMember } from '@/lib/members';
+import { getMember, listActiveMembers } from '@/lib/members';
 import { listEditNextOfKin, listEditNominees } from '@/lib/editNominees';
 import { listEditSignatories } from '@/lib/editSignatories';
 import { listEditAttachments } from '@/lib/editAttachments';
@@ -79,6 +79,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
   const canEditFields = isOpen && canEditThis;
   const diffs = diffMemberEditFields(currentMember, request);
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
+  const editMembers = canEditFields ? await listActiveMembers() : [];
 
   const generalPanel = (
     <GeneralInfoCard
@@ -88,6 +89,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
       globalDimension2Values={gd2Values}
       caption1={caption1}
       caption2={caption2}
+      members={editMembers}
       canEdit={canEditFields}
     />
   );
