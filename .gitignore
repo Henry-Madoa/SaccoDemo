@@ -11,4 +11,7 @@ tsconfig.tsbuildinfo
 
 # Prisma / local env
 .env
+.env.local
+.env.*.local
+.env.local.example
 backup/
