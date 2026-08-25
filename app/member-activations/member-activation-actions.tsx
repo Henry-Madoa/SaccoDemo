@@ -1,0 +1,372 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { FormModal } from '@/components/ui/form-modal';
+import { Field } from '@/components/ui/field';
+import { useResultDialog } from '@/components/ui/result-dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useRunAction } from '@/components/ui/run-action';
+import {
+  requestMemberActivation, saveMemberActivationRequest, submitMemberActivation,
+  cancelMemberActivationApprovalRequest, approveMemberActivation, rejectMemberActivation,
+  processMemberActivation, eligibleMembersForActivationRequest, accountsForActivationDebit,
+} from '@/app/actions/memberActivation';
+import { listMemberActivationChargeCodes, previewMemberActivationChargeAmount } from '@/app/actions/charges';
+import { delegateMyTask } from '@/app/actions/workflows';
+import { Money } from '@/components/ui/money';
+import { useFormat } from '@/components/ui/format-provider';
+import type {
+  MemberActivationRequestWithDimensions, PayFromAccountType, SavingsAccountForDebit, TransactionCharge,
+} from '@/lib/types';
+
+type EligibleMember = { id: number; member_no: string; first_name: string; last_name: string };
+
+export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => submitMemberActivation(no), {
+        confirm: {
+          title: 'Send this request for approval?',
+          message: 'It will be routed to the configured approver(s) and can no longer be edited while pending.',
+          confirmLabel: 'Send for approval',
+        },
+        successTitle: (d) => (d.autoApproved ? 'Request approved' : 'Sent for approval'),
+        successDetail: (d) => (d.autoApproved
+          ? 'You are the assigned approver, so this was approved automatically.' : undefined),
+      })}>
+      {busy ? 'Working…' : 'Send for approval'}
+    </button>
+  );
+}
+
+export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => cancelMemberActivationApprovalRequest(no), {
+        confirm: {
+          title: 'Cancel this approval request?',
+          message: 'The request goes back to Open so you can amend and resubmit it.',
+          confirmLabel: 'Cancel approval request',
+        },
+        successTitle: 'Approval request cancelled — back to Open',
+      })}>
+      {busy ? 'Working…' : 'Cancel approval request'}
+    </button>
+  );
+}
+
+export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId: number; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => delegateMyTask(taskId), {
+        confirm: {
+          title: 'Delegate to your substitute?',
+          message: 'Your configured substitute will be asked to decide this instead of you.',
+          confirmLabel: 'Delegate',
+        },
+        successTitle: 'Delegated to your substitute',
+      })}>
+      {busy ? 'Working…' : 'Delegate'}
+    </button>
+  );
+}
+
+export function ApproveButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => approveMemberActivation(no), {
+        confirm: { title: 'Approve this request?', confirmLabel: 'Approve' },
+        successTitle: 'Request approved',
+      })}>
+      {busy ? 'Working…' : 'Approve'}
+    </button>
+  );
+}
+
+export function RejectButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Reject</button>
+      {open ? (
+        <FormModal
+          title="Reject member activation request"
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => rejectMemberActivation(no, String(values.reason || ''))}
+          submitLabel="Reject"
+          submitClass="btn danger"
+          successTitle="Rejected — back to Open for changes"
+          resultStyle="popup"
+        >
+          <Field name="reason" label="Reason" type="textarea" required />
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
+/** `feeAmount` comes straight off the request's own `charge_amount` (see
+ *  lib/memberActivation.ts's withChargeAmount()) — the fee this specific request's chosen
+ *  Charge Code resolves to right now. */
+export function ProcessButton({ no, feeAmount = null, className = 'btn sm' }: {
+  no: string; feeAmount?: number | null; className?: string;
+}) {
+  const showResult = useResultDialog();
+  const confirm = useConfirm();
+  const router = useRouter();
+  const { cur } = useFormat();
+  const [busy, setBusy] = useState(false);
+
+  const process = async () => {
+    const ok = await confirm({
+      title: 'Reactivate this member?',
+      message: feeAmount
+        ? `A reactivation charge of ${cur(feeAmount)} will be recovered. The member and every one of their inactive accounts become Active immediately.`
+        : 'The member and every one of their inactive accounts become Active immediately.',
+      confirmLabel: 'Reactivate member',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await processMemberActivation(no);
+      if (!res.ok) { showResult('Could not reactivate the member', res.error, 'err'); return; }
+      showResult('Member reactivated', undefined, 'ok');
+      router.push(`/members/${res.data.memberId}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button type="button" className={className} disabled={busy} onClick={process}>
+      {busy ? 'Working…' : 'Reactivate member'}
+    </button>
+  );
+}
+
+const PAY_FROM_OPTIONS: { value: PayFromAccountType; label: string }[] = [
+  { value: 'MEMBER_ACCOUNT', label: "Member's own account" },
+  { value: 'CASH', label: 'Cash at the till' },
+];
+
+/**
+ * The Charge Code + Pay From Account Type pair, with a live fee/available-balance preview —
+ * shared by the New Request form and the Edit button for an Open request. Paying by CASH swaps
+ * the Debit Account picker for a Payment Reference field (AL's own "Pay From Account Type"
+ * choice between Cash Book and Member Account).
+ */
+function ChargeFields({
+  memberId, chargeId, setChargeId, payFromAccountType, setPayFromAccountType,
+  debitAccountId, setDebitAccountId, autoSelectFirst,
+}: {
+  memberId: string;
+  chargeId: string;
+  setChargeId: (v: string) => void;
+  payFromAccountType: PayFromAccountType;
+  setPayFromAccountType: (v: PayFromAccountType) => void;
+  debitAccountId: string;
+  setDebitAccountId: (v: string) => void;
+  autoSelectFirst?: boolean;
+}) {
+  const { cur } = useFormat();
+  const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
+  const [debitAccounts, setDebitAccounts] = useState<SavingsAccountForDebit[]>([]);
+  const [feeAmount, setFeeAmount] = useState<number | null>(null);
+
+  useEffect(() => {
+    listMemberActivationChargeCodes().then((res) => {
+      if (!res.ok) return;
+      setChargeCodes(res.data);
+      if (autoSelectFirst) setChargeId(chargeId || String(res.data[0]?.id ?? ''));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!memberId || payFromAccountType !== 'MEMBER_ACCOUNT') { setDebitAccounts([]); return; }
+    accountsForActivationDebit(Number(memberId)).then((res) => {
+      if (!cancelled && res.ok) setDebitAccounts(res.data);
+    });
+    return () => { cancelled = true; };
+  }, [memberId, payFromAccountType]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!chargeId) { setFeeAmount(null); return; }
+    previewMemberActivationChargeAmount(Number(chargeId)).then((res) => {
+      if (!cancelled && res.ok) setFeeAmount(res.data.reduce((sum, c) => sum + c.amount, 0));
+    });
+    return () => { cancelled = true; };
+  }, [chargeId]);
+
+  const debitAccount = debitAccounts.find((a) => String(a.id) === debitAccountId);
+  const available = debitAccount ? debitAccount.balance - debitAccount.hold_amount - debitAccount.min_balance : null;
+  const insufficient = payFromAccountType === 'MEMBER_ACCOUNT' && !!chargeId && feeAmount != null && available != null && feeAmount > available;
+
+  return (
+    <>
+      <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+        <div className="field">
+          <label htmlFor="f_transactionChargeId">Reactivation charge</label>
+          <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId}
+            onChange={(e) => setChargeId(e.target.value)}>
+            <option value="">No charge</option>
+            {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="f_payFromAccountType">Pay from</label>
+          <select id="f_payFromAccountType" name="payFromAccountType" value={payFromAccountType}
+            disabled={!chargeId}
+            onChange={(e) => setPayFromAccountType(e.target.value as PayFromAccountType)}>
+            {PAY_FROM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {chargeId && payFromAccountType === 'MEMBER_ACCOUNT' ? (
+        <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+          <label htmlFor="f_debitAccountId">Debit account <span className="req">*</span></label>
+          <select id="f_debitAccountId" name="debitAccountId" required value={debitAccountId}
+            onChange={(e) => setDebitAccountId(e.target.value)}>
+            <option value="">Select account…</option>
+            {debitAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
+          </select>
+        </div>
+      ) : null}
+
+      {chargeId && payFromAccountType === 'CASH' ? (
+        <Field name="paymentReference" label="Payment reference" required
+          hint="Till slip / receipt number for the cash received" />
+      ) : null}
+
+      {chargeId ? (
+        <div className="note" style={{ marginTop: 8 }}>
+          Charge amount: <b className={insufficient ? 'neg' : undefined}>{feeAmount != null ? cur(feeAmount) : '…'}</b>
+          {payFromAccountType === 'MEMBER_ACCOUNT' && debitAccount ? (
+            <> · {debitAccount.account_no} available balance: <b>{cur(Math.max(available ?? 0, 0))}</b></>
+          ) : null}
+          {insufficient ? (
+            <div className="neg">
+              The charge exceeds the selected account's available balance — pick a different account,
+              pay by cash instead, or reduce the charge before this can be sent for approval.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+interface NewRequestFormProps {
+  presetMemberId?: number | null;
+  onClose: () => void;
+}
+
+function NewRequestForm({ presetMemberId, onClose }: NewRequestFormProps) {
+  const [members, setMembers] = useState<EligibleMember[]>([]);
+  const [memberId, setMemberId] = useState(String(presetMemberId ?? ''));
+  const [chargeId, setChargeId] = useState('');
+  const [payFromAccountType, setPayFromAccountType] = useState<PayFromAccountType>('MEMBER_ACCOUNT');
+  const [debitAccountId, setDebitAccountId] = useState('');
+
+  useEffect(() => {
+    eligibleMembersForActivationRequest().then((res) => {
+      if (res.ok) setMembers(res.data);
+    });
+  }, []);
+
+  return (
+    <FormModal
+      title="New member activation request"
+      onClose={onClose}
+      onSubmit={requestMemberActivation}
+      submitLabel="Save request"
+      successTitle="Request captured"
+      successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
+    >
+      <div className="field">
+        <label htmlFor="f_memberId">Member <span className="req">*</span></label>
+        <select id="f_memberId" name="memberId" required value={memberId}
+          onChange={(e) => { setMemberId(e.target.value); setDebitAccountId(''); }}>
+          {members.length ? null : <option value="">No Dormant members available</option>}
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
+          ))}
+        </select>
+      </div>
+
+      <Field name="reason" label="Reason" type="textarea" required />
+
+      <ChargeFields
+        memberId={memberId} chargeId={chargeId} setChargeId={setChargeId}
+        payFromAccountType={payFromAccountType} setPayFromAccountType={setPayFromAccountType}
+        debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId} autoSelectFirst
+      />
+    </FormModal>
+  );
+}
+
+/** Lets an Open request's Charge, Pay From choice and Reason all be changed before it's sent for
+ *  approval. The member itself is fixed once a request exists — same "the anchor doesn't change
+ *  on edit" shape as most of this app's other maker-checker documents. */
+export function EditButton({ request, className = 'btn sm ghost' }: {
+  request: MemberActivationRequestWithDimensions;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [chargeId, setChargeId] = useState(String(request.transaction_charge_id ?? ''));
+  const [payFromAccountType, setPayFromAccountType] = useState<PayFromAccountType>(request.pay_from_account_type);
+  const [debitAccountId, setDebitAccountId] = useState(String(request.debit_account_id ?? ''));
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
+      {open ? (
+        <FormModal
+          title={`Edit ${request.no}`}
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => saveMemberActivationRequest(request.no, { ...values, memberId: request.member_id })}
+          submitLabel="Save changes"
+          successTitle="Request updated"
+        >
+          <div className="note">
+            Member: <b>{request.member_first_name} {request.member_last_name}</b> <span className="mono">({request.member_no})</span>
+          </div>
+
+          <Field name="reason" label="Reason" type="textarea" required defaultValue={request.reason ?? ''} />
+          <ChargeFields
+            memberId={String(request.member_id)} chargeId={chargeId} setChargeId={setChargeId}
+            payFromAccountType={payFromAccountType} setPayFromAccountType={setPayFromAccountType}
+            debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId}
+          />
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
+/** Opens the New Request form, optionally preset from `?new=<memberId>` (same pattern as
+ *  Account Activation's NewAccountActivationButton). */
+export function NewMemberActivationButton({ presetMemberId }: { presetMemberId?: number | null }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(Boolean(presetMemberId));
+
+  const close = () => {
+    setOpen(false);
+    if (presetMemberId) router.replace('/member-activations');
+  };
+
+  return (
+    <>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>New activation request</button>
+      {open ? <NewRequestForm presetMemberId={presetMemberId} onClose={close} /> : null}
+    </>
+  );
+}

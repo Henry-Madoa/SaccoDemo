@@ -67,6 +67,15 @@ export async function listAccountActivationChargeCodes(): Promise<ActionResult<T
   });
 }
 
+/** Same 'General' Charge Code pool as Account Activation's own picker — a Member Activation's
+ *  reactivation fee is the same kind of manual, freely-chosen ad-hoc charge. */
+export async function listMemberActivationChargeCodes(): Promise<ActionResult<TransactionCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('MEMBER_ACTIVATIONS_CREATE');
+    return chargesLib.listTransactionChargesByType('General');
+  });
+}
+
 /** Read-only fee preview for one specific Transaction Charge — the same permission that
  *  already gates seeing/creating the triggering document, since a preview reveals nothing an
  *  admin with rights to Charges couldn't already see in the charge's own configuration. */
@@ -75,6 +84,16 @@ export async function previewTransactionChargeAmount(
 ): Promise<ActionResult<CalculatedCharge[]>> {
   return actionResult(async () => {
     await requireAction('ACCOUNT_ACTIVATION_CREATE');
+    return chargesLib.previewTransactionChargeById(transactionChargeId, baseAmount);
+  });
+}
+
+/** Same preview, gated by MEMBER_ACTIVATIONS_CREATE instead — see previewTransactionChargeAmount(). */
+export async function previewMemberActivationChargeAmount(
+  transactionChargeId: number, baseAmount = 0,
+): Promise<ActionResult<CalculatedCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('MEMBER_ACTIVATIONS_CREATE');
     return chargesLib.previewTransactionChargeById(transactionChargeId, baseAmount);
   });
 }

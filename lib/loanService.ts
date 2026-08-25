@@ -12,6 +12,7 @@ import {
   buildSchedule, allocateRepayment, repaymentStartDate, daysBetween, classify, calculateLoanProductCharges, addMonths,
 } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
+import { assertMemberNotDormant } from './memberDormancy.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import { listLoanCollateral } from './loanCollateral.ts';
 import { listLoanProductCharges } from './loanProductCharges.ts';
@@ -23,7 +24,7 @@ import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
 import type {
   Actor, Appraisal, AppraisalFactor, CalculatedLoanCharge, Cents, Channel, GuarantorRow, IsoDate,
   JournalLineInput, LoanAppraisalFactorRow, LoanAppraisalRow, LoanDetail, LoanFull, LoanListRow,
-  LoanProduct, LoanScheduleRow, Member, SavingsAccount, Txn, TxnWithDocument,
+  LoanProduct, LoanRecoveryMode, LoanScheduleRow, Member, SavingsAccount, Txn, TxnWithDocument,
 } from './types.ts';
 
 const today = (): IsoDate => new Date().toISOString().slice(0, 10);
@@ -473,8 +474,9 @@ export interface ApplyInput extends AppraiseInput {
   purpose?: string | null;
   guarantors?: { memberId: number; amount?: Cents }[];
   disburseToAccountId?: number | null;
-  /** 'DIRECT' | 'CHECKOFF' — see lib/checkoffBatches.ts. Defaults to DIRECT. */
-  recoveryMode?: 'DIRECT' | 'CHECKOFF';
+  /** See lib/checkoffBatches.ts (CHECKOFF) and disburse()'s own doc comment (STANDING_ORDER).
+   *  Defaults to DIRECT. */
+  recoveryMode?: LoanRecoveryMode;
   user: Actor;
 }
 
@@ -529,7 +531,7 @@ export interface UpdateLoanInput {
   termMonths: number;
   purpose?: string | null;
   disburseToAccountId?: number | null;
-  recoveryMode?: 'DIRECT' | 'CHECKOFF';
+  recoveryMode?: LoanRecoveryMode;
   user: Actor;
 }
 
@@ -742,6 +744,7 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
   if (loan.status !== 'APPROVED') {
     throw new PostingError(`Loan must be APPROVED before disbursement (currently ${loan.status})`, 'BAD_STATUS');
   }
+  await assertMemberNotDormant(loan.member_id, 'disbursement');
   const product = (await one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', loan.product_id))!;
   const vd = valueDate || today();
   const firstDue = repaymentStartDate(vd, product.repayment_cutoff_date);
@@ -824,6 +827,26 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
   });
 
   await audit(user, 'LOAN_DISBURSE', 'loan', loanId, { amount: loan.principal, fees });
+
+  // recovery_mode = STANDING_ORDER: auto-create (and immediately activate) the recurring
+  // installment collection lib/standingOrders.ts's own run engine then takes over — see
+  // createRecoveryStandingOrderForLoan()'s own doc comment for why this skips the normal
+  // maker-checker cycle. A dynamic import, not a top-of-file one: lib/standingOrders.ts already
+  // imports repay() from this module for its own run engine, and a static import back here would
+  // make the two files circular. Best-effort: the disbursement itself already committed, so a
+  // failure here is logged rather than surfaced as a disbursement failure — an officer can still
+  // set up the standing order by hand from the loan.
+  if (loan.recovery_mode === 'STANDING_ORDER') {
+    try {
+      const { createRecoveryStandingOrderForLoan } = await import('./standingOrders.ts');
+      await createRecoveryStandingOrderForLoan(loanId, user);
+    } catch (e) {
+      await audit(user, 'LOAN_DISBURSE_STO_AUTO_CREATE_FAILED', 'loan', loanId, {
+        message: (e as Error).message || 'Unknown error',
+      });
+    }
+  }
+
   return (await getLoan(loanId))!;
 }
 
@@ -856,6 +879,9 @@ export async function repay({
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
   if (loan.status !== 'DISBURSED') throw new PostingError(`Loan is ${loan.status}; no repayment due`, 'BAD_STATUS');
+  // Checkoff & Salary Processing is one of this restriction's explicit exceptions — an
+  // employer's payroll deduction still reaches the loan even while the borrower is Dormant.
+  if (channel !== 'CHECKOFF') await assertMemberNotDormant(loan.member_id, 'a repayment');
 
   const totalOwed = loan.principal_balance + loan.interest_balance + loan.penalty_balance;
   if (amount > totalOwed) {

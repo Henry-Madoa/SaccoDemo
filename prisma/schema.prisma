@@ -353,6 +353,8 @@ model transaction_charge {
   status                     String                       @default("ACTIVE")
   transaction_charge_setup   transaction_charge_setup[]
   account_activation_request account_activation_request[]
+  member_activation_request  member_activation_request[]
+  standing_order             standing_order[]
   member_charging            member_charging[]
   member_exit                member_exit[]
 
@@ -458,6 +460,7 @@ model journal {
   txn                                           txn[]
   member_charging                               member_charging[]
   account_activation_request                    account_activation_request[]
+  member_activation_request                     member_activation_request[]
   bank_account_ledger_entry                     bank_account_ledger_entry[]
 
   @@index([value_date], map: "ix_journal_date")
@@ -601,6 +604,7 @@ model loan {
   loan_guarantor_change  loan_guarantor_change[]
   member_exit_line       member_exit_line[]
   loan_fd_lien           loan_fd_lien[]
+  standing_order         standing_order[]
 
   @@index([member_id], map: "ix_loan_member")
   @@index([recovery_mode], map: "ix_loan_recovery_mode")
@@ -1273,6 +1277,9 @@ model member {
   member_exit                      member_exit[]
   checkoff_batch_line               checkoff_batch_line[]
   member_fixed_deposit              member_fixed_deposit[]
+  member_activation_request         member_activation_request[]
+  standing_order                    standing_order[]                    @relation("sto_owner")
+  standing_order_destination        standing_order[]                    @relation("sto_destination")
 
   @@index([county_id], map: "ix_member_county")
   @@index([employer_id], map: "ix_member_employer")
@@ -1322,6 +1329,10 @@ model organisation {
   /// AL's "Withdrawal Period" DateFormula, simplified to a plain day count — how long after a
   /// Member Exit is opened its maturity date falls, before it can be processed.
   member_exit_notice_days    Int?    @default(30)
+  /// AL's "Update Member Status" report (Rep 52204078) "Dormancy Period", narrowed to the
+  /// member's own Non-Withdrawable Deposit account: no money in it for this many days flips
+  /// Active -> Dormant. See lib/memberStatusUpdate.ts.
+  dormancy_days              Int?    @default(90)
   updated_at                 String?
   updated_by                 String?
 }
@@ -1385,6 +1396,9 @@ model savings_account {
   account_deactivation_request     account_deactivation_request[]
   account_activation_request       account_activation_request[]   @relation("aar_activated_account")
   account_activation_request_debit account_activation_request[]   @relation("aar_debit_account")
+  member_activation_request_debit  member_activation_request[]
+  standing_order                   standing_order[]                @relation("sto_source_account")
+  standing_order_destination       standing_order[]                @relation("sto_destination_account")
   member_charging                  member_charging[]
   member_exit_line                 member_exit_line[]
   member_fixed_deposit_source      member_fixed_deposit[]         @relation("mfd_source_account")
@@ -1446,6 +1460,137 @@ model account_activation_request {
 
   @@index([account_id], map: "ix_aar_account")
   @@index([status], map: "ix_aar_status")
+}
+
+/// Member Activation — a maker-checker request to reactivate a Dormant member, ported from the
+/// AL reference's "Member Activation" card (Pag52204158 / Tab52204084). Posting
+/// (lib/memberActivation.ts's processMemberActivationRequest()) flips the member back to
+/// Active and reactivates every one of their own INACTIVE savings accounts — AL's own "unblock
+/// every Vendor" loop in Cod52204007's ActivateMember(). Distinct from lib/memberStatusUpdate.ts's
+/// automatic reactivation-on-deposit: this is the manual path for an officer who has a Dormant
+/// member in front of them right now, mirroring AL's own "Pay From Account Type" choice between
+/// the member paying cash at the till (pay_from_account_type = CASH, payment_reference is the
+/// receipt/reference for it) or the fee being deducted from one of their own accounts
+/// (MEMBER_ACCOUNT, debit_account_id). transaction_charge_id is freely chosen from any active
+/// Transaction Charge (Admin Centre → Charges) — not auto-resolved by type, the same free pick
+/// account_activation_request.transaction_charge_id already uses; null/unset keeps
+/// reactivation free.
+model member_activation_request {
+  no                     String              @id
+  member_id              Int
+  reason                 String?
+  /// AL's "Pay From Account Type": CASH | MEMBER_ACCOUNT.
+  pay_from_account_type  String              @default("MEMBER_ACCOUNT")
+  /// AL's "Payment Refrence" — only meaningful (and required) when paying by CASH.
+  payment_reference      String?
+  transaction_charge_id  Int?
+  /// Only meaningful (and required) when pay_from_account_type = MEMBER_ACCOUNT.
+  debit_account_id       Int?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status                 String              @default("Open")
+  decision_reason        String?
+  created_at             String?
+  created_by             String?
+  processed_at           String?
+  processed_by           String?
+  /// Set when the optional reactivation fee posts — same Find Entries trace-back
+  /// account_activation_request.journal_id already provides.
+  journal_id             Int?
+  member                 member              @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  debit_account          savings_account?    @relation(fields: [debit_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge     transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal                journal?            @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_mar_member")
+  @@index([status], map: "ix_mar_status")
+}
+
+/// Standing Order — ported from the AL reference's "Standing Order" card (Pag52204124 /
+/// Tab52204076), a maker-checker instruction that, once Approved, runs itself unattended off a
+/// Job Queue Entry (lib/standingOrders.ts's runStandingOrders()) rather than needing a separate
+/// Process step — approval directly sets `running = true` (AL's own
+/// Cod52204000.ApprovalMgmtCBSExt.al behaviour), and every subsequent transfer happens on its
+/// own schedule from then on.
+///
+/// Narrowed from AL's fuller scope, matching how every other module in this port trims AL
+/// features this schema/domain has no infrastructure for:
+///   - standing_order_class is INTERNAL (to any of the destination member's own accounts) or
+///     LOAN_REPAYMENT (through lib/loanService.ts's own repay(), which already allocates
+///     interest-then-principal oldest-first — AL's separate Loan-Principal/Loan-Interest/Loan
+///     Principal+Interest classes are collapsed into this one, since a bespoke principal-only or
+///     interest-only posting exists nowhere else in this app). AL's External (EFT to an outside
+///     bank) is dropped entirely — this schema has no external bank/branch master data.
+///   - "Salary Based" (a priority-ordered deduction integrated with payroll processing) is
+///     dropped — lib/checkoffBatches.ts's own header already declares Standing Orders excluded
+///     from that module for the same reason: no Employer Payroll Details staging table exists
+///     here to prioritise against.
+///   - AL's Period DateFormula is simplified to a plain month count (period_months), the same
+///     kind of simplification organisation.member_exit_notice_days already applies elsewhere.
+///   - run_type/run_from_day only matter for amount_type = FIXED (AL's own report only gates
+///     Fixed postings by them; Sweep and Amount Based simply run every day there's money to
+///     move). last_run_date is this port's idempotency guard against a Job Queue tick firing
+///     more than once the same day — AL computes the equivalent from ledger entries live
+///     ("Last Run Date" FlowField); storing it directly is simpler and matches
+///     savings_account.last_activity's own precedent.
+model standing_order {
+  no                     String              @id
+  member_id              Int
+  account_id             Int
+  /// INTERNAL | LOAN_REPAYMENT — see the model doc above for what AL's fuller STO Types enum
+  /// collapses into.
+  standing_order_class   String
+  /// FIXED | SWEEP | AMOUNT_BASED
+  amount_type            String              @default("FIXED")
+  /// Meaningful only for FIXED.
+  amount                 BigInt              @default(0)
+  /// Meaningful only for AMOUNT_BASED — the balance threshold that must be reached before the
+  /// (then full) available balance sweeps.
+  amount_limit           BigInt              @default(0)
+  /// INTERNAL only.
+  destination_member_id  Int?
+  destination_account_id Int?
+  /// LOAN_REPAYMENT only.
+  destination_loan_id    Int?
+  posting_description    String?
+  /// SPECIFIC_DAY | END_MONTH | DAILY — meaningful only for amount_type = FIXED.
+  run_type               String              @default("DAILY")
+  /// SPECIFIC_DAY only; a day-of-month past the current month's last day runs on that last day
+  /// instead (AL's own Next Run Date carry-forward, simplified to a live day-count check).
+  run_from_day           Int?
+  start_date             String
+  till_further_notice    Boolean             @default(false)
+  /// Null when till_further_notice — AL's CalcDate(Period, "Start Date") with Period simplified
+  /// to a plain month count.
+  period_months          Int?
+  end_date               String?
+  transaction_charge_id  Int?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status                 String              @default("Open")
+  decision_reason        String?
+  /// Set true the moment this is Approved (AL's own ApproveRecordApprovalRequest handling) —
+  /// there is no separate Process step; the Job Queue picks up every running, non-terminated,
+  /// non-frozen order from then on.
+  running                Boolean             @default(false)
+  /// An officer's own decision to stop the order for good — distinct from the system
+  /// terminating it automatically (destination loan fully repaid, or past end_date).
+  terminated             Boolean             @default(false)
+  /// A temporary pause — auto-lifted once freeze_end_date passes (AL's own UpdateSTO behaviour),
+  /// same automatic-unfreeze lib/standingOrders.ts's own run performs.
+  freezed                Boolean             @default(false)
+  freeze_end_date        String?
+  last_run_date          String?
+  created_at             String?
+  created_by             String?
+  member                 member              @relation("sto_owner", fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_member     member?             @relation("sto_destination", fields: [destination_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account        savings_account     @relation("sto_source_account", fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_account    savings_account?    @relation("sto_destination_account", fields: [destination_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_loan       loan?               @relation(fields: [destination_loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge     transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_sto_member")
+  @@index([status], map: "ix_sto_status")
+  @@index([running, terminated], map: "ix_sto_running")
 }
 
 /// An ad-hoc charge posted straight against a member's own withdrawable deposit account —
@@ -2089,4 +2234,38 @@ model checkoff_batch_line {
   member          member         @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([batch_no, member_id], map: "ux_cobl_batch_member")
+}
+
+/// System Automation (Job Queue) — mirrors Business Central's Job Queue Entry: a recurring
+/// background task, dispatched by job_type (see lib/jobQueue.ts's JOB_HANDLERS), that an admin
+/// sets up and the in-process scheduler (instrumentation.ts) polls and runs unattended. AL's own
+/// Recurrence (Day/Time-of-day patterns) is simplified to a plain "every N minutes" interval —
+/// the same kind of simplification organisation.member_exit_notice_days already applies to a
+/// DateFormula elsewhere in this port.
+model job_queue_entry {
+  id                Int     @id @default(autoincrement())
+  code              String  @unique
+  description       String
+  /// Which background task this entry runs — see lib/jobQueue.ts's JOB_HANDLERS. Currently only
+  /// 'ENTRANCE_FEE_RECOVERY' is implemented.
+  job_type          String
+  run_every_minutes Int     @default(60)
+  /// The job never runs before this date, even if otherwise due — an optional go-live gate.
+  earliest_start_date String?
+  /// 'READY' | 'ON HOLD' — the two states an entry idles in between runs. A failed run does not
+  /// flip this to some third "Error" state and stop recurring: it stays READY and simply carries
+  /// the failure on last_run_status/last_run_message, so an admin can see and fix the underlying
+  /// cause without also having to remember to re-enable the entry.
+  status            String  @default("ON HOLD")
+  next_run_at       String?
+  last_run_at       String?
+  /// 'SUCCESS' | 'ERROR'
+  last_run_status   String?
+  last_run_message  String?
+  created_at        String?
+  created_by        String?
+  updated_at        String?
+  updated_by        String?
+
+  @@index([status], map: "ix_jqe_status")
 }

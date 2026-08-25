@@ -57,6 +57,10 @@ export interface Organisation {
   /** AL's "Withdrawal Period" — days after a Member Exit is opened before its maturity date,
    *  see lib/memberExits.ts's createMemberExit(). Defaults to 30. */
   member_exit_notice_days: number;
+  /** AL's "Update Member Status" report (Rep 52204078) "Dormancy Period", narrowed here to the
+   *  member's own Non-Withdrawable Deposit account: no money in it for this many days flips
+   *  Active -> Dormant. See lib/memberStatusUpdate.ts. Defaults to 90. */
+  dormancy_days: number;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -642,6 +646,118 @@ export interface SavingsAccountForDebit {
   gl_control_id: number;
 }
 
+/** AL's "Pay From Account Type" (Tab52204084) — CASH is paid at the till (no savings account
+ *  touched, payment_reference is the receipt/reference for it); MEMBER_ACCOUNT is deducted from
+ *  one of the member's own accounts (debit_account_id). See lib/memberActivation.ts. */
+export type PayFromAccountType = 'CASH' | 'MEMBER_ACCOUNT';
+
+export interface MemberActivationRequest {
+  no: string;
+  member_id: number;
+  reason: string | null;
+  pay_from_account_type: PayFromAccountType;
+  payment_reference: string | null;
+  transaction_charge_id: number | null;
+  debit_account_id: number | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  journal_id: number | null;
+}
+
+export interface MemberActivationRequestWithDimensions extends MemberActivationRequest {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  member_status: MemberStatus;
+  transaction_charge_code: string | null;
+  transaction_charge_description: string | null;
+  debit_account_no: string | null;
+  debit_account_balance: Cents | null;
+  debit_account_hold_amount: Cents | null;
+  debit_account_min_balance: Cents | null;
+  /** Computed live off the charge configuration (not stored) — see
+   *  lib/memberActivation.ts's withChargeAmount(). Null when no charge is selected. */
+  charge_amount: Cents | null;
+}
+
+/** See lib/standingOrders.ts's file header for what AL's fuller STO Types enum collapses into. */
+export type StandingOrderClass = 'INTERNAL' | 'LOAN_REPAYMENT';
+export type StandingOrderAmountType = 'FIXED' | 'SWEEP' | 'AMOUNT_BASED';
+/** Meaningful only for amount_type = FIXED — see the standing_order model's own doc comment. */
+export type StandingOrderRunType = 'SPECIFIC_DAY' | 'END_MONTH' | 'DAILY';
+
+export interface StandingOrder {
+  no: string;
+  member_id: number;
+  account_id: number;
+  standing_order_class: StandingOrderClass;
+  amount_type: StandingOrderAmountType;
+  amount: Cents;
+  amount_limit: Cents;
+  destination_member_id: number | null;
+  destination_account_id: number | null;
+  destination_loan_id: number | null;
+  posting_description: string | null;
+  run_type: StandingOrderRunType;
+  run_from_day: number | null;
+  start_date: IsoDate;
+  till_further_notice: boolean;
+  period_months: number | null;
+  end_date: IsoDate | null;
+  transaction_charge_id: number | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  running: boolean;
+  terminated: boolean;
+  freezed: boolean;
+  freeze_end_date: IsoDate | null;
+  last_run_date: IsoDate | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface StandingOrderWithDimensions extends StandingOrder {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  account_no: string;
+  account_balance: Cents;
+  account_hold_amount: Cents;
+  account_min_balance: Cents;
+  destination_member_no: string | null;
+  destination_first_name: string | null;
+  destination_last_name: string | null;
+  destination_account_no: string | null;
+  destination_loan_no: string | null;
+  transaction_charge_code: string | null;
+  transaction_charge_description: string | null;
+}
+
+/** One standing_order's outcome from a single lib/standingOrders.ts run — 'NONE' covers every
+ *  reason nothing happened (not due yet, frozen, no available balance, below the Amount Based
+ *  threshold, the member is Dormant, ...), carried in `note` rather than its own action code, the
+ *  same shallow shape lib/entranceFeeRecovery.ts's own result type uses. */
+export type StandingOrderRunAction = 'NONE' | 'POSTED' | 'TERMINATED';
+
+export interface StandingOrderRunResult {
+  no: string;
+  action: StandingOrderRunAction;
+  posted: Cents;
+  charged: Cents;
+  note: string | null;
+}
+
+export interface StandingOrderRunSummary {
+  results: StandingOrderRunResult[];
+  posted: number;
+  terminated: number;
+  totalPosted: Cents;
+}
+
 /** An ad-hoc charge posted straight against a member's own withdrawable deposit account —
  *  see lib/memberCharging.ts. No approval workflow: whoever creates it also posts it, so
  *  `status` only ever moves Open -> Posted. `amount_charged` is recalculated from
@@ -826,7 +942,7 @@ export type ChargeTransactionType =
   | 'Interest Paid' | 'Principal Paid' | 'Acc. Transfer' | 'Cheque Deposit' | 'Bankers Cheque'
   | 'Fixed Deposit' | 'End Month Salary' | 'Checkoff Pay' | 'Teller-Treasury' | 'Disb. Rec'
   | 'Penalty Due' | 'Penalty Paid' | 'Divinded Processing' | 'Charge' | 'Registration Fee'
-  | 'Standing Order' | 'Benevolent Fund' | 'Statement Charge';
+  | 'Standing Order' | 'Benevolent Fund' | 'Statement Charge' | 'Member Reactivation';
 
 export type ChargeCalculationType = 'SCHEME' | 'PERCENT_OF_CHARGE';
 export type ChargeRateType = 'FLAT' | 'PERCENTAGE';
@@ -1240,6 +1356,83 @@ export interface MemberCategoryDefaultAccountRow extends MemberCategoryDefaultAc
   savings_product_name: string;
 }
 
+/* ---------------------------------------------------------- entrance fee recovery */
+
+/** One Not Paid Up member's registration-fee recovery position — lib/entranceFeeRecovery.ts's
+ *  listEntranceFeeRecoveryCandidates(), also the shape a run's per-member outcome is reported
+ *  in. `posting_amount` is what a run would (or did) sweep this time: the lesser of what's
+ *  still outstanding and what the deposit account can actually spare right now. */
+export interface EntranceFeeRecoveryCandidate {
+  member_id: number;
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  category_code: string;
+  registration_fee: Cents;
+  paid_registration: Cents;
+  outstanding: Cents;
+  deposit_account_id: number | null;
+  deposit_account_no: string | null;
+  available_balance: Cents;
+  posting_amount: Cents;
+}
+
+export interface EntranceFeeRecoveryResult {
+  member_id: number;
+  member_no: string;
+  posted: Cents;
+  activated: boolean;
+  skipped_reason: string | null;
+}
+
+export interface EntranceFeeRecoveryRunSummary {
+  results: EntranceFeeRecoveryResult[];
+  totalPosted: Cents;
+  membersRecovered: number;
+  membersActivated: number;
+}
+
+/* ------------------------------------------------------------ member status update */
+
+/** What a Member Status Update run would do (or did) to one Active/Dormant member — driven by
+ *  their own Non-Withdrawable Deposit account, see lib/memberStatusUpdate.ts. */
+export type MemberStatusUpdateAction =
+  | 'NONE' | 'MARK_DORMANT' | 'REACTIVATE' | 'REACTIVATION_BLOCKED';
+
+export interface MemberStatusUpdateCandidate {
+  member_id: number;
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  status: MemberStatus;
+  deposit_account_id: number | null;
+  deposit_account_no: string | null;
+  balance: Cents;
+  /** Days since the deposit account last moved — null when it has never had any activity at
+   *  all (opened but never funded), which is treated as immediately dormancy-eligible. */
+  days_since_activity: number | null;
+  /** The Member Reactivation charge's current amount, previewed live — null when the member
+   *  isn't Dormant (nothing to reactivate) or no such charge is configured (reactivation is
+   *  free). */
+  reactivation_charge: Cents | null;
+  action: MemberStatusUpdateAction;
+}
+
+export interface MemberStatusUpdateResult {
+  member_id: number;
+  member_no: string;
+  action: MemberStatusUpdateAction;
+  charged: Cents;
+  note: string | null;
+}
+
+export interface MemberStatusUpdateRunSummary {
+  results: MemberStatusUpdateResult[];
+  markedDormant: number;
+  reactivated: number;
+  totalCharged: Cents;
+}
+
 /** One (member, default product) pair a category's default-account backfill still needs to
  *  open — computed by pool.getDefaultAccountsBacklog(), then opened one at a time by the
  *  client-driven progress UI (Admin Centre -> Setup Pool -> Member Categories -> Create
@@ -1398,6 +1591,10 @@ export interface SalaryAppraisalTotals {
   headroom: Cents;
 }
 
+/** AL's Recovery Mode, narrowed to the three channels this port actually implements — see
+ *  Loan.recovery_mode's own doc comment for what each one wires up to. */
+export type LoanRecoveryMode = 'DIRECT' | 'CHECKOFF' | 'STANDING_ORDER';
+
 export interface Loan {
   id: number;
   loan_no: string;
@@ -1427,9 +1624,12 @@ export interface Loan {
   days_in_arrears: number;
   classification: Classification;
   disburse_to_account_id: number | null;
-  /** 'DIRECT' | 'CHECKOFF' — AL's Recovery Mode. A CHECKOFF loan is picked up by
-   *  lib/checkoffBatches.ts's batch lines instead of relying on counter/own-initiative repayment. */
-  recovery_mode: 'DIRECT' | 'CHECKOFF';
+  /** AL's Recovery Mode. A CHECKOFF loan is picked up by lib/checkoffBatches.ts's batch lines;
+   *  a STANDING_ORDER loan gets its own recurring standing_order row (destination_loan_id) the
+   *  moment it's disbursed — see lib/loanService.ts's disburse() and
+   *  lib/standingOrders.ts's createRecoveryStandingOrderForLoan() — instead of relying on
+   *  counter/own-initiative repayment either way. */
+  recovery_mode: LoanRecoveryMode;
   created_by: string | null;
   version: number;
 }
@@ -2194,8 +2394,8 @@ export interface SubledgerEntryRow extends TxnWithMember {
 
 export type WorkflowDocumentType =
   | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
-  | 'ACCOUNT_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE' | 'GUARANTOR_CHANGE'
-  | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT';
+  | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE' | 'GUARANTOR_CHANGE'
+  | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -2562,3 +2762,31 @@ export type ActionResult<T = unknown> = ActionSuccess<T> | ActionFailure;
 
 /** A form read into a plain object by readForm(). */
 export type FormValues = Record<string, string | number>;
+
+/* --------------------------------------------------------------- job queue */
+
+/** Which background task a Job Queue Entry runs — see lib/jobQueue.ts's JOB_HANDLERS. Currently
+ *  only Entrance Fee Recovery is implemented; the type is a plain string union (not yet backed
+ *  by a DB enum) so a future job type is one JOB_HANDLERS entry away, no migration required. */
+export type JobQueueType = 'ENTRANCE_FEE_RECOVERY' | 'MEMBER_STATUS_UPDATE' | 'STANDING_ORDER_RUN';
+
+export type JobQueueStatus = 'READY' | 'ON HOLD';
+export type JobQueueRunStatus = 'SUCCESS' | 'ERROR';
+
+export interface JobQueueEntry {
+  id: number;
+  code: string;
+  description: string;
+  job_type: JobQueueType;
+  run_every_minutes: number;
+  earliest_start_date: IsoDate | null;
+  status: JobQueueStatus;
+  next_run_at: IsoDateTime | null;
+  last_run_at: IsoDateTime | null;
+  last_run_status: JobQueueRunStatus | null;
+  last_run_message: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  updated_at: IsoDateTime | null;
+  updated_by: string | null;
+}

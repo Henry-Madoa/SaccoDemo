@@ -7,6 +7,7 @@ import {
 } from './db.ts';
 import { postJournal, reverseJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
+import { assertMemberNotDormant } from './memberDormancy.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { SAVINGS_ACCOUNT_STATUSES, SAVINGS_CATEGORIES } from './constants.ts';
@@ -286,6 +287,7 @@ export async function withdraw({
   if (!acct) throw new PostingError('Savings account not found', 'ACCOUNT_NOT_FOUND');
   if (acct.status !== 'ACTIVE') throw new PostingError(`Account status is ${acct.status} — withdrawal prohibited`, 'ACCOUNT_NOT_ACTIVE');
   if (!acct.allow_withdrawal) throw new PostingError(`${acct.product_name} does not permit withdrawals`, 'WITHDRAWAL_NOT_ALLOWED');
+  await assertMemberNotDormant(acct.member_id, 'a withdrawal');
 
   const fee = acct.withdrawal_fee || 0;
   const available = acct.balance - acct.hold_amount - acct.min_balance;

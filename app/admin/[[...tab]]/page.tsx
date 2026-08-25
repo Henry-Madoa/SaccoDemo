@@ -11,6 +11,7 @@ import { listCollateralTypes } from '@/lib/collateralTypes';
 import { listFixedDepositTypes } from '@/lib/fixedDepositTypes';
 import { listSalaryAppraisalParameters } from '@/lib/salaryAppraisal';
 import { listEmployers } from '@/lib/employers';
+import { listJobQueueEntries } from '@/lib/jobQueue';
 import {
   listChangeLogSetup, listChangeLogEntries, hasAnyChangeLogEntries, listAvailableChangeLogTables,
   CHANGE_LOG_FILTER_FIELDS,
@@ -63,7 +64,10 @@ import { ConfigPackageFormButton } from '../config-package-form';
 import { ConfigPackageCard, DeleteConfigPackageButton } from '../config-package-io';
 import { ChargeFormButton } from '../charge-form';
 import { TransactionChargeFormButton } from '../transaction-charge-form';
-import { CHARGE_TRANSACTION_TYPES } from '@/lib/constants';
+import {
+  JobQueueEntryFormButton, ToggleJobQueueStatusButton, RunJobQueueEntryButton, DeleteJobQueueEntryButton,
+} from '../job-queue-form';
+import { CHARGE_TRANSACTION_TYPES, JOB_QUEUE_TYPES } from '@/lib/constants';
 interface AdminTab extends TabDefinition {
   /** A tab shows up once the user can execute any one of these pages — Setup Pool
    *  merges the pages of everything nested under it. */
@@ -88,6 +92,7 @@ const TABS: AdminTab[] = [
     page: ['ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
   },
   { key: 'data', label: 'Data Management', page: 'ADMIN_DATA' },
+  { key: 'automation', label: 'System Automation', page: 'ADMIN_JOB_QUEUE' },
 ];
 
 /** Sacco Products' own sub-navigation. */
@@ -234,6 +239,7 @@ export default async function AdminPage({ params, searchParams }: {
         </>
       ) : null}
       {tab === 'data' ? <DataManagementTab /> : null}
+      {tab === 'automation' ? <JobQueueTab /> : null}
     </Page>
   );
 }
@@ -515,6 +521,68 @@ async function SalaryParamsTab() {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="🧾" title="No salary appraisal parameters yet" sub="Add earning and deduction codes before turning a loan product Salary based" />}
+      </Card>
+    </>
+  );
+}
+
+/** System Automation (Job Queue) — mirrors Business Central's Job Queue Entries page. A new
+ *  entry always starts On Hold; Set Ready is what lets the unattended poller
+ *  (instrumentation.ts, polling lib/jobQueue.ts's runDueJobQueueEntries()) start picking it up. */
+async function JobQueueTab() {
+  const rows = await listJobQueueEntries();
+  const jobLabel = (t: string) => JOB_QUEUE_TYPES.find((j) => j.value === t)?.label ?? t;
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <JobQueueEntryFormButton>New entry</JobQueueEntryFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Job Queue Entries"
+          sub="Recurring background tasks — an entry only runs unattended while it's Ready; On Hold entries can still be run on demand"
+        />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Description</th><th>Job</th><th className="num">Every</th>
+                <th>Status</th><th>Next run</th><th>Last run</th><th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="mono">{r.code}</td>
+                  <td>{r.description}</td>
+                  <td>{jobLabel(r.job_type)}</td>
+                  <td className="num">{r.run_every_minutes} min</td>
+                  <td><Pill tone={r.status === 'READY' ? 'ok' : ''}>{r.status}</Pill></td>
+                  <td className="tiny">{r.status === 'READY' ? formatDateTime(r.next_run_at) : '—'}</td>
+                  <td className="tiny">
+                    {r.last_run_at ? (
+                      <>
+                        <Pill tone={r.last_run_status === 'SUCCESS' ? 'ok' : 'bad'}>{r.last_run_status}</Pill>
+                        <div>{formatDateTime(r.last_run_at)}</div>
+                        {r.last_run_message ? <div className="muted-cell">{r.last_run_message}</div> : null}
+                      </>
+                    ) : 'Never run'}
+                  </td>
+                  <td className="num">
+                    <div className="inline" style={{ justifyContent: 'flex-end' }}>
+                      <RunJobQueueEntryButton entry={r} />
+                      <ToggleJobQueueStatusButton entry={r} />
+                      <JobQueueEntryFormButton entry={r} className="btn sm ghost">Edit</JobQueueEntryFormButton>
+                      <DeleteJobQueueEntryButton id={r.id} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="⏱" title="No Job Queue Entries yet" sub="Add one to run a background task like Entrance Fee Recovery on a schedule" />}
       </Card>
     </>
   );

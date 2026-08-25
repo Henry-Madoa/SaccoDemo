@@ -8,9 +8,10 @@
  */
 import type {
   Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CollateralCategory, DocumentStatus,
-  GlAccountStructureType, GlAccountType, InterestMethod, LoanCalculatorRateType, LoanChargeCalculationType,
-  LoanStatus, MemberCategoryType, MemberStatus, SalaryAppraisalLineType, SalaryAppraisalSpecialType,
-  SavingsAccountStatus, SavingsCategory, UserStatus,
+  GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
+  LoanChargeCalculationType, LoanRecoveryMode, LoanStatus, MemberCategoryType, MemberStatus, SalaryAppraisalLineType,
+  SalaryAppraisalSpecialType, SavingsAccountStatus, SavingsCategory, StandingOrderAmountType, StandingOrderClass,
+  StandingOrderRunType, UserStatus,
 } from './types.ts';
 
 export const MEMBER_STATUSES: MemberStatus[] =
@@ -64,6 +65,34 @@ export const SALARY_APPRAISAL_LINE_TYPES: { value: SalaryAppraisalLineType; labe
 export const SALARY_APPRAISAL_SPECIAL_TYPES: { value: SalaryAppraisalSpecialType; label: string }[] = [
   { value: 'NONE', label: 'None' },
   { value: 'BASIC_SALARY', label: 'Basic Salary (drives the 1/3 cap)' },
+];
+
+/** System Automation (Job Queue)'s own Job Type/Status option lists (Admin Centre → System
+ *  Automation). Job Type is deliberately a short, hand-maintained list — see JobQueueType. */
+export const JOB_QUEUE_TYPES: { value: JobQueueType; label: string }[] = [
+  { value: 'ENTRANCE_FEE_RECOVERY', label: 'Entrance Fee Recovery' },
+  { value: 'MEMBER_STATUS_UPDATE', label: 'Member Status Update' },
+  { value: 'STANDING_ORDER_RUN', label: 'Standing Order Run' },
+];
+export const JOB_QUEUE_STATUSES: JobQueueStatus[] = ['READY', 'ON HOLD'];
+
+/** Standing Order's own option lists (Admin Centre has nothing to configure here — these are
+ *  chosen per order on the New/Edit form) — see lib/standingOrders.ts's file header for what
+ *  AL's fuller STO Types enum collapses into. */
+export const STANDING_ORDER_CLASSES: { value: StandingOrderClass; label: string }[] = [
+  { value: 'INTERNAL', label: 'Transfer to an account' },
+  { value: 'LOAN_REPAYMENT', label: 'Loan repayment' },
+];
+export const STANDING_ORDER_AMOUNT_TYPES: { value: StandingOrderAmountType; label: string }[] = [
+  { value: 'FIXED', label: 'Fixed amount' },
+  { value: 'SWEEP', label: 'Sweep (everything available)' },
+  { value: 'AMOUNT_BASED', label: 'Amount based (sweep once a threshold is reached)' },
+];
+/** Meaningful only when amount_type = FIXED. */
+export const STANDING_ORDER_RUN_TYPES: { value: StandingOrderRunType; label: string }[] = [
+  { value: 'SPECIFIC_DAY', label: 'A specific day each month' },
+  { value: 'END_MONTH', label: 'End of month' },
+  { value: 'DAILY', label: 'Daily' },
 ];
 
 /** Loan Calculator's Rate Type options (Table 52204036) — see LoanCalculatorRateType. */
@@ -147,6 +176,7 @@ export const CHARGE_TRANSACTION_TYPES: { value: ChargeTransactionType; label: st
   { value: 'Standing Order', label: 'Standing Order' },
   { value: 'Benevolent Fund', label: 'Benevolent Fund' },
   { value: 'Statement Charge', label: 'Statement Charge' },
+  { value: 'Member Reactivation', label: 'Member Reactivation' },
 ];
 
 export const CHARGE_CALCULATION_TYPES: { value: ChargeCalculationType; label: string }[] = [
@@ -200,9 +230,10 @@ export const BATCH_TYPES: { value: 'CHECKOFF' | 'SALARY'; label: string }[] = [
   { value: 'SALARY', label: 'Salary (FOSA credit)' },
 ];
 
-export const RECOVERY_MODES: { value: 'DIRECT' | 'CHECKOFF'; label: string }[] = [
+export const RECOVERY_MODES: { value: LoanRecoveryMode; label: string }[] = [
   { value: 'DIRECT', label: 'Direct — member repays over the counter' },
   { value: 'CHECKOFF', label: 'Checkoff — recovered via employer payroll deduction' },
+  { value: 'STANDING_ORDER', label: 'Standing Order — auto-created and recovered on its own schedule' },
 ];
 
 export const FD_MATURITY_INSTRUCTIONS: { value: 'ROLLOVER_PRINCIPAL' | 'ROLLOVER_NET' | 'LIQUIDATE'; label: string }[] = [

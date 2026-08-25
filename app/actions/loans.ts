@@ -7,9 +7,13 @@ import * as loanSvc from '@/lib/loanService';
 import { getMemberDetail } from '@/lib/members';
 import { findPendingRoutedTask, decideWorkflowTask, recordLegacyDecision } from '@/lib/workflow';
 import { toCents } from '@/lib/format';
+import { RECOVERY_MODES } from '@/lib/constants';
 import type {
-  ActionResult, Appraisal, Channel, FormValues, LoanAppraisalRow, LoanFull, SavingsAccountWithProduct,
+  ActionResult, Appraisal, Channel, FormValues, LoanAppraisalRow, LoanFull, LoanRecoveryMode, SavingsAccountWithProduct,
 } from '@/lib/types';
+
+const toRecoveryMode = (value: unknown): LoanRecoveryMode =>
+  RECOVERY_MODES.some((m) => m.value === value) ? (value as LoanRecoveryMode) : 'DIRECT';
 
 /** Active savings accounts a disbursement may be credited to. */
 export async function memberDisbursementAccounts(
@@ -56,7 +60,7 @@ export async function applyForLoan(values: FormValues): Promise<ActionResult<Loa
       termMonths: Number(values.termMonths),
       purpose: String(values.purpose || ''),
       disburseToAccountId: values.disburseToAccountId ? Number(values.disburseToAccountId) : null,
-      recoveryMode: values.recoveryMode === 'CHECKOFF' ? 'CHECKOFF' : 'DIRECT',
+      recoveryMode: toRecoveryMode(values.recoveryMode),
       user,
     });
     revalidatePath('/loans');
@@ -76,7 +80,7 @@ export async function updateLoanApplication(loanId: number, values: FormValues):
       termMonths: Number(values.termMonths),
       purpose: String(values.purpose || ''),
       disburseToAccountId: values.disburseToAccountId ? Number(values.disburseToAccountId) : null,
-      recoveryMode: values.recoveryMode === 'CHECKOFF' ? 'CHECKOFF' : 'DIRECT',
+      recoveryMode: toRecoveryMode(values.recoveryMode),
       user,
     });
     revalidatePath('/loans');

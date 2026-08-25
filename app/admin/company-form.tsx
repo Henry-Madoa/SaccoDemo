@@ -164,11 +164,14 @@ export function CompanyForm({ org, logoSrc, mediaEnabled }: CompanyFormProps) {
 
           <Card>
             <h3>Membership</h3>
-            <div className="card-sub">Member Exit's notice period before a request can be processed.</div>
+            <div className="card-sub">Member Exit's notice period, and when an inactive member is marked Dormant.</div>
             <div className="grid g2">
               <Field name="member_exit_notice_days" label="Exit notice period (days)" type="number" step="1"
                 defaultValue={org.member_exit_notice_days ?? 30}
                 hint="A member exit cannot be processed before this many days after it was opened" />
+              <Field name="dormancy_days" label="Dormancy period (days)" type="number" step="1"
+                defaultValue={org.dormancy_days ?? 90}
+                hint="No money in a member's Non-Withdrawable Deposit account for this many days flips them Active → Dormant (Admin Centre → System Automation)" />
             </div>
           </Card>
         </div>

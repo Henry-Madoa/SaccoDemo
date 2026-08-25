@@ -34,7 +34,10 @@ export const NAV: NavGroup[] = [
       { path: '/account-openings', label: 'Account Opening', icon: '🏦', page: 'ACCOUNT_OPENING' },
       { path: '/account-deactivations', label: 'Account Deactivation', icon: '🚫', page: 'ACCOUNT_DEACTIVATION' },
       { path: '/account-activations', label: 'Account Activation', icon: '✅', page: 'ACCOUNT_ACTIVATION' },
+      { path: '/member-activations', label: 'Member Activation', icon: '🔓', page: 'MEMBER_ACTIVATIONS' },
       { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
+      { path: '/entrance-fee-recovery', label: 'Entrance Fee Recovery', icon: '🎟', page: 'ENTRANCE_FEE_RECOVERY' },
+      { path: '/member-status-update', label: 'Member Status Update', icon: '🕰', page: 'MEMBER_STATUS_UPDATE' },
       { path: '/member-exits', label: 'Member Exit', icon: '🚪', page: 'MEMBER_EXITS' },
     ],
   },
@@ -55,6 +58,7 @@ export const NAV: NavGroup[] = [
     items:[
       { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
       { path: '/fixed-deposits', label: 'Fixed Deposits', icon: '🏛', page: 'FIXED_DEPOSITS' },
+      { path: '/standing-orders', label: 'Standing Orders', icon: '🔄', page: 'STANDING_ORDERS' },
     ],
   },
   {
@@ -82,7 +86,7 @@ export const NAV: NavGroup[] = [
           'ADMIN_CHARGES_MASTER', 'ADMIN_CHARGES_TRANSACTION',
           'ADMIN_POOL_CATEGORIES', 'ADMIN_POOL_COUNTIES',
           'ADMIN_POOL_DIMENSIONS', 'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_TABLES',
-          'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA',
+          'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA', 'ADMIN_JOB_QUEUE',
         ],
       },
     ],

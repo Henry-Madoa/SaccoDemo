@@ -28,6 +28,7 @@ import {
 import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { getTransactionCharge, calculateTransactionCharges, postTransactionCharges } from './charges.ts';
+import { assertMemberNotDormant } from './memberDormancy.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { getJournal, type JournalDetail } from './gl.ts';
@@ -321,6 +322,7 @@ export async function postMemberCharging(no: string, user: Actor): Promise<{ jou
     }>('SELECT * FROM member_charging WHERE no = ?', no);
     if (!req) throw new AppError('Member charging document not found', 'NOT_FOUND');
     if (req.status !== 'Open') throw new AppError('This document has already been posted', 'VALIDATION');
+    await assertMemberNotDormant(req.member_id, 'a charge');
 
     const { amount } = await resolveAndValidate({
       memberId: req.member_id, sourceAccountId: req.source_account_id,

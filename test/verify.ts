@@ -31,7 +31,7 @@ const gl = await import('../lib/gl.ts');
 const savings = await import('../lib/savings.ts');
 const loanSvc = await import('../lib/loanService.ts');
 const {
-  buildSchedule, allocateRepayment, calculateLoanProductCharges,
+  buildSchedule, allocateRepayment, calculateLoanProductCharges, addMonths,
 } = await import('../lib/loans.ts');
 const adminLib = await import('../lib/admin.ts');
 const chargesLib = await import('../lib/charges.ts');
@@ -39,6 +39,14 @@ const loanProductCharges = await import('../lib/loanProductCharges.ts');
 const configPackages = await import('../lib/configPackages.ts');
 const auth = await import('../lib/auth.ts');
 const permissions = await import('../lib/permissions.ts');
+const pool = await import('../lib/pool.ts');
+const membersLib = await import('../lib/members.ts');
+const entranceFeeRecovery = await import('../lib/entranceFeeRecovery.ts');
+const jobQueueLib = await import('../lib/jobQueue.ts');
+const memberStatusUpdate = await import('../lib/memberStatusUpdate.ts');
+const memberDormancy = await import('../lib/memberDormancy.ts');
+const memberActivation = await import('../lib/memberActivation.ts');
+const standingOrdersLib = await import('../lib/standingOrders.ts');
 
 import type {
   Actor, LoanFull, LoanProduct, LoanProductChargeDetail, LoanScheduleRow, Member, SavingsAccount, SessionUser,
@@ -792,6 +800,575 @@ await test('ageing classifies loans by days in arrears', async () => {
        (days_in_arrears BETWEEN 181 AND 360 AND classification <> 'SUBSTANDARD'))`,
   );
   assert.strictEqual(bad.length, 0, `misclassified: ${bad.map((b) => b.loan_no).join(', ')}`);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Entrance Fee Recovery');
+
+const regFeeGl = await gl.createGlAccount(
+  { code: 'TEST-REGFEE', name: 'Test Registration Fee Income', type: 'INCOME' }, admin,
+);
+const { id: efrCategoryId } = await pool.createMemberCategory(
+  {
+    code: 'EFRTEST', description: 'Entrance Fee Recovery test category', category_type: 'INDIVIDUAL',
+    registration_fee: 500000, registration_fee_account_id: regFeeGl.id,
+  },
+  [], admin,
+);
+const efrMember = await membersLib.createMember(
+  {
+    member_type: 'INDIVIDUAL', member_category_id: efrCategoryId, first_name: 'Fee', last_name: 'Testcase',
+    status: 'NOT PAID UP',
+  },
+  admin,
+);
+const bosaProduct = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='BOSA'"))!;
+const efrAccount = await savings.openAccount({ memberId: efrMember.id, productId: bosaProduct.id, enforceMinOpening: false });
+await savings.deposit({ accountId: efrAccount.id, amount: 200000, user: admin, description: 'test funding' });
+
+await test('a candidate reports the outstanding fee capped by the available balance', async () => {
+  const candidates = await entranceFeeRecovery.listEntranceFeeRecoveryCandidates();
+  const c = candidates.find((x) => x.member_id === efrMember.id);
+  assert.ok(c, 'the test member should be a candidate');
+  assert.strictEqual(c!.registration_fee, 500000);
+  assert.strictEqual(c!.paid_registration, 0);
+  assert.strictEqual(c!.outstanding, 500000);
+  assert.strictEqual(c!.available_balance, 200000);
+  assert.strictEqual(c!.posting_amount, 200000);
+});
+
+await test('a partial recovery posts what is available and leaves the member Not Paid Up', async () => {
+  const summary = await entranceFeeRecovery.runEntranceFeeRecovery(admin);
+  const r = summary.results.find((x) => x.member_id === efrMember.id);
+  assert.ok(r, 'the test member should appear in the run results');
+  assert.strictEqual(r!.posted, 200000);
+  assert.strictEqual(r!.activated, false);
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', efrMember.id))!;
+  assert.strictEqual(m.status, 'NOT PAID UP');
+  assert.strictEqual(await accounting.accountBalance('TEST-REGFEE'), 200000);
+  assert.strictEqual((await savings.getAccount(efrAccount.id))!.balance, 0);
+});
+
+await test('topping up and running again fully recovers the fee and activates the member', async () => {
+  await savings.deposit({ accountId: efrAccount.id, amount: 400000, user: admin, description: 'more funding' });
+  const summary = await entranceFeeRecovery.runEntranceFeeRecovery(admin);
+  const r = summary.results.find((x) => x.member_id === efrMember.id);
+  assert.ok(r, 'the test member should appear in the run results');
+  assert.strictEqual(r!.posted, 300000, 'only the remaining balance of the fee, not the full deposit');
+  assert.strictEqual(r!.activated, true);
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', efrMember.id))!;
+  assert.strictEqual(m.status, 'ACTIVE');
+  assert.strictEqual(await accounting.accountBalance('TEST-REGFEE'), 500000);
+});
+
+await test('a fully recovered member is no longer a candidate', async () => {
+  const candidates = await entranceFeeRecovery.listEntranceFeeRecoveryCandidates();
+  assert.ok(!candidates.some((x) => x.member_id === efrMember.id));
+});
+
+/* ------------------------------------------------------------------------ */
+section('System Automation (Job Queue)');
+
+await test('a new entry starts On Hold', async () => {
+  const { id } = await jobQueueLib.createJobQueueEntry(
+    { code: 'TEST-EFR-JOB1', description: 'test', job_type: 'ENTRANCE_FEE_RECOVERY', run_every_minutes: 60 }, admin,
+  );
+  const entry = await jobQueueLib.getJobQueueEntry(id);
+  assert.strictEqual(entry!.status, 'ON HOLD');
+  await jobQueueLib.deleteJobQueueEntry(id, admin);
+});
+
+await test('runDueJobQueueEntries ignores an On Hold entry but runs a Ready, due one', async () => {
+  const { id } = await jobQueueLib.createJobQueueEntry(
+    { code: 'TEST-EFR-JOB2', description: 'test', job_type: 'ENTRANCE_FEE_RECOVERY', run_every_minutes: 60 }, admin,
+  );
+  await jobQueueLib.runDueJobQueueEntries();
+  let entry = await jobQueueLib.getJobQueueEntry(id);
+  assert.strictEqual(entry!.last_run_at, null, 'an On Hold entry must never run');
+
+  await jobQueueLib.setJobQueueEntryStatus(id, 'READY', admin);
+  await jobQueueLib.runDueJobQueueEntries();
+  entry = await jobQueueLib.getJobQueueEntry(id);
+  assert.strictEqual(entry!.last_run_status, 'SUCCESS');
+  assert.ok(entry!.last_run_message);
+  assert.ok(entry!.next_run_at! > entry!.last_run_at!, 'next_run_at should be rescheduled forward from the run');
+  await jobQueueLib.deleteJobQueueEntry(id, admin);
+});
+
+await test('running an entry now works regardless of its schedule', async () => {
+  const { id } = await jobQueueLib.createJobQueueEntry(
+    { code: 'TEST-EFR-JOB3', description: 'test', job_type: 'ENTRANCE_FEE_RECOVERY', run_every_minutes: 60 }, admin,
+  );
+  await jobQueueLib.runJobQueueEntryNow(id, admin);
+  const entry = await jobQueueLib.getJobQueueEntry(id);
+  assert.strictEqual(entry!.status, 'ON HOLD', 'running now must not itself flip the entry to Ready');
+  assert.strictEqual(entry!.last_run_status, 'SUCCESS');
+  await jobQueueLib.deleteJobQueueEntry(id, admin);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Member Status Update');
+
+const msuBosaProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='BOSA'"))!.id;
+const msuFosaProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='FOSA'"))!.id;
+
+const msuMemberA = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'DormancyA', last_name: 'Testcase' }, admin,
+);
+const msuBosaA = await savings.openAccount({ memberId: msuMemberA.id, productId: msuBosaProductId, enforceMinOpening: false });
+const msuFosaA = await savings.openAccount({ memberId: msuMemberA.id, productId: msuFosaProductId, enforceMinOpening: false });
+await savings.deposit({ accountId: msuFosaA.id, amount: 500000, user: admin, description: 'unrelated funds' });
+// Backdate the BOSA account's own last activity — the only thing dormancy is driven off — well
+// past any real Dormancy Period so this test never depends on what's actually configured.
+await run('UPDATE savings_account SET last_activity = ? WHERE id = ?', '2000-01-01', msuBosaA.id);
+
+await test('a member with no money in BOSA long enough is flagged to be marked Dormant', async () => {
+  const candidates = await memberStatusUpdate.listMemberStatusUpdateCandidates();
+  const c = candidates.find((x) => x.member_id === msuMemberA.id);
+  assert.ok(c, 'the test member should be a candidate');
+  assert.strictEqual(c!.action, 'MARK_DORMANT');
+  assert.ok(c!.days_since_activity! > 1000);
+});
+
+await test('running the update marks that member Dormant', async () => {
+  const summary = await memberStatusUpdate.runMemberStatusUpdate(admin);
+  const r = summary.results.find((x) => x.member_id === msuMemberA.id);
+  assert.ok(r, 'the test member should appear in the run results');
+  assert.strictEqual(r!.action, 'MARK_DORMANT');
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', msuMemberA.id))!;
+  assert.strictEqual(m.status, 'DORMANT');
+});
+
+await test('assertMemberNotDormant rejects a Dormant member and passes an Active one', async () => {
+  await throws(() => memberDormancy.assertMemberNotDormant(msuMemberA.id, 'a test action'), /MEMBER_DORMANT/);
+  await memberDormancy.assertMemberNotDormant(testMember.id, 'a test action');
+});
+
+await test('a Dormant member cannot withdraw, even from an unrelated account with funds', async () => {
+  await throws(() => savings.withdraw({ accountId: msuFosaA.id, amount: 1000, user: admin }), /MEMBER_DORMANT/);
+});
+
+await test('a Dormant member can still deposit', async () => {
+  const before = (await savings.getAccount(msuFosaA.id))!.balance;
+  await savings.deposit({ accountId: msuFosaA.id, amount: 1000, user: admin, description: 'still allowed' });
+  assert.strictEqual((await savings.getAccount(msuFosaA.id))!.balance, before + 1000);
+});
+
+await test('a deposit into the dormant BOSA account reactivates the member for free when no charge is configured', async () => {
+  await savings.deposit({ accountId: msuBosaA.id, amount: 100000, user: admin, description: 'reactivating deposit' });
+  const summary = await memberStatusUpdate.runMemberStatusUpdate(admin);
+  const r = summary.results.find((x) => x.member_id === msuMemberA.id);
+  assert.ok(r, 'the test member should appear in the run results');
+  assert.strictEqual(r!.action, 'REACTIVATE');
+  assert.strictEqual(r!.charged, 0);
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', msuMemberA.id))!;
+  assert.strictEqual(m.status, 'ACTIVE');
+});
+
+/* Reactivation charge scenarios — a flat KES 200.00 "Member Reactivation" Transaction Charge. */
+const msuStamp = Date.now();
+const msuChargeGl = await gl.createGlAccount(
+  { code: `TESTREACTGL${msuStamp}`, name: 'Test Reactivation Income', type: 'INCOME' }, admin,
+);
+const msuCharge = await chargesLib.createCharge(`TESTREACT${msuStamp}`, 'Test reactivation fee', admin);
+await chargesLib.createTransactionCharge(
+  { code: `TESTREACTTC${msuStamp}`, description: 'Test Member Reactivation Charge', transaction_type: 'Member Reactivation' },
+  [{
+    charge_id: msuCharge.id, gl_account_id: msuChargeGl.id, calculation_type: 'SCHEME', source_index: null,
+    scheme: [{ lower_limit: 0, upper_limit: null, rate_type: 'FLAT', flat_amount: 20000 }],
+  }],
+  admin,
+);
+
+const msuMemberB = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'DormancyB', last_name: 'Testcase', status: 'DORMANT' }, admin,
+);
+const msuBosaB = await savings.openAccount({ memberId: msuMemberB.id, productId: msuBosaProductId, enforceMinOpening: false });
+
+const msuMemberC = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'DormancyC', last_name: 'Testcase', status: 'DORMANT' }, admin,
+);
+const msuBosaC = await savings.openAccount({ memberId: msuMemberC.id, productId: msuBosaProductId, enforceMinOpening: false });
+
+await test('an affordable reactivation charge is recovered from the deposit and the member is reactivated', async () => {
+  await savings.deposit({ accountId: msuBosaB.id, amount: 100000, user: admin, description: 'reactivating deposit' });
+  const summary = await memberStatusUpdate.runMemberStatusUpdate(admin);
+  const r = summary.results.find((x) => x.member_id === msuMemberB.id);
+  assert.ok(r, 'the test member should appear in the run results');
+  assert.strictEqual(r!.action, 'REACTIVATE');
+  assert.strictEqual(r!.charged, 20000);
+  assert.strictEqual((await savings.getAccount(msuBosaB.id))!.balance, 80000);
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', msuMemberB.id))!;
+  assert.strictEqual(m.status, 'ACTIVE');
+  assert.strictEqual(await accounting.accountBalance(`TESTREACTGL${msuStamp}`), 20000);
+});
+
+await test('a deposit too small to cover the reactivation charge leaves the member Dormant', async () => {
+  await savings.deposit({ accountId: msuBosaC.id, amount: 10000, user: admin, description: 'too little to reactivate' });
+  const summary = await memberStatusUpdate.runMemberStatusUpdate(admin);
+  const r = summary.results.find((x) => x.member_id === msuMemberC.id);
+  assert.ok(r, 'the test member should appear in the run results');
+  assert.strictEqual(r!.action, 'REACTIVATION_BLOCKED');
+  assert.strictEqual(r!.charged, 0);
+  assert.strictEqual((await savings.getAccount(msuBosaC.id))!.balance, 10000, 'nothing should have been charged');
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', msuMemberC.id))!;
+  assert.strictEqual(m.status, 'DORMANT');
+});
+
+/* ------------------------------------------------------------------------ */
+section('Member Activation');
+
+const maBosaProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='BOSA'"))!.id;
+const maFosaProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='FOSA'"))!.id;
+
+const maMember = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'Activation', last_name: 'Testcase', status: 'DORMANT' }, admin,
+);
+const maBosa = await savings.openAccount({ memberId: maMember.id, productId: maBosaProductId, enforceMinOpening: false });
+await savings.deposit({ accountId: maBosa.id, amount: 100000, user: admin, description: 'test funding' });
+// A second account this member holds, already INACTIVE — processing should reopen it too (AL's
+// own "unblock every Vendor" loop), not just flip the member's own status.
+const maFosa = await savings.openAccount({ memberId: maMember.id, productId: maFosaProductId, enforceMinOpening: false });
+await run("UPDATE savings_account SET status = 'INACTIVE' WHERE id = ?", maFosa.id);
+
+await test('a Dormant member is offered for activation; an Active one is not', async () => {
+  const eligible = await memberActivation.eligibleMembersForActivation();
+  assert.ok(eligible.some((m) => m.id === maMember.id));
+  assert.ok(!eligible.some((m) => m.id === testMember.id));
+});
+
+await test('only a Dormant member can have an activation request opened against them', async () => {
+  await throws(
+    () => memberActivation.createMemberActivationRequest(
+      { memberId: testMember.id, reason: 'test', payFromAccountType: 'MEMBER_ACCOUNT' }, admin,
+    ),
+    /VALIDATION/,
+  );
+});
+
+const { no: maNo } = await memberActivation.createMemberActivationRequest(
+  { memberId: maMember.id, reason: 'Walked in to reactivate', payFromAccountType: 'MEMBER_ACCOUNT' }, admin,
+);
+
+await test('a second request cannot be opened while one is already in flight', async () => {
+  await throws(
+    () => memberActivation.createMemberActivationRequest(
+      { memberId: maMember.id, reason: 'duplicate', payFromAccountType: 'MEMBER_ACCOUNT' }, admin,
+    ),
+    /VALIDATION/,
+  );
+});
+
+await test('processing (bypassing workflow routing, which this suite does not exercise) reactivates the member and every inactive account', async () => {
+  // No workflow is configured for MEMBER_ACTIVATION in a fresh install (an admin sets one up via
+  // Admin Centre → Workflow Management before the module is used for real) — this test isolates
+  // processMemberActivationRequest() itself by moving the request to Approved directly, the same
+  // way it would arrive there via a real approval.
+  await run("UPDATE member_activation_request SET status = 'Approved' WHERE no = ?", maNo);
+  const { memberId } = await memberActivation.processMemberActivationRequest(maNo, admin);
+  assert.strictEqual(memberId, maMember.id);
+
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', maMember.id))!;
+  assert.strictEqual(m.status, 'ACTIVE');
+  const fosaAfter = (await one<{ status: string }>('SELECT status FROM savings_account WHERE id = ?', maFosa.id))!;
+  assert.strictEqual(fosaAfter.status, 'ACTIVE');
+  const req = (await one<{ status: string }>('SELECT status FROM member_activation_request WHERE no = ?', maNo))!;
+  assert.strictEqual(req.status, 'Processed');
+});
+
+/* A second member, reactivated with a real MEMBER_ACCOUNT-funded charge. */
+const maStamp = Date.now();
+const maChargeGl = await gl.createGlAccount(
+  { code: `TESTMAGL${maStamp}`, name: 'Test Member Activation Income', type: 'INCOME' }, admin,
+);
+const maCharge = await chargesLib.createCharge(`TESTMA${maStamp}`, 'Test member activation fee', admin);
+await chargesLib.createTransactionCharge(
+  { code: `TESTMATC${maStamp}`, description: 'Test Member Activation Charge', transaction_type: 'General' },
+  [{
+    charge_id: maCharge.id, gl_account_id: maChargeGl.id, calculation_type: 'SCHEME', source_index: null,
+    scheme: [{ lower_limit: 0, upper_limit: null, rate_type: 'FLAT', flat_amount: 15000 }],
+  }],
+  admin,
+);
+const maTransactionCharge = (await one<{ id: number }>(`SELECT id FROM transaction_charge WHERE code = 'TESTMATC${maStamp}'`))!;
+
+const maMember2 = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'ActivationB', last_name: 'Testcase', status: 'DORMANT' }, admin,
+);
+const maBosa2 = await savings.openAccount({ memberId: maMember2.id, productId: maBosaProductId, enforceMinOpening: false });
+await savings.deposit({ accountId: maBosa2.id, amount: 100000, user: admin, description: 'test funding' });
+
+await test('a charge paid from the member\'s own account is recovered and the member is reactivated', async () => {
+  const { no } = await memberActivation.createMemberActivationRequest(
+    {
+      memberId: maMember2.id, reason: 'test', payFromAccountType: 'MEMBER_ACCOUNT',
+      transactionChargeId: maTransactionCharge.id, debitAccountId: maBosa2.id,
+    },
+    admin,
+  );
+  await run("UPDATE member_activation_request SET status = 'Approved' WHERE no = ?", no);
+  await memberActivation.processMemberActivationRequest(no, admin);
+
+  const m = (await one<{ status: string }>('SELECT status FROM member WHERE id = ?', maMember2.id))!;
+  assert.strictEqual(m.status, 'ACTIVE');
+  assert.strictEqual((await savings.getAccount(maBosa2.id))!.balance, 100000 - 15000);
+  assert.strictEqual(await accounting.accountBalance(`TESTMAGL${maStamp}`), 15000);
+});
+
+const maMember3 = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'ActivationC', last_name: 'Testcase', status: 'DORMANT' }, admin,
+);
+const maBosa3 = await savings.openAccount({ memberId: maMember3.id, productId: maBosaProductId, enforceMinOpening: false });
+await savings.deposit({ accountId: maBosa3.id, amount: 5000, user: admin, description: 'too little to cover the charge' });
+
+await test('a charge exceeding the debit account\'s available balance is rejected up front', async () => {
+  await throws(
+    () => memberActivation.createMemberActivationRequest(
+      {
+        memberId: maMember3.id, reason: 'test', payFromAccountType: 'MEMBER_ACCOUNT',
+        transactionChargeId: maTransactionCharge.id, debitAccountId: maBosa3.id,
+      },
+      admin,
+    ),
+    /INSUFFICIENT_FUNDS/,
+  );
+});
+
+/* ------------------------------------------------------------------------ */
+section('Standing Orders');
+
+const soFosaProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='FOSA'"))!.id;
+
+const soMemberA = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'StandingA', last_name: 'Testcase' }, admin,
+);
+const soFosaA = await savings.openAccount({ memberId: soMemberA.id, productId: soFosaProductId, enforceMinOpening: false });
+const soMemberB = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'StandingB', last_name: 'Testcase' }, admin,
+);
+const soFosaB = await savings.openAccount({ memberId: soMemberB.id, productId: soFosaProductId, enforceMinOpening: false });
+
+const soStartDate = today; // the fixture at the top of this file — see "const today = ..." above.
+
+await test('a standing order cannot start in the past', async () => {
+  await throws(
+    () => standingOrdersLib.createStandingOrder({
+      memberId: soMemberA.id, accountId: soFosaA.id, standingOrderClass: 'INTERNAL', amountType: 'SWEEP',
+      destinationMemberId: soMemberB.id, destinationAccountId: soFosaB.id, postingDescription: 'test',
+      startDate: '2000-01-01', tillFurtherNotice: true,
+    }, admin),
+    /VALIDATION/,
+  );
+});
+
+const { no: soSweepNo } = await standingOrdersLib.createStandingOrder(
+  {
+    memberId: soMemberA.id, accountId: soFosaA.id, standingOrderClass: 'INTERNAL', amountType: 'SWEEP',
+    destinationMemberId: soMemberB.id, destinationAccountId: soFosaB.id, postingDescription: 'Sweep to B',
+    startDate: soStartDate, tillFurtherNotice: true,
+  },
+  admin,
+);
+
+await test('a second standing order to the same destination is rejected as a duplicate', async () => {
+  await throws(
+    () => standingOrdersLib.createStandingOrder({
+      memberId: soMemberA.id, accountId: soFosaA.id, standingOrderClass: 'INTERNAL', amountType: 'FIXED',
+      amount: 100000, destinationMemberId: soMemberB.id, destinationAccountId: soFosaB.id,
+      postingDescription: 'duplicate', startDate: soStartDate, tillFurtherNotice: true,
+    }, admin),
+    /DUPLICATE/,
+  );
+});
+
+await test('approval sets the order running immediately, with no separate Process step', async () => {
+  // No workflow is configured for STANDING_ORDER in a fresh install (an admin sets one up via
+  // Admin Centre → Workflow Management) — this test isolates approveStandingOrder() itself,
+  // the same way the Member Activation tests above bypass submission's own workflow routing.
+  await run("UPDATE standing_order SET status = 'Pending Approval' WHERE no = ?", soSweepNo);
+  await standingOrdersLib.approveStandingOrder(soSweepNo, admin);
+  const o = (await one<{ status: string; running: boolean }>('SELECT status, running FROM standing_order WHERE no = ?', soSweepNo))!;
+  assert.strictEqual(o.status, 'Approved');
+  assert.strictEqual(o.running, true);
+});
+
+await test('a Sweep order moves nothing when the source account is empty', async () => {
+  const summary = await standingOrdersLib.runStandingOrders(admin, soStartDate);
+  assert.ok(!summary.results.some((r) => r.no === soSweepNo && r.action === 'POSTED'));
+});
+
+await test('funding the source account and running again sweeps the full available balance', async () => {
+  await savings.deposit({ accountId: soFosaA.id, amount: 250000, user: admin, description: 'test funding' });
+  const summary = await standingOrdersLib.runStandingOrders(admin, soStartDate);
+  const r = summary.results.find((x) => x.no === soSweepNo);
+  assert.ok(r, 'the order should appear in the run results');
+  assert.strictEqual(r!.action, 'POSTED');
+  assert.strictEqual(r!.posted, 250000);
+  assert.strictEqual((await savings.getAccount(soFosaA.id))!.balance, 0);
+  assert.strictEqual((await savings.getAccount(soFosaB.id))!.balance, 250000);
+});
+
+await test('running again the same day is a no-op — last_run_date guards against double-posting', async () => {
+  await savings.deposit({ accountId: soFosaA.id, amount: 50000, user: admin, description: 'more funds, same day' });
+  const summary = await standingOrdersLib.runStandingOrders(admin, soStartDate);
+  assert.ok(!summary.results.some((r) => r.no === soSweepNo));
+  assert.strictEqual((await savings.getAccount(soFosaA.id))!.balance, 50000, 'the second deposit should be untouched');
+});
+
+const addDays = (iso: string, n: number): string =>
+  new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
+
+await test('running on a later day sweeps again', async () => {
+  const tomorrow = addDays(soStartDate, 1);
+  const summary = await standingOrdersLib.runStandingOrders(admin, tomorrow);
+  const r = summary.results.find((x) => x.no === soSweepNo);
+  assert.ok(r && r.action === 'POSTED');
+  assert.strictEqual((await savings.getAccount(soFosaA.id))!.balance, 0);
+  assert.strictEqual((await savings.getAccount(soFosaB.id))!.balance, 300000);
+});
+
+await test('terminating stops the order for good', async () => {
+  await standingOrdersLib.terminateStandingOrder(soSweepNo, admin);
+  const o = (await one<{ running: boolean; terminated: boolean }>('SELECT running, terminated FROM standing_order WHERE no = ?', soSweepNo))!;
+  assert.strictEqual(o.running, false);
+  assert.strictEqual(o.terminated, true);
+  await throws(() => standingOrdersLib.terminateStandingOrder(soSweepNo, admin), /VALIDATION/);
+});
+
+/* A Fixed, Specific-Day order — exercises the schedule gate and the freeze/auto-unfreeze cycle. */
+const soMemberC = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'StandingC', last_name: 'Testcase' }, admin,
+);
+const soFosaC = await savings.openAccount({ memberId: soMemberC.id, productId: soFosaProductId, enforceMinOpening: false });
+await savings.deposit({ accountId: soFosaC.id, amount: 1000000, user: admin, description: 'test funding' });
+
+const soRunFromDay = Number(soStartDate.slice(8, 10));
+const soDueNextMonth = addMonths(soStartDate, 1);
+const soNotDueDate = addDays(soStartDate, 1) === soDueNextMonth ? addDays(soStartDate, 2) : addDays(soStartDate, 1);
+
+const { no: soFixedNo } = await standingOrdersLib.createStandingOrder(
+  {
+    memberId: soMemberC.id, accountId: soFosaC.id, standingOrderClass: 'INTERNAL', amountType: 'FIXED', amount: 100000,
+    destinationMemberId: soMemberB.id, destinationAccountId: soFosaB.id, postingDescription: 'Fixed to B',
+    runType: 'SPECIFIC_DAY', runFromDay: soRunFromDay, startDate: soStartDate, tillFurtherNotice: true,
+  },
+  admin,
+);
+await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", soFixedNo);
+
+await test('a Fixed order runs on its own day of the month', async () => {
+  const summary = await standingOrdersLib.runStandingOrders(admin, soStartDate);
+  const r = summary.results.find((x) => x.no === soFixedNo);
+  assert.ok(r && r.action === 'POSTED');
+  assert.strictEqual(r!.posted, 100000);
+});
+
+await test('a Fixed order does not run on a day other than its own', async () => {
+  const summary = await standingOrdersLib.runStandingOrders(admin, soNotDueDate);
+  assert.ok(!summary.results.some((r) => r.no === soFixedNo));
+});
+
+await test('freezing pauses the order, and it auto-unfreezes once the freeze date passes', async () => {
+  // freeze_end_date must not yet have *passed* on soDueNextMonth itself (the auto-unfreeze
+  // check is freeze_end_date < dateStr) — freezing through that exact day keeps it paused for
+  // that run, then lifts on the following due date.
+  await standingOrdersLib.freezeStandingOrder(soFixedNo, soDueNextMonth, admin);
+  let summary = await standingOrdersLib.runStandingOrders(admin, soDueNextMonth);
+  assert.ok(!summary.results.some((r) => r.no === soFixedNo), 'frozen orders must not post');
+  const stillFrozen = (await one<{ freezed: boolean }>('SELECT freezed FROM standing_order WHERE no = ?', soFixedNo))!;
+  assert.strictEqual(stillFrozen.freezed, true);
+
+  const dueMonthAfter = addMonths(soDueNextMonth, 1);
+  summary = await standingOrdersLib.runStandingOrders(admin, dueMonthAfter);
+  const r = summary.results.find((x) => x.no === soFixedNo);
+  assert.ok(r && r.action === 'POSTED', 'the order should have auto-unfrozen and posted on its next due day');
+  const unfrozen = (await one<{ freezed: boolean }>('SELECT freezed FROM standing_order WHERE no = ?', soFixedNo))!;
+  assert.strictEqual(unfrozen.freezed, false);
+});
+
+/* A Loan Repayment order — reuses one of the seeded disbursed loans. */
+const soLoan = await one<{ id: number; member_id: number; loan_no: string }>(
+  "SELECT id, member_id, loan_no FROM loan WHERE status = 'DISBURSED' LIMIT 1",
+);
+
+if (soLoan) {
+  await test('a Loan Repayment order pays down the loan through the normal repayment engine', async () => {
+    const before = (await one<{ principal_balance: number; interest_balance: number; penalty_balance: number }>(
+      'SELECT principal_balance, interest_balance, penalty_balance FROM loan WHERE id = ?', soLoan.id,
+    ))!;
+    const owedBefore = before.principal_balance + before.interest_balance + before.penalty_balance;
+
+    const borrowerFosa = await one<{ id: number }>(
+      `SELECT sa.id FROM savings_account sa JOIN savings_product sp ON sp.id = sa.product_id
+       WHERE sa.member_id = ? AND sp.code = 'FOSA'`,
+      soLoan.member_id,
+    );
+    if (!borrowerFosa) {
+      await savings.openAccount({ memberId: soLoan.member_id, productId: soFosaProductId, enforceMinOpening: false });
+    }
+    const source = borrowerFosa ?? (await one<{ id: number }>(
+      `SELECT sa.id FROM savings_account sa JOIN savings_product sp ON sp.id = sa.product_id
+       WHERE sa.member_id = ? AND sp.code = 'FOSA'`,
+      soLoan.member_id,
+    ))!;
+    await savings.deposit({ accountId: source.id, amount: owedBefore + 100000, user: admin, description: 'test funding' });
+
+    const { no } = await standingOrdersLib.createStandingOrder(
+      {
+        memberId: soLoan.member_id, accountId: source.id, standingOrderClass: 'LOAN_REPAYMENT', amountType: 'SWEEP',
+        destinationLoanId: soLoan.id, postingDescription: 'Loan repayment STO', startDate: soStartDate, tillFurtherNotice: true,
+      },
+      admin,
+    );
+    await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", no);
+    const summary = await standingOrdersLib.runStandingOrders(admin, soStartDate);
+    const r = summary.results.find((x) => x.no === no);
+    assert.ok(r && r.action === 'POSTED', 'sweeping the full outstanding balance should close the loan this run');
+    assert.strictEqual(r!.posted, owedBefore);
+
+    const after = (await one<{ status: string; principal_balance: number; interest_balance: number; penalty_balance: number }>(
+      'SELECT status, principal_balance, interest_balance, penalty_balance FROM loan WHERE id = ?', soLoan.id,
+    ))!;
+    assert.strictEqual(after.status, 'CLOSED');
+    assert.ok(after.principal_balance <= 0 && after.interest_balance <= 0 && after.penalty_balance <= 0);
+
+    // The loan is fully repaid now, but that's only detected on the *next* run's own up-front
+    // check (AL's own UpdateSTO/RunStandingOrder run in that same order) — mirrored here by
+    // running again on a later day.
+    const later = await standingOrdersLib.runStandingOrders(admin, addDays(soStartDate, 1));
+    const r2 = later.results.find((x) => x.no === no);
+    assert.ok(r2 && r2.action === 'TERMINATED', 'the next run should notice the loan is closed and auto-terminate the order');
+  });
+}
+
+/* Disbursing a recovery_mode = STANDING_ORDER loan should auto-create and activate its own
+ * recovery standing order — lib/loanService.ts's disburse() reaches lib/standingOrders.ts via a
+ * dynamic import to avoid a static circular dependency (standingOrders.ts imports repay() from
+ * loanService.ts for its own run engine); this exercises that exact call chain for real, in the
+ * same Node ESM runtime this suite itself runs under. */
+await test('disbursing a Standing-Order-recovery loan auto-creates and activates its own recovery standing order', async () => {
+  const loan = await loanSvc.apply({
+    memberId: borrower.id, productId: normProduct.id, principal: 10000000, termMonths: 12,
+    purpose: 'Unit test — auto STO', disburseToAccountId: borrowerFosa.id, recoveryMode: 'STANDING_ORDER', user: admin,
+  });
+  await loanSvc.saveAppraisal({ loanId: loan.id, user: admin });
+  await loanSvc.submit({ loanId: loan.id, user: admin });
+  await loanSvc.approve({ loanId: loan.id, user: admin, approve: true, reason: 'ok' });
+  const disbursed = await loanSvc.disburse({ loanId: loan.id, user: admin });
+  assert.strictEqual(disbursed.status, 'DISBURSED');
+
+  const sto = await one<{
+    no: string; status: string; running: boolean; standing_order_class: string; amount: number; account_id: number;
+  }>('SELECT * FROM standing_order WHERE destination_loan_id = ?', loan.id);
+  assert.ok(sto, 'a recovery standing order should have been auto-created');
+  assert.strictEqual(sto!.status, 'Approved');
+  assert.strictEqual(sto!.running, true);
+  assert.strictEqual(sto!.standing_order_class, 'LOAN_REPAYMENT');
+  assert.strictEqual(sto!.amount, disbursed.installment);
+  assert.strictEqual(sto!.account_id, borrowerFosa.id);
+
+  const again = await standingOrdersLib.createRecoveryStandingOrderForLoan(loan.id, admin);
+  assert.strictEqual(again, null, 'a loan that already has a live recovery order must not get a second one');
 });
 
 /* ------------------------------------------------------------------------ */

@@ -63,7 +63,11 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ACCOUNT_OPENING', label: 'Account Opening', route: '/account-openings' },
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
   { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
+  { code: 'MEMBER_ACTIVATIONS', label: 'Member Activation', route: '/member-activations' },
+  { code: 'STANDING_ORDERS', label: 'Standing Orders', route: '/standing-orders' },
   { code: 'MEMBER_CHARGING', label: 'Member Charging', route: '/member-chargings' },
+  { code: 'ENTRANCE_FEE_RECOVERY', label: 'Entrance Fee Recovery', route: '/entrance-fee-recovery' },
+  { code: 'MEMBER_STATUS_UPDATE', label: 'Member Status Update', route: '/member-status-update' },
   { code: 'COLLATERAL_APPLICATIONS', label: 'Collateral Applications', route: '/collateral-applications' },
   { code: 'COLLATERAL_REGISTER', label: 'Collateral Register', route: '/collateral-register' },
   { code: 'COLLATERAL_RELEASES', label: 'Collateral Releases', route: '/collateral-releases' },
@@ -92,6 +96,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ADMIN_AUDIT', label: 'Audit Trail', route: '/admin/security/audit' },
   { code: 'ADMIN_CHANGELOG', label: 'Change Log Management', route: '/admin/security/changelog' },
   { code: 'ADMIN_DATA', label: 'Data Management', route: '/admin/data' },
+  { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/automation' },
 ];
 
 export interface ActionGrant {
@@ -278,6 +283,43 @@ export const ACTIONS = {
     ],
   },
 
+  // Member Activation — reactivates a Dormant member (see lib/memberActivation.ts): flips their
+  // status back to Active, reactivates every one of their own INACTIVE accounts, and — when a
+  // reactivation fee is configured — posts it either to the teller cash account or debited from
+  // one of their own accounts. Same shape as ACCOUNT_ACTIVATION above, one level up (member
+  // rather than a single account).
+  MEMBER_ACTIVATIONS_READ: { page: 'MEMBER_ACTIVATIONS', tables: [['member_activation_request', 'read']] },
+  MEMBER_ACTIVATIONS_CREATE: {
+    page: 'MEMBER_ACTIVATIONS',
+    tables: [['member_activation_request', 'insert'], ['member_activation_request', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  MEMBER_ACTIVATIONS_APPROVE: {
+    page: 'MEMBER_ACTIVATIONS',
+    tables: [
+      ['member_activation_request', 'modify'], ['member', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Standing Order — a recurring instruction (transfer or loan repayment) that runs itself once
+  // Approved (see lib/standingOrders.ts). APPROVE also covers Terminate/Freeze/Unfreeze — the
+  // same ongoing-lifecycle tier as approval, not a separate maker-checker step — since none of
+  // them move money themselves (only the automated/manual run does, gated by its own _RUN
+  // action). No money moves at approval time either, hence no ledger table rights here.
+  STANDING_ORDERS_READ: { page: 'STANDING_ORDERS', tables: [['standing_order', 'read']] },
+  STANDING_ORDERS_CREATE: {
+    page: 'STANDING_ORDERS',
+    tables: [['standing_order', 'insert'], ['standing_order', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  STANDING_ORDERS_APPROVE: { page: 'STANDING_ORDERS', tables: [['standing_order', 'modify']] },
+  STANDING_ORDERS_RUN: {
+    page: 'STANDING_ORDERS',
+    tables: [
+      ['standing_order', 'modify'], ['savings_account', 'modify'], ['loan', 'modify'], ['loan_schedule', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
   // Member Charging — an ad-hoc charge posted straight against a member's own withdrawable
   // deposit account (see lib/memberCharging.ts). No approval workflow: whoever creates the
   // document also posts it, so — unlike Account Opening/Deactivation/Activation above — there
@@ -292,6 +334,38 @@ export const ACTIONS = {
     page: 'MEMBER_CHARGING',
     tables: [
       ['member_charging', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Entrance Fee Recovery — batch sweep that recovers a Not Paid Up member's outstanding
+  // registration fee (Admin Centre → Member Categories' own Registration Fee/Account) from
+  // their Non-Withdrawable Deposit account, capped by what's actually available; once the fee
+  // is fully recovered the member flips from Not Paid Up to Active. Ported from the source
+  // documentation's "Entrance Fee Recovery" report (Rep 52204049). No maker-checker document —
+  // whoever can run it also posts it, the same shape MEMBER_CHARGING above uses.
+  ENTRANCE_FEE_RECOVERY_READ: {
+    page: 'ENTRANCE_FEE_RECOVERY',
+    tables: [['member', 'read'], ['member_category', 'read'], ['savings_account', 'read']],
+  },
+  ENTRANCE_FEE_RECOVERY_RUN: {
+    page: 'ENTRANCE_FEE_RECOVERY',
+    tables: [
+      ['member', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Member Status Update — the Active <-> Dormant sweep and its reactivation charge (see
+  // lib/memberStatusUpdate.ts). Same shape as ENTRANCE_FEE_RECOVERY above.
+  MEMBER_STATUS_UPDATE_READ: {
+    page: 'MEMBER_STATUS_UPDATE',
+    tables: [['member', 'read'], ['savings_account', 'read']],
+  },
+  MEMBER_STATUS_UPDATE_RUN: {
+    page: 'MEMBER_STATUS_UPDATE',
+    tables: [
+      ['member', 'modify'], ['savings_account', 'modify'],
       ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
     ],
   },
@@ -316,7 +390,13 @@ export const ACTIONS = {
   LOAN_APPROVE: { page: 'LOANS', tables: [['loan', 'modify']] },
   LOAN_DISBURSE: {
     page: 'LOANS',
-    tables: [['journal', 'insert'], ['journal_line', 'insert'], ['loan_schedule', 'insert'], ['loan_schedule', 'delete'], ['loan', 'modify'], ['savings_account', 'modify'], ['txn', 'insert']],
+    tables: [
+      ['journal', 'insert'], ['journal_line', 'insert'], ['loan_schedule', 'insert'], ['loan_schedule', 'delete'],
+      ['loan', 'modify'], ['savings_account', 'modify'], ['txn', 'insert'],
+      // recovery_mode = STANDING_ORDER auto-creates and activates its own recovery standing
+      // order right here — see lib/standingOrders.ts's createRecoveryStandingOrderForLoan().
+      ['standing_order', 'insert'], ['standing_order', 'modify'],
+    ],
   },
   LOAN_REPAY: {
     page: 'LOANS',
@@ -461,6 +541,20 @@ export const ACTIONS = {
     tables: [['change_log_setup', 'insert'], ['change_log_setup', 'modify'], ['change_log_setup', 'delete'], ['change_log_entry', 'read']],
   },
   ADMIN_AUDIT_VIEW: { page: 'ADMIN_AUDIT', tables: [['audit_log', 'read']] },
+
+  // System Automation (Job Queue) — mirrors Business Central's Job Queue Entry: the admin sets
+  // up recurring background tasks (currently just Entrance Fee Recovery — see lib/jobQueue.ts's
+  // JOB_HANDLERS) that the in-process scheduler (instrumentation.ts) polls and runs unattended.
+  // One grant covers the whole screen, including manually running an entry on demand — same
+  // shape ACCOUNT_ACTIVATION_APPROVE bundles its own posting rights under a single action.
+  ADMIN_JOB_QUEUE_MANAGE: {
+    page: 'ADMIN_JOB_QUEUE',
+    tables: [
+      ['job_queue_entry', 'insert'], ['job_queue_entry', 'modify'], ['job_queue_entry', 'delete'],
+      ['member', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
 } as const satisfies Record<string, ActionGrant>;
 
 export type ActionKey = keyof typeof ACTIONS;

@@ -23,6 +23,7 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
       guarantor_multiplier: Number(values.guarantor_multiplier) || 1,
       self_guarantor_multiplier: Number(values.self_guarantor_multiplier) || 1,
       member_exit_notice_days: Number(values.member_exit_notice_days) || 30,
+      dormancy_days: Number(values.dormancy_days) || 90,
     }, user);
     // The society's name, logo and currency appear in the shell on every page.
     revalidatePath('/', 'layout');
