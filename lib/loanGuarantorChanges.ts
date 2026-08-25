@@ -1,16 +1,21 @@
 /*
  * Guarantor Change Management — a maker-checker request to release and/or substitute one or more
  * guarantors on an already-disbursed loan. Ported from the AL reference's "Loan Security Mgmt."
- * card (Pag52204104 + Tab52204085/58/59), narrowed to Security Type = Guarantor only — collateral
- * already has its own release lifecycle via lib/collateralReleases.ts, and this schema has no row
- * to represent a self-guarantee substitution (see addReplacement() below), unlike AL's Det. Lines.
+ * card (Pag52204104 + Tab52204085/58/59). A line (one per guarantor COMMITTED to the loan when the
+ * document was opened/refreshed) is either marked for outright release, or covered by one or more
+ * replacements — AL's Det. Lines Security Type, all three of which this port now supports:
+ *   - GUARANTOR: another member, vetted against their own live guarantee capacity.
+ *   - COLLATERAL: a collateral_register item already registered to the loan's own borrower.
+ *   - FIXED_DEPOSIT: a member_fixed_deposit belonging to the loan's own borrower.
+ * (Never the borrower's own membership as a guarantor row — this schema has no loan_guarantor row
+ * for self-guarantee, see lib/guarantors.ts's selfGuaranteeCapacity — but their own collateral/FD
+ * covers exactly that case instead, matching AL's own Det. Lines TableRelation, which filters
+ * Collateral/Fixed Deposit candidates by the header's Member No, i.e. the borrower.)
  *
- * Same Open -> Pending Approval -> Approved -> Processed shape as collateral releases, but with an
- * extra line/replacement level: one line per guarantor COMMITTED to the loan when the document was
- * opened (or last refreshed), each either marked for outright release or covered by one or more
- * replacement guarantors. Amounts are re-validated against live guarantee capacity at submit and
- * at process time — never trusted from what was typed — the same BR-10 pattern
- * lib/collateralReleases.ts already uses for its own linked-balance check.
+ * Same Open -> Pending Approval -> Approved -> Processed shape as collateral releases. Amounts are
+ * re-validated against live capacity/cover at submit and at process time — never trusted from what
+ * was typed — the same BR-10 pattern lib/collateralReleases.ts already uses for its own
+ * linked-balance check.
  */
 import {
   one, all, run, tx, nextSequence, audit, hasAnyRow,
@@ -18,11 +23,13 @@ import {
 import { AppError } from './errors.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { guarantorCapacity } from './guarantors.ts';
+import { getCollateralLinkedBalance } from './collateralRegister.ts';
+import { getFdLinkedBalance } from './loanFdSecurity.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, ChangeableLoanRow, LoanGuarantorChange, LoanGuarantorChangeLineWithDetails,
-  LoanGuarantorChangeWithDetails,
+  LoanGuarantorChangeWithDetails, ReplacementType,
 } from './types.ts';
 
 export type GuarantorChangeView = 'open' | 'pending' | 'approved' | 'processed';
@@ -123,8 +130,15 @@ export const listGuarantorChangeLines = (changeNo: string): Promise<LoanGuaranto
     changeNo,
   ).then(async (lines) => {
     const replacements = await all<LoanGuarantorChangeLineWithDetails['replacements'][number]>(
-      `SELECT r.*, rm.member_no AS replacement_member_no, rm.first_name AS replacement_first_name, rm.last_name AS replacement_last_name
-       FROM loan_guarantor_change_replacement r JOIN member rm ON rm.id = r.replacement_member_id
+      `SELECT r.*,
+              rm.member_no AS replacement_member_no, rm.first_name AS replacement_first_name, rm.last_name AS replacement_last_name,
+              cr.collateral_description AS replacement_collateral_description, cr.serial_reg_no AS replacement_serial_reg_no,
+              fdt.description AS replacement_fd_type_description
+       FROM loan_guarantor_change_replacement r
+       LEFT JOIN member rm ON rm.id = r.replacement_member_id
+       LEFT JOIN collateral_register cr ON cr.no = r.replacement_collateral_no
+       LEFT JOIN member_fixed_deposit fd ON fd.no = r.replacement_fd_no
+       LEFT JOIN member_fixed_deposit_type fdt ON fdt.id = fd.fd_type_id
        WHERE r.line_id IN (SELECT id FROM loan_guarantor_change_line WHERE change_no = ?)
        ORDER BY r.id`,
       changeNo,
@@ -230,24 +244,32 @@ export async function setLineRelease(no: string, lineId: number, release: boolea
   await audit(user, 'GUARANTOR_CHANGE_SET_RELEASE', 'loan_guarantor_change', no, { lineId, release });
 }
 
-/** Adds a replacement guarantor to cover (part of) a line's outstanding amount. Never the loan's
- *  own borrower — this schema has no loan_guarantor row for self-guarantee (commitGuarantor()
- *  forbids it too; self-guarantee capacity is purely computed from deposits, see
- *  lib/guarantors.ts's selfGuaranteeCapacity), so there is nothing to write for a self-substitution
- *  the way AL's Det. Lines allow. Validated against the replacement's own live capacity — the
- *  exact same guarantorCapacity() check commitGuarantor() itself uses — and capped so a line's
- *  replacements never sum past what it's actually releasing (tighter than AL, which only checked
- *  the replacement member's own capacity in isolation). */
+export interface AddReplacementInput {
+  type: ReplacementType;
+  /** Required (and only meaningful) when type is GUARANTOR. */
+  memberId?: number;
+  /** Required (and only meaningful) when type is COLLATERAL — must already be registered to the
+   *  loan's own borrower. */
+  collateralNo?: string;
+  /** Required (and only meaningful) when type is FIXED_DEPOSIT — must belong to the loan's own
+   *  borrower. */
+  fdNo?: string;
+}
+
+/** Adds a replacement covering (part of) a line's outstanding amount — GUARANTOR, COLLATERAL, or
+ *  FIXED_DEPOSIT (AL's Det. Lines Security Type). Validated against the replacement's own live
+ *  cover — guarantorCapacity() for a member (the same check commitGuarantor() itself uses),
+ *  getCollateralLinkedBalance()/getFdLinkedBalance() for the borrower's own collateral/FD — and
+ *  capped so a line's replacements never sum past what it's actually releasing (tighter than AL,
+ *  which only checked each replacement's own capacity in isolation). */
 export async function addReplacement(
-  no: string, lineId: number, replacementMemberId: number, amountSh: number, user: Actor,
+  no: string, lineId: number, input: AddReplacementInput, amountSh: number, user: Actor,
 ): Promise<void> {
   const { line } = await assertOpenLine(no, lineId);
   if (line.release) throw new AppError('This line is marked for release — clear that first to add a replacement instead', 'VALIDATION');
 
   const req = await one<{ member_id: number }>('SELECT member_id FROM loan_guarantor_change WHERE no = ?', no);
-  if (replacementMemberId === req!.member_id) {
-    throw new AppError('The loan’s own borrower cannot be added as a replacement guarantor', 'VALIDATION');
-  }
+  const borrowerId = req!.member_id;
 
   const amt = Math.round(amountSh);
   if (amt <= 0) throw new AppError('Replacement amount must be greater than zero', 'INVALID_AMOUNT');
@@ -265,18 +287,65 @@ export async function addReplacement(
     );
   }
 
-  const capacity = await guarantorCapacity(replacementMemberId);
-  if (amt > capacity.available) {
-    throw new AppError(
-      `This member can only guarantee up to ${(capacity.available / 100).toLocaleString()}`, 'OVER_CAPACITY',
+  let memberId: number | null = null;
+  let collateralNo: string | null = null;
+  let fdNo: string | null = null;
+
+  if (input.type === 'GUARANTOR') {
+    if (!input.memberId) throw new AppError('Choose a member to guarantee this line', 'VALIDATION');
+    if (input.memberId === borrowerId) {
+      throw new AppError('The loan’s own borrower cannot be added as a replacement guarantor', 'VALIDATION');
+    }
+    const capacity = await guarantorCapacity(input.memberId);
+    if (amt > capacity.available) {
+      throw new AppError(
+        `This member can only guarantee up to ${(capacity.available / 100).toLocaleString()}`, 'OVER_CAPACITY',
+      );
+    }
+    memberId = input.memberId;
+  } else if (input.type === 'COLLATERAL') {
+    if (!input.collateralNo) throw new AppError('Choose a collateral item to pledge for this line', 'VALIDATION');
+    const register = await one<{ member_id: number; guarantee: number; collected_at: string | null }>(
+      'SELECT member_id, guarantee, collected_at FROM collateral_register WHERE no = ?', input.collateralNo,
     );
+    if (!register) throw new AppError('Collateral register item not found', 'NOT_FOUND');
+    if (register.collected_at) throw new AppError('This collateral item has already been collected', 'VALIDATION');
+    if (register.member_id !== borrowerId) {
+      throw new AppError('This collateral item is not registered to the loan’s own borrower', 'VALIDATION');
+    }
+    const linked = await getCollateralLinkedBalance(input.collateralNo);
+    const available = register.guarantee - linked;
+    if (amt > available) {
+      throw new AppError(`Only ${(available / 100).toLocaleString()} of cover is still available on this collateral item`, 'OVER_CAPACITY');
+    }
+    collateralNo = input.collateralNo;
+  } else if (input.type === 'FIXED_DEPOSIT') {
+    if (!input.fdNo) throw new AppError('Choose a fixed deposit to pledge for this line', 'VALIDATION');
+    const fd = await one<{ member_id: number; amount: number; status: string }>(
+      'SELECT member_id, amount, status FROM member_fixed_deposit WHERE no = ?', input.fdNo,
+    );
+    if (!fd) throw new AppError('Fixed deposit not found', 'NOT_FOUND');
+    if (fd.member_id !== borrowerId) {
+      throw new AppError('This fixed deposit does not belong to the loan’s own borrower', 'VALIDATION');
+    }
+    if (fd.status !== 'Approved' && fd.status !== 'Active') {
+      throw new AppError('Only an approved or active fixed deposit can be pledged as security', 'VALIDATION');
+    }
+    const linked = await getFdLinkedBalance(input.fdNo);
+    const available = fd.amount - linked;
+    if (amt > available) {
+      throw new AppError(`Only ${(available / 100).toLocaleString()} of cover is still available on this fixed deposit`, 'OVER_CAPACITY');
+    }
+    fdNo = input.fdNo;
   }
 
   await run(
-    'INSERT INTO loan_guarantor_change_replacement (line_id, replacement_member_id, amount) VALUES (?,?,?)',
-    lineId, replacementMemberId, amt,
+    `INSERT INTO loan_guarantor_change_replacement
+       (line_id, replacement_type, replacement_member_id, replacement_collateral_no, replacement_fd_no, amount)
+     VALUES (?,?,?,?,?,?)`,
+    lineId, input.type, memberId, collateralNo, fdNo, amt,
   );
-  await audit(user, 'GUARANTOR_CHANGE_ADD_REPLACEMENT', 'loan_guarantor_change', no, { lineId, replacementMemberId, amount: amt });
+  await audit(user, 'GUARANTOR_CHANGE_ADD_REPLACEMENT', 'loan_guarantor_change', no, { lineId, type: input.type, amount: amt });
 }
 
 export async function removeReplacement(no: string, replacementId: number, user: Actor): Promise<void> {
@@ -366,13 +435,17 @@ export async function rejectGuarantorChange(no: string, reason: string | null, u
 }
 
 /**
- * Approved -> applies every line onto loan_guarantor, ported from ProcessGuarantorSubstitution
+ * Approved -> applies every line, ported from ProcessGuarantorSubstitution
  * (Cod52204008.LoansManagement.al:4883). Per line:
  *   - release: the original guarantor's row moves to 'RELEASED'.
  *   - otherwise, for each replacement: the original guarantor's row moves to 'SUBSTITUTED', and
- *     the replacement's own row is inserted or, if they already guarantee this same loan through
- *     another line, incremented (mirrors AL's LoanGuarantee[3]/[4] "increment if exists, insert if
- *     not"). Capacity is re-checked live here too — never trusted from submit time.
+ *     the replacement is written onto whichever table its type actually secures a loan through —
+ *     loan_guarantor (incremented if they already guarantee this same loan through another line,
+ *     mirroring AL's LoanGuarantee[3]/[4] "increment if exists, insert if not"), loan_collateral,
+ *     or loan_fd_lien — the same tables the loan card's own Attach Collateral/Attach FD Security
+ *     actions write, bypassing their "only while OPEN" gate since this approved document is its
+ *     own authorization path onto an already-DISBURSED loan. Cover is re-checked live here too —
+ *     never trusted from submit time.
  * A line with neither flag is left untouched.
  */
 export async function processGuarantorChange(no: string, user: Actor): Promise<{ loanId: number }> {
@@ -384,6 +457,7 @@ export async function processGuarantorChange(no: string, user: Actor): Promise<{
     const lines = await all<{ id: number; guarantor_member_id: number; release: boolean }>(
       'SELECT id, guarantor_member_id, release FROM loan_guarantor_change_line WHERE change_no = ?', no,
     );
+    const now = new Date().toISOString();
 
     for (const line of lines) {
       if (line.release) {
@@ -394,8 +468,12 @@ export async function processGuarantorChange(no: string, user: Actor): Promise<{
         continue;
       }
 
-      const replacements = await all<{ replacement_member_id: number; amount: number }>(
-        'SELECT replacement_member_id, amount FROM loan_guarantor_change_replacement WHERE line_id = ?', line.id,
+      const replacements = await all<{
+        replacement_type: ReplacementType; replacement_member_id: number | null;
+        replacement_collateral_no: string | null; replacement_fd_no: string | null; amount: number;
+      }>(
+        `SELECT replacement_type, replacement_member_id, replacement_collateral_no, replacement_fd_no, amount
+         FROM loan_guarantor_change_replacement WHERE line_id = ?`, line.id,
       );
       if (!replacements.length) continue;
 
@@ -405,24 +483,60 @@ export async function processGuarantorChange(no: string, user: Actor): Promise<{
       );
 
       for (const r of replacements) {
-        const capacity = await guarantorCapacity(r.replacement_member_id);
-        if (r.amount > capacity.available) {
-          throw new AppError(
-            `Replacement guarantor capacity has changed and can no longer cover ${(r.amount / 100).toLocaleString()}`,
-            'OVER_CAPACITY',
+        if (r.replacement_type === 'GUARANTOR') {
+          const capacity = await guarantorCapacity(r.replacement_member_id!);
+          if (r.amount > capacity.available) {
+            throw new AppError(
+              `Replacement guarantor capacity has changed and can no longer cover ${(r.amount / 100).toLocaleString()}`,
+              'OVER_CAPACITY',
+            );
+          }
+          await run(
+            `INSERT INTO loan_guarantor (loan_id, member_id, amount, status) VALUES (?,?,?,'COMMITTED')
+             ON CONFLICT (loan_id, member_id) DO UPDATE SET amount = loan_guarantor.amount + EXCLUDED.amount, status = 'COMMITTED'`,
+            req.loan_id, r.replacement_member_id, r.amount,
+          );
+        } else if (r.replacement_type === 'COLLATERAL') {
+          const register = await one<{ guarantee: number }>(
+            'SELECT guarantee FROM collateral_register WHERE no = ?', r.replacement_collateral_no,
+          );
+          const linked = await getCollateralLinkedBalance(r.replacement_collateral_no!);
+          const available = (register?.guarantee ?? 0) - linked;
+          if (r.amount > available) {
+            throw new AppError(
+              `Replacement collateral cover has changed and can no longer cover ${(r.amount / 100).toLocaleString()}`,
+              'OVER_CAPACITY',
+            );
+          }
+          await run(
+            `INSERT INTO loan_collateral (loan_id, collateral_no, guarantee, created_at, created_by) VALUES (?,?,?,?,?)
+             ON CONFLICT (loan_id, collateral_no) DO UPDATE SET guarantee = loan_collateral.guarantee + EXCLUDED.guarantee, status = 'ACTIVE'`,
+            req.loan_id, r.replacement_collateral_no, r.amount, now, user.username,
+          );
+        } else if (r.replacement_type === 'FIXED_DEPOSIT') {
+          const fd = await one<{ amount: number }>(
+            'SELECT amount FROM member_fixed_deposit WHERE no = ?', r.replacement_fd_no,
+          );
+          const linked = await getFdLinkedBalance(r.replacement_fd_no!);
+          const available = (fd?.amount ?? 0) - linked;
+          if (r.amount > available) {
+            throw new AppError(
+              `Replacement fixed deposit cover has changed and can no longer cover ${(r.amount / 100).toLocaleString()}`,
+              'OVER_CAPACITY',
+            );
+          }
+          await run(
+            `INSERT INTO loan_fd_lien (loan_id, fd_no, guarantee, created_at, created_by) VALUES (?,?,?,?,?)
+             ON CONFLICT (loan_id, fd_no) DO UPDATE SET guarantee = loan_fd_lien.guarantee + EXCLUDED.guarantee, status = 'ACTIVE'`,
+            req.loan_id, r.replacement_fd_no, r.amount, now, user.username,
           );
         }
-        await run(
-          `INSERT INTO loan_guarantor (loan_id, member_id, amount, status) VALUES (?,?,?,'COMMITTED')
-           ON CONFLICT (loan_id, member_id) DO UPDATE SET amount = loan_guarantor.amount + EXCLUDED.amount, status = 'COMMITTED'`,
-          req.loan_id, r.replacement_member_id, r.amount,
-        );
       }
     }
 
     await run(
       "UPDATE loan_guarantor_change SET status = 'Processed', processed_at = ?, processed_by = ? WHERE no = ?",
-      new Date().toISOString(), user.username, no,
+      now, user.username, no,
     );
     await audit(user, 'GUARANTOR_CHANGE_PROCESS', 'loan_guarantor_change', no, {});
     return { loanId: req.loan_id };

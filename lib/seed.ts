@@ -98,6 +98,7 @@ export const ROLES: RoleSeed[] = [
       'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE', 'GUARANTOR_CHANGES_APPROVE',
       'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE', 'MEMBER_EXITS_APPROVE',
       'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE', 'CHECKOFF_BATCHES_APPROVE', 'EMPLOYERS_MANAGE',
+      'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE', 'FIXED_DEPOSITS_APPROVE', 'ADMIN_PRODUCTS_FD_MANAGE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW', 'ADMIN_CHANGE_LOG_MANAGE',
     ],
   },
@@ -113,6 +114,7 @@ export const ROLES: RoleSeed[] = [
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_REGISTER_READ',
       'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE',
       'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE',
+      'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -127,6 +129,7 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW', 'LOAN_READ', 'LOAN_REPAY',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
+      'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -141,6 +144,7 @@ export const ROLES: RoleSeed[] = [
       'GL_ACCOUNT_MANAGE', 'GL_BANK_RECONCILE',
       'ADMIN_CHARGES_MASTER_MANAGE', 'ADMIN_CHARGES_TRANSACTION_MANAGE',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
+      'FIXED_DEPOSITS_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -153,6 +157,7 @@ export const ROLES: RoleSeed[] = [
       'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
       'GUARANTOR_CHANGES_READ',
+      'FIXED_DEPOSITS_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
     ],
   },
@@ -302,24 +307,27 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
       allow_withdrawal, withdrawal_fee, is_loanable_base, withdrawal_notice_days,
       gl_control_id, gl_interest_exp_id, gl_fee_income_id)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  await run(INS_SP, 'SHR', 'Member Share Capital', 'SHARE', 0, K(5000), 0, 0, 0, 0, 0, a3010, a5010, a4040);
-  await run(INS_SP, 'BOSA', 'BOSA Member Deposits', 'DEPOSIT', 0, K(1000), 8, 0, 0, 1, 60, a2010, a5010, a4040);
-  await run(INS_SP, 'FOSA', 'FOSA Savings Account', 'SAVINGS', K(500), K(500), 2, 1, K(50), 0, 0, a2020, a5010, a4040);
-  await run(INS_SP, 'FIXED', 'Fixed Deposit Account', 'FIXED', 0, K(20000), 9.5, 0, 0, 0, 90, a2030, a5010, a4040);
-  await run(INS_SP, 'HOL', 'Holiday & Education Savings', 'SAVINGS', 0, K(500), 4, 1, K(30), 0, 0, a2040, a5010, a4040);
+  await run(INS_SP, 'SHR', 'Member Share Capital', 'SHARE CAPITAL ACCOUNT', 0, K(5000), 0, 0, 0, 0, 0, a3010, a5010, a4040);
+  await run(INS_SP, 'BOSA', 'BOSA Member Deposits', 'NON WITHDRAWABLE DEPOSIT', 0, K(1000), 8, 0, 0, 1, 60, a2010, a5010, a4040);
+  await run(INS_SP, 'FOSA', 'FOSA Savings Account', 'WITHDRAWABLE DEPOSIT', K(500), K(500), 2, 1, K(50), 0, 0, a2020, a5010, a4040);
+  await run(INS_SP, 'FIXED', 'Fixed Deposit Account', 'FIXED DEPOSIT ACCOUNT', 0, K(20000), 9.5, 0, 0, 0, 90, a2030, a5010, a4040);
+  await run(INS_SP, 'HOL', 'Holiday & Education Savings', 'HOLIDAY ACCOUNT', 0, K(500), 4, 1, K(30), 0, 0, a2040, a5010, a4040);
 
   const INS_LP =
     `INSERT INTO loan_product (code, name, interest_rate, interest_method, max_term_months, min_amount,
       max_amount, deposit_multiplier, min_membership_months, penalty_rate,
       guarantors_required, max_dsr_pct, salary_based, gl_receivable_id, gl_interest_income_id, gl_penalty_income_id)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  await run(INS_LP, 'NORM', 'Normal Loan', 12, 'REDUCING', 48, K(10000), K(4000000), 3, 6, 1, 2, 66.7, 1,
+  // salary_based = 0: none of these members have real processed payroll (Checkoff & Salary
+  // Processing) behind them, so affordability is assessed via the manual Salary Appraisal card
+  // instead — see lib/loanService.ts's appraise().
+  await run(INS_LP, 'NORM', 'Normal Loan', 12, 'REDUCING', 48, K(10000), K(4000000), 3, 6, 1, 2, 66.7, 0,
     a1110, a4010, a4030);
-  await run(INS_LP, 'EMER', 'Emergency Loan', 12, 'REDUCING', 12, K(5000), K(300000), 1, 3, 1, 1, 66.7, 1,
+  await run(INS_LP, 'EMER', 'Emergency Loan', 12, 'REDUCING', 12, K(5000), K(300000), 1, 3, 1, 1, 66.7, 0,
     a1120, a4010, a4030);
-  await run(INS_LP, 'SCHL', 'School Fees Loan', 12, 'REDUCING', 12, K(5000), K(500000), 2, 6, 1, 2, 66.7, 1,
+  await run(INS_LP, 'SCHL', 'School Fees Loan', 12, 'REDUCING', 12, K(5000), K(500000), 2, 6, 1, 2, 66.7, 0,
     a1130, a4010, a4030);
-  await run(INS_LP, 'DEV', 'Development Loan', 14, 'REDUCING', 60, K(50000), K(6000000), 3, 12, 1, 3, 66.7, 1,
+  await run(INS_LP, 'DEV', 'Development Loan', 14, 'REDUCING', 60, K(50000), K(6000000), 3, 12, 1, 3, 66.7, 0,
     a1140, a4010, a4030);
 
   // Salary Appraisal Parameters (Table 52204034 "Loanees Payroll Codes") — the predefined

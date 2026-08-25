@@ -59,6 +59,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'MEMBER_EDITS', label: 'Member Editing', route: '/member-edits' },
   { code: 'MEMBER_EXITS', label: 'Member Exit', route: '/member-exits' },
   { code: 'CHECKOFF_BATCHES', label: 'Checkoff & Salary Processing', route: '/checkoff-batches' },
+  { code: 'FIXED_DEPOSITS', label: 'Fixed Deposits', route: '/fixed-deposits' },
   { code: 'ACCOUNT_OPENING', label: 'Account Opening', route: '/account-openings' },
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
   { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
@@ -76,6 +77,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ADMIN_PRODUCTS_COLLATERAL', label: 'Collateral Types', route: '/admin/products/collateral' },
   { code: 'ADMIN_PRODUCTS_SALARY_PARAMS', label: 'Salary Appraisal Parameters', route: '/admin/products/salary' },
   { code: 'ADMIN_PRODUCTS_EMPLOYERS', label: 'Employers', route: '/admin/products/employers' },
+  { code: 'ADMIN_PRODUCTS_FD', label: 'Fixed Deposit Types', route: '/admin/products/fixed-deposit-types' },
   { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/charges/master' },
   { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/charges/transaction' },
   { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/categories' },
@@ -205,6 +207,27 @@ export const ACTIONS = {
     page: 'CHECKOFF_BATCHES',
     tables: [
       ['checkoff_batch', 'modify'], ['loan', 'modify'], ['loan_schedule', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Member Fixed Deposit — a term deposit funded from and paid back to a member's own savings.
+  // APPROVE also carries the full lifecycle beyond the maker-checker decision itself (activate,
+  // accrue interest, mature, terminate) since every one of those steps moves real money —
+  // journal/savings_account/schedule rights, same shape MEMBER_EXITS_APPROVE carries above.
+  FIXED_DEPOSITS_READ: { page: 'FIXED_DEPOSITS', tables: [['member_fixed_deposit', 'read']] },
+  FIXED_DEPOSITS_CREATE: {
+    page: 'FIXED_DEPOSITS',
+    tables: [
+      ['member_fixed_deposit', 'insert'], ['member_fixed_deposit', 'modify'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  FIXED_DEPOSITS_APPROVE: {
+    page: 'FIXED_DEPOSITS',
+    tables: [
+      ['member_fixed_deposit', 'modify'], ['member_fixed_deposit_schedule', 'insert'], ['member_fixed_deposit_schedule', 'modify'],
+      ['savings_account', 'insert'], ['savings_account', 'modify'],
       ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
     ],
   },
@@ -397,6 +420,7 @@ export const ACTIONS = {
     tables: [['salary_appraisal_parameter', 'insert'], ['salary_appraisal_parameter', 'modify']],
   },
   EMPLOYERS_MANAGE: { page: 'ADMIN_PRODUCTS_EMPLOYERS', tables: [['employer', 'insert'], ['employer', 'modify']] },
+  ADMIN_PRODUCTS_FD_MANAGE: { page: 'ADMIN_PRODUCTS_FD', tables: [['member_fixed_deposit_type', 'insert'], ['member_fixed_deposit_type', 'modify']] },
   ADMIN_CHARGES_MASTER_MANAGE: { page: 'ADMIN_CHARGES_MASTER', tables: [['charge', 'insert'], ['charge', 'modify']] },
   ADMIN_CHARGES_TRANSACTION_MANAGE: {
     page: 'ADMIN_CHARGES_TRANSACTION',

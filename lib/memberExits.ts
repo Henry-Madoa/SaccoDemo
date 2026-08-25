@@ -88,14 +88,19 @@ export async function getAdjacentMemberExitNos(
   return { prevNo: prev?.no ?? null, nextNo: next?.no ?? null };
 }
 
-/** Members eligible to open a new exit against: ACTIVE, with no other exit document already
- *  open/in-progress. */
-export const eligibleMembersForExit = (): Promise<EligibleExitMemberRow[]> => all<EligibleExitMemberRow>(
+/** Members eligible to open a new exit against, or to retarget an existing Open one to: ACTIVE,
+ *  with no other exit document already open/in-progress. `excludeExitNo` lets an Open document's
+ *  own current member stay selectable in its own Edit form despite already "having" this exit. */
+export const eligibleMembersForExit = (excludeExitNo?: string): Promise<EligibleExitMemberRow[]> => all<EligibleExitMemberRow>(
   `SELECT m.id, m.member_no, m.first_name, m.last_name
    FROM member m
    WHERE m.status = 'ACTIVE'
-     AND NOT EXISTS (SELECT 1 FROM member_exit e WHERE e.member_id = m.id AND e.status <> 'Processed')
+     AND NOT EXISTS (
+       SELECT 1 FROM member_exit e WHERE e.member_id = m.id AND e.status <> 'Processed'
+         ${excludeExitNo ? 'AND e.no <> @excludeExitNo' : ''}
+     )
    ORDER BY m.member_no`,
+  { excludeExitNo },
 );
 
 export const listMemberExitLines = (exitNo: string): Promise<MemberExitLineWithDetails[]> => all<MemberExitLineWithDetails>(
@@ -232,18 +237,33 @@ export async function refreshMemberExitLines(no: string, user: Actor): Promise<v
 }
 
 export interface SaveMemberExitInput {
+  memberId?: number;
   exitType?: 'GENERAL' | 'RETIREE' | 'DECEASED';
   payoutMethod?: 'FOSA' | 'BANK_TRANSFER';
   reason?: string | null;
   transactionChargeId?: number | null;
 }
 
+/** Retargeting an Open exit to a different member (AL's "Member No" field, editable while
+ *  Status = Open — Pag52204155.MemberExit.al:30) re-populates the lines against the new member's
+ *  live position, same as opening a fresh document. */
 export async function saveMemberExit(no: string, input: SaveMemberExitInput, user: Actor): Promise<MemberExitWithDetails> {
   const req = await one<MemberExit>('SELECT * FROM member_exit WHERE no = ?', no);
   if (!req) throw new AppError('Member exit not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open member exit can be edited', 'VALIDATION');
 
   const cols: Record<string, unknown> = {};
+  const memberChanged = input.memberId !== undefined && input.memberId !== req.member_id;
+  if (memberChanged) {
+    const member = await one<{ status: string }>('SELECT status FROM member WHERE id = ?', input.memberId);
+    if (!member) throw new AppError('Member not found', 'NOT_FOUND');
+    if (member.status !== 'ACTIVE') throw new AppError('Only an active member can be exited', 'VALIDATION');
+    const live = await one(
+      "SELECT 1 FROM member_exit WHERE member_id = ? AND status <> 'Processed' AND no <> ?", input.memberId, no,
+    );
+    if (live) throw new AppError('A member exit is already open or in progress for this member', 'VALIDATION');
+    cols.member_id = input.memberId;
+  }
   if (input.exitType !== undefined) cols.exit_type = input.exitType;
   if (input.payoutMethod !== undefined) cols.payout_method = input.payoutMethod;
   if (input.reason !== undefined) cols.reason = input.reason || null;
@@ -252,6 +272,9 @@ export async function saveMemberExit(no: string, input: SaveMemberExitInput, use
   const keys = Object.keys(cols);
   if (keys.length) {
     await run(`UPDATE member_exit SET ${keys.map((c) => `${c}=?`).join(',')} WHERE no=?`, ...keys.map((c) => cols[c]), no);
+  }
+  if (memberChanged) {
+    await populateLines(no, input.memberId!, (cols.exit_type as string | undefined) ?? req.exit_type);
   }
   await audit(user, 'MEMBER_EXIT_UPDATE', 'member_exit', no, { fields: keys });
   return (await getMemberExit(no))!;

@@ -34,6 +34,7 @@ export async function refreshMemberExitLinesRequest(no: string): Promise<ActionR
 
 function normalise(values: FormValues): SaveMemberExitInput {
   const body: SaveMemberExitInput = {};
+  if (values.memberId !== undefined) body.memberId = Number(values.memberId);
   if (values.exitType !== undefined) body.exitType = values.exitType as SaveMemberExitInput['exitType'];
   if (values.payoutMethod !== undefined) body.payoutMethod = values.payoutMethod as SaveMemberExitInput['payoutMethod'];
   if (values.reason !== undefined) body.reason = String(values.reason || '') || null;

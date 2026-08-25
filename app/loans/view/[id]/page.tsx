@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getLoanDetail, getAdjacentLoanIds, LOAN_TAB_STATUS } from '@/lib/loanService';
+import { getLoanDetail, getAdjacentLoanIds, LOAN_TAB_STATUS, processedSalarySummary } from '@/lib/loanService';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { getMemberDetail, listActiveMembers } from '@/lib/members';
 import { listActiveLoanProductsWithCharges } from '@/lib/admin';
@@ -11,6 +11,7 @@ import { calculateLoanProductCharges } from '@/lib/loans';
 import { listLoanProductCharges } from '@/lib/loanProductCharges';
 import { ensureSalaryAppraisalLines } from '@/lib/salaryAppraisal';
 import { hasLiveGuarantorChange } from '@/lib/loanGuarantorChanges';
+import { listLoanFdLiens } from '@/lib/loanFdSecurity';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { parseSort } from '@/lib/listSort';
 import { getDimensionCaptions } from '@/lib/org';
@@ -27,6 +28,7 @@ import { CardNav } from '@/components/ui/card-nav';
 import { JournalLink } from '@/app/accounting/drill-downs';
 import {
   SubmitButton, DecideButtons, DisburseButton, RepayButton, AttachCollateralButton, DetachCollateralButton,
+  AttachFdSecurityButton, DetachFdSecurityButton,
   AddGuarantorButton, ReleaseGuarantorButton, RunAppraisalButton,
 } from './loan-actions';
 import { EditLoanButton } from '../../application-form';
@@ -52,13 +54,13 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const canAppraise = ['OPEN', 'PENDING APPROVAL', 'APPROVED'].includes(l.status);
   const [
     canApprove, canDisburse, canRepay, canCreate, canChangeGuarantors, attachments, tasks,
-    { prevId, nextId }, { caption1, caption2 },
+    { prevId, nextId }, { caption1, caption2 }, fdLiens,
   ] = await Promise.all([
       currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
       currentCanAction('LOAN_CREATE'), currentCanAction('GUARANTOR_CHANGES_CREATE'), listAttachments('loan', l.id),
       listWorkflowTasksForDocument('LOAN', String(l.id)),
       getAdjacentLoanIds(l.id, tab ? LOAN_TAB_STATUS[tab] : undefined),
-      getDimensionCaptions(),
+      getDimensionCaptions(), listLoanFdLiens(l.id),
     ]);
 
   // Offered only once the loan is DISBURSED (guarantors are otherwise still editable inline via
@@ -74,6 +76,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
   // are actually going to render, so a lone tile never sits next to empty grid space.
   const showGuarantors = (l.status === 'OPEN' && canCreate) || guarantors.length > 0;
   const showCollateral = (l.status === 'OPEN' && canCreate) || collateral.length > 0;
+  const showFdSecurity = (l.status === 'OPEN' && canCreate) || fdLiens.length > 0;
 
   // Send for approval is only offered to whoever captured this loan — unless they can also
   // approve loans, in which case only their own drafts (an approver editing someone else's
@@ -109,11 +112,16 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const chargeLines = await listLoanProductCharges(l.product_id);
   const computedCharges = calculateLoanProductCharges(chargeLines, l.principal, l.term_months);
 
-  // Auto-seeds/refreshes the Salary Appraisal section on every view for a salary-based product
-  // (lib/salaryAppraisal.ts's ensureSalaryAppraisalLines) — cheap to no-op once the parameter
-  // lines are on file, and always keeps the auto-derived other-loan deduction rows current.
-  const salaryLines = l.salary_based ? await ensureSalaryAppraisalLines(l.id, l.member_id) : [];
+  // Auto-seeds/refreshes the Salary Appraisal section on every view for a non-salary-based
+  // product (lib/salaryAppraisal.ts's ensureSalaryAppraisalLines) — cheap to no-op once the
+  // parameter lines are on file, and always keeps the auto-derived other-loan deduction rows
+  // current. A salary_based product uses actually-processed payroll instead — see
+  // processedSalary below — and never shows this manual card at all.
+  const salaryLines = !l.salary_based ? await ensureSalaryAppraisalLines(l.id, l.member_id) : [];
   const canEditSalary = l.status === 'OPEN' && canCreate;
+  const processedSalary = l.salary_based
+    ? await processedSalarySummary(l.member_id, l.min_salary_count, l.salary_appraisal_type)
+    : null;
 
   const totals = schedule.reduce(
     (a, s) => ({
@@ -191,14 +199,34 @@ export default async function LoanDetailPage({ params, searchParams }: {
     </CollapsibleCard>
   );
 
-  const earningsDeductionsCard = l.salary_based ? (
+  const salaryCard = l.salary_based ? (
+    <CollapsibleCard
+      title="Processed Salary"
+      sub="Read from actually-processed payroll (Checkoff & Salary Processing) — not a typed-in mimic of the payslip"
+    >
+      <DefinitionList items={[
+        ['Appraisal method', l.salary_appraisal_type === 'LOWEST_NET' ? 'Lowest net salary' : 'Average net salary'],
+        ['Minimum months required', String(l.min_salary_count)],
+        ['Processed months found', processedSalary ? `${processedSalary.count} (last ${processedSalary.windowMonths} months)` : '0'],
+        ['Base income', processedSalary && processedSalary.sufficient
+          ? <Money cents={processedSalary.base} key="base" />
+          : <span className="neg" key="base">Not yet sufficient</span>],
+      ]} />
+      {!processedSalary?.sufficient ? (
+        <div className="note" style={{ marginTop: 8 }}>
+          Needs at least {l.min_salary_count} processed salary payment{l.min_salary_count === 1 ? '' : 's'} for{' '}
+          {l.first_name} {l.last_name} via Checkoff &amp; Salary Processing before affordability can be assessed.
+        </div>
+      ) : null}
+    </CollapsibleCard>
+  ) : (
     <CollapsibleCard
       title="Earnings and Deductions"
       sub="Predefined payslip lines the officer fills in to mimic the member's payslip — the 1/3 cap and headroom below update as amounts are typed"
     >
       <SalaryAppraisalCard loanId={l.id} lines={salaryLines} editable={canEditSalary} />
     </CollapsibleCard>
-  ) : null;
+  );
 
   const guarantorsCard = showGuarantors ? (
     l.status === 'OPEN' && canCreate ? (
@@ -287,6 +315,44 @@ export default async function LoanDetailPage({ params, searchParams }: {
     )
   ) : null;
 
+  const fdSecurityCard = showFdSecurity ? (
+    l.status === 'OPEN' && canCreate ? (
+      <CollapsibleCard title="FD security" sub="Fixed deposits pledged against this loan">
+        {fdLiens.length ? (
+          <TableWrap>
+            <thead><tr><th>Fixed deposit</th><th className="num">Cover drawn</th><th className="num" /></tr></thead>
+            <tbody>
+              {fdLiens.map((f) => (
+                <tr key={f.id}>
+                  <td>
+                    <Link href={`/fixed-deposits/view/${f.fd_no}`} className="mono">{f.fd_no}</Link>
+                  </td>
+                  <td className="num"><Money cents={f.guarantee} decimals={0} /></td>
+                  <td className="num"><DetachFdSecurityButton loanId={l.id} fdNo={f.fd_no} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🏛" title="No fixed deposit attached" />}
+        <Toolbar><Spacer /><AttachFdSecurityButton loanId={l.id} memberId={l.member_id} /></Toolbar>
+      </CollapsibleCard>
+    ) : (
+      <CollapsibleCard title="FD security" sub="Fixed deposits pledged against this loan">
+        <TableWrap>
+          <thead><tr><th>Fixed deposit</th><th className="num">Cover drawn</th></tr></thead>
+          <tbody>
+            {fdLiens.map((f) => (
+              <tr key={f.id}>
+                <td><Link href={`/fixed-deposits/view/${f.fd_no}`} className="mono">{f.fd_no}</Link></td>
+                <td className="num"><Money cents={f.guarantee} decimals={0} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      </CollapsibleCard>
+    )
+  ) : null;
+
   return (
     <>
       <CardNav
@@ -345,19 +411,18 @@ export default async function LoanDetailPage({ params, searchParams }: {
           foot={`${l.days_in_arrears} days · ${humanise(l.classification)}`} />
       </div>
 
-      {earningsDeductionsCard ? (
-        <div className="grid g2 stack-2">
-          {facilityDetailsCard}
-          {earningsDeductionsCard}
-        </div>
-      ) : facilityDetailsCard}
+      <div className="grid g2 stack-2">
+        {facilityDetailsCard}
+        {salaryCard}
+      </div>
 
-      {guarantorsCard && collateralCard ? (
-        <div className="grid g2 stack-2">
-          {guarantorsCard}
-          {collateralCard}
-        </div>
-      ) : (guarantorsCard || collateralCard)}
+      {(() => {
+        const securityCards = [guarantorsCard, collateralCard, fdSecurityCard].filter(Boolean);
+        if (securityCards.length > 1) {
+          return <div className={`grid g${securityCards.length} stack-2`}>{securityCards}</div>;
+        }
+        return securityCards[0] ?? null;
+      })()}
 
       <CollapsibleCard
         title="Appraisal"

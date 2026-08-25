@@ -289,7 +289,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .collapsible-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .18s ease; }
 .collapsible-body.collapsed { grid-template-rows: 0fr; }
+/* overflow:hidden is what actually clips content while collapsed/collapsing — but left on once
+   fully open, a `1fr` track sized even a hair short of a table's true height (sub-pixel rounding,
+   content that grows after the initial paint) would silently keep clipping the excess forever.
+   `.settled` (see components/ui/collapsible-card.tsx) lifts it the moment a card finishes opening. */
 .collapsible-body-inner { overflow: hidden; min-height: 0; }
+.collapsible-body-inner.settled { overflow: visible; }
 
 .grid { display: grid; gap: calc(var(--sp) * 2); }
 /*
@@ -309,6 +314,11 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .grid.split-aside { grid-template-columns: minmax(0, 1fr) 320px; }
 .grid.split-aside-lg { grid-template-columns: minmax(0, 1fr) 340px; }
 .stack-2 { margin-bottom: calc(var(--sp) * 2); }
+/* Card-width-responsive, unlike .g2/.g3/.g4 (which only ever respond to the *viewport*, not the
+   card's own rendered width) — for a metrics row living inside a card that's been paired
+   side-by-side with another and so is only ever half the page wide regardless of viewport, this
+   still wraps to fewer columns instead of squeezing every cell down to an unreadable sliver. */
+.grid.auto-fit { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 @media (max-width: 1100px) { .g4, .g3 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
 @media (max-width: 900px) {
   .grid.split-wide, .grid.split-narrow, .grid.split-side, .grid.split-side-sm,
@@ -353,6 +363,14 @@ tbody tr.header-row { background: var(--surface-2); font-weight: 600; }
 .sort-link:hover { color: var(--brand-primary); }
 .sort-link .arrow { font-size: 9px; }
 .table-wrap { overflow-x: auto; margin: 0 calc(var(--sp) * -2.5) calc(var(--sp) * -2.5); padding: 0 calc(var(--sp) * 2.5) 0; }
+/* That negative bottom margin only makes sense when the table is the last thing in its card —
+   it lets the table bleed flush to the card's own bottom edge instead of leaving a padding gap
+   underneath. When something else follows in the same card (e.g. a Toolbar with an Add/Attach
+   button below a security list), the same negative margin instead pulls that next element up
+   into the table's own space, overlapping it. Higher specificity than the plain rule above (and
+   the @media overrides below) regardless of source order, so a table-wrap with a sibling after it
+   never gets pulled into overlapping that sibling. */
+.table-wrap:not(:last-child) { margin-bottom: 0; }
 /* Caps a long list's height and scrolls internally instead of pushing the rest of the card
    (and the page) down — the table's own header row stays put as you scroll its body. */
 .scroll-list { max-height: 260px; overflow-y: auto; }
@@ -561,8 +579,13 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 
 /* definition rows */
 .dl { display: grid; grid-template-columns: minmax(140px, 38%) 1fr; gap: 0; font-size: 13px; margin: 0; }
+/* Grid items default to min-width:auto, which floors a track at its content's min-content width
+   — a nowrap Pill or an unbroken mono span in dd would otherwise force the value column wider
+   than the card, spilling past its edge instead of wrapping onto the next line. */
+.dl dt, .dl dd { min-width: 0; }
 .dl dt { color: var(--text-muted); padding: 7px 0; border-bottom: 1px solid var(--border); }
 .dl dd { margin: 0; padding: 7px 0; border-bottom: 1px solid var(--border); word-break: break-word; }
+.dl dd .pill { white-space: normal; text-align: left; }
 .dl dt:last-of-type, .dl dd:last-of-type { border-bottom: none; }
 
 /* progress bar + bulk-job run panel (e.g. Create Default Accounts) */

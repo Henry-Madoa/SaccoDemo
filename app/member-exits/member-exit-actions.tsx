@@ -264,9 +264,12 @@ export function NewMemberExitButton({ members, presetMemberId }: {
   );
 }
 
-export function EditButton({ exit, className = 'btn sm ghost' }: { exit: MemberExitWithDetails; className?: string }) {
+export function EditButton({ exit, members, className = 'btn sm ghost' }: {
+  exit: MemberExitWithDetails; members: EligibleExitMemberRow[]; className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [exitType, setExitType] = useState<string>(exit.exit_type);
+  const [memberId, setMemberId] = useState(String(exit.member_id));
 
   return (
     <>
@@ -279,6 +282,7 @@ export function EditButton({ exit, className = 'btn sm ghost' }: { exit: MemberE
           submitLabel="Save changes"
           successTitle="Member exit updated"
         >
+          <MemberSelect id="f_memberIdEdit" name="memberId" members={members} value={memberId} onChange={setMemberId} required />
           <ExitFields exitType={exitType} setExitType={setExitType} defaults={exit} />
         </FormModal>
       ) : null}

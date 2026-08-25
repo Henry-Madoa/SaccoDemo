@@ -40,7 +40,8 @@ export function Field({
   if (type === 'checkbox') {
     return (
       <div className="checkline">
-        <input type="checkbox" name={name} id={id} defaultChecked={!!Number(defaultValue)} value="1" disabled={disabled} />
+        <input type="checkbox" name={name} id={id} defaultChecked={!!Number(defaultValue)} value="1" disabled={disabled}
+          onChange={onChange} />
         <label htmlFor={id}>{label}</label>
       </div>
     );

@@ -16,11 +16,16 @@ import {
   attachCollateralToLoanRequest, detachCollateralFromLoanRequest, availableCollateralForMember,
 } from '@/app/actions/loanCollateral';
 import {
+  attachFdToLoanRequest, detachFdFromLoanRequest, availableFdForMember,
+} from '@/app/actions/loanFdSecurity';
+import {
   availableGuarantorsForLoan, commitGuarantorToLoanRequest, releaseGuarantorFromLoanRequest,
 } from '@/app/actions/loanGuarantors';
 import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
 import { today, toUnits } from '@/lib/format';
-import type { AvailableCollateralRow, GuarantorCandidate, LoanFull, SavingsAccountWithProduct } from '@/lib/types';
+import type {
+  AvailableCollateralRow, AvailableFdRow, GuarantorCandidate, LoanFull, SavingsAccountWithProduct,
+} from '@/lib/types';
 
 /** Sends a captured (OPEN) loan for approval — only once the loan has been *fully* appraised
  *  (the latest run came back ELIGIBLE, not just any appraisal on file); the server enforces this
@@ -301,6 +306,80 @@ export function DetachCollateralButton({ loanId, collateralNo, className = 'btn 
       onClick={() => run(() => detachCollateralFromLoanRequest(loanId, collateralNo), {
         confirm: { title: 'Detach this collateral?', confirmLabel: 'Detach' },
         successTitle: 'Collateral detached',
+      })}>
+      {busy ? 'Working…' : 'Detach'}
+    </button>
+  );
+}
+
+/** Pledges a member's Fixed Deposit as security for this loan — the FD-as-collateral sibling of
+ *  AttachCollateralButton above, only while the loan is still OPEN. */
+export function AttachFdSecurityButton({ loanId, memberId, className = 'btn sm ghost' }: {
+  loanId: number; memberId: number; className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [available, setAvailable] = useState<AvailableFdRow[]>([]);
+  const [fdNo, setFdNo] = useState('');
+  const { cur } = useFormat();
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    availableFdForMember(memberId).then((res) => {
+      if (cancelled || !res.ok) return;
+      setAvailable(res.data);
+      setFdNo(res.data[0]?.no ?? '');
+    });
+    return () => { cancelled = true; };
+  }, [open, memberId]);
+
+  const chosen = available.find((f) => f.no === fdNo);
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Attach FD security</button>
+      {open ? (
+        <FormModal
+          title="Attach fixed deposit security"
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => attachFdToLoanRequest(loanId, String(values.fdNo), String(values.guaranteeSh))}
+          submitLabel="Attach"
+          successTitle="Fixed deposit attached"
+        >
+          {available.length ? (
+            <>
+              <div className="field">
+                <label htmlFor="f_fdNo">Fixed deposit <span className="req">*</span></label>
+                <select id="f_fdNo" name="fdNo" required value={fdNo} onChange={(e) => setFdNo(e.target.value)}>
+                  {available.map((f) => (
+                    <option key={f.no} value={f.no}>
+                      {f.no} — {f.fd_type_description} (cover left {cur(f.available)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Field name="guaranteeSh" label="Cover to draw from this fixed deposit" type="number" step="0.01" required
+                defaultValue={chosen ? toUnits(chosen.available) : ''}
+                hint={chosen ? `Up to ${cur(chosen.available)} still available` : undefined} />
+            </>
+          ) : (
+            <p>This member has no approved or active fixed deposit with cover left to pledge.</p>
+          )}
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
+export function DetachFdSecurityButton({ loanId, fdNo, className = 'btn sm ghost' }: {
+  loanId: number; fdNo: string; className?: string;
+}) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => detachFdFromLoanRequest(loanId, fdNo), {
+        confirm: { title: 'Detach this fixed deposit security?', confirmLabel: 'Detach' },
+        successTitle: 'Fixed deposit security detached',
       })}>
       {busy ? 'Working…' : 'Detach'}
     </button>

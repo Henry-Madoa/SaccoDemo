@@ -6,12 +6,16 @@ import { actionResult, AppError } from '@/lib/errors';
 import {
   createGuarantorChange, refreshGuarantorChangeLines, setLineRelease, addReplacement, removeReplacement,
   submitGuarantorChange, cancelGuarantorChangeApproval, approveGuarantorChange, rejectGuarantorChange,
-  processGuarantorChange, getGuarantorChange,
+  processGuarantorChange, getGuarantorChange, type AddReplacementInput,
 } from '@/lib/loanGuarantorChanges';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import { listActiveMembers } from '@/lib/members';
 import { guarantorCapacity } from '@/lib/guarantors';
-import type { ActionResult, GuarantorCandidate } from '@/lib/types';
+import { listAvailableCollateralForMember } from '@/lib/collateralRegister';
+import { listAvailableFdForMember } from '@/lib/loanFdSecurity';
+import type {
+  ActionResult, AvailableCollateralRow, AvailableFdRow, GuarantorCandidate, ReplacementType,
+} from '@/lib/types';
 
 export async function requestGuarantorChange(loanId: number): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
@@ -44,12 +48,16 @@ export async function setLineReleaseRequest(
 }
 
 export async function addReplacementRequest(
-  no: string, lineId: number, replacementMemberId: number, amountSh: string | number,
+  no: string, lineId: number, type: ReplacementType, code: string, amountSh: string | number,
 ): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
     const user = await requireAction('GUARANTOR_CHANGES_CREATE');
     const amount = Math.round(Number(String(amountSh).replace(/,/g, '')) * 100) || 0;
-    await addReplacement(no, lineId, replacementMemberId, amount, user);
+    const input: AddReplacementInput = { type };
+    if (type === 'GUARANTOR') input.memberId = Number(code);
+    else if (type === 'COLLATERAL') input.collateralNo = code;
+    else if (type === 'FIXED_DEPOSIT') input.fdNo = code;
+    await addReplacement(no, lineId, input, amount, user);
     revalidatePath(`/guarantor-changes/view/${no}`);
     return { updated: true };
   });
@@ -131,6 +139,28 @@ export async function availableReplacementsForChange(no: string): Promise<Action
       id: m.id, member_no: m.member_no, first_name: m.first_name, last_name: m.last_name,
       availableGuarantee: (await guarantorCapacity(m.id)).available,
     })));
+  });
+}
+
+/** The loan's own borrower's registered collateral with cover left — a replacement of type
+ *  COLLATERAL can only ever be one of these, matching AL's Det. Lines TableRelation. */
+export async function availableCollateralForGuarantorChange(no: string): Promise<ActionResult<AvailableCollateralRow[]>> {
+  return actionResult(async () => {
+    await requireAction('GUARANTOR_CHANGES_CREATE');
+    const change = await getGuarantorChange(no);
+    if (!change) throw new AppError('Guarantor change not found', 'NOT_FOUND');
+    return listAvailableCollateralForMember(change.member_id);
+  });
+}
+
+/** The loan's own borrower's approved/active fixed deposits with cover left — a replacement of
+ *  type FIXED_DEPOSIT can only ever be one of these. */
+export async function availableFdForGuarantorChange(no: string): Promise<ActionResult<AvailableFdRow[]>> {
+  return actionResult(async () => {
+    await requireAction('GUARANTOR_CHANGES_CREATE');
+    const change = await getGuarantorChange(no);
+    if (!change) throw new AppError('Guarantor change not found', 'NOT_FOUND');
+    return listAvailableFdForMember(change.member_id);
   });
 }
 

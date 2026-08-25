@@ -69,24 +69,22 @@ export function SalaryAppraisalCard({ loanId, lines, editable }: {
 
   return (
     <>
-      <div className="grid g2">
-        <div>
-          <h4 className="section-title">Earnings</h4>
-          <TableWrap>
-            <thead><tr><th>Line</th><th className="num">Amount</th></tr></thead>
-            <tbody>{earnings.map(renderRow)}</tbody>
-          </TableWrap>
-        </div>
-        <div>
-          <h4 className="section-title">Deductions</h4>
-          <TableWrap>
-            <thead><tr><th>Line</th><th className="num">Amount</th></tr></thead>
-            <tbody>{deductions.map(renderRow)}</tbody>
-          </TableWrap>
-        </div>
+      <div>
+        <h4 className="section-title">Earnings</h4>
+        <TableWrap>
+          <thead><tr><th>Line</th><th className="num">Amount</th></tr></thead>
+          <tbody>{earnings.map(renderRow)}</tbody>
+        </TableWrap>
+      </div>
+      <div style={{ marginTop: 'calc(var(--sp)*2)' }}>
+        <h4 className="section-title">Deductions</h4>
+        <TableWrap>
+          <thead><tr><th>Line</th><th className="num">Amount</th></tr></thead>
+          <tbody>{deductions.map(renderRow)}</tbody>
+        </TableWrap>
       </div>
 
-      <div className="grid g4" style={{ marginTop: 'calc(var(--sp)*2)' }}>
+      <div className="grid auto-fit" style={{ marginTop: 'calc(var(--sp)*2)' }}>
         <div><div className="metric-label">Gross earnings</div><b><Money cents={totals.gross} decimals={0} /></b></div>
         <div><div className="metric-label">Total deductions</div><b><Money cents={totals.totalDeductions} decimals={0} /></b></div>
         <div><div className="metric-label">1/3 of Basic Salary (cap)</div><b><Money cents={totals.oneThirdCap} decimals={0} /></b></div>

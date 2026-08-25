@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/session';
 import { canPage, PAGES } from '@/lib/permissions';
@@ -7,6 +8,7 @@ import {
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
 import { listCollateralTypes } from '@/lib/collateralTypes';
+import { listFixedDepositTypes } from '@/lib/fixedDepositTypes';
 import { listSalaryAppraisalParameters } from '@/lib/salaryAppraisal';
 import { listEmployers } from '@/lib/employers';
 import {
@@ -45,6 +47,7 @@ import { UserFormButton } from '../user-form';
 import { RoleFormButton, RoleRow } from '../role-form';
 import { SavingsProductButton, LoanProductButton } from '../product-forms';
 import { CollateralTypeButton } from '../collateral-type-form';
+import { FixedDepositTypeButton } from '../fixed-deposit-type-form';
 import { SalaryAppraisalParameterFormButton } from '../salary-appraisal-parameter-form';
 import { EmployerFormButton } from '../employer-form';
 import { MemberCategoryFormButton, MemberCategoryRow } from '../member-category-form';
@@ -94,6 +97,7 @@ const PRODUCTS_TABS: AdminTab[] = [
   { key: 'collateral', label: 'Collateral Types', page: 'ADMIN_PRODUCTS_COLLATERAL' },
   { key: 'salary', label: 'Salary Appraisal Parameters', page: 'ADMIN_PRODUCTS_SALARY_PARAMS' },
   { key: 'employers', label: 'Employers', page: 'ADMIN_PRODUCTS_EMPLOYERS' },
+  { key: 'fixed-deposit-types', label: 'Fixed Deposit Types', page: 'ADMIN_PRODUCTS_FD' },
 ];
 
 /** Charges' own sub-navigation. */
@@ -193,6 +197,7 @@ export default async function AdminPage({ params, searchParams }: {
           {productsTab === 'collateral' ? <CollateralTypesTab /> : null}
           {productsTab === 'salary' ? <SalaryParamsTab /> : null}
           {productsTab === 'employers' ? <EmployersTab /> : null}
+          {productsTab === 'fixed-deposit-types' ? <FixedDepositTypesTab /> : null}
         </>
       ) : null}
       {tab === 'charges' ? (
@@ -537,13 +542,14 @@ async function EmployersTab() {
             <tbody>
               {rows.map((e) => (
                 <tr key={e.id}>
-                  <td className="mono">{e.code}</td>
+                  <td className="mono"><Link href={`/employers/view/${e.id}`}>{e.code}</Link></td>
                   <td><b>{e.name}</b></td>
                   <td>{e.phone || '—'}</td>
                   <td>{e.email || '—'}</td>
                   <td className="num">{e.member_count}</td>
                   <td><Pill status={e.status} /></td>
                   <td className="num">
+                    <Link href={`/employers/view/${e.id}`} className="btn sm ghost">View</Link>{' '}
                     <EmployerFormButton employer={e} className="btn sm ghost">Edit</EmployerFormButton>
                   </td>
                 </tr>
@@ -551,6 +557,53 @@ async function EmployersTab() {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="💼" title="No employers yet" sub="Add one before a checkoff/salary batch can find its members" />}
+      </Card>
+    </>
+  );
+}
+
+async function FixedDepositTypesTab() {
+  const [rows, products, accounts] = await Promise.all([
+    listFixedDepositTypes(), listActiveSavingsProducts(), listPostableAccounts(),
+  ]);
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <FixedDepositTypeButton products={products} accounts={accounts}>Add fixed deposit type</FixedDepositTypeButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Fixed deposit types"
+          sub="Interest rate bounds, calc method and the GL accounts a term deposit of this type posts to"
+        />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Description</th><th>Rate range</th><th>Calc type</th><th>Linked product</th>
+                <th className="num">Fixed deposits</th><th>Status</th><th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t) => (
+                <tr key={t.id}>
+                  <td className="mono">{t.code}</td>
+                  <td><b>{t.description}</b></td>
+                  <td>{t.min_interest_rate}% – {t.max_interest_rate}%</td>
+                  <td>{t.interest_calc_type === 'REDUCING' ? 'Reducing balance' : 'Flat rate'}</td>
+                  <td>{t.linked_product_name}</td>
+                  <td className="num">{t.fixed_deposits}</td>
+                  <td><Pill status={t.status} /></td>
+                  <td className="num">
+                    <FixedDepositTypeButton fdType={t} products={products} accounts={accounts} className="btn sm ghost">Edit</FixedDepositTypeButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🏛" title="No fixed deposit types yet" sub="Add one before a member can open a fixed deposit" />}
       </Card>
     </>
   );

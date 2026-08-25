@@ -205,6 +205,28 @@ export const RECOVERY_MODES: { value: 'DIRECT' | 'CHECKOFF'; label: string }[] =
   { value: 'CHECKOFF', label: 'Checkoff — recovered via employer payroll deduction' },
 ];
 
+export const FD_MATURITY_INSTRUCTIONS: { value: 'ROLLOVER_PRINCIPAL' | 'ROLLOVER_NET' | 'LIQUIDATE'; label: string }[] = [
+  { value: 'LIQUIDATE', label: 'Liquidate — pay out principal and interest' },
+  { value: 'ROLLOVER_PRINCIPAL', label: 'Roll over principal — reinvest the principal, pay out interest' },
+  { value: 'ROLLOVER_NET', label: 'Roll over net — reinvest principal and interest together' },
+];
+
+export const FD_INTEREST_CALC_TYPES: { value: 'FLAT' | 'REDUCING'; label: string }[] = [
+  { value: 'FLAT', label: 'Flat rate' },
+  { value: 'REDUCING', label: 'Reducing balance' },
+];
+
+export const SALARY_APPRAISAL_TYPES: { value: 'AVERAGE_NET' | 'LOWEST_NET'; label: string }[] = [
+  { value: 'AVERAGE_NET', label: 'Average net salary' },
+  { value: 'LOWEST_NET', label: 'Lowest net salary' },
+];
+
+export const REPLACEMENT_TYPES: { value: 'GUARANTOR' | 'COLLATERAL' | 'FIXED_DEPOSIT'; label: string }[] = [
+  { value: 'GUARANTOR', label: 'Member / Guarantor' },
+  { value: 'FIXED_DEPOSIT', label: 'Fixed Deposit' },
+  { value: 'COLLATERAL', label: 'Collateral' },
+];
+
 export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',

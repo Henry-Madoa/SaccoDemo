@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  getMemberExit, getAdjacentMemberExitNos, listMemberExitLines, type MemberExitView,
+  getMemberExit, getAdjacentMemberExitNos, listMemberExitLines, eligibleMembersForExit, type MemberExitView,
 } from '@/lib/memberExits';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
@@ -34,11 +34,12 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
   const exit = await getMemberExit(no);
   if (!exit) notFound();
 
-  const [canCreate, canApprove, tasks, { prevNo, nextNo }, lines] = await Promise.all([
+  const [canCreate, canApprove, tasks, { prevNo, nextNo }, lines, eligibleMembers] = await Promise.all([
     currentCanAction('MEMBER_EXITS_CREATE'), currentCanAction('MEMBER_EXITS_APPROVE'),
     listWorkflowTasksForDocument('MEMBER_EXIT', no),
     getAdjacentMemberExitNos(no, view),
     listMemberExitLines(no),
+    eligibleMembersForExit(no),
   ]);
 
   const isOpen = exit.status === 'Open';
@@ -71,7 +72,7 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
         <Link href={`/members/${exit.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
         {canEditFields ? <RefreshLinesButton no={exit.no} className="btn ghost" /> : null}
-        {canEditFields ? <EditButton exit={exit} className="btn ghost" /> : null}
+        {canEditFields ? <EditButton exit={exit} members={eligibleMembers} className="btn ghost" /> : null}
         {canEditFields ? <SubmitButton no={exit.no} className="btn ghost" /> : null}
         {exit.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={exit.no} className="btn ghost" />

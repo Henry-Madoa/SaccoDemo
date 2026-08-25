@@ -36,11 +36,12 @@ export default async function MemberDetailPage({ params, searchParams }: {
     member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees, signatories,
   } = detail;
   const [
-    canOpen, canCreateLoan, canViewStatement, canExit, canSetEmployer, attachments,
+    canOpen, canCreateLoan, canViewStatement, canExit, canOpenFd, canSetEmployer, attachments,
     { caption1, caption2 }, { prevId, nextId },
   ] = await Promise.all([
     currentCanAction('ACCOUNT_OPENING_CREATE'), currentCanAction('LOAN_CREATE'),
     currentCanAction('MEMBER_STATEMENTS_READ'), currentCanAction('MEMBER_EXITS_CREATE'),
+    currentCanAction('FIXED_DEPOSITS_CREATE'),
     currentCanAction('MEMBERS_UPDATE'),
     listAttachments('member', m.id),
     getDimensionCaptions(),
@@ -75,6 +76,9 @@ export default async function MemberDetailPage({ params, searchParams }: {
         ) : null}
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
+        ) : null}
+        {canOpenFd && m.status === 'ACTIVE' ? (
+          <Link href="/fixed-deposits" className="btn ghost">New fixed deposit</Link>
         ) : null}
         {canExit && m.status === 'ACTIVE' ? (
           <Link href={`/member-exits?new=${m.id}`} className="btn ghost">Exit membership</Link>
@@ -149,12 +153,14 @@ export default async function MemberDetailPage({ params, searchParams }: {
             mediaEnabled={mediaEnabled}
           />
 
-          <CollapsibleCard title="Employment" sub="Affordability itself is assessed per-loan on the Salary Appraisal card">
+          <CollapsibleCard title="Employment" sub="Affordability is assessed per-loan — against processed payroll for a salary-based product, or the Salary Appraisal card for any other">
             <DefinitionList items={[
               ['Employer', m.employer || '—'],
               ['Status', m.employment_status || '—'],
               ['Staff no.', <span className="mono" key="staff">{m.staff_no || '—'}</span>],
-              ['Checkoff employer', m.employer_ref_name || '—'],
+              ['Checkoff employer', m.employer_id
+                ? <Link href={`/employers/view/${m.employer_id}`} key="ce">{m.employer_ref_name}</Link>
+                : '—'],
             ]} />
             {canSetEmployer ? (
               <Toolbar>

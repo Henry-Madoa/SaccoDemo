@@ -117,42 +117,6 @@ export default async function GuarantorChangeDetailPage({ params, searchParams }
             ]} />
           </Card>
 
-          <Card>
-            <CardHead
-              title="Approval details"
-              sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
-            />
-            {tasks.length ? (
-              <TableWrap>
-                <thead>
-                  <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
-                </thead>
-                <tbody>
-                  {tasks.flatMap((t) => [
-                    ...t.level_decisions.map((ld, i) => (
-                      <tr key={`${t.id}-level-${i}`} className="muted">
-                        <td>—</td>
-                        <td>—</td>
-                        <td className="muted-cell">
-                          Level {ld.sequence}: {ld.decided_by}
-                          {ld.comment ? ` — "${ld.comment}"` : ''}
-                        </td>
-                        <td>{formatDateTime(ld.decided_at)}</td>
-                        <td><Pill tone="ok">CLEARED</Pill></td>
-                      </tr>
-                    )),
-                    <tr key={t.id}>
-                      <td>{t.requested_by || '—'}</td>
-                      <td>{formatDateTime(t.requested_at)}</td>
-                      <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
-                      <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
-                      <td><Pill status={t.status} /></td>
-                    </tr>,
-                  ])}
-                </tbody>
-              </TableWrap>
-            ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
-          </Card>
         </div>
 
         <div>
@@ -196,6 +160,43 @@ export default async function GuarantorChangeDetailPage({ params, searchParams }
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="🧾" title="No lines" sub={canEditLines ? 'Refresh lines to populate from the loan’s current guarantors.' : undefined} />}
+          </Card>
+
+          <Card>
+            <CardHead
+              title="Approval details"
+              sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+            />
+            {tasks.length ? (
+              <TableWrap>
+                <thead>
+                  <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
+                </thead>
+                <tbody>
+                  {tasks.flatMap((t) => [
+                    ...t.level_decisions.map((ld, i) => (
+                      <tr key={`${t.id}-level-${i}`} className="muted">
+                        <td>—</td>
+                        <td>—</td>
+                        <td className="muted-cell">
+                          Level {ld.sequence}: {ld.decided_by}
+                          {ld.comment ? ` — "${ld.comment}"` : ''}
+                        </td>
+                        <td>{formatDateTime(ld.decided_at)}</td>
+                        <td><Pill tone="ok">CLEARED</Pill></td>
+                      </tr>
+                    )),
+                    <tr key={t.id}>
+                      <td>{t.requested_by || '—'}</td>
+                      <td>{formatDateTime(t.requested_at)}</td>
+                      <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
+                      <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
+                      <td><Pill status={t.status} /></td>
+                    </tr>,
+                  ])}
+                </tbody>
+              </TableWrap>
+            ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
           </Card>
         </div>
       </div>

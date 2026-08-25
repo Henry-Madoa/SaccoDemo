@@ -54,6 +54,7 @@ export const NAV: NavGroup[] = [
     group:'FOSA',
     items:[
       { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
+      { path: '/fixed-deposits', label: 'Fixed Deposits', icon: '🏛', page: 'FIXED_DEPOSITS' },
     ],
   },
   {

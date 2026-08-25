@@ -9,7 +9,7 @@ import {
 import { saveSavingsProduct, saveLoanProduct } from '@/app/actions/admin';
 import type { LoanProductChargeDraft } from '@/lib/loanProductCharges';
 import {
-  SAVINGS_CATEGORIES, PRODUCT_STATUSES, INTEREST_METHODS, LOAN_CHARGE_CALCULATION_TYPES,
+  SAVINGS_CATEGORIES, PRODUCT_STATUSES, INTEREST_METHODS, LOAN_CHARGE_CALCULATION_TYPES, SALARY_APPRAISAL_TYPES,
 } from '@/lib/constants';
 import { toUnits } from '@/lib/format';
 import type {
@@ -110,6 +110,7 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
 }) {
   const [open, setOpen] = useState(false);
   const p = product ?? null;
+  const [salaryBased, setSalaryBased] = useState(!!Number(p?.salary_based ?? 0));
   const [chargeRows, setChargeRows] = useState<LoanChargeRow[]>(() => (chargeLines ?? []).map((l) => ({
     charge_id: l.charge_id, gl_account_id: l.gl_account_id, calculation_type: l.calculation_type,
     percentage_rate_sh: String(l.percentage_rate), prorate: l.prorate, priority: l.priority, status: l.status,
@@ -173,7 +174,8 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
             <Field name="guarantors_required" label="Guarantors required" type="number"
               defaultValue={p ? p.guarantors_required : 2} />
             <Field name="max_dsr_pct" label="Maximum deduction ratio (%)" type="number" step="0.1"
-              defaultValue={p ? p.max_dsr_pct : 66.7} />
+              defaultValue={p ? p.max_dsr_pct : 66.7}
+              hint="Checked against processed payroll for a Salary based product, or the Salary Appraisal card for any other" />
             <Field name="penalty_rate" label="Penalty rate (% per month)" type="number" step="0.01"
               defaultValue={p ? p.penalty_rate : 1} />
             <Field name="repayment_cutoff_date" label="Repayment cutoff date (day of month)" type="number" min={0}
@@ -181,9 +183,21 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
               hint="Before this day, the first instalment falls due at month-end; on or after it, a further month out. 0 = no cutoff." />
           </div>
           <Field
-            name="salary_based" type="checkbox" defaultValue={p ? p.salary_based : 1}
-            label="Salary based — auto-adds the Salary Appraisal section to this product's loan card (leave on for virtually every product; repayment capability depends on the payslip regardless of product type)"
+            name="salary_based" type="checkbox" defaultValue={p ? p.salary_based : 0}
+            onChange={(e) => setSalaryBased((e.target as HTMLInputElement).checked)}
+            label="Salary based — affordability is checked against actually-processed payroll (Checkoff & Salary Processing) instead of the manual Salary Appraisal card. Only turn this on for a product whose members are paid through this SACCO's own payroll processing."
           />
+          {/* Kept mounted (display:none, not unmounted) while off, so an already-saved value here
+              survives toggling Salary based off and back on without this uncontrolled form
+              losing it on submit. */}
+          <div className="grid g2" style={!salaryBased ? { display: 'none' } : undefined}>
+            <Field name="min_salary_count" label="Min. processed salaries required" type="number" min={1}
+              defaultValue={p ? p.min_salary_count : 1}
+              hint="Months of processed payroll required before affordability can be assessed" />
+            <Field name="salary_appraisal_type" label="Salary appraisal method" type="select"
+              defaultValue={p?.salary_appraisal_type ?? 'AVERAGE_NET'} options={SALARY_APPRAISAL_TYPES}
+              hint="How processed salary history reduces to the one figure checked against the deduction ratio" />
+          </div>
 
           <h4 className="section-title">Loan product charges</h4>
           <div className="card-sub">

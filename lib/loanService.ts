@@ -9,7 +9,7 @@ import {
 import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
 import {
-  buildSchedule, allocateRepayment, repaymentStartDate, daysBetween, classify, calculateLoanProductCharges,
+  buildSchedule, allocateRepayment, repaymentStartDate, daysBetween, classify, calculateLoanProductCharges, addMonths,
 } from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
@@ -32,6 +32,7 @@ export function getLoan(id: number): Promise<LoanFull | undefined> {
   return one<LoanFull>(
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
             p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id, p.salary_based,
+            p.min_salary_count, p.salary_appraisal_type,
             m.member_no, m.first_name, m.last_name
      FROM loan l JOIN loan_product p ON p.id = l.product_id
      JOIN member m ON m.id = l.member_id WHERE l.id = ?`,
@@ -210,6 +211,43 @@ async function monthlyObligations(memberId: number): Promise<Cents> {
   ))!.s;
 }
 
+export interface ProcessedSalarySummary {
+  count: number;
+  base: Cents;
+  windowMonths: number;
+  sufficient: boolean;
+}
+
+/** A salary-based product's AFFORDABILITY source: the member's own actually-processed payroll,
+ *  not a typed-in mimic of it — one row per SALARY-type Checkoff & Salary Processing batch this
+ *  member was paid through (see lib/checkoffBatches.ts), `Processed` only. Ported from AL's
+ *  AppraiseFosaSalary: looks back `minSalaryCount` months (at least 1), reduces whatever it finds
+ *  to a single base figure per `appraisalType`, and is `sufficient` only once at least
+ *  `minSalaryCount` distinct months are on file — an unmet minimum fails the factor outright
+ *  rather than quietly averaging over too little history. */
+export async function processedSalarySummary(
+  memberId: number, minSalaryCount: number, appraisalType: 'AVERAGE_NET' | 'LOWEST_NET',
+): Promise<ProcessedSalarySummary> {
+  const windowMonths = Math.max(minSalaryCount, 1);
+  // Normalized to the 1st of that month (matching AL's DMY2Date(1, ...) call on the same
+  // CalcDate('-%1M', ...) result) — otherwise a lookback anchored on today's day-of-month would
+  // clip out an otherwise-in-window batch whose period falls earlier in that same calendar month.
+  const since = `${addMonths(today(), -windowMonths).slice(0, 7)}-01`;
+  const rows = await all<{ remitted_amount: number }>(
+    `SELECT l.remitted_amount
+     FROM checkoff_batch_line l JOIN checkoff_batch b ON b.no = l.batch_no
+     WHERE l.member_id = ? AND b.batch_type = 'SALARY' AND b.status = 'Processed'
+       AND b.period >= ? AND l.remitted_amount > 0
+     ORDER BY b.period`,
+    memberId, since,
+  );
+  const count = rows.length;
+  const base = count === 0 ? 0
+    : appraisalType === 'LOWEST_NET' ? Math.min(...rows.map((r) => r.remitted_amount))
+    : Math.round(rows.reduce((s, r) => s + r.remitted_amount, 0) / count);
+  return { count, base, windowMonths, sufficient: count > 0 && count >= minSalaryCount };
+}
+
 export interface AppraiseInput {
   memberId: number;
   productId: number;
@@ -253,19 +291,29 @@ export async function appraise({ memberId, productId, principal, termMonths, loa
     Math.max(principal, 1), product.interest_rate, Math.max(termMonths, 1), product.interest_method, today(),
   );
 
-  // Salary details (the loan card's itemised Salary Appraisal section) are the only source of
-  // affordability data now that members no longer carry a static gross_income/other_deductions
-  // pair — every loan product auto-seeds it (lib/salaryAppraisal.ts's ensureSalaryAppraisalLines,
-  // called from apply()/update() below), so it's on file as soon as the loan itself exists.
-  // Pre-save (the New Application modal preview, no loanId yet) there is nothing to read it off
-  // yet — AFFORDABILITY is reported as not-yet-known rather than guessed at.
-  const salaryLines = loanId ? await listLoanSalaryAppraisalLines(loanId) : [];
+  // AFFORDABILITY's income source depends entirely on the product: a salary_based product is
+  // checked against the member's actually-processed payroll (processedSalarySummary, below —
+  // available even pre-save, since it needs only memberId, not a loanId to attach lines to); any
+  // other product is checked against the loan card's itemised Salary Appraisal section, the only
+  // source of affordability data now that members no longer carry a static gross_income/
+  // other_deductions pair — every such product auto-seeds it (lib/salaryAppraisal.ts's
+  // ensureSalaryAppraisalLines, called from apply()/update() below), so it's on file as soon as
+  // the loan itself exists. Pre-save (the New Application modal preview, no loanId yet) there is
+  // nothing to read it off yet — AFFORDABILITY is reported as not-yet-known rather than guessed at.
+  const processedSalary = product.salary_based
+    ? await processedSalarySummary(memberId, product.min_salary_count, product.salary_appraisal_type)
+    : null;
+  const salaryLines = !product.salary_based && loanId ? await listLoanSalaryAppraisalLines(loanId) : [];
   const salaryTotals = salaryLines.length ? computeSalaryTotals(salaryLines) : null;
   // salaryTotals.totalDeductions already includes the member's other loans (auto-derived
   // LOAN_DEDUCTION lines) alongside PAYE/NHIF/etc — folding in `obligations` on top of it would
-  // double-count those same obligations.
-  const totalDeductions = salaryTotals ? salaryTotals.totalDeductions + installment : obligations + installment;
-  const dsr = salaryTotals && salaryTotals.gross > 0 ? (totalDeductions / salaryTotals.gross) * 100 : 999;
+  // double-count those same obligations. Processed-salary history carries no such derived lines,
+  // so that path always adds `obligations` explicitly.
+  const totalDeductions = product.salary_based
+    ? obligations + installment
+    : salaryTotals ? salaryTotals.totalDeductions + installment : obligations + installment;
+  const baseIncome = product.salary_based ? (processedSalary?.base ?? 0) : (salaryTotals?.gross ?? 0);
+  const dsr = baseIncome > 0 ? (totalDeductions / baseIncome) * 100 : 999;
 
   // Fully secured = self-guarantee (the applicant's own deposits, run through the Self Guarantor
   // Multiplier — lib/guarantors.ts's selfGuaranteeCapacity, mirroring AL's
@@ -292,17 +340,25 @@ export async function appraise({ memberId, productId, principal, termMonths, loa
     { code: 'DEPOSIT_MULTIPLIER', label: `Within ${product.deposit_multiplier}× deposits`,
       pass: principal <= maxByMultiplier,
       detail: `Deposits ${(deposits / 100).toLocaleString()} → ceiling ${(maxByMultiplier / 100).toLocaleString()}` },
-    // Only a salary-based product is affordability-assessed against payslip deductions at all —
-    // for any other product this factor doesn't apply and is never itself a reason to refer.
-    // For one that is, an unfilled Salary Appraisal card (salaryTotals null, whether pre-save
-    // with no loanId yet, or post-save before the officer has typed anything in) must fail
-    // rather than pass — affordability that hasn't actually been assessed is not the same thing
-    // as affordability that's been confirmed, and treating the two the same let a loan read as
-    // ELIGIBLE without its salary details ever having been captured.
+    // Every product is affordability-assessed, but the two paths never both apply to the same
+    // one: a salary_based product is checked against actually-processed payroll (never the
+    // manually-typed card, since the system already has real income data for it); any other
+    // product is checked against the Salary Appraisal card. Either way, data that hasn't
+    // actually been captured/processed yet must fail rather than pass — affordability that
+    // hasn't been assessed is not the same thing as affordability that's been confirmed, and
+    // treating the two the same let a loan read as ELIGIBLE without ever being checked.
     { code: 'AFFORDABILITY', label: `Deduction ratio ≤ ${product.max_dsr_pct}%`,
-      pass: !product.salary_based || (salaryTotals ? dsr <= product.max_dsr_pct : false),
-      detail: !product.salary_based
-        ? 'Not applicable — this product is not affordability-assessed against payslip deductions'
+      pass: product.salary_based
+        ? !!(processedSalary?.sufficient && dsr <= product.max_dsr_pct)
+        : (salaryTotals ? dsr <= product.max_dsr_pct : false),
+      detail: product.salary_based
+        ? (processedSalary?.sufficient
+          ? `${product.salary_appraisal_type === 'LOWEST_NET' ? 'Lowest' : 'Average'} processed net salary `
+            + `${(processedSalary.base / 100).toLocaleString()} over ${processedSalary.count} month${processedSalary.count === 1 ? '' : 's'}`
+            + ` — total deductions ${(totalDeductions / 100).toLocaleString()} = ${dsr.toFixed(1)}%`
+          : `Not yet available — needs at least ${product.min_salary_count} processed salary payment`
+            + `${product.min_salary_count === 1 ? '' : 's'} via Checkoff & Salary Processing`
+            + ` (found ${processedSalary?.count ?? 0} in the last ${processedSalary?.windowMonths ?? product.min_salary_count} months)`)
         : salaryTotals
           ? `Total deductions ${(totalDeductions / 100).toLocaleString()} of income ${(salaryTotals.gross / 100).toLocaleString()} = ${dsr.toFixed(1)}%`
           : 'Not yet available — save the application, fill in the Salary Appraisal card, then re-run appraisal' },
@@ -459,7 +515,7 @@ export async function apply({
     return loanId;
   });
 
-  if (product.salary_based) await ensureSalaryAppraisalLines(id, memberId);
+  if (!product.salary_based) await ensureSalaryAppraisalLines(id, memberId);
 
   await audit(user, 'LOAN_APPLY', 'loan', id, { principal, termMonths, productId });
   return (await getLoan(id))!;
@@ -506,10 +562,10 @@ export async function update({
     termMonths, purpose || null, disburseToAccountId || null, recoveryMode ?? loan.recovery_mode, loanId,
   );
 
-  // Only reseed the Salary Appraisal section when the product actually changed to a salary-
+  // Only reseed the Salary Appraisal section when the product actually changed to a non-salary-
   // based one — an unrelated edit (principal, term…) must never wipe out amounts the officer
   // already typed in.
-  if (product.salary_based && productId !== loan.product_id) await ensureSalaryAppraisalLines(loanId, memberId);
+  if (!product.salary_based && productId !== loan.product_id) await ensureSalaryAppraisalLines(loanId, memberId);
 
   await audit(user, 'LOAN_UPDATE', 'loan', loanId, { principal, termMonths, productId, memberId });
   return (await getLoan(loanId))!;

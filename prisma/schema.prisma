@@ -323,6 +323,9 @@ model gl_account {
   member_category                                                member_category[]
   transaction_charge_setup                                       transaction_charge_setup[]
   loan_product_charge                                            loan_product_charge[]
+  member_fixed_deposit_type_interest_expense                     member_fixed_deposit_type[] @relation("mfdt_interest_expense")
+  member_fixed_deposit_type_interest_payable                     member_fixed_deposit_type[] @relation("mfdt_interest_payable")
+  member_fixed_deposit_type_withholding_tax                      member_fixed_deposit_type[] @relation("mfdt_withholding_tax")
 }
 
 model charge {
@@ -597,6 +600,7 @@ model loan {
   loan_salary_appraisal_line loan_salary_appraisal_line[]
   loan_guarantor_change  loan_guarantor_change[]
   member_exit_line       member_exit_line[]
+  loan_fd_lien           loan_fd_lien[]
 
   @@index([member_id], map: "ix_loan_member")
   @@index([recovery_mode], map: "ix_loan_recovery_mode")
@@ -632,6 +636,12 @@ model loan_product {
   guarantors_required                                       Int                   @default(2)
   max_dsr_pct                                               Float                 @default(66.7)
   salary_based                                              Int                   @default(0)
+  /// Months of processed SALARY-type checkoff batches required before a salary_based product's
+  /// affordability can be assessed at all — below AL's "Min. Salary Count".
+  min_salary_count                                          Int                   @default(1)
+  /// 'AVERAGE_NET' | 'LOWEST_NET' — how a salary_based product reduces a member's processed
+  /// salary history to the single base figure max_dsr_pct is checked against.
+  salary_appraisal_type                                     String                @default("AVERAGE_NET")
   repayment_cutoff_date                                     Int                   @default(0)
   gl_receivable_id                                          Int?
   gl_interest_income_id                                     Int?
@@ -1262,6 +1272,7 @@ model member {
   loan_guarantor_change_replacement loan_guarantor_change_replacement[]
   member_exit                      member_exit[]
   checkoff_batch_line               checkoff_batch_line[]
+  member_fixed_deposit              member_fixed_deposit[]
 
   @@index([county_id], map: "ix_member_county")
   @@index([employer_id], map: "ix_member_employer")
@@ -1376,6 +1387,8 @@ model savings_account {
   account_activation_request_debit account_activation_request[]   @relation("aar_debit_account")
   member_charging                  member_charging[]
   member_exit_line                 member_exit_line[]
+  member_fixed_deposit_source      member_fixed_deposit[]         @relation("mfd_source_account")
+  member_fixed_deposit_fd_account  member_fixed_deposit[]         @relation("mfd_fd_account")
 
   @@index([member_id], map: "ix_sa_member")
   @@index([product_id], map: "ix_sa_product")
@@ -1487,6 +1500,106 @@ model savings_product {
   gl_account_savings_product_gl_interest_exp_idTogl_account gl_account?                       @relation("savings_product_gl_interest_exp_idTogl_account", fields: [gl_interest_exp_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member_category_default_account                           member_category_default_account[]
   account_opening_request                                   account_opening_request[]
+  member_fixed_deposit_type                                 member_fixed_deposit_type[]
+}
+
+/// A member fixed-deposit product: interest rate bounds, calc method (Flat vs Reducing Balance,
+/// ported from AL's Cod52204010.CreateFixedDepositSchedule), the savings_product new FD accounts
+/// open under, and the GL accounts interest accrual/withholding tax post to. Admin-managed master
+/// data, no workflow — mirrors lib/collateralTypes.ts's shape.
+model member_fixed_deposit_type {
+  id                     Int                    @id @default(autoincrement())
+  code                   String                 @unique
+  description            String
+  min_interest_rate      Float                  @default(0)
+  max_interest_rate      Float                  @default(0)
+  interest_calc_type     String                 @default("FLAT") // 'FLAT' | 'REDUCING'
+  linked_product_id      Int
+  interest_expense_gl_id Int
+  interest_payable_gl_id Int
+  withholding_tax_rate   Float                  @default(0)
+  withholding_tax_gl_id  Int?
+  status                 String                 @default("ACTIVE")
+  savings_product        savings_product        @relation(fields: [linked_product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  interest_expense_account gl_account           @relation("mfdt_interest_expense", fields: [interest_expense_gl_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  interest_payable_account gl_account           @relation("mfdt_interest_payable", fields: [interest_payable_gl_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  withholding_tax_account  gl_account?          @relation("mfdt_withholding_tax", fields: [withholding_tax_gl_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member_fixed_deposit   member_fixed_deposit[]
+}
+
+/// The maker-checker document for a member's term deposit — Open -> Pending Approval -> Approved,
+/// then its own richer post-approval lifecycle (Active -> Matured/Terminated) tracked directly in
+/// `status` rather than the shared 4-state DocumentStatus, same reason `loan.status` isn't either.
+/// See lib/fixedDeposits.ts. Ported from AL's Tab52204018 "Member Fixed Deposits".
+model member_fixed_deposit {
+  no                    String                         @id
+  member_id             Int
+  fd_type_id            Int
+  rate                  Float
+  maturity_instructions String                         @default("LIQUIDATE") // ROLLOVER_PRINCIPAL | ROLLOVER_NET | LIQUIDATE
+  amount                BigInt
+  source_account_id     Int
+  /// The FD's own dedicated savings_account (product = the type's linked_product_id), created on
+  /// activation — holds exactly `amount` until maturity/termination pays it out.
+  fd_account_id         Int?
+  start_date            String
+  term_months           Int
+  end_date              String
+  status                String                         @default("Open") // Open | Pending Approval | Approved | Active | Matured | Terminated
+  decision_reason       String?
+  /// Roll-over chain — set on both sides when maturity creates a successor FD.
+  rolled_from_no        String?
+  rolled_to_no          String?
+  created_at            String?
+  created_by            String?
+  activated_at          String?
+  activated_by          String?
+  processed_at          String?
+  processed_by          String?
+  member                member                         @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member_fixed_deposit_type member_fixed_deposit_type  @relation(fields: [fd_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  source_account        savings_account                @relation("mfd_source_account", fields: [source_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fd_account            savings_account?               @relation("mfd_fd_account", fields: [fd_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member_fixed_deposit_schedule member_fixed_deposit_schedule[]
+  loan_fd_lien          loan_fd_lien[]
+  loan_guarantor_change_replacement loan_guarantor_change_replacement[]
+
+  @@index([member_id], map: "ix_mfd_member")
+  @@index([status], map: "ix_mfd_status")
+}
+
+/// Monthly interest accrual line for a Member Fixed Deposit — ported from AL's Tab52204019
+/// "Member Fixed Deposit Schedule". `transferred` flips once its GL accrual journal has posted
+/// (lib/fixedDeposits.ts's accrueFixedDepositInterest); maturity sums every row regardless.
+model member_fixed_deposit_schedule {
+  id           Int                  @id @default(autoincrement())
+  fd_no        String
+  posting_date String
+  description  String?
+  amount       BigInt               @default(0)
+  transferred  Boolean              @default(false)
+  member_fixed_deposit member_fixed_deposit @relation(fields: [fd_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([fd_no], map: "ix_mfds_fd_no")
+}
+
+/// A Fixed Deposit pledged as security for a loan — the FD-as-collateral sibling of
+/// loan_collateral (which covers physical collateral_register items; loan_guarantor covers
+/// guarantor security). See lib/loanFdSecurity.ts. Attach/detach only while the loan is OPEN,
+/// same point loan_collateral/loan_guarantor are fixed.
+model loan_fd_lien {
+  id         Int                  @id @default(autoincrement())
+  loan_id    Int
+  fd_no      String
+  guarantee  BigInt
+  status     String               @default("ACTIVE") // ACTIVE | RELEASED
+  created_at String?
+  created_by String?
+  loan       loan                 @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member_fixed_deposit member_fixed_deposit @relation(fields: [fd_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([loan_id, fd_no])
+  @@index([fd_no], map: "ix_lfl_fd_no")
 }
 
 model sequence {
@@ -1702,6 +1815,7 @@ model collateral_register {
   county                 county?                @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   collateral_release     collateral_release[]
   loan_collateral        loan_collateral[]
+  loan_guarantor_change_replacement loan_guarantor_change_replacement[]
 
   @@index([member_id, collateral_type_id], map: "ix_creg_member_type")
   @@index([serial_reg_no], map: "ix_creg_serial")
@@ -1809,19 +1923,37 @@ model loan_guarantor_change_line {
   @@index([change_no], map: "ix_lgcl_change")
 }
 
-/// A proposed replacement guarantor covering (part of) a line's outstanding amount — never the
-/// loan's own borrower (self-guarantee isn't a loan_guarantor row in this schema, see
-/// lib/guarantors.ts's selfGuaranteeCapacity), always vetted against the replacement member's own
-/// live guarantee capacity.
+/// A proposed replacement covering (part of) a line's outstanding amount — AL's Det. Lines
+/// (Tab52204059), one of three Security Types:
+///   - GUARANTOR: another member (never the loan's own borrower — self-guarantee isn't a
+///     loan_guarantor row in this schema, see lib/guarantors.ts's selfGuaranteeCapacity), vetted
+///     against their own live guarantee capacity.
+///   - COLLATERAL: a collateral_register item already registered to the loan's own borrower
+///     (never anyone else's), vetted against its own live cover via
+///     lib/collateralRegister.ts's getCollateralLinkedBalance().
+///   - FIXED_DEPOSIT: a member_fixed_deposit belonging to the loan's own borrower, vetted against
+///     lib/loanFdSecurity.ts's getFdLinkedBalance().
+/// Processing (lib/loanGuarantorChanges.ts's processGuarantorChange()) writes a COLLATERAL/
+/// FIXED_DEPOSIT replacement straight into loan_collateral/loan_fd_lien — the same tables the
+/// loan card's own Attach Collateral/Attach FD Security actions use — bypassing their normal
+/// "only while OPEN" gate, since an approved change document is its own authorization path onto
+/// an already-DISBURSED loan.
 model loan_guarantor_change_replacement {
-  id                    Int                        @id @default(autoincrement())
-  line_id               Int
-  replacement_member_id Int
-  amount                BigInt                     @default(0)
-  line                  loan_guarantor_change_line @relation(fields: [line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  replacement_member    member                     @relation(fields: [replacement_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                         Int                        @id @default(autoincrement())
+  line_id                    Int
+  replacement_type           String                     @default("GUARANTOR") // GUARANTOR | COLLATERAL | FIXED_DEPOSIT
+  replacement_member_id      Int?
+  replacement_collateral_no  String?
+  replacement_fd_no          String?
+  amount                     BigInt                     @default(0)
+  line                       loan_guarantor_change_line @relation(fields: [line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacement_member         member?                    @relation(fields: [replacement_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacement_collateral     collateral_register?       @relation(fields: [replacement_collateral_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  replacement_fd             member_fixed_deposit?      @relation(fields: [replacement_fd_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([line_id], map: "ix_lgcr_line")
+  @@index([replacement_collateral_no], map: "ix_lgcr_collateral")
+  @@index([replacement_fd_no], map: "ix_lgcr_fd")
 }
 
 /// Member Exit Module — the maker-checker process for terminating a membership, ported from the

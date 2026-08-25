@@ -591,6 +591,42 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       }
       break;
     }
+    case 'COLLATERAL_APPLICATION': {
+      const svc = await import('./collateralApplications.ts');
+      if (approved) await svc.approveCollateralApplication(task.entity_id, decidedBy);
+      else await svc.rejectCollateralApplication(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'COLLATERAL_RELEASE': {
+      const svc = await import('./collateralReleases.ts');
+      if (approved) await svc.approveCollateralRelease(task.entity_id, decidedBy);
+      else await svc.rejectCollateralRelease(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'GUARANTOR_CHANGE': {
+      const svc = await import('./loanGuarantorChanges.ts');
+      if (approved) await svc.approveGuarantorChange(task.entity_id, decidedBy);
+      else await svc.rejectGuarantorChange(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'MEMBER_EXIT': {
+      const svc = await import('./memberExits.ts');
+      if (approved) await svc.approveMemberExit(task.entity_id, decidedBy);
+      else await svc.rejectMemberExit(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'CHECKOFF_BATCH': {
+      const svc = await import('./checkoffBatches.ts');
+      if (approved) await svc.approveCheckoffBatch(task.entity_id, decidedBy);
+      else await svc.rejectCheckoffBatch(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'FIXED_DEPOSIT': {
+      const svc = await import('./fixedDeposits.ts');
+      if (approved) await svc.approveFixedDeposit(task.entity_id, decidedBy);
+      else await svc.rejectFixedDeposit(task.entity_id, reason, decidedBy);
+      break;
+    }
   }
 }
 

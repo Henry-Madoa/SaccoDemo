@@ -144,7 +144,7 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
               ['Created by', application.created_by || '—'],
               ['Created on', formatDateTime(application.created_at)],
               ['Registered', registered
-                ? <Pill tone="ok" key="reg">YES — in the Collateral Register</Pill>
+                ? <><Pill tone="ok" key="reg">YES</Pill> <span className="tiny">in the Collateral Register</span></>
                 : <Pill tone="warn" key="reg">NOT YET</Pill>],
               registered ? ['Registered by', application.processed_by || '—'] : null,
               registered ? ['Registered on', formatDateTime(application.processed_at)] : null,

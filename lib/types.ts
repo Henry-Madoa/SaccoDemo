@@ -1326,12 +1326,20 @@ export interface LoanProduct {
   penalty_rate: number;
   guarantors_required: number;
   max_dsr_pct: number;
-  /** When set, the loan card auto-adds the itemised Salary Appraisal section (predefined
-   *  earning/deduction lines the officer fills in to mimic the member's payslip), which
-   *  appraise()'s AFFORDABILITY factor then reads gross income and deductions from — left on
-   *  for virtually every product, since repayment capability depends on it regardless of
-   *  product type. */
+  /** When set, appraise()'s AFFORDABILITY factor is checked against actually-processed payroll
+   *  (Checkoff & Salary Processing's SALARY-type batches) instead of the manual Earnings and
+   *  Deductions card — the member's real net pay history, not a typed-in mimic of their payslip.
+   *  A loan card only ever shows one or the other: the Earnings and Deductions section for a
+   *  product that is NOT salary_based, or a read-only Processed Salary summary for one that is. */
   salary_based: Flag;
+  /** Months of processed SALARY-type checkoff batches required before a salary_based product's
+   *  AFFORDABILITY can be assessed at all — AL's "Min. Salary Count". Ignored when salary_based
+   *  is off. */
+  min_salary_count: number;
+  /** How a salary_based product reduces a member's processed salary history to the single base
+   *  figure max_dsr_pct is checked against — AL's "Salary Appraisal Type". Ignored when
+   *  salary_based is off. */
+  salary_appraisal_type: 'AVERAGE_NET' | 'LOWEST_NET';
   /** Day-of-month a disbursement/application must fall before to get the first instalment due
    *  at the end of that same calendar month — on or after it, the first instalment is pushed a
    *  further month out (see lib/loans.ts's repaymentStartDate). 0 means no cutoff — always the
@@ -1437,6 +1445,8 @@ export interface LoanFull extends LoanWithProductName {
   gl_interest_income_id: number;
   gl_penalty_income_id: number;
   salary_based: Flag;
+  min_salary_count: number;
+  salary_appraisal_type: 'AVERAGE_NET' | 'LOWEST_NET';
   member_no: string;
   first_name: string;
   last_name: string;
@@ -1798,17 +1808,25 @@ export interface LoanGuarantorChangeLineWithDetails extends LoanGuarantorChangeL
   replacements: LoanGuarantorChangeReplacementWithDetails[];
 }
 
+export type ReplacementType = 'GUARANTOR' | 'COLLATERAL' | 'FIXED_DEPOSIT';
+
 export interface LoanGuarantorChangeReplacement {
   id: number;
   line_id: number;
-  replacement_member_id: number;
+  replacement_type: ReplacementType;
+  replacement_member_id: number | null;
+  replacement_collateral_no: string | null;
+  replacement_fd_no: string | null;
   amount: Cents;
 }
 
 export interface LoanGuarantorChangeReplacementWithDetails extends LoanGuarantorChangeReplacement {
-  replacement_member_no: string;
-  replacement_first_name: string;
-  replacement_last_name: string;
+  replacement_member_no: string | null;
+  replacement_first_name: string | null;
+  replacement_last_name: string | null;
+  replacement_collateral_description: string | null;
+  replacement_serial_reg_no: string | null;
+  replacement_fd_type_description: string | null;
 }
 
 /** A loan eligible to open a new guarantor change document against — DISBURSED, still owing a
@@ -1907,6 +1925,22 @@ export interface EmployerWithCounts extends Employer {
   member_count: number;
 }
 
+/** Aggregate financial/member-position stats for one employer's linked members — the Employer
+ *  View card. See lib/employers.ts's getEmployerStats(). */
+export interface EmployerStats {
+  member_count: number;
+  active_member_count: number;
+  withdrawn_member_count: number;
+  member_status_breakdown: { status: string; count: number }[];
+  total_deposits: Cents;
+  total_shares: Cents;
+  total_fixed_deposits: Cents;
+  disbursed_loan_count: number;
+  outstanding_loan_balance: Cents;
+  checkoff_batch_count: number;
+  total_remitted: Cents;
+}
+
 /** A maker-checker batch document scoped to one employer/period. See
  *  lib/checkoffBatches.ts's processCheckoffBatch(). */
 export interface CheckoffBatch {
@@ -1949,6 +1983,113 @@ export interface CheckoffBatchLineWithDetails extends CheckoffBatchLine {
   member_no: string;
   member_first_name: string;
   member_last_name: string;
+}
+
+/** Admin-managed master data for a term-deposit product — interest rate bounds, calc method, the
+ *  savings_product new FD accounts open under, and the GL accounts accrual/withholding tax post
+ *  to. See lib/fixedDepositTypes.ts. */
+export interface MemberFixedDepositType {
+  id: number;
+  code: string;
+  description: string;
+  min_interest_rate: number;
+  max_interest_rate: number;
+  interest_calc_type: 'FLAT' | 'REDUCING';
+  linked_product_id: number;
+  interest_expense_gl_id: number;
+  interest_payable_gl_id: number;
+  withholding_tax_rate: number;
+  withholding_tax_gl_id: number | null;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface MemberFixedDepositTypeWithUsage extends MemberFixedDepositType {
+  linked_product_name: string;
+  fixed_deposits: number;
+}
+
+/** The maker-checker document for a member's term deposit. `status` carries its own richer
+ *  post-approval lifecycle (ACTIVE -> MATURED/TERMINATED) rather than the shared DocumentStatus —
+ *  same reason Loan has its own status enum too. See lib/fixedDeposits.ts. */
+export interface MemberFixedDeposit {
+  no: string;
+  member_id: number;
+  fd_type_id: number;
+  rate: number;
+  maturity_instructions: 'ROLLOVER_PRINCIPAL' | 'ROLLOVER_NET' | 'LIQUIDATE';
+  amount: Cents;
+  source_account_id: number;
+  fd_account_id: number | null;
+  start_date: IsoDate;
+  term_months: number;
+  end_date: IsoDate;
+  status: 'Open' | 'Pending Approval' | 'Approved' | 'Active' | 'Matured' | 'Terminated';
+  decision_reason: string | null;
+  rolled_from_no: string | null;
+  rolled_to_no: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  activated_at: IsoDateTime | null;
+  activated_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+}
+
+export interface MemberFixedDepositWithDetails extends MemberFixedDeposit {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  fd_type_code: string;
+  fd_type_description: string;
+  source_account_no: string;
+  fd_account_no: string | null;
+  /** Live balance of the FD's own dedicated account — 0 until activated. */
+  running_balance: Cents;
+  /** Live-computed from the schedule. */
+  total_interest_payable: Cents;
+  total_interest_accrued: Cents;
+  total_interest_balance: Cents;
+  /** Live-computed from active loan_fd_lien rows against disbursed loans with a balance —
+   *  must be 0 before Mature/Terminate, mirrors AL's OnBeforeLiquidate check. */
+  linked_loan_balance: Cents;
+}
+
+/** One monthly interest accrual line. See lib/fixedDeposits.ts's accrueFixedDepositInterest(). */
+export interface MemberFixedDepositSchedule {
+  id: number;
+  fd_no: string;
+  posting_date: IsoDate;
+  description: string | null;
+  amount: Cents;
+  transferred: boolean;
+}
+
+/** A Fixed Deposit pledged as security for a loan — the FD-as-collateral sibling of
+ *  LoanCollateral. See lib/loanFdSecurity.ts. */
+export interface LoanFdLien {
+  id: number;
+  loan_id: number;
+  fd_no: string;
+  guarantee: Cents;
+  status: 'ACTIVE' | 'RELEASED';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface LoanFdLienRow extends LoanFdLien {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  fd_amount: Cents;
+}
+
+/** One Fixed Deposit a loan officer could still pledge against a loan — narrowed to the same
+ *  member, approved-or-active, with cover left over. */
+export interface AvailableFdRow {
+  no: string;
+  fd_type_description: string;
+  amount: Cents;
+  available: Cents;
 }
 
 export interface AppraisalFactor {
@@ -2054,7 +2195,7 @@ export interface SubledgerEntryRow extends TxnWithMember {
 export type WorkflowDocumentType =
   | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
   | 'ACCOUNT_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE' | 'GUARANTOR_CHANGE'
-  | 'MEMBER_EXIT' | 'CHECKOFF_BATCH';
+  | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';

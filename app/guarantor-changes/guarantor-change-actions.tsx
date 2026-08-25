@@ -15,11 +15,16 @@ import { useRunAction } from '@/components/ui/run-action';
 import {
   requestGuarantorChange, refreshGuarantorChangeLinesRequest, setLineReleaseRequest,
   addReplacementRequest, removeReplacementRequest, availableReplacementsForChange,
+  availableCollateralForGuarantorChange, availableFdForGuarantorChange,
   submitGuarantorChangeRequest, cancelGuarantorChangeApprovalRequest,
   approveGuarantorChangeRequest, rejectGuarantorChangeRequest, processGuarantorChangeRequest,
 } from '@/app/actions/loanGuarantorChanges';
 import { delegateMyTask } from '@/app/actions/workflows';
-import type { ChangeableLoanRow, GuarantorCandidate, LoanGuarantorChangeLineWithDetails } from '@/lib/types';
+import { REPLACEMENT_TYPES } from '@/lib/constants';
+import type {
+  AvailableCollateralRow, AvailableFdRow, ChangeableLoanRow, GuarantorCandidate,
+  LoanGuarantorChangeLineWithDetails, ReplacementType,
+} from '@/lib/types';
 
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
@@ -181,14 +186,32 @@ export function ReleaseToggle({ no, lineId, release, hasReplacements }: {
   );
 }
 
-/** Manages one line's replacement guarantors — list with remove, plus a compact add form.
- *  Candidates (and their live capacity) are fetched lazily once opened. */
+/** A replacement row's display label + sub-line, per its type. */
+function replacementLabel(r: LoanGuarantorChangeLineWithDetails['replacements'][number]): { title: string; sub: string | null } {
+  if (r.replacement_type === 'COLLATERAL') {
+    return { title: r.replacement_collateral_description || r.replacement_collateral_no || '—', sub: r.replacement_collateral_no };
+  }
+  if (r.replacement_type === 'FIXED_DEPOSIT') {
+    return { title: r.replacement_fd_type_description || r.replacement_fd_no || '—', sub: r.replacement_fd_no };
+  }
+  return { title: `${r.replacement_first_name} ${r.replacement_last_name}`, sub: r.replacement_member_no };
+}
+
+/** Manages one line's replacements — list with remove, plus a compact add form. Which security
+ *  type a replacement can be — Member/Guarantor, Fixed Deposit, or Collateral (AL's Det. Lines
+ *  Security Type) — is chosen first and drives which picker (and which candidate list) shows
+ *  below it. Every candidate list is scoped to the loan's own borrower (for Collateral/Fixed
+ *  Deposit) exactly as lib/loanGuarantorChanges.ts's addReplacement() itself re-validates —
+ *  fetched lazily once opened, all three at once so switching the type never re-fetches. */
 export function ReplacementsModal({ no, line, disabled }: {
   no: string; line: LoanGuarantorChangeLineWithDetails; disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [candidates, setCandidates] = useState<GuarantorCandidate[]>([]);
-  const [memberId, setMemberId] = useState('');
+  const [type, setType] = useState<ReplacementType>('GUARANTOR');
+  const [memberCandidates, setMemberCandidates] = useState<GuarantorCandidate[]>([]);
+  const [collateralCandidates, setCollateralCandidates] = useState<AvailableCollateralRow[]>([]);
+  const [fdCandidates, setFdCandidates] = useState<AvailableFdRow[]>([]);
+  const [code, setCode] = useState('');
   const [amountSh, setAmountSh] = useState('');
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -199,23 +222,38 @@ export function ReplacementsModal({ no, line, disabled }: {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    availableReplacementsForChange(no).then((res) => {
-      if (!cancelled && res.ok) setCandidates(res.data);
+    Promise.all([
+      availableReplacementsForChange(no),
+      availableCollateralForGuarantorChange(no),
+      availableFdForGuarantorChange(no),
+    ]).then(([members, collateral, fd]) => {
+      if (cancelled) return;
+      if (members.ok) setMemberCandidates(members.data);
+      if (collateral.ok) setCollateralCandidates(collateral.data);
+      if (fd.ok) setFdCandidates(fd.data);
     });
     return () => { cancelled = true; };
   }, [open, no]);
 
   const allocated = line.replacements.reduce((s, r) => s + r.amount, 0);
   const remaining = line.outstanding_guaranteed - allocated;
-  const chosen = candidates.find((c) => String(c.id) === memberId);
+
+  const chosenMember = memberCandidates.find((c) => String(c.id) === code);
+  const chosenCollateral = collateralCandidates.find((c) => c.no === code);
+  const chosenFd = fdCandidates.find((c) => c.no === code);
+  const availableOnChosen = type === 'GUARANTOR' ? chosenMember?.availableGuarantee
+    : type === 'COLLATERAL' ? chosenCollateral?.collateral_balance
+      : chosenFd?.available;
+
+  const changeType = (t: ReplacementType) => { setType(t); setCode(''); };
 
   const add = async () => {
-    if (!memberId || !amountSh) { showResult('Incomplete', 'Choose a member and an amount first', 'err'); return; }
+    if (!code || !amountSh) { showResult('Incomplete', 'Choose one and an amount first', 'err'); return; }
     setBusy(true);
     try {
-      const res = await addReplacementRequest(no, line.id, Number(memberId), amountSh);
+      const res = await addReplacementRequest(no, line.id, type, code, amountSh);
       if (!res.ok) { showResult('Could not add replacement', res.error, 'err'); return; }
-      setMemberId('');
+      setCode('');
       setAmountSh('');
       router.refresh();
     } finally {
@@ -245,43 +283,85 @@ export function ReplacementsModal({ no, line, disabled }: {
         <Modal title={`Replacements for ${line.guarantor_first_name} ${line.guarantor_last_name}`} onClose={() => setOpen(false)}>
           {line.replacements.length ? (
             <TableWrap>
-              <thead><tr><th>Member</th><th className="num">Amount</th><th className="num" /></tr></thead>
+              <thead><tr><th>Type</th><th>Security</th><th className="num">Amount</th><th className="num" /></tr></thead>
               <tbody>
-                {line.replacements.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.replacement_first_name} {r.replacement_last_name}
-                      <div className="tiny mono">{r.replacement_member_no}</div>
-                    </td>
-                    <td className="num"><Money cents={r.amount} decimals={0} /></td>
-                    <td className="num">
-                      {!disabled ? (
-                        <button type="button" className="btn sm ghost" disabled={busy} onClick={() => remove(r.id)}>
-                          Remove
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
+                {line.replacements.map((r) => {
+                  const { title, sub } = replacementLabel(r);
+                  return (
+                    <tr key={r.id}>
+                      <td>{REPLACEMENT_TYPES.find((t) => t.value === r.replacement_type)?.label ?? r.replacement_type}</td>
+                      <td>{title}{sub ? <div className="tiny mono">{sub}</div> : null}</td>
+                      <td className="num"><Money cents={r.amount} decimals={0} /></td>
+                      <td className="num">
+                        {!disabled ? (
+                          <button type="button" className="btn sm ghost" disabled={busy} onClick={() => remove(r.id)}>
+                            Remove
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </TableWrap>
           ) : <p className="tiny">No replacements added yet.</p>}
 
           {!disabled ? (
-            <div className="grid g3" style={{ marginTop: 10, alignItems: 'end' }}>
-              <MemberSelect id={`f_replacement_${line.id}`} name="replacementMemberId" label="Add replacement"
-                members={candidates} value={memberId} onChange={setMemberId} />
-              <div className="field">
-                <label htmlFor={`f_replacementAmount_${line.id}`}>Amount</label>
-                <input id={`f_replacementAmount_${line.id}`} type="number" step="0.01" value={amountSh}
-                  onChange={(e) => setAmountSh(e.target.value)} />
-                <div className="hint">
-                  {chosen ? `Up to ${cur(chosen.availableGuarantee)} available` : `${cur(Math.max(0, remaining))} left unallocated on this line`}
+            <>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label htmlFor={`f_replacementType_${line.id}`}>Replacement type</label>
+                <select id={`f_replacementType_${line.id}`} value={type}
+                  onChange={(e) => changeType(e.target.value as ReplacementType)}>
+                  {REPLACEMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div className="grid g3" style={{ alignItems: 'start' }}>
+                {type === 'GUARANTOR' ? (
+                  <MemberSelect id={`f_replacement_${line.id}`} name="replacementMemberId" label="Member"
+                    members={memberCandidates} value={code} onChange={setCode} />
+                ) : type === 'COLLATERAL' ? (
+                  <div className="field">
+                    <label htmlFor={`f_replacementCollateral_${line.id}`}>Collateral</label>
+                    <select id={`f_replacementCollateral_${line.id}`} value={code} onChange={(e) => setCode(e.target.value)}>
+                      <option value="">— Select —</option>
+                      {collateralCandidates.map((c) => (
+                        <option key={c.no} value={c.no}>
+                          {c.no} — {c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left {cur(c.collateral_balance)})
+                        </option>
+                      ))}
+                    </select>
+                    {!collateralCandidates.length ? <div className="hint">The borrower has no registered collateral with cover left.</div> : null}
+                  </div>
+                ) : (
+                  <div className="field">
+                    <label htmlFor={`f_replacementFd_${line.id}`}>Fixed deposit</label>
+                    <select id={`f_replacementFd_${line.id}`} value={code} onChange={(e) => setCode(e.target.value)}>
+                      <option value="">— Select —</option>
+                      {fdCandidates.map((f) => (
+                        <option key={f.no} value={f.no}>
+                          {f.no} — {f.fd_type_description} (cover left {cur(f.available)})
+                        </option>
+                      ))}
+                    </select>
+                    {!fdCandidates.length ? <div className="hint">The borrower has no approved or active fixed deposit with cover left.</div> : null}
+                  </div>
+                )}
+                <div className="field">
+                  <label htmlFor={`f_replacementAmount_${line.id}`}>Amount</label>
+                  <input id={`f_replacementAmount_${line.id}`} type="number" step="0.01" value={amountSh}
+                    onChange={(e) => setAmountSh(e.target.value)} />
+                  <div className="hint">
+                    {availableOnChosen != null ? `Up to ${cur(availableOnChosen)} available` : `${cur(Math.max(0, remaining))} left unallocated on this line`}
+                  </div>
+                </div>
+                <div className="field">
+                  <label>&nbsp;</label>
+                  <button type="button" className="btn sm" disabled={busy} onClick={add}>
+                    {busy ? 'Working…' : 'Add'}
+                  </button>
                 </div>
               </div>
-              <button type="button" className="btn sm" disabled={busy} onClick={add}>
-                {busy ? 'Working…' : 'Add'}
-              </button>
-            </div>
+            </>
           ) : null}
         </Modal>
       ) : null}

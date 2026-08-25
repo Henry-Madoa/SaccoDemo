@@ -124,7 +124,7 @@ export async function saveSavingsProduct(
 /* ----------------------------------------------------------- loan products */
 const LOAN_NUMERIC = [
   'interest_rate', 'max_term_months', 'deposit_multiplier', 'min_membership_months',
-  'penalty_rate', 'guarantors_required', 'max_dsr_pct', 'salary_based', 'repayment_cutoff_date',
+  'penalty_rate', 'guarantors_required', 'max_dsr_pct', 'salary_based', 'min_salary_count', 'repayment_cutoff_date',
   'gl_receivable_id', 'gl_interest_income_id', 'gl_penalty_income_id',
 ] as const;
 
@@ -140,6 +140,7 @@ export async function saveLoanProduct(
       name: String(values.name || ''),
       status: String(values.status || 'ACTIVE'),
       interest_method: String(values.interest_method || 'REDUCING'),
+      salary_appraisal_type: String(values.salary_appraisal_type || 'AVERAGE_NET'),
       min_amount: toCents(values.min_amount_sh),
       max_amount: toCents(values.max_amount_sh),
     };
