@@ -2173,6 +2173,11 @@ export interface EmployerStats {
 
 /** A maker-checker batch document scoped to one employer/period. See
  *  lib/checkoffBatches.ts's processCheckoffBatch(). */
+/** Which column of an uploaded CSV identifies each row's member, and how it's resolved — ported
+ *  from the AL reference's "CheckOff Search Type" enum (Enum52204034), dropping its "Old FOSA
+ *  Number" value. See lib/checkoffBatches.ts's applyCheckoffCsvUpload(). */
+export type CheckoffSearchType = 'MEMBER_NO' | 'ID_NUMBER' | 'PAYROLL_NO' | 'FOSA_NUMBER';
+
 export interface CheckoffBatch {
   no: string;
   batch_type: 'CHECKOFF' | 'SALARY';
@@ -2180,6 +2185,7 @@ export interface CheckoffBatch {
   period: IsoDate;
   posting_date: IsoDate | null;
   description: string | null;
+  search_type: CheckoffSearchType;
   status: DocumentStatus;
   decision_reason: string | null;
   /** SALARY only — the 'End Month Salary' Transaction Charge Calculate applies. */

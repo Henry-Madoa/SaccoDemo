@@ -8,16 +8,16 @@ import { useResultDialog } from '@/components/ui/result-dialog';
 import { useRunAction } from '@/components/ui/run-action';
 import { useFormat } from '@/components/ui/format-provider';
 import {
-  requestCheckoffBatch, refreshCheckoffBatchLinesRequest, recordRemittedAmountRequest,
+  requestCheckoffBatch, updateCheckoffBatchRequest, refreshCheckoffBatchLinesRequest, recordRemittedAmountRequest,
   submitCheckoffBatchRequest, cancelCheckoffBatchApprovalRequest, approveCheckoffBatchRequest,
   rejectCheckoffBatchRequest, processCheckoffBatchRequest, applyCheckoffCsvUploadAction,
-  validateCheckoffBatchRequest, calculateCheckoffRecoveriesRequest, setCheckoffBatchChargeCodeRequest,
+  validateCheckoffBatchRequest, calculateCheckoffRecoveriesRequest,
   type CheckoffCsvUploadState,
 } from '@/app/actions/checkoffBatches';
 import { delegateMyTask } from '@/app/actions/workflows';
-import { BATCH_TYPES } from '@/lib/constants';
+import { BATCH_TYPES, CHECKOFF_SEARCH_TYPES } from '@/lib/constants';
 import { toUnits } from '@/lib/format';
-import type { CheckoffBatchLineWithDetails, Employer, TransactionCharge } from '@/lib/types';
+import type { CheckoffBatchLineWithDetails, CheckoffBatchWithDetails, Employer, TransactionCharge } from '@/lib/types';
 
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
@@ -194,6 +194,7 @@ function NewBatchForm({ employers, salaryChargeCodes, onClose }: {
         return requestCheckoffBatch(
           Number(values.employerId), String(values.batchType), period ? `${period}-01` : '',
           values.transactionChargeId ? Number(values.transactionChargeId) : null,
+          String(values.searchType || ''),
         );
       }}
       submitLabel="Open batch"
@@ -212,6 +213,8 @@ function NewBatchForm({ employers, salaryChargeCodes, onClose }: {
         <label htmlFor="f_period">Period <span className="req">*</span></label>
         <input id="f_period" name="period" type="month" required />
       </div>
+      <Field name="searchType" label="Search type" type="select" required options={CHECKOFF_SEARCH_TYPES}
+        defaultValue="PAYROLL_NO" hint="Which column of the uploaded CSV identifies each member." />
       {batchType === 'SALARY' ? (
         <div className="field">
           <label htmlFor="f_transactionChargeId">Charge code</label>
@@ -240,32 +243,53 @@ export function NewCheckoffBatchButton({ employers, salaryChargeCodes = [] }: {
   );
 }
 
-/** SALARY only — set or change the batch's Charge Code while it's Open. */
-export function ChargeCodeField({ no, transactionChargeId, salaryChargeCodes }: {
-  no: string; transactionChargeId: number | null; salaryChargeCodes: TransactionCharge[];
+/** Edits the batch's own header while it's Open — Employer, Period, Posting Date, Description
+ *  and (SALARY only) Charge Code, the same field set AL's own Checkoff/Salary card locks the
+ *  moment the document leaves Open. Changing Employer or Period re-populates the line set from
+ *  the new employer's current members, same as Refresh Lines. */
+export function EditCheckoffBatchButton({ batch, employers, salaryChargeCodes, className = 'btn ghost' }: {
+  batch: CheckoffBatchWithDetails; employers: Employer[]; salaryChargeCodes: TransactionCharge[]; className?: string;
 }) {
-  const router = useRouter();
-  const showResult = useResultDialog();
-  const [value, setValue] = useState(transactionChargeId ? String(transactionChargeId) : '');
-  const [busy, setBusy] = useState(false);
-
-  const save = async (next: string) => {
-    setValue(next);
-    setBusy(true);
-    try {
-      const res = await setCheckoffBatchChargeCodeRequest(no, next ? Number(next) : null);
-      if (!res.ok) { showResult('Could not save', res.error, 'err'); return; }
-      router.refresh();
-    } finally {
-      setBusy(false);
-    }
-  };
+  const [open, setOpen] = useState(false);
+  const isSalary = batch.batch_type === 'SALARY';
 
   return (
-    <select value={value} disabled={busy} aria-label="Charge code" onChange={(e) => save(e.target.value)}>
-      <option value="">None — no charges or recoveries applied</option>
-      {salaryChargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-    </select>
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
+      {open ? (
+        <FormModal
+          title={`Edit ${batch.no}`}
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => updateCheckoffBatchRequest(batch.no, values)}
+          submitLabel="Save"
+          successTitle="Batch updated"
+        >
+          <div className="field">
+            <label htmlFor="f_employerId">Employer <span className="req">*</span></label>
+            <select id="f_employerId" name="employerId" required defaultValue={String(batch.employer_id)}>
+              {employers.map((e) => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="f_period">Period <span className="req">*</span></label>
+            <input id="f_period" name="period" type="month" required defaultValue={batch.period.slice(0, 7)} />
+          </div>
+          <Field name="postingDate" label="Posting date" type="date" defaultValue={batch.posting_date || ''} />
+          <Field name="description" label="Description" defaultValue={batch.description || ''} />
+          <Field name="searchType" label="Search type" type="select" required options={CHECKOFF_SEARCH_TYPES}
+            defaultValue={batch.search_type} hint="Which column of the uploaded CSV identifies each member." />
+          {isSalary ? (
+            <div className="field">
+              <label htmlFor="f_transactionChargeId">Charge code</label>
+              <select id="f_transactionChargeId" name="transactionChargeId" defaultValue={String(batch.transaction_charge_id ?? '')}>
+                <option value="">None — no charges or recoveries applied</option>
+                {salaryChargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
+              </select>
+            </div>
+          ) : null}
+        </FormModal>
+      ) : null}
+    </>
   );
 }
 

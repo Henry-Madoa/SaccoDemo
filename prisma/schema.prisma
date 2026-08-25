@@ -2220,6 +2220,11 @@ model checkoff_batch {
   period                String
   posting_date          String?
   description           String?
+  /// 'MEMBER_NO' | 'ID_NUMBER' | 'PAYROLL_NO' | 'FOSA_NUMBER' — which column of an uploaded CSV
+  /// identifies each row's member, and how it's resolved. Ported from the AL reference's
+  /// "CheckOff Search Type" enum (Enum52204034), dropping its "Old FOSA Number" value — this
+  /// port has no legacy-FOSA-number concept to search on. See applyCheckoffCsvUpload().
+  search_type           String                 @default("PAYROLL_NO")
   /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
   status                String                 @default("Open")
   decision_reason       String?

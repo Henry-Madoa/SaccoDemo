@@ -7,8 +7,8 @@
  * bundle, and webpack failed the build on its `require('fs')`.
  */
 import type {
-  Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CollateralCategory, DocumentStatus,
-  GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
+  Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CheckoffSearchType, CollateralCategory,
+  DocumentStatus, GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
   LoanChargeCalculationType, LoanRecoveryMode, LoanStatus, MemberCategoryType, MemberStatus, PayMode, SalaryAppraisalLineType,
   TransactionRecoveryDeductionType, TransactionRecoveryType,
   SalaryAppraisalSpecialType, SavingsAccountStatus, SavingsCategory, StandingOrderAmountType, StandingOrderClass,
@@ -255,6 +255,15 @@ export const PAYOUT_METHODS: { value: 'FOSA' | 'BANK_TRANSFER'; label: string }[
 export const BATCH_TYPES: { value: 'CHECKOFF' | 'SALARY'; label: string }[] = [
   { value: 'CHECKOFF', label: 'Checkoff (loan recovery)' },
   { value: 'SALARY', label: 'Salary (FOSA credit)' },
+];
+
+/** Which column of an uploaded CSV identifies each row's member — see lib/types.ts's
+ *  CheckoffSearchType. */
+export const CHECKOFF_SEARCH_TYPES: { value: CheckoffSearchType; label: string }[] = [
+  { value: 'MEMBER_NO', label: 'Member Number' },
+  { value: 'ID_NUMBER', label: 'ID Number' },
+  { value: 'PAYROLL_NO', label: 'Payroll No.' },
+  { value: 'FOSA_NUMBER', label: 'FOSA Number' },
 ];
 
 export const RECOVERY_MODES: { value: LoanRecoveryMode; label: string }[] = [

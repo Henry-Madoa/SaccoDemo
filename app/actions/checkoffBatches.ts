@@ -4,33 +4,45 @@ import { revalidatePath } from 'next/cache';
 import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
-  createCheckoffBatch, refreshCheckoffBatchLines, recordRemittedAmount, submitCheckoffBatch,
+  createCheckoffBatch, updateCheckoffBatch, refreshCheckoffBatchLines, recordRemittedAmount, submitCheckoffBatch,
   cancelCheckoffBatchApproval, approveCheckoffBatch, rejectCheckoffBatch, processCheckoffBatch,
-  setCheckoffBatchChargeCode, applyCheckoffCsvUpload, validateCheckoffBatch, calculateCheckoffRecoveries,
+  applyCheckoffCsvUpload, validateCheckoffBatch, calculateCheckoffRecoveries,
 } from '@/lib/checkoffBatches';
 import type { CheckoffCsvUploadResult, CheckoffValidationResult } from '@/lib/checkoffBatches';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
-import type { ActionResult } from '@/lib/types';
+import { CHECKOFF_SEARCH_TYPES } from '@/lib/constants';
+import type { ActionResult, CheckoffSearchType, FormValues } from '@/lib/types';
+
+const toSearchType = (value: unknown): CheckoffSearchType =>
+  CHECKOFF_SEARCH_TYPES.some((t) => t.value === value) ? (value as CheckoffSearchType) : 'PAYROLL_NO';
 
 export async function requestCheckoffBatch(
   employerId: number, batchType: string, period: string, transactionChargeId?: number | null,
+  searchType?: string,
 ): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
     const user = await requireAction('CHECKOFF_BATCHES_CREATE');
     const result = await createCheckoffBatch(
-      employerId, batchType as 'CHECKOFF' | 'SALARY', period, user, transactionChargeId,
+      employerId, batchType as 'CHECKOFF' | 'SALARY', period, user, transactionChargeId, toSearchType(searchType),
     );
     revalidatePath('/checkoff-batches');
     return result;
   });
 }
 
-export async function setCheckoffBatchChargeCodeRequest(
-  no: string, transactionChargeId: number | null,
-): Promise<ActionResult<{ updated: true }>> {
+export async function updateCheckoffBatchRequest(no: string, values: FormValues): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
     const user = await requireAction('CHECKOFF_BATCHES_CREATE');
-    await setCheckoffBatchChargeCode(no, transactionChargeId, user);
+    const period = String(values.period || '');
+    await updateCheckoffBatch(no, {
+      employerId: Number(values.employerId),
+      period: period ? `${period}-01` : '',
+      postingDate: String(values.postingDate || '') || null,
+      description: String(values.description || '') || null,
+      searchType: toSearchType(values.searchType),
+      transactionChargeId: values.transactionChargeId ? Number(values.transactionChargeId) : null,
+    }, user);
+    revalidatePath('/checkoff-batches');
     revalidatePath(`/checkoff-batches/view/${no}`);
     return { updated: true };
   });

@@ -6,6 +6,8 @@ import {
   getCheckoffBatch, getAdjacentCheckoffBatchNos, listCheckoffBatchLines, listCheckoffCalculations,
   listSalaryChargeCodes, type CheckoffBatchView,
 } from '@/lib/checkoffBatches';
+import { listActiveEmployers } from '@/lib/employers';
+import { CHECKOFF_SEARCH_TYPES } from '@/lib/constants';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { Page } from '@/components/layout/page';
@@ -15,7 +17,7 @@ import {
 import { Money } from '@/components/ui/money';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
-  RefreshLinesButton, RemittedAmountField, ChargeCodeField, CheckoffCsvUploadForm, ValidateBatchButton,
+  RefreshLinesButton, RemittedAmountField, EditCheckoffBatchButton, CheckoffCsvUploadForm, ValidateBatchButton,
   CalculateBatchButton,
 } from '../../checkoff-batch-actions';
 import { CardNav } from '@/components/ui/card-nav';
@@ -35,13 +37,15 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
   if (!batch) notFound();
 
   const isSalary = batch.batch_type === 'SALARY';
-  const [canCreate, canApprove, tasks, { prevNo, nextNo }, lines, calculations, salaryChargeCodes] = await Promise.all([
+  const isOpenForEdit = batch.status === 'Open';
+  const [canCreate, canApprove, tasks, { prevNo, nextNo }, lines, calculations, salaryChargeCodes, employers] = await Promise.all([
     currentCanAction('CHECKOFF_BATCHES_CREATE'), currentCanAction('CHECKOFF_BATCHES_APPROVE'),
     listWorkflowTasksForDocument('CHECKOFF_BATCH', no),
     getAdjacentCheckoffBatchNos(no, view),
     listCheckoffBatchLines(no),
     isSalary && batch.calculated ? listCheckoffCalculations(no) : Promise.resolve([]),
     isSalary ? listSalaryChargeCodes() : Promise.resolve([]),
+    isOpenForEdit ? listActiveEmployers() : Promise.resolve([]),
   ]);
 
   const isOpen = batch.status === 'Open';
@@ -57,6 +61,7 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
   const ENTRY_TYPE_LABEL: Record<string, string> = {
     CHARGE: 'Charge', LOAN_RECOVERY: 'Loan recovery', INTERNAL_DEPOSIT: 'Internal deposit', NET_AMOUNT: 'Net amount',
   };
+  const searchTypeLabel = CHECKOFF_SEARCH_TYPES.find((t) => t.value === batch.search_type)?.label ?? batch.search_type;
 
   const routedTask = batch.status === 'Pending Approval'
     ? await findPendingRoutedTask('CHECKOFF_BATCH', no)
@@ -82,6 +87,9 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
       <Toolbar>
         <Link href="/checkoff-batches" className="btn ghost sm">← All batches</Link>
         <Spacer />
+        {canEditLines ? (
+          <EditCheckoffBatchButton batch={batch} employers={employers} salaryChargeCodes={salaryChargeCodes} className="btn ghost sm" />
+        ) : null}
         {canEditLines ? <ValidateBatchButton no={batch.no} /> : null}
         {canEditLines && isSalary ? <CalculateBatchButton no={batch.no} /> : null}
         {canEditLines ? <RefreshLinesButton no={batch.no} className="btn ghost" /> : null}
@@ -102,7 +110,8 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
 
       {canEditLines ? (
         <Card>
-          <CardHead title="CSV upload" sub="Payroll/Staff No., Name, Amount — matched rows overwrite that line's remitted amount" />
+          <CardHead title="CSV upload"
+            sub={`${searchTypeLabel}, Name, Amount — matched rows overwrite that line's remitted amount`} />
           <CheckoffCsvUploadForm no={batch.no} />
         </Card>
       ) : null}
@@ -131,10 +140,8 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
               ['Type', humanise(batch.batch_type)],
               ['Period', formatDate(batch.period)],
               ['Posting date', batch.posting_date ? formatDate(batch.posting_date) : '—'],
-              isSalary ? ['Charge code', canEditLines ? (
-                <ChargeCodeField key="cc" no={batch.no} transactionChargeId={batch.transaction_charge_id}
-                  salaryChargeCodes={salaryChargeCodes} />
-              ) : (batch.transaction_charge_code || '—')] : null,
+              ['Search type', searchTypeLabel],
+              isSalary ? ['Charge code', batch.transaction_charge_code || '—'] : null,
               isSalary ? ['Calculated', batch.calculated
                 ? <Pill tone="ok" key="calc">YES</Pill>
                 : <Pill tone="warn" key="calc">NOT YET</Pill>] : null,

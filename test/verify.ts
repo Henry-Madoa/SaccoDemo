@@ -1681,6 +1681,122 @@ await test('processing posts exactly what Calculate found', async () => {
 });
 
 /* ------------------------------------------------------------------------ */
+section('Editing a Checkoff/Salary batch card while Open');
+
+const editEmployer = await employersLib.createEmployer(
+  { code: `EDITEMP${ckoStamp}`, name: 'Edit Test Employer Ltd', status: 'ACTIVE' }, admin,
+);
+const editMember = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'EditBatch', last_name: 'Testcase' }, admin,
+);
+await employersLib.setMemberEmployer(editMember.id, editEmployer.id, admin);
+await savings.openAccount({ memberId: editMember.id, productId: ckoFosaProductId, enforceMinOpening: false });
+
+const editPeriod = `${today.slice(0, 7)}-01`;
+const { no: editBatchNo } = await checkoffBatchesLib.createCheckoffBatch(editEmployer.id, 'SALARY', editPeriod, admin);
+
+await test('editing only Posting Date/Description on an Open batch leaves its lines untouched', async () => {
+  const before = await checkoffBatchesLib.listCheckoffBatchLines(editBatchNo);
+  await checkoffBatchesLib.updateCheckoffBatch(editBatchNo, {
+    employerId: editEmployer.id, period: editPeriod, postingDate: today, description: 'Edited description',
+  }, admin);
+  const batch = await checkoffBatchesLib.getCheckoffBatch(editBatchNo);
+  assert.strictEqual(batch!.description, 'Edited description');
+  assert.strictEqual(batch!.posting_date, today);
+  const after = await checkoffBatchesLib.listCheckoffBatchLines(editBatchNo);
+  assert.deepStrictEqual(after.map((l) => l.id), before.map((l) => l.id), 'line ids should be untouched');
+});
+
+const editEmployer2 = await employersLib.createEmployer(
+  { code: `EDITEMP2${ckoStamp}`, name: 'Edit Test Employer 2 Ltd', status: 'ACTIVE' }, admin,
+);
+
+await test('changing the Employer on an Open batch re-populates its lines from the new employer', async () => {
+  await checkoffBatchesLib.updateCheckoffBatch(editBatchNo, { employerId: editEmployer2.id, period: editPeriod }, admin);
+  const batch = await checkoffBatchesLib.getCheckoffBatch(editBatchNo);
+  assert.strictEqual(batch!.employer_id, editEmployer2.id);
+  // editEmployer2 has no members at all, so the repopulate should leave it with zero lines.
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(editBatchNo);
+  assert.strictEqual(lines.length, 0);
+});
+
+await test('editing into an employer/period combination that already has a live batch is rejected', async () => {
+  await checkoffBatchesLib.createCheckoffBatch(editEmployer.id, 'SALARY', editPeriod, admin);
+  await throws(
+    () => checkoffBatchesLib.updateCheckoffBatch(editBatchNo, { employerId: editEmployer.id, period: editPeriod }, admin),
+    /VALIDATION/,
+  );
+});
+
+await test('a batch that has left Open can no longer be edited', async () => {
+  await run("UPDATE checkoff_batch SET status = 'Approved' WHERE no = ?", editBatchNo);
+  await throws(
+    () => checkoffBatchesLib.updateCheckoffBatch(editBatchNo, { employerId: editEmployer2.id, period: editPeriod }, admin),
+    /VALIDATION/,
+  );
+});
+
+/* ------------------------------------------------------------------------ */
+section('Checkoff CSV upload — Search Type (Member No./ID Number/Payroll No./FOSA Number)');
+
+const searchTestMember = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'SearchType', last_name: 'Testcase', identification_no: `IDNO${ckoStamp}` }, admin,
+);
+await employersLib.setMemberEmployer(searchTestMember.id, ckoEmployerId, admin);
+const searchTestFosa = await savings.openAccount({
+  memberId: searchTestMember.id, productId: ckoFosaProductId, enforceMinOpening: false,
+});
+const searchTestMemberFull = (await one<{ member_no: string }>('SELECT member_no FROM member WHERE id = ?', searchTestMember.id))!;
+
+await test('Search Type = Member No. resolves an uploaded row by the member\'s own No.', async () => {
+  const { no } = await checkoffBatchesLib.createCheckoffBatch(
+    ckoEmployerId, 'SALARY', editPeriod, admin, null, 'MEMBER_NO',
+  );
+  const csv = ['Member No,Name,Amount', `${searchTestMemberFull.member_no},Search Type Testcase,4000.00`].join('\n');
+  const result = await checkoffBatchesLib.applyCheckoffCsvUpload(no, csv, admin);
+  assert.strictEqual(result.matchedCount, 1);
+  assert.strictEqual(result.unmatchedRows.length, 0);
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(no);
+  const line = lines.find((l) => l.member_id === searchTestMember.id)!;
+  assert.strictEqual(line.remitted_amount, 400000);
+});
+
+await test('Search Type = ID Number resolves an uploaded row by identification_no', async () => {
+  const { no } = await checkoffBatchesLib.createCheckoffBatch(
+    ckoEmployerId, 'SALARY', addMonths(editPeriod, 1), admin, null, 'ID_NUMBER',
+  );
+  const csv = ['ID Number,Name,Amount', `IDNO${ckoStamp},Search Type Testcase,4500.00`].join('\n');
+  const result = await checkoffBatchesLib.applyCheckoffCsvUpload(no, csv, admin);
+  assert.strictEqual(result.matchedCount, 1);
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(no);
+  const line = lines.find((l) => l.member_id === searchTestMember.id)!;
+  assert.strictEqual(line.remitted_amount, 450000);
+});
+
+await test('Search Type = FOSA Number resolves an uploaded row by the FOSA account\'s own No.', async () => {
+  const { no } = await checkoffBatchesLib.createCheckoffBatch(
+    ckoEmployerId, 'SALARY', addMonths(editPeriod, 2), admin, null, 'FOSA_NUMBER',
+  );
+  const csv = ['FOSA No,Name,Amount', `${searchTestFosa.account_no},Search Type Testcase,4700.00`].join('\n');
+  const result = await checkoffBatchesLib.applyCheckoffCsvUpload(no, csv, admin);
+  assert.strictEqual(result.matchedCount, 1);
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(no);
+  const line = lines.find((l) => l.member_id === searchTestMember.id)!;
+  assert.strictEqual(line.remitted_amount, 470000);
+});
+
+await test('a row that does not resolve under the batch\'s own Search Type is reported unmatched, not silently applied', async () => {
+  const { no } = await checkoffBatchesLib.createCheckoffBatch(
+    ckoEmployerId, 'SALARY', addMonths(editPeriod, 3), admin, null, 'MEMBER_NO',
+  );
+  // The FOSA account number is not a Member No. — nothing should resolve.
+  const csv = ['Member No,Name,Amount', `${searchTestFosa.account_no},Search Type Testcase,1000.00`].join('\n');
+  const result = await checkoffBatchesLib.applyCheckoffCsvUpload(no, csv, admin);
+  assert.strictEqual(result.matchedCount, 0);
+  assert.strictEqual(result.unmatchedRows.length, 1);
+});
+
+/* ------------------------------------------------------------------------ */
 section('Ledger still balances after every operation above');
 
 await test('trial balance is still square', async () => {

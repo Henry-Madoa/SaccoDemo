@@ -50,7 +50,7 @@ import { today } from './format.ts';
 import { parseCsv } from './csv.ts';
 import * as chargesLib from './charges.ts';
 import type {
-  Actor, Cents, CheckoffBatch, CheckoffBatchLineWithDetails, CheckoffBatchWithDetails,
+  Actor, Cents, CheckoffBatch, CheckoffBatchLineWithDetails, CheckoffBatchWithDetails, CheckoffSearchType,
   TransactionCharge,
 } from './types.ts';
 
@@ -173,7 +173,7 @@ async function assertNoLiveBatch(employerId: number, batchType: string, period: 
 
 export async function createCheckoffBatch(
   employerId: number, batchType: 'CHECKOFF' | 'SALARY', period: string, user: Actor,
-  transactionChargeId?: number | null,
+  transactionChargeId?: number | null, searchType: CheckoffSearchType = 'PAYROLL_NO',
 ): Promise<{ no: string }> {
   if (!(await one('SELECT 1 FROM employer WHERE id = ?', employerId))) {
     throw new AppError('Employer not found', 'NOT_FOUND');
@@ -184,29 +184,68 @@ export async function createCheckoffBatch(
   const no = await nextSequence('CHECKOFF_BATCH');
   await tx(async () => {
     await run(
-      `INSERT INTO checkoff_batch (no, batch_type, employer_id, period, posting_date, transaction_charge_id, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      no, batchType, employerId, period, today(), chargeId, new Date().toISOString(), user.username,
+      `INSERT INTO checkoff_batch
+         (no, batch_type, employer_id, period, posting_date, search_type, transaction_charge_id, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      no, batchType, employerId, period, today(), searchType, chargeId, new Date().toISOString(), user.username,
     );
     await populateLines(no, employerId, batchType);
   });
-  await audit(user, 'CHECKOFF_BATCH_CREATE', 'checkoff_batch', no, { employerId, batchType, period, chargeId });
+  await audit(user, 'CHECKOFF_BATCH_CREATE', 'checkoff_batch', no, { employerId, batchType, period, chargeId, searchType });
   return { no };
 }
 
-/** SALARY only — lets the officer attach or change the 'End Month Salary' Charge Code Calculate
- *  will run against, while the batch is still Open. Clears any stale Calculate output so a
- *  changed charge can never post against a previous charge's breakdown. */
-export async function setCheckoffBatchChargeCode(no: string, transactionChargeId: number | null, user: Actor): Promise<void> {
+export interface UpdateCheckoffBatchInput {
+  employerId: number;
+  period: string;
+  postingDate?: string | null;
+  description?: string | null;
+  searchType?: CheckoffSearchType;
+  /** SALARY only — silently ignored for a CHECKOFF batch, same as createCheckoffBatch(). */
+  transactionChargeId?: number | null;
+}
+
+/**
+ * Edits the batch's own header while it's still Open — ported from the AL reference's own
+ * Checkoff/Salary card, where the whole "General" field group (Employer Code, Document/Posting
+ * Date, Posting Description, Charge Code, ...) is `Editable = Status = Open` and locked the
+ * moment it leaves Open. Changing the Employer or Period re-populates the line set from scratch
+ * (populateLines() already wipes any stale Calculate output along with the old lines) since
+ * those two fields are what the whole member/expected-amount population is keyed on; changing
+ * just the Charge Code only needs its own stale Calculate output cleared, not a full repopulate.
+ */
+export async function updateCheckoffBatch(no: string, input: UpdateCheckoffBatchInput, user: Actor): Promise<void> {
   const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
   if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open batch can be edited', 'VALIDATION');
-  if (req.batch_type !== 'SALARY') throw new AppError('Only a Salary Processing batch can have a Charge Code', 'VALIDATION');
+  if (!input.employerId || !(await one('SELECT 1 FROM employer WHERE id = ?', input.employerId))) {
+    throw new AppError('Employer not found', 'NOT_FOUND');
+  }
+  if (!input.period) throw new AppError('Period is required', 'VALIDATION');
+
+  const employerOrPeriodChanged = input.employerId !== req.employer_id || input.period !== req.period;
+  if (employerOrPeriodChanged) {
+    await assertNoLiveBatch(input.employerId, req.batch_type, input.period, no);
+  }
+  const chargeId = req.batch_type === 'SALARY' ? (input.transactionChargeId ?? null) : null;
+  const searchType = input.searchType || req.search_type;
+
   await tx(async () => {
-    await run('UPDATE checkoff_batch SET transaction_charge_id = ? WHERE no = ?', transactionChargeId, no);
-    await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', no);
+    await run(
+      `UPDATE checkoff_batch
+       SET employer_id = ?, period = ?, posting_date = ?, description = ?, search_type = ?, transaction_charge_id = ?
+       WHERE no = ?`,
+      input.employerId, input.period, input.postingDate || null, input.description || null, searchType, chargeId, no,
+    );
+    if (employerOrPeriodChanged) {
+      await populateLines(no, input.employerId, req.batch_type);
+    } else if (chargeId !== req.transaction_charge_id) {
+      await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', no);
+    }
   });
-  await audit(user, 'CHECKOFF_BATCH_SET_CHARGE_CODE', 'checkoff_batch', no, { transactionChargeId });
+  await audit(user, 'CHECKOFF_BATCH_UPDATE', 'checkoff_batch', no, {
+    employerId: input.employerId, period: input.period, employerOrPeriodChanged, chargeId, searchType,
+  });
 }
 
 /** The Charge Code picklist for a Salary Processing batch — every enabled Transaction Charge
@@ -245,7 +284,17 @@ export async function recordRemittedAmount(no: string, lineId: number, amountSh:
   await audit(user, 'CHECKOFF_BATCH_RECORD_REMITTED', 'checkoff_batch', no, { lineId, amount });
 }
 
-const CSV_ID_HEADERS = ['payroll no', 'payroll no.', 'staff no', 'staff no.', 'employee no', 'payroll number', 'staff number'];
+/** Which CSV header names identify the "who" column, per Search Type — ported from the AL
+ *  reference's "CheckOff Search Type" enum (Enum52204034). */
+const CSV_ID_HEADERS: Record<CheckoffSearchType, string[]> = {
+  MEMBER_NO: ['member no', 'member no.', 'member number'],
+  ID_NUMBER: ['id number', 'id no', 'id no.', 'identification no', 'identification no.', 'national id'],
+  PAYROLL_NO: ['payroll no', 'payroll no.', 'staff no', 'staff no.', 'employee no', 'payroll number', 'staff number'],
+  FOSA_NUMBER: ['fosa no', 'fosa no.', 'fosa number', 'account no', 'account no.', 'account number'],
+};
+const CSV_ID_LABEL: Record<CheckoffSearchType, string> = {
+  MEMBER_NO: 'Member No.', ID_NUMBER: 'ID Number', PAYROLL_NO: 'Payroll No./Staff No.', FOSA_NUMBER: 'FOSA No./Account No.',
+};
 const CSV_NAME_HEADERS = ['name', 'employee name', 'member name'];
 const CSV_AMOUNT_HEADERS = ['amount', 'remitted amount', 'salary', 'net pay'];
 
@@ -258,6 +307,40 @@ function findCsvColumn(header: string[], candidates: string[]): number {
   return -1;
 }
 
+/**
+ * Resolves one uploaded row's raw identifier to a member id, per the batch's own Search Type —
+ * ported from GetMemberNo (Cod52204013.CheckoffManagement.al), dropping its "Old FOSA Number"
+ * case and its 'SUSP:'-prefixed suspense fallback (this port has no suspense account/table to
+ * post an unresolved row to; applyCheckoffCsvUpload() reports it back as an unmatched row
+ * instead). FOSA Number resolves against savings_account.account_no directly, the same way AL's
+ * own Vendor.Get(CheckNo) resolves against a Vendor's own No. with no product-type filter.
+ */
+async function resolveMemberIdBySearchType(
+  searchType: CheckoffSearchType, checkNo: string, employerId: number,
+): Promise<number | null> {
+  switch (searchType) {
+    case 'MEMBER_NO': {
+      const m = await one<{ id: number }>('SELECT id FROM member WHERE LOWER(member_no) = LOWER(?)', checkNo);
+      return m?.id ?? null;
+    }
+    case 'ID_NUMBER': {
+      const m = await one<{ id: number }>('SELECT id FROM member WHERE LOWER(identification_no) = LOWER(?)', checkNo);
+      return m?.id ?? null;
+    }
+    case 'FOSA_NUMBER': {
+      const a = await one<{ member_id: number }>('SELECT member_id FROM savings_account WHERE LOWER(account_no) = LOWER(?)', checkNo);
+      return a?.member_id ?? null;
+    }
+    case 'PAYROLL_NO':
+    default: {
+      const m = await one<{ id: number }>(
+        'SELECT id FROM member WHERE LOWER(staff_no) = LOWER(?) AND employer_id = ?', checkNo, employerId,
+      );
+      return m?.id ?? null;
+    }
+  }
+}
+
 export interface CheckoffCsvUploadResult {
   matchedCount: number;
   unmatchedRows: string[];
@@ -266,13 +349,16 @@ export interface CheckoffCsvUploadResult {
 
 /**
  * Ported from ApplyEmployerUpload (Cod52204013.CheckoffManagement.al), narrowed since this port
- * has no separate Employer Payroll Details staging table: applies a CSV (Payroll/Staff No.,
- * Name, Amount) straight onto the batch's own lines, matched by payroll no. A matched row also
- * overwrites that line's remitted_amount, so it's ready to Validate/Calculate/submit without a
- * separate manual entry pass — the officer only needs to hand-edit a line afterward to correct
- * or override what the file said. Unmatched rows (no line carries that payroll no.) are reported
- * back rather than silently dropped, mirroring AL's own Suspense Account fallback in spirit
- * without needing a dedicated suspense posting of its own.
+ * has no separate Employer Payroll Details staging table: applies a CSV (an identifier column —
+ * shape driven by the batch's own Search Type — plus Name and Amount) straight onto the batch's
+ * own lines. Each row's identifier is resolved to a member id per Search Type
+ * (resolveMemberIdBySearchType(), GetMemberNo()'s own dispatch), then matched against this
+ * batch's own line set. A matched row also overwrites that line's remitted_amount, so it's ready
+ * to Validate/Calculate/submit without a separate manual entry pass — the officer only needs to
+ * hand-edit a line afterward to correct or override what the file said. Unmatched rows (no
+ * member resolves, or the resolved member isn't a line of this batch) are reported back rather
+ * than silently dropped, mirroring AL's own Suspense Account fallback in spirit without needing
+ * a dedicated suspense posting of its own.
  */
 export async function applyCheckoffCsvUpload(no: string, csvText: string, user: Actor): Promise<CheckoffCsvUploadResult> {
   const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
@@ -282,17 +368,17 @@ export async function applyCheckoffCsvUpload(no: string, csvText: string, user: 
   const rows = parseCsv(csvText);
   if (rows.length < 2) throw new AppError('The CSV file has no data rows', 'VALIDATION');
   const [header, ...dataRows] = rows;
-  const idCol = findCsvColumn(header, CSV_ID_HEADERS);
+  const idCol = findCsvColumn(header, CSV_ID_HEADERS[req.search_type]);
   const nameCol = findCsvColumn(header, CSV_NAME_HEADERS);
   const amountCol = findCsvColumn(header, CSV_AMOUNT_HEADERS);
   if (idCol === -1 || amountCol === -1) {
-    throw new AppError('The CSV must have a Payroll No./Staff No. column and an Amount column', 'VALIDATION');
+    throw new AppError(`The CSV must have a ${CSV_ID_LABEL[req.search_type]} column and an Amount column`, 'VALIDATION');
   }
 
-  const lines = await all<{ id: number; payroll_no: string | null; expected_amount: number }>(
-    'SELECT id, payroll_no, expected_amount FROM checkoff_batch_line WHERE batch_no = ?', no,
+  const lines = await all<{ id: number; member_id: number; expected_amount: number }>(
+    'SELECT id, member_id, expected_amount FROM checkoff_batch_line WHERE batch_no = ?', no,
   );
-  const byPayrollNo = new Map(lines.filter((l) => l.payroll_no).map((l) => [l.payroll_no!.trim().toLowerCase(), l]));
+  const lineByMemberId = new Map(lines.map((l) => [l.member_id, l]));
 
   let matchedCount = 0;
   let totalUploaded = 0;
@@ -307,13 +393,15 @@ export async function applyCheckoffCsvUpload(no: string, csvText: string, user: 
     await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', no);
     for (const row of dataRows) {
       if (!row.some((c) => c.trim())) continue;
-      const payrollNo = (row[idCol] || '').trim();
+      const checkNo = (row[idCol] || '').trim();
       const name = nameCol !== -1 ? (row[nameCol] || '').trim() : '';
       const amount = Math.max(0, Math.round(Number(String(row[amountCol] || '0').replace(/,/g, '')) * 100)) || 0;
-      if (!payrollNo) continue;
-      const line = byPayrollNo.get(payrollNo.toLowerCase());
+      if (!checkNo) continue;
+
+      const memberId = await resolveMemberIdBySearchType(req.search_type, checkNo, req.employer_id);
+      const line = memberId != null ? lineByMemberId.get(memberId) : undefined;
       if (!line) {
-        unmatchedRows.push(`${payrollNo}${name ? ` (${name})` : ''}`);
+        unmatchedRows.push(`${checkNo}${name ? ` (${name})` : ''}`);
         continue;
       }
       const variance = req.batch_type === 'CHECKOFF' ? amount - line.expected_amount : 0;
@@ -329,7 +417,7 @@ export async function applyCheckoffCsvUpload(no: string, csvText: string, user: 
   });
 
   await audit(user, 'CHECKOFF_BATCH_CSV_UPLOAD', 'checkoff_batch', no, {
-    matchedCount, unmatchedCount: unmatchedRows.length, totalUploaded,
+    matchedCount, unmatchedCount: unmatchedRows.length, totalUploaded, searchType: req.search_type,
   });
   return { matchedCount, unmatchedRows, totalUploaded };
 }
