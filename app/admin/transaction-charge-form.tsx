@@ -180,7 +180,7 @@ export function TransactionChargeFormButton({
                         <select value={row.charge_id} aria-label="Charge"
                           onChange={(e) => update(i, { charge_id: e.target.value ? Number(e.target.value) : '' })}>
                           <option value="">Select…</option>
-                          {charges.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
+                          {charges.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
                         </select>
                       </td>
                       <td>
