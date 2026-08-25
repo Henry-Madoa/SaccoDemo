@@ -59,7 +59,8 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
     calculationsByLine.set(c.line_id, list);
   }
   const ENTRY_TYPE_LABEL: Record<string, string> = {
-    CHARGE: 'Charge', LOAN_RECOVERY: 'Loan recovery', INTERNAL_DEPOSIT: 'Internal deposit', NET_AMOUNT: 'Net amount',
+    CHARGE: 'Charge', LOAN_RECOVERY: 'Loan recovery', STANDING_ORDER: 'Standing order',
+    INTERNAL_DEPOSIT: 'Internal deposit', NET_AMOUNT: 'Net amount',
   };
   const searchTypeLabel = CHECKOFF_SEARCH_TYPES.find((t) => t.value === batch.search_type)?.label ?? batch.search_type;
 
@@ -262,6 +263,7 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
                                     {c.loan_no ? ` — ${c.loan_no}` : ''}
                                     {c.savings_account_no ? ` — ${c.savings_account_no}` : ''}
                                     {c.gl_account_code ? ` — GL ${c.gl_account_code}` : ''}
+                                    {c.standing_order_no ? ` — ${c.standing_order_no} (${c.standing_order_description || ''})` : ''}
                                   </td>
                                   <td className="num"><Money cents={c.amount} decimals={0} /></td>
                                 </tr>

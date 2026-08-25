@@ -528,6 +528,40 @@ export async function calculateCheckoffRecoveries(no: string, user: Actor): Prom
             );
             remaining -= amt;
           }
+        } else if (rec.recovery_type === 'STANDING_ORDER') {
+          // Ported from CalculateRecoveries' own "Standing Order" branch: finds the member's own
+          // live, salary_based standing order(s) tagged with this recovery's sto_type, computes
+          // each one's own amount (Fixed: its configured amount; Sweep: whatever's left of this
+          // line), and — unlike Loan/Internal Deposit, which always partial-cap to whatever's
+          // available — only recovers it at all if there's enough left to cover BOTH the order's
+          // own amount AND its own Charge Code's fee (AL's own all-or-nothing guard for this
+          // branch specifically). The fee itself is re-derived at process time from the stored
+          // amount rather than stored here, the same "recompute deterministically" treatment the
+          // batch's own CHARGE components already get.
+          const orders = await all<{ no: string; amount_type: string; amount: number; transaction_charge_id: number | null }>(
+            `SELECT no, amount_type, amount, transaction_charge_id FROM standing_order
+             WHERE member_id = ? AND sto_type = ? AND salary_based = true AND running = true AND terminated = false
+               AND (end_date IS NULL OR end_date >= ?)
+             ORDER BY no ASC`,
+            line.member_id, rec.sto_type, today(),
+          );
+          for (const sto of orders) {
+            if (remaining <= 0) break;
+            const stoAmount = Math.min(sto.amount_type === 'FIXED' ? sto.amount : remaining, remaining);
+            if (stoAmount <= 0) continue;
+            let stoCharge = 0;
+            if (sto.transaction_charge_id) {
+              const preview = await chargesLib.previewTransactionChargeById(sto.transaction_charge_id, stoAmount);
+              stoCharge = preview.reduce((s, c) => s + c.amount, 0);
+            }
+            if (stoAmount + stoCharge > remaining) continue;
+            await run(
+              `INSERT INTO checkoff_calculation (batch_no, line_id, entry_type, description, standing_order_no, amount)
+               VALUES (?,?,?,?,?,?)`,
+              no, line.id, 'STANDING_ORDER', rec.description || `Standing order — ${rec.sto_type}`, sto.no, stoAmount,
+            );
+            remaining -= (stoAmount + stoCharge);
+          }
         } else {
           const account = await one<{ id: number; balance: number; min_balance: number }>(
             `SELECT sa.id, sa.balance, p.min_balance FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
@@ -575,6 +609,8 @@ export interface CheckoffCalculationWithDetail {
   savings_account_no: string | null;
   gl_account_id: number | null;
   gl_account_code: string | null;
+  standing_order_no: string | null;
+  standing_order_description: string | null;
   amount: Cents;
 }
 
@@ -582,11 +618,13 @@ export interface CheckoffCalculationWithDetail {
  *  the view page shows as a "here's what will post" review before Send for approval. */
 export const listCheckoffCalculations = (no: string): Promise<CheckoffCalculationWithDetail[]> =>
   all<CheckoffCalculationWithDetail>(
-    `SELECT c.*, l.loan_no, sa.account_no AS savings_account_no, g.code AS gl_account_code
+    `SELECT c.*, l.loan_no, sa.account_no AS savings_account_no, g.code AS gl_account_code,
+            sto.posting_description AS standing_order_description
      FROM checkoff_calculation c
      LEFT JOIN loan l ON l.id = c.loan_id
      LEFT JOIN savings_account sa ON sa.id = c.savings_account_id
      LEFT JOIN gl_account g ON g.id = c.gl_account_id
+     LEFT JOIN standing_order sto ON sto.no = c.standing_order_no
      WHERE c.batch_no = ? ORDER BY c.line_id, c.id`,
     no,
   );
@@ -734,9 +772,11 @@ export async function processCheckoffBatch(no: string, user: Actor): Promise<{ e
       }
 
       const calcRows = await all<{
-        id: number; entry_type: string; loan_id: number | null; savings_account_id: number | null; amount: number;
+        id: number; entry_type: string; loan_id: number | null; savings_account_id: number | null;
+        standing_order_no: string | null; amount: number;
       }>(
-        'SELECT id, entry_type, loan_id, savings_account_id, amount FROM checkoff_calculation WHERE line_id = ? ORDER BY id',
+        `SELECT id, entry_type, loan_id, savings_account_id, standing_order_no, amount
+         FROM checkoff_calculation WHERE line_id = ? ORDER BY id`,
         line.id,
       );
 
@@ -769,6 +809,41 @@ export async function processCheckoffBatch(no: string, user: Actor): Promise<{ e
             accountId: calc.savings_account_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
             description: `Salary processing ${no}`, user,
           });
+        } else if (calc.entry_type === 'STANDING_ORDER' && calc.standing_order_no) {
+          // Ported from PostCheckoff's own "Standing Order" entry-type dispatch: post the
+          // order's own Charge Code (re-derived fresh from calc.amount, same determinism as the
+          // batch's own CHARGE components above), then pay wherever the order itself already
+          // points — never processOne()'s own daily-run posting, which debits a source savings
+          // account balance that doesn't apply here: this money is recovered straight out of
+          // gross salary, exactly like every other Checkoff recovery type.
+          const sto = await one<{
+            standing_order_class: string; destination_account_id: number | null; destination_loan_id: number | null;
+            transaction_charge_id: number | null;
+          }>(
+            'SELECT standing_order_class, destination_account_id, destination_loan_id, transaction_charge_id FROM standing_order WHERE no = ?',
+            calc.standing_order_no,
+          );
+          if (sto) {
+            if (sto.transaction_charge_id) {
+              await chargesLib.postTransactionCharges({
+                transactionChargeId: sto.transaction_charge_id, baseAmount: calc.amount,
+                debitAccountCode: CHANNEL_GL.CHECKOFF, valueDate: vd, module: 'CHECKOFF',
+                eventType: 'Standing Order', memberId: line.member_id,
+                description: `STO ${calc.standing_order_no} charge — ${no}`, reference: calc.standing_order_no, user,
+              });
+            }
+            if (sto.standing_order_class === 'INTERNAL' && sto.destination_account_id) {
+              await deposit({
+                accountId: sto.destination_account_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
+                description: `STO ${calc.standing_order_no} — Salary processing ${no}`, user,
+              });
+            } else if (sto.standing_order_class === 'LOAN_REPAYMENT' && sto.destination_loan_id) {
+              await repay({
+                loanId: sto.destination_loan_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
+                description: `STO ${calc.standing_order_no} — Salary processing ${no}`, user,
+              });
+            }
+          }
         } else if (calc.entry_type === 'NET_AMOUNT') {
           const accountId = await memberWithdrawableAccountId(line.member_id);
           if (accountId) {

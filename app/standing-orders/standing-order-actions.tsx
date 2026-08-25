@@ -13,7 +13,7 @@ import {
   approveStandingOrderRequest, rejectStandingOrderRequest, terminateStandingOrderRequest,
   freezeStandingOrderRequest, unfreezeStandingOrderRequest, runStandingOrdersNow,
   accountsForStandingOrderSource, accountsForStandingOrderDestination, loansForStandingOrderDestination,
-  standingOrderChargeCodes, previewStandingOrderChargeAmount,
+  standingOrderChargeCodes, previewStandingOrderChargeAmount, listStandingOrderStoTypes,
 } from '@/app/actions/standingOrders';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { STANDING_ORDER_CLASSES, STANDING_ORDER_AMOUNT_TYPES, STANDING_ORDER_RUN_TYPES } from '@/lib/constants';
@@ -218,10 +218,16 @@ function StandingOrderFields({
   const [amountType, setAmountType] = useState<StandingOrderAmountType>(initial?.amount_type ?? 'FIXED');
   const [runType, setRunType] = useState<StandingOrderRunType>(initial?.run_type ?? 'SPECIFIC_DAY');
   const [tillFurtherNotice, setTillFurtherNotice] = useState(!!initial?.till_further_notice);
+  const [salaryBased, setSalaryBased] = useState(!!initial?.salary_based);
+  const [stoTypes, setStoTypes] = useState<string[]>([]);
 
   const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
   const [chargeId, setChargeId] = useState(String(initial?.transaction_charge_id ?? ''));
   const [feeAmount, setFeeAmount] = useState<number | null>(null);
+
+  useEffect(() => {
+    listStandingOrderStoTypes().then((res) => { if (res.ok) setStoTypes(res.data); });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -336,7 +342,23 @@ function StandingOrderFields({
           hint="Once the source account's available balance reaches this, the whole balance sweeps" />
       ) : null}
 
-      {amountType === 'FIXED' ? (
+      <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+        <Field name="salaryBased" label="Salary based" type="checkbox" defaultValue={salaryBased ? 1 : 0}
+          hint="Recovered only through Checkoff & Salary Processing's Calculate step — never by the ordinary daily run."
+          onChange={(e) => setSalaryBased((e.target as HTMLInputElement).checked)} />
+        {salaryBased ? (
+          <div className="field">
+            <label htmlFor="f_stoType">Standing order type <span className="req">*</span></label>
+            <input id="f_stoType" name="stoType" list="sto-types" required defaultValue={initial?.sto_type ?? ''} />
+            <datalist id="sto-types">
+              {stoTypes.map((t) => <option key={t} value={t} />)}
+            </datalist>
+            <div className="hint">Matched against a Transaction Recovery's own Standing Order type on the salary charge.</div>
+          </div>
+        ) : null}
+      </div>
+
+      {amountType === 'FIXED' && !salaryBased ? (
         <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
           <div className="field">
             <label htmlFor="f_runType">Run</label>

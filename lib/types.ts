@@ -709,6 +709,12 @@ export interface StandingOrder {
   period_months: number | null;
   end_date: IsoDate | null;
   transaction_charge_id: number | null;
+  /** Excludes this order from runStandingOrders()'s own daily sweep — it only ever recovers
+   *  through Checkoff & Salary Processing's Calculate step. See sto_type. */
+  salary_based: boolean;
+  /** Required for a salary_based order to be found by a Transaction Recovery's own
+   *  STANDING_ORDER recovery type — see lib/types.ts's TransactionRecovery.sto_type. */
+  sto_type: string | null;
   status: DocumentStatus;
   decision_reason: string | null;
   running: boolean;
@@ -1007,9 +1013,11 @@ export interface TransactionChargeWithDetail extends TransactionCharge {
   recoveries: TransactionRecovery[];
 }
 
-export type TransactionRecoveryType = 'LOAN' | 'INTERNAL_DEPOSIT';
+export type TransactionRecoveryType = 'LOAN' | 'STANDING_ORDER' | 'INTERNAL_DEPOSIT';
 /** LOAN: recover from the member's own recovery_mode='CHECKOFF' disbursed loans.
- *  INTERNAL_DEPOSIT: recover into one of the member's own savings accounts. */
+ *  INTERNAL_DEPOSIT: recover into one of the member's own savings accounts. Unused (null) for
+ *  STANDING_ORDER — a standing order's own Amount Type (Fixed/Sweep) already decides how much
+ *  it recovers. */
 export type TransactionRecoveryDeductionType = 'INSTALLMENT' | 'ARREARS' | 'BALANCE' | 'FULL_REMAINING' | 'BOOST_TO_MINIMUM';
 
 /** One priority-ordered recovery rule attached to an 'End Month Salary' Transaction Charge —
@@ -1019,8 +1027,11 @@ export interface TransactionRecovery {
   id: number;
   transaction_charge_id: number;
   recovery_type: TransactionRecoveryType;
-  deduction_type: TransactionRecoveryDeductionType;
+  deduction_type: TransactionRecoveryDeductionType | null;
   savings_product_id: number | null;
+  /** Required, STANDING_ORDER only — matched against a member's own salary_based standing
+   *  order(s) carrying the same tag (StandingOrder.sto_type). */
+  sto_type: string | null;
   priority: number;
   description: string | null;
   status: 'ACTIVE' | 'INACTIVE';
@@ -2230,7 +2241,8 @@ export interface CheckoffBatchLineWithDetails extends CheckoffBatchLine {
   member_last_name: string;
 }
 
-export type CheckoffCalculationEntryType = 'CHARGE' | 'LOAN_RECOVERY' | 'INTERNAL_DEPOSIT' | 'NET_AMOUNT';
+export type CheckoffCalculationEntryType =
+  'CHARGE' | 'LOAN_RECOVERY' | 'STANDING_ORDER' | 'INTERNAL_DEPOSIT' | 'NET_AMOUNT';
 
 /** One line of a Calculate run's breakdown for one checkoff_batch_line. See
  *  lib/checkoffBatches.ts's calculateCheckoffRecoveries()/processCheckoffBatch(). */
@@ -2243,6 +2255,8 @@ export interface CheckoffCalculation {
   loan_id: number | null;
   savings_account_id: number | null;
   gl_account_id: number | null;
+  /** STANDING_ORDER only. */
+  standing_order_no: string | null;
   amount: Cents;
 }
 

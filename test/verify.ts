@@ -1797,6 +1797,90 @@ await test('a row that does not resolve under the batch\'s own Search Type is re
 });
 
 /* ------------------------------------------------------------------------ */
+section('Transaction Recoveries — Standing Order recovery type');
+
+const stoRecoveryTag = `DUES${ckoStamp}`;
+const stoSourceMember = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'StoRecovery', last_name: 'Source' }, admin,
+);
+await employersLib.setMemberEmployer(stoSourceMember.id, ckoEmployerId, admin);
+const stoSourceFosa = await savings.openAccount({
+  memberId: stoSourceMember.id, productId: ckoFosaProductId, enforceMinOpening: false,
+});
+const stoDestMember = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'StoRecovery', last_name: 'Destination' }, admin,
+);
+const stoDestFosa = await savings.openAccount({
+  memberId: stoDestMember.id, productId: ckoFosaProductId, enforceMinOpening: false,
+});
+
+const { no: recoverySto } = await standingOrdersLib.createStandingOrder({
+  memberId: stoSourceMember.id, accountId: stoSourceFosa.id, standingOrderClass: 'INTERNAL', amountType: 'FIXED',
+  amount: 150000, destinationMemberId: stoDestMember.id, destinationAccountId: stoDestFosa.id,
+  postingDescription: 'Test dues', startDate: today, tillFurtherNotice: true,
+  salaryBased: true, stoType: stoRecoveryTag,
+}, admin);
+await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", recoverySto);
+
+await test('a salary_based standing order is excluded from the ordinary daily Standing Order run', async () => {
+  const summary = await standingOrdersLib.runStandingOrders(admin, today);
+  assert.ok(!summary.results.some((r) => r.no === recoverySto), 'a salary_based order must never be picked up by the daily run');
+});
+
+// Append a STANDING_ORDER recovery to the same 'End Month Salary' charge the earlier section
+// built — createTransactionCharge() allows only one Transaction Charge per type, so extending
+// the existing one (a wholesale replace, same as the admin form itself submits) is the only way
+// to add a second recovery without disturbing the batch that already processed against it.
+const priorDetail = (await chargesLib.getTransactionCharge(ckoTransactionCharge.id))!;
+await chargesLib.updateTransactionCharge(
+  ckoTransactionCharge.id,
+  { description: priorDetail.description, status: 'ACTIVE', transaction_type: 'End Month Salary' },
+  priorDetail.components.map((c) => ({
+    charge_id: c.charge_id, gl_account_id: c.gl_account_id, calculation_type: c.calculation_type,
+    source_index: null, priority: c.priority, status: c.status,
+    scheme: c.scheme.map((s) => ({
+      lower_limit: s.lower_limit, upper_limit: s.upper_limit, rate_type: s.rate_type, flat_amount: s.flat_amount,
+      percentage_rate: s.percentage_rate, upper_charge_limit: s.upper_charge_limit, lower_charge_limit: s.lower_charge_limit,
+    })),
+  })),
+  admin,
+  [
+    ...priorDetail.recoveries.map((r) => ({
+      recovery_type: r.recovery_type, deduction_type: r.deduction_type, savings_product_id: r.savings_product_id,
+      sto_type: r.sto_type, priority: r.priority, description: r.description, status: r.status,
+    })),
+    { recovery_type: 'STANDING_ORDER' as const, sto_type: stoRecoveryTag, priority: 5, description: 'Test dues recovery' },
+  ],
+);
+
+const { no: stoRecoveryBatchNo } = await checkoffBatchesLib.createCheckoffBatch(
+  ckoEmployerId, 'SALARY', addMonths(editPeriod, 4), admin, ckoTransactionCharge.id,
+);
+
+await test('Calculate recovers a matching salary_based standing order, tagged with its own no. for posting', async () => {
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(stoRecoveryBatchNo);
+  const line = lines.find((l) => l.member_id === stoSourceMember.id)!;
+  await checkoffBatchesLib.recordRemittedAmount(stoRecoveryBatchNo, line.id, 500000, admin);
+
+  const { linesCalculated } = await checkoffBatchesLib.calculateCheckoffRecoveries(stoRecoveryBatchNo, admin);
+  assert.ok(linesCalculated > 0);
+
+  const calcs = await checkoffBatchesLib.listCheckoffCalculations(stoRecoveryBatchNo);
+  const forLine = calcs.filter((c) => c.line_id === line.id);
+  const stoRow = forLine.find((c) => c.entry_type === 'STANDING_ORDER');
+  assert.ok(stoRow, 'a STANDING_ORDER calculation row should have been produced');
+  assert.strictEqual(stoRow!.standing_order_no, recoverySto);
+  assert.strictEqual(stoRow!.amount, 150000);
+});
+
+await test('processing the batch pays the standing order\'s own destination account', async () => {
+  const destBefore = (await savings.getAccount(stoDestFosa.id))!.balance;
+  await run("UPDATE checkoff_batch SET status = 'Approved' WHERE no = ?", stoRecoveryBatchNo);
+  await checkoffBatchesLib.processCheckoffBatch(stoRecoveryBatchNo, admin);
+  assert.strictEqual((await savings.getAccount(stoDestFosa.id))!.balance, destBefore + 150000);
+});
+
+/* ------------------------------------------------------------------------ */
 section('Ledger still balances after every operation above');
 
 await test('trial balance is still square', async () => {

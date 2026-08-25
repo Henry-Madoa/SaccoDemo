@@ -1567,6 +1567,21 @@ model standing_order {
   period_months          Int?
   end_date               String?
   transaction_charge_id  Int?
+  /// Excludes this order from runStandingOrders()'s own daily sweep — ported from AL's own
+  /// "Salary Based" flag (Tab52204076 field 22) and Rep52204021's `if "Salary Based" then Skip`.
+  /// A Salary Based order has no day-of-month schedule of its own (AL enforces this by blocking
+  /// "Run From Day" once Salary Based is set); it only ever recovers through Checkoff & Salary
+  /// Processing's own Calculate step, matched to a Transaction Recovery by sto_type — see
+  /// lib/checkoffBatches.ts's calculateCheckoffRecoveries(). Without this exclusion the same
+  /// order would be swept twice: once here, once by the ordinary daily job.
+  salary_based           Boolean             @default(false)
+  /// Free-text tag a Salary Based order carries so a Transaction Recovery's own STANDING_ORDER
+  /// recovery type (lib/types.ts's TransactionRecovery.sto_type) can find it for a given member
+  /// — this port's narrowed stand-in for AL's own "Standing Order Types" master (Tab52204075),
+  /// whose only other fields (its own Charge Code, "Standing Order Class") already exist
+  /// directly on this row (transaction_charge_id, standing_order_class), so a full separate
+  /// table/admin screen would only ever hold this one tag.
+  sto_type               String?
   /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
   status                 String              @default("Open")
   decision_reason        String?
@@ -1590,6 +1605,7 @@ model standing_order {
   destination_account    savings_account?    @relation("sto_destination_account", fields: [destination_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   destination_loan       loan?               @relation(fields: [destination_loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   transaction_charge     transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  checkoff_calculation   checkoff_calculation[]
 
   @@index([member_id], map: "ix_sto_member")
   @@index([status], map: "ix_sto_status")
@@ -2286,13 +2302,17 @@ model checkoff_batch_line {
 model transaction_recovery {
   id                    Int                @id @default(autoincrement())
   transaction_charge_id Int
-  /// 'LOAN' | 'INTERNAL_DEPOSIT'
+  /// 'LOAN' | 'STANDING_ORDER' | 'INTERNAL_DEPOSIT'
   recovery_type         String
   /// LOAN: 'INSTALLMENT' | 'ARREARS' | 'BALANCE'. INTERNAL_DEPOSIT: 'FULL_REMAINING' |
-  /// 'BOOST_TO_MINIMUM'.
-  deduction_type        String
+  /// 'BOOST_TO_MINIMUM'. STANDING_ORDER: unused (null) — a standing order's own Amount Type
+  /// (Fixed/Sweep) already decides how much it recovers.
+  deduction_type        String?
   /// Required, INTERNAL_DEPOSIT only — which savings product's account to recover into.
   savings_product_id    Int?
+  /// Required, STANDING_ORDER only — matched against a member's own salary_based standing
+  /// order(s) carrying the same sto_type tag. See standing_order.sto_type's own doc comment.
+  sto_type              String?
   priority              Int                @default(1)
   description           String?
   status                String             @default("ACTIVE")
@@ -2310,18 +2330,23 @@ model checkoff_calculation {
   id                 Int                 @id @default(autoincrement())
   batch_no           String
   line_id            Int
-  /// 'CHARGE' | 'LOAN_RECOVERY' | 'INTERNAL_DEPOSIT' | 'NET_AMOUNT'
+  /// 'CHARGE' | 'LOAN_RECOVERY' | 'STANDING_ORDER' | 'INTERNAL_DEPOSIT' | 'NET_AMOUNT'
   entry_type         String
   description        String
   loan_id            Int?
   savings_account_id Int?
   gl_account_id      Int?
+  /// STANDING_ORDER only — processCheckoffBatch() re-derives the order's own destination and
+  /// Charge Code from this at posting time rather than storing them separately.
+  standing_order_no  String?
   amount             BigInt              @default(0)
   batch              checkoff_batch      @relation(fields: [batch_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
   line               checkoff_batch_line @relation(fields: [line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  standing_order     standing_order?     @relation(fields: [standing_order_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([batch_no], map: "ix_cocalc_batch")
   @@index([line_id], map: "ix_cocalc_line")
+  @@index([standing_order_no], map: "ix_cocalc_sto")
 }
 
 /// System Automation (Job Queue) — mirrors Business Central's Job Queue Entry: a recurring

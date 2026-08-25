@@ -202,6 +202,7 @@ export const CHARGE_RATE_TYPES: { value: ChargeRateType; label: string }[] = [
  *  app can act on (see lib/types.ts's TransactionRecoveryType). */
 export const TRANSACTION_RECOVERY_TYPES: { value: TransactionRecoveryType; label: string }[] = [
   { value: 'LOAN', label: 'Loan' },
+  { value: 'STANDING_ORDER', label: 'Standing Order' },
   { value: 'INTERNAL_DEPOSIT', label: 'Internal Deposit' },
 ];
 

@@ -185,6 +185,11 @@ export interface StandingOrderInput {
   tillFurtherNotice?: boolean;
   periodMonths?: number | null;
   transactionChargeId?: number | null;
+  /** Excludes this order from runStandingOrders()'s own daily sweep — it only ever recovers
+   *  through Checkoff & Salary Processing's Calculate step from here on. */
+  salaryBased?: boolean;
+  /** Required for salaryBased to actually be found by a Transaction Recovery. */
+  stoType?: string | null;
 }
 
 function assertMandatoryFields(input: StandingOrderInput): void {
@@ -250,8 +255,8 @@ export async function createStandingOrder(input: StandingOrderInput, user: Actor
        (no, member_id, account_id, standing_order_class, amount_type, amount, amount_limit,
         destination_member_id, destination_account_id, destination_loan_id, posting_description,
         run_type, run_from_day, start_date, till_further_notice, period_months, end_date,
-        transaction_charge_id, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        transaction_charge_id, salary_based, sto_type, created_at, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     no, input.memberId, input.accountId, input.standingOrderClass, input.amountType,
     Math.round(input.amount || 0), Math.round(input.amountLimit || 0),
     input.standingOrderClass === 'INTERNAL' ? input.destinationMemberId : null,
@@ -259,7 +264,8 @@ export async function createStandingOrder(input: StandingOrderInput, user: Actor
     input.standingOrderClass === 'LOAN_REPAYMENT' ? input.destinationLoanId : null,
     input.postingDescription.trim(), input.runType || 'DAILY', input.runFromDay || null,
     input.startDate, !!input.tillFurtherNotice, input.tillFurtherNotice ? null : input.periodMonths, endDate,
-    input.transactionChargeId || null, new Date().toISOString(), user.username,
+    input.transactionChargeId || null, !!input.salaryBased, input.salaryBased ? (input.stoType?.trim() || null) : null,
+    new Date().toISOString(), user.username,
   );
   await audit(user, 'STANDING_ORDER_CREATE', 'standing_order', no, { memberId: input.memberId, class: input.standingOrderClass });
   return { no };
@@ -279,7 +285,7 @@ export async function updateStandingOrder(no: string, input: StandingOrderInput,
      SET member_id=?, account_id=?, standing_order_class=?, amount_type=?, amount=?, amount_limit=?,
          destination_member_id=?, destination_account_id=?, destination_loan_id=?, posting_description=?,
          run_type=?, run_from_day=?, start_date=?, till_further_notice=?, period_months=?, end_date=?,
-         transaction_charge_id=?
+         transaction_charge_id=?, salary_based=?, sto_type=?
      WHERE no=?`,
     input.memberId, input.accountId, input.standingOrderClass, input.amountType,
     Math.round(input.amount || 0), Math.round(input.amountLimit || 0),
@@ -288,7 +294,8 @@ export async function updateStandingOrder(no: string, input: StandingOrderInput,
     input.standingOrderClass === 'LOAN_REPAYMENT' ? input.destinationLoanId : null,
     input.postingDescription.trim(), input.runType || 'DAILY', input.runFromDay || null,
     input.startDate, !!input.tillFurtherNotice, input.tillFurtherNotice ? null : input.periodMonths, endDate,
-    input.transactionChargeId || null, no,
+    input.transactionChargeId || null, !!input.salaryBased, input.salaryBased ? (input.stoType?.trim() || null) : null,
+    no,
   );
   await audit(user, 'STANDING_ORDER_UPDATE', 'standing_order', no, {});
   return (await getStandingOrder(no))!;
@@ -620,9 +627,19 @@ async function processOne(no: string, dateStr: IsoDate, user: Actor): Promise<St
  * recorded and skipped rather than rolling back everyone else already posted in the same run,
  * matching lib/entranceFeeRecovery.ts's own per-item isolation.
  */
+/** Every distinct sto_type tag already in use — the autocomplete source both a salary-based
+ *  order's own field and a Transaction Recovery's own STANDING_ORDER picker draw from. */
+export const listDistinctStoTypes = (): Promise<string[]> =>
+  all<{ sto_type: string }>(
+    "SELECT DISTINCT sto_type FROM standing_order WHERE sto_type IS NOT NULL AND sto_type <> '' ORDER BY sto_type",
+  ).then((rows) => rows.map((r) => r.sto_type));
+
 export async function runStandingOrders(user: Actor, dateStr: IsoDate = today()): Promise<StandingOrderRunSummary> {
+  // salary_based orders never run here — ported from AL's own Rep52204021 `if "Salary Based"
+  // then Skip`. They only ever recover through Checkoff & Salary Processing's Calculate step
+  // (lib/checkoffBatches.ts); running them here too would double-recover them.
   const orders = await all<{ no: string }>(
-    "SELECT no FROM standing_order WHERE running = true AND terminated = false ORDER BY no",
+    "SELECT no FROM standing_order WHERE running = true AND terminated = false AND salary_based = false ORDER BY no",
   );
   const results: StandingOrderRunResult[] = [];
 

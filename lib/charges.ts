@@ -135,8 +135,11 @@ export const listTransactionRecoveries = (transactionChargeId: number): Promise<
 
 export interface TransactionRecoveryDraft {
   recovery_type: TransactionRecoveryType;
-  deduction_type: TransactionRecoveryDeductionType;
+  /** Required for LOAN/INTERNAL_DEPOSIT; unused for STANDING_ORDER. */
+  deduction_type?: TransactionRecoveryDeductionType | null;
   savings_product_id?: number | null;
+  /** Required for STANDING_ORDER; unused otherwise. */
+  sto_type?: string | null;
   priority?: number;
   description?: string | null;
   status?: 'ACTIVE' | 'INACTIVE';
@@ -153,14 +156,18 @@ async function replaceTransactionRecoveries(
   if (transactionType !== RECOVERY_ELIGIBLE_TYPE) return;
 
   for (const [i, r] of recoveries.entries()) {
-    if (!r.recovery_type || !r.deduction_type) continue;
+    if (!r.recovery_type) continue;
     if (r.recovery_type === 'INTERNAL_DEPOSIT' && !r.savings_product_id) continue;
+    if (r.recovery_type === 'STANDING_ORDER' && !r.sto_type?.trim()) continue;
+    if (r.recovery_type !== 'STANDING_ORDER' && !r.deduction_type) continue;
     await run(
       `INSERT INTO transaction_recovery
-         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, priority, description, status)
-       VALUES (?,?,?,?,?,?,?)`,
-      transactionChargeId, r.recovery_type, r.deduction_type,
+         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, sto_type, priority, description, status)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      transactionChargeId, r.recovery_type,
+      r.recovery_type === 'STANDING_ORDER' ? null : r.deduction_type,
       r.recovery_type === 'INTERNAL_DEPOSIT' ? r.savings_product_id : null,
+      r.recovery_type === 'STANDING_ORDER' ? r.sto_type!.trim() : null,
       r.priority || i + 1, r.description?.trim() || null, r.status || 'ACTIVE',
     );
   }
