@@ -537,14 +537,11 @@ await test('an unapproved loan cannot be disbursed', async () => {
   await throws(() => loanSvc.disburse({ loanId: lifecycleLoan.id, user: other }), /BAD_STATUS/);
 });
 
-await test('segregation of duties: the maker cannot approve their own loan', async () => {
-  await throws(() => loanSvc.approve({ loanId: lifecycleLoan.id, user: admin, approve: true }), /SOD_VIOLATION/);
-});
-
-await test('a different officer can approve it', async () => {
-  const l = await loanSvc.approve({ loanId: lifecycleLoan.id, user: other, approve: true, reason: 'ok' });
+await test('self-approval eligibility is the routed workflow layer\'s job, not the raw service call — like every other maker-checker module, loanSvc.approve() itself no longer blocks the maker', async () => {
+  const l = await loanSvc.approve({ loanId: lifecycleLoan.id, user: admin, approve: true, reason: 'ok' });
   assert.strictEqual(l.status, 'APPROVED');
-  assert.strictEqual(l.approved_by, other.username);
+  assert.strictEqual(l.approved_by, admin.username);
+  lifecycleLoan = l;
 });
 
 await test('disbursement debits the receivable, credits the member and generates the schedule', async () => {

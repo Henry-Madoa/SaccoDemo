@@ -8,11 +8,15 @@ import {
 } from './db.ts';
 import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
-import { buildSchedule, allocateRepayment, addMonths, daysBetween, classify, calculateLoanProductCharges } from './loans.ts';
+import {
+  buildSchedule, allocateRepayment, repaymentStartDate, daysBetween, classify, calculateLoanProductCharges,
+} from './loans.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import { listLoanCollateral } from './loanCollateral.ts';
 import { listLoanProductCharges } from './loanProductCharges.ts';
+import { ensureSalaryAppraisalLines, computeSalaryTotals, listLoanSalaryAppraisalLines } from './salaryAppraisal.ts';
+import { guarantorCapacity, selfGuaranteeCapacity } from './guarantors.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
@@ -27,8 +31,8 @@ const today = (): IsoDate => new Date().toISOString().slice(0, 10);
 export function getLoan(id: number): Promise<LoanFull | undefined> {
   return one<LoanFull>(
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
-            p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id,
-            m.member_no, m.first_name, m.last_name, m.gross_income, m.other_deductions
+            p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id, p.salary_based,
+            m.member_no, m.first_name, m.last_name
      FROM loan l JOIN loan_product p ON p.id = l.product_id
      JOIN member m ON m.id = l.member_id WHERE l.id = ?`,
     id,
@@ -161,7 +165,8 @@ export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
     all<LoanScheduleRow>('SELECT * FROM loan_schedule WHERE loan_id = ? ORDER BY installment_no', id),
     all<GuarantorRow>(
       `SELECT g.*, m.member_no, m.first_name, m.last_name
-       FROM loan_guarantor g JOIN member m ON m.id = g.member_id WHERE g.loan_id = ?`,
+       FROM loan_guarantor g JOIN member m ON m.id = g.member_id
+       WHERE g.loan_id = ? AND g.status = 'COMMITTED'`,
       id,
     ),
     listLoanCollateral(id),
@@ -247,15 +252,29 @@ export async function appraise({ memberId, productId, principal, termMonths, loa
   const { installment } = buildSchedule(
     Math.max(principal, 1), product.interest_rate, Math.max(termMonths, 1), product.interest_method, today(),
   );
-  const totalDeductions = obligations + member.other_deductions + installment;
-  const dsr = member.gross_income > 0 ? (totalDeductions / member.gross_income) * 100 : 999;
 
-  // Fully secured = self-guarantee (the applicant's own withdrawable deposits) plus whatever
-  // other members have committed as guarantors plus whatever collateral is attached — section
-  // 6/7's guarantee and security-management rules narrowed to a single pass/fail cover check.
-  // Pre-save (no loanId yet) only self-guarantee is known; guarantors/collateral read as zero
-  // until the officer attaches them and re-runs the appraisal against the saved loan.
-  const selfGuarantee = Math.min(deposits, principal);
+  // Salary details (the loan card's itemised Salary Appraisal section) are the only source of
+  // affordability data now that members no longer carry a static gross_income/other_deductions
+  // pair — every loan product auto-seeds it (lib/salaryAppraisal.ts's ensureSalaryAppraisalLines,
+  // called from apply()/update() below), so it's on file as soon as the loan itself exists.
+  // Pre-save (the New Application modal preview, no loanId yet) there is nothing to read it off
+  // yet — AFFORDABILITY is reported as not-yet-known rather than guessed at.
+  const salaryLines = loanId ? await listLoanSalaryAppraisalLines(loanId) : [];
+  const salaryTotals = salaryLines.length ? computeSalaryTotals(salaryLines) : null;
+  // salaryTotals.totalDeductions already includes the member's other loans (auto-derived
+  // LOAN_DEDUCTION lines) alongside PAYE/NHIF/etc — folding in `obligations` on top of it would
+  // double-count those same obligations.
+  const totalDeductions = salaryTotals ? salaryTotals.totalDeductions + installment : obligations + installment;
+  const dsr = salaryTotals && salaryTotals.gross > 0 ? (totalDeductions / salaryTotals.gross) * 100 : 999;
+
+  // Fully secured = self-guarantee (the applicant's own deposits, run through the Self Guarantor
+  // Multiplier — lib/guarantors.ts's selfGuaranteeCapacity, mirroring AL's
+  // GetSelfGuaranteeEligibility) plus whatever other members have committed as guarantors plus
+  // whatever collateral is attached — section 6/7's guarantee and security-management rules
+  // narrowed to a single pass/fail cover check. Pre-save (no loanId yet) only self-guarantee is
+  // known; guarantors/collateral read as zero until the officer attaches them and re-runs the
+  // appraisal against the saved loan.
+  const selfGuarantee = Math.min(await selfGuaranteeCapacity(memberId), principal);
   const securityCover = selfGuarantee + security.guarantors + security.collateral;
 
   const factors: AppraisalFactor[] = [
@@ -273,12 +292,23 @@ export async function appraise({ memberId, productId, principal, termMonths, loa
     { code: 'DEPOSIT_MULTIPLIER', label: `Within ${product.deposit_multiplier}× deposits`,
       pass: principal <= maxByMultiplier,
       detail: `Deposits ${(deposits / 100).toLocaleString()} → ceiling ${(maxByMultiplier / 100).toLocaleString()}` },
+    // Only a salary-based product is affordability-assessed against payslip deductions at all —
+    // for any other product this factor doesn't apply and is never itself a reason to refer.
+    // For one that is, an unfilled Salary Appraisal card (salaryTotals null, whether pre-save
+    // with no loanId yet, or post-save before the officer has typed anything in) must fail
+    // rather than pass — affordability that hasn't actually been assessed is not the same thing
+    // as affordability that's been confirmed, and treating the two the same let a loan read as
+    // ELIGIBLE without its salary details ever having been captured.
     { code: 'AFFORDABILITY', label: `Deduction ratio ≤ ${product.max_dsr_pct}%`,
-      pass: dsr <= product.max_dsr_pct,
-      detail: `Total deductions ${(totalDeductions / 100).toLocaleString()} of income ${(member.gross_income / 100).toLocaleString()} = ${dsr.toFixed(1)}%` },
+      pass: !product.salary_based || (salaryTotals ? dsr <= product.max_dsr_pct : false),
+      detail: !product.salary_based
+        ? 'Not applicable — this product is not affordability-assessed against payslip deductions'
+        : salaryTotals
+          ? `Total deductions ${(totalDeductions / 100).toLocaleString()} of income ${(salaryTotals.gross / 100).toLocaleString()} = ${dsr.toFixed(1)}%`
+          : 'Not yet available — save the application, fill in the Salary Appraisal card, then re-run appraisal' },
     { code: 'SECURITY_COVER', label: 'Fully secured — guarantors and/or collateral cover the principal',
       pass: securityCover >= principal,
-      detail: `Self deposits ${(selfGuarantee / 100).toLocaleString()} + guarantors ${(security.guarantors / 100).toLocaleString()}`
+      detail: `Self guarantee capacity ${(selfGuarantee / 100).toLocaleString()} + guarantors ${(security.guarantors / 100).toLocaleString()}`
         + ` + collateral ${(security.collateral / 100).toLocaleString()} = ${(securityCover / 100).toLocaleString()}`
         + ` against principal ${(principal / 100).toLocaleString()}`
         + (loanId ? '' : ' (attach guarantors/collateral on the saved application, then re-run)') },
@@ -322,6 +352,7 @@ export async function saveAppraisal({ loanId, user }: SaveAppraisalInput): Promi
     loanId,
   });
   const appraisedAt = new Date().toISOString();
+  const product = (await one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', loan.product_id))!;
 
   const id = await tx(async () => {
     const info = await run(
@@ -340,6 +371,27 @@ export async function saveAppraisal({ loanId, user }: SaveAppraisalInput): Promi
         appraisalId, seq++, f.code, f.label, f.pass, f.detail,
       );
     }
+
+    // A projected repayment schedule, keyed off the Application Date (Posting Date doesn't
+    // exist yet — the loan isn't disbursed) — mirrors AL's GetRepaymentStartDate falling back to
+    // Application Date pre-disbursement. disburse() later deletes and rebuilds this same table
+    // off the actual Disbursement Date, so nothing here needs to survive past that point.
+    const firstDue = repaymentStartDate(loan.applied_date || today(), product.repayment_cutoff_date);
+    const sched = buildSchedule(loan.principal, loan.interest_rate, loan.term_months, loan.interest_method, firstDue);
+    await run('DELETE FROM loan_schedule WHERE loan_id = ?', loanId);
+    const INS_SCHEDULE =
+      `INSERT INTO loan_schedule (loan_id, installment_no, due_date, opening_balance, principal_due, interest_due)
+       VALUES (?,?,?,?,?,?)`;
+    for (const r of sched.rows) {
+      await run(INS_SCHEDULE, loanId, r.installment_no, r.due_date, r.opening_balance, r.principal_due, r.interest_due);
+    }
+    // Installment/total interest/first due date are a projection here, not a disbursement —
+    // status, disbursed_date and the balance columns stay untouched since no money has moved.
+    await run(
+      'UPDATE loan SET installment=?, total_interest=?, first_due_date=? WHERE id=?',
+      sched.installment, sched.totalInterest, firstDue, loanId,
+    );
+
     return appraisalId;
   });
 
@@ -365,6 +417,8 @@ export interface ApplyInput extends AppraiseInput {
   purpose?: string | null;
   guarantors?: { memberId: number; amount?: Cents }[];
   disburseToAccountId?: number | null;
+  /** 'DIRECT' | 'CHECKOFF' — see lib/checkoffBatches.ts. Defaults to DIRECT. */
+  recoveryMode?: 'DIRECT' | 'CHECKOFF';
   user: Actor;
 }
 
@@ -373,7 +427,7 @@ export interface ApplyInput extends AppraiseInput {
  *  memberApplications.ts's createMemberApplication()/submitMemberApplication() split. */
 export async function apply({
   memberId, productId, principal, termMonths, purpose,
-  guarantors = [], disburseToAccountId = null, user,
+  guarantors = [], disburseToAccountId = null, recoveryMode = 'DIRECT', user,
 }: ApplyInput): Promise<LoanFull> {
   principal = Math.round(principal);
   const product = await one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', productId);
@@ -387,10 +441,10 @@ export async function apply({
     const loanNo = await nextSequence('LOAN');
     const info = await run(
       `INSERT INTO loan (loan_no, member_id, product_id, principal, interest_rate, interest_method,
-         term_months, purpose, status, applied_date, disburse_to_account_id, created_by)
-       VALUES (?,?,?,?,?,?,?,?,'OPEN',?,?,?)`,
+         term_months, purpose, status, applied_date, disburse_to_account_id, recovery_mode, created_by)
+       VALUES (?,?,?,?,?,?,?,?,'OPEN',?,?,?,?)`,
       loanNo, memberId, productId, principal, product.interest_rate, product.interest_method,
-      termMonths, purpose || null, today(), disburseToAccountId || null, user.username,
+      termMonths, purpose || null, today(), disburseToAccountId || null, recoveryMode, user.username,
     );
     const loanId = Number(info.lastInsertRowid);
     for (const g of guarantors) {
@@ -405,6 +459,8 @@ export async function apply({
     return loanId;
   });
 
+  if (product.salary_based) await ensureSalaryAppraisalLines(id, memberId);
+
   await audit(user, 'LOAN_APPLY', 'loan', id, { principal, termMonths, productId });
   return (await getLoan(id))!;
 }
@@ -417,6 +473,7 @@ export interface UpdateLoanInput {
   termMonths: number;
   purpose?: string | null;
   disburseToAccountId?: number | null;
+  recoveryMode?: 'DIRECT' | 'CHECKOFF';
   user: Actor;
 }
 
@@ -426,7 +483,8 @@ export interface UpdateLoanInput {
  *  apply() does, and re-copies its interest rate/method, since switching products mid-edit
  *  should re-price the loan the same way starting a fresh application would. */
 export async function update({
-  loanId, memberId, productId, principal, termMonths, purpose = null, disburseToAccountId = null, user,
+  loanId, memberId, productId, principal, termMonths, purpose = null, disburseToAccountId = null,
+  recoveryMode, user,
 }: UpdateLoanInput): Promise<LoanFull> {
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
@@ -442,11 +500,16 @@ export async function update({
 
   await run(
     `UPDATE loan SET member_id=?, product_id=?, principal=?, interest_rate=?, interest_method=?,
-       term_months=?, purpose=?, disburse_to_account_id=?, version = version + 1
+       term_months=?, purpose=?, disburse_to_account_id=?, recovery_mode=?, version = version + 1
      WHERE id=?`,
     memberId, productId, principal, product.interest_rate, product.interest_method,
-    termMonths, purpose || null, disburseToAccountId || null, loanId,
+    termMonths, purpose || null, disburseToAccountId || null, recoveryMode ?? loan.recovery_mode, loanId,
   );
+
+  // Only reseed the Salary Appraisal section when the product actually changed to a salary-
+  // based one — an unrelated edit (principal, term…) must never wipe out amounts the officer
+  // already typed in.
+  if (product.salary_based && productId !== loan.product_id) await ensureSalaryAppraisalLines(loanId, memberId);
 
   await audit(user, 'LOAN_UPDATE', 'loan', loanId, { principal, termMonths, productId, memberId });
   return (await getLoan(loanId))!;
@@ -475,6 +538,16 @@ export async function commitGuarantor({ loanId, memberId, amount }: CommitGuaran
   const amt = Math.round(amount);
   if (amt <= 0) throw new PostingError('Guarantee amount must be greater than zero', 'INVALID_AMOUNT');
 
+  // Mirrors AL's Guaranteed Amount validation (Tab52204048.LoanGuarantees.al): a member may
+  // never commit more than their own guarantee-capacity engine (lib/guarantors.ts) says they
+  // currently qualify for, across everything else they already guarantee.
+  const capacity = await guarantorCapacity(memberId);
+  if (amt > capacity.available) {
+    throw new PostingError(
+      `This member can only guarantee up to ${(capacity.available / 100).toLocaleString()}`, 'OVER_CAPACITY',
+    );
+  }
+
   await run(
     `INSERT INTO loan_guarantor (loan_id, member_id, amount) VALUES (?,?,?)
      ON CONFLICT (loan_id, member_id) DO UPDATE SET amount = EXCLUDED.amount, status = 'COMMITTED'`,
@@ -500,17 +573,38 @@ export interface SubmitInput {
 /** Sends a captured (OPEN) loan for approval — always requires routing through an admin-defined,
  *  enabled workflow, with no falling back to a flat permission check. Keys passed here must match
  *  RUNTIME_FIELD_CAP.LOAN (lib/workflowConstants.ts) — that cap is what stops an admin from
- *  enabling a Table Relation field here that would never actually match. Also requires a credit
- *  appraisal already on file (section 13's approval flow assumes one ran): a loan with no
- *  loan_appraisal row cannot be sent up until the officer runs and files the appraisal report —
- *  the same precondition DocumentActionsMenu's own Appraisal Report export already reflects by
- *  staying disabled until then. */
+ *  enabling a Table Relation field here that would never actually match. Also requires the loan
+ *  to have been *fully* appraised: not merely that a loan_appraisal row exists, but that its
+ *  latest run actually came back ELIGIBLE — a REFERRED loan must be fixed and re-appraised
+ *  before it can go up, the same precondition DocumentActionsMenu's own Appraisal Report export
+ *  reflects by staying disabled until an appraisal is on file at all. On top of that, security
+ *  cover is re-checked live rather than trusted from that stored decision: a guarantor can be
+ *  released or collateral detached (both allowed while OPEN, same as this submit window) after
+ *  an ELIGIBLE appraisal ran, which would otherwise leave a stale pass on file for a loan that
+ *  is no longer actually secured. */
 export async function submit({ loanId, user }: SubmitInput): Promise<LoanFull> {
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
   if (loan.status !== 'OPEN') throw new PostingError(`Loan is ${loan.status} and cannot be submitted`, 'BAD_STATUS');
-  if (!(await one('SELECT 1 FROM loan_appraisal WHERE loan_id = ?', loanId))) {
+  const latestAppraisal = await one<{ decision: string }>(
+    'SELECT decision FROM loan_appraisal WHERE loan_id = ? ORDER BY id DESC LIMIT 1', loanId,
+  );
+  if (!latestAppraisal) {
     throw new PostingError('Run the credit appraisal report before sending this loan for approval', 'NO_APPRAISAL');
+  }
+  if (latestAppraisal.decision !== 'ELIGIBLE') {
+    throw new PostingError(
+      'This loan has not been fully appraised — resolve the failing factors and re-run appraisal before sending it for approval',
+      'NOT_FULLY_APPRAISED',
+    );
+  }
+  const security = await committedSecurity(loanId);
+  const selfGuarantee = Math.min(await selfGuaranteeCapacity(loan.member_id), loan.principal);
+  if (selfGuarantee + security.guarantors + security.collateral < loan.principal) {
+    throw new PostingError(
+      'This loan is not fully secured — self-guarantee, committed guarantors and collateral together must cover the full principal before it can be sent for approval',
+      'NOT_FULLY_SECURED',
+    );
   }
 
   const matched = await findMatchingWorkflow('LOAN', {
@@ -536,7 +630,17 @@ export interface ApproveInput {
   reason?: string | null;
 }
 
-/** Maker-checker: the approver may not be the applicant. */
+/** Maker-checker, routed entirely through the workflow engine — same as every other document
+ *  type (member edits, collateral releases, account opening, …), none of which layer a second
+ *  self-approval guard on top of it here. Who may actually call this is decided by
+ *  lib/workflow.ts: a routed decision only reaches finalizeDocument() after isEligibleApprover()
+ *  has cleared the decider, and the requester auto-clears a level at submission time only when
+ *  requesterClearsLevel() finds them the sole configured approver there (see
+ *  createTaskForStep()/advanceWorkflowLevel() there) — if that level is shared with someone else,
+ *  the requester's own membership is excluded and a different approver has to decide it. The
+ *  legacy flat-permission fallback in app/actions/loans.ts's decideLoan() (pre-dating every
+ *  submission requiring a matched workflow) is the one path with no such check, exactly like the
+ *  equivalent fallback on every other document's own approve action. */
 export async function approve(
   { loanId, user, approve: decision = true, reason = null }: ApproveInput,
 ): Promise<LoanFull> {
@@ -544,9 +648,6 @@ export async function approve(
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
   if (loan.status !== 'PENDING APPROVAL') {
     throw new PostingError(`Loan is ${loan.status} and cannot be appraised`, 'BAD_STATUS');
-  }
-  if (loan.created_by === user.username) {
-    throw new PostingError('Segregation of duties: you cannot approve a loan you captured', 'SOD_VIOLATION');
   }
   if (!decision && (!reason || !reason.trim())) {
     throw new PostingError('A reason is required to reject a loan application', 'VALIDATION');
@@ -587,7 +688,7 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
   }
   const product = (await one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', loan.product_id))!;
   const vd = valueDate || today();
-  const firstDue = addMonths(vd, 1);
+  const firstDue = repaymentStartDate(vd, product.repayment_cutoff_date);
   const sched = buildSchedule(loan.principal, loan.interest_rate, loan.term_months, loan.interest_method, firstDue);
 
   // The Loan Product Charges computation module (lib/loans.ts's calculateLoanProductCharges):

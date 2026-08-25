@@ -9,15 +9,10 @@ import {
   type MemberApplicationInput,
 } from '@/lib/memberApplications';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
-import { toCents } from '@/lib/format';
 import type { ActionResult, FormValues, MemberApplicationWithDimensions } from '@/lib/types';
 
-/** Money arrives from the form as shillings; the database only ever holds integer minor units. */
 function normalise(values: FormValues): MemberApplicationInput {
-  const { gross_income_sh, other_deductions_sh, ...rest } = values;
-  const body = rest as MemberApplicationInput;
-  if (gross_income_sh !== undefined) body.gross_income = toCents(gross_income_sh);
-  if (other_deductions_sh !== undefined) body.other_deductions = toCents(other_deductions_sh);
+  const body = values as MemberApplicationInput;
   if (body.county_id !== undefined) body.county_id = Number(body.county_id) || null;
   if (body.sub_county_id !== undefined) body.sub_county_id = Number(body.sub_county_id) || null;
   if (body.member_category_id !== undefined) body.member_category_id = Number(body.member_category_id) || null;

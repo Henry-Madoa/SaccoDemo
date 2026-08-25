@@ -35,6 +35,7 @@ export const NAV: NavGroup[] = [
       { path: '/account-deactivations', label: 'Account Deactivation', icon: '🚫', page: 'ACCOUNT_DEACTIVATION' },
       { path: '/account-activations', label: 'Account Activation', icon: '✅', page: 'ACCOUNT_ACTIVATION' },
       { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
+      { path: '/member-exits', label: 'Member Exit', icon: '🚪', page: 'MEMBER_EXITS' },
     ],
   },
   {
@@ -43,9 +44,11 @@ export const NAV: NavGroup[] = [
       { path: '/collateral-applications', label: 'Collateral Applications', icon: '🏠', page: 'COLLATERAL_APPLICATIONS' },
       { path: '/collateral-register', label: 'Collateral Register', icon: '🗂', page: 'COLLATERAL_REGISTER' },
       { path: '/collateral-releases', label: 'Collateral Releases', icon: '🔓', page: 'COLLATERAL_RELEASES' },
-     { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
-      { path: '/loan-documents', label: 'Loan Documents', icon: '🖨', page: 'LOANS' },
-    ],
+      { path: '/loan-calculator', label: 'Loan Calculator', icon: '🧮', page: 'LOAN_CALCULATOR' },
+      { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
+      { path: '/guarantor-changes', label: 'Guarantor Changes', icon: '🔁', page: 'GUARANTOR_CHANGES' },
+      { path: '/checkoff-batches', label: 'Checkoff & Salary', icon: '💼', page: 'CHECKOFF_BATCHES' },
+      ],
   },
    {
     group:'FOSA',
@@ -58,6 +61,14 @@ export const NAV: NavGroup[] = [
     items: [
       { path: '/accounting', label: 'General Ledger', icon: '⚖', page: 'GL' },
    ],
+  },
+    {
+    group: 'Reports',
+    items: [
+      { path: '/member-statements', label: 'Member Statement', icon: '🧾', page: 'MEMBER_STATEMENTS' },
+      { path: '/loan-documents', label: 'Loans Reports', icon: '🖨', page: 'LOANS' },
+      { path: '/reports', label: 'Financial Reports', icon: '📊', page: 'REPORTS' },
+    ],
   },
   {
     group: 'Administration',
@@ -73,13 +84,6 @@ export const NAV: NavGroup[] = [
           'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA',
         ],
       },
-    ],
-  },
-    {
-    group: 'Reports',
-    items: [
-      { path: '/member-statements', label: 'Member Statement', icon: '🧾', page: 'MEMBER_STATEMENTS' },
-      { path: '/reports', label: 'Financial Reports', icon: '📊', page: 'REPORTS' },
     ],
   },
 ];

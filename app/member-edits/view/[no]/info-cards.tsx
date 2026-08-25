@@ -7,9 +7,8 @@ import { Field, readForm } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { useToast } from '@/components/ui/toast';
 import { useBeforeNext, useContinueEditing, useGoNext } from '@/components/ui/client-tabs';
-import { Money } from '@/components/ui/money';
 import { saveMemberEditRequest } from '@/app/actions/memberEdits';
-import { formatDate, toUnits } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import {
   MEMBER_TITLES, GENDERS, MARITAL_STATUSES, EMPLOYMENT_STATUSES,
 } from '@/lib/constants';
@@ -184,13 +183,11 @@ export function BasicInfoCard({ request: a, canEdit, startEditing = false }: Bas
             ['Gender', a.gender || '—'],
             ['Marital status', a.marital_status || '—'],
           ]} />
-          <h4 className="section-title">Employment &amp; affordability</h4>
+          <h4 className="section-title">Employment</h4>
           <DefinitionList items={[
             ['Employer', a.employer || '—'],
             ['Employment status', a.employment_status || '—'],
             ['Staff no.', <span className="mono" key="staff">{a.staff_no || '—'}</span>],
-            ['Gross income', <Money cents={a.gross_income} key="gi" />],
-            ['Other deductions', <Money cents={a.other_deductions} key="od" />],
           ]} />
         </>
       ) : (
@@ -208,16 +205,12 @@ export function BasicInfoCard({ request: a, canEdit, startEditing = false }: Bas
               <Field name="marital_status" label="Marital status" type="select" defaultValue={a.marital_status}
                 options={MARITAL_STATUSES} />
             </div>
-            <h4 className="section-title">Employment &amp; affordability</h4>
+            <h4 className="section-title">Employment</h4>
             <div className="grid g3">
               <Field name="employer" label="Employer" defaultValue={a.employer} />
               <Field name="employment_status" label="Employment status" type="select"
                 defaultValue={a.employment_status} options={EMPLOYMENT_STATUSES} />
               <Field name="staff_no" label="Staff / payroll no." defaultValue={a.staff_no} />
-              <Field name="gross_income_sh" label="Gross monthly income" type="number" step="0.01"
-                defaultValue={a.gross_income ? toUnits(a.gross_income) : ''} hint="Used for the deduction-ratio test" />
-              <Field name="other_deductions_sh" label="Other monthly deductions" type="number" step="0.01"
-                defaultValue={a.other_deductions ? toUnits(a.other_deductions) : ''} />
             </div>
           </form>
           <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />

@@ -181,7 +181,6 @@ function ApplicationDoc({ doc, org }: { doc: LoanApplicationDocument; org: Organ
           <DefinitionList items={[
             ['Staff / Payroll No.', m.staff_no || '—'],
             ['Employer', m.employer || '—'],
-            ['Gross salary', <Money cents={m.gross_income} />],
           ]}
           />
         </div>

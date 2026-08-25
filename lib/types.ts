@@ -48,6 +48,15 @@ export interface Organisation {
   statement_footer: string | null;
   global_dimension_1_caption: string;
   global_dimension_2_caption: string;
+  /** Multiplies a member's own deposits to determine how much of OTHER members' loans they
+   *  qualify to guarantee — see lib/guarantors.ts's guarantorCapacity(). Defaults to 1. */
+  guarantor_multiplier: number;
+  /** Separate multiplier for how much of a member's OWN loan their own deposits can secure —
+   *  see lib/guarantors.ts's selfGuaranteeCapacity(). Defaults to 1. */
+  self_guarantor_multiplier: number;
+  /** AL's "Withdrawal Period" — days after a Member Exit is opened before its maturity date,
+   *  see lib/memberExits.ts's createMemberExit(). Defaults to 30. */
+  member_exit_notice_days: number;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -269,8 +278,9 @@ export interface Member {
   employer: string | null;
   employment_status: string | null;
   staff_no: string | null;
-  gross_income: Cents;
-  other_deductions: Cents;
+  /** The formal Employer master record this member is linked to, for checkoff/salary batch
+   *  routing — separate from the free-text `employer` column above. See lib/employers.ts. */
+  employer_id: number | null;
   status: MemberStatus;
   kyc_verified: Flag;
   join_date: IsoDate | null;
@@ -304,6 +314,9 @@ export interface MemberWithDimensions extends Member {
   global_dimension_1_name: string | null;
   global_dimension_2_code: string | null;
   global_dimension_2_name: string | null;
+  /** The linked Employer master record's name (employer_id), for checkoff/salary batch routing —
+   *  separate from the free-text `employer` column. */
+  employer_ref_name: string | null;
 }
 
 export interface MemberListRow extends MemberWithDimensions {
@@ -390,8 +403,6 @@ export interface MemberApplication {
   employer: string | null;
   employment_status: string | null;
   staff_no: string | null;
-  gross_income: Cents;
-  other_deductions: Cents;
   kyc_verified: Flag;
   join_date: IsoDate | null;
   photo: string | null;
@@ -463,8 +474,6 @@ export interface MemberEditRequest {
   employer: string | null;
   employment_status: string | null;
   staff_no: string | null;
-  gross_income: Cents;
-  other_deductions: Cents;
   kyc_verified: Flag;
   join_date: IsoDate | null;
   photo: string | null;
@@ -1317,6 +1326,17 @@ export interface LoanProduct {
   penalty_rate: number;
   guarantors_required: number;
   max_dsr_pct: number;
+  /** When set, the loan card auto-adds the itemised Salary Appraisal section (predefined
+   *  earning/deduction lines the officer fills in to mimic the member's payslip), which
+   *  appraise()'s AFFORDABILITY factor then reads gross income and deductions from — left on
+   *  for virtually every product, since repayment capability depends on it regardless of
+   *  product type. */
+  salary_based: Flag;
+  /** Day-of-month a disbursement/application must fall before to get the first instalment due
+   *  at the end of that same calendar month — on or after it, the first instalment is pushed a
+   *  further month out (see lib/loans.ts's repaymentStartDate). 0 means no cutoff — always the
+   *  same-month end. */
+  repayment_cutoff_date: number;
   gl_receivable_id: number | null;
   gl_interest_income_id: number | null;
   gl_penalty_income_id: number | null;
@@ -1326,6 +1346,48 @@ export interface LoanProduct {
 export interface LoanProductWithUsage extends LoanProduct {
   active_loans: number;
   portfolio: Cents;
+}
+
+/* ------------------------------------------------- salary appraisal parameters */
+
+export type SalaryAppraisalLineType = 'EARNING' | 'DEDUCTION';
+export type SalaryAppraisalSpecialType = 'NONE' | 'BASIC_SALARY';
+
+/** One predefined payslip line item (Admin Centre → Sacco Products → Salary Appraisal
+ *  Parameters) a "salary based" loan product's Salary Appraisal section is seeded from. */
+export interface SalaryAppraisalParameter {
+  id: number;
+  code: string;
+  name: string;
+  type: SalaryAppraisalLineType;
+  special_type: SalaryAppraisalSpecialType;
+  sort_order: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+/** One salary-appraisal line on a loan — a snapshot of a SalaryAppraisalParameter's code/name/
+ *  type at seed time, plus the amount typed in to mimic the member's payslip. `editable` is
+ *  false for the auto-derived rows representing the member's other disbursed loans. */
+export interface LoanSalaryAppraisalLine {
+  id: number;
+  loan_id: number;
+  parameter_id: number | null;
+  code: string;
+  name: string;
+  type: SalaryAppraisalLineType;
+  special_type: SalaryAppraisalSpecialType | 'LOAN_DEDUCTION';
+  amount: Cents;
+  editable: boolean;
+}
+
+/** computeSalaryTotals()'s result — the live summary strip on the loan card's Salary Appraisal
+ *  section, and the itemised inputs appraise() swaps in for a salary-based product. */
+export interface SalaryAppraisalTotals {
+  gross: Cents;
+  totalDeductions: Cents;
+  basicSalary: Cents;
+  oneThirdCap: Cents;
+  headroom: Cents;
 }
 
 export interface Loan {
@@ -1357,6 +1419,9 @@ export interface Loan {
   days_in_arrears: number;
   classification: Classification;
   disburse_to_account_id: number | null;
+  /** 'DIRECT' | 'CHECKOFF' — AL's Recovery Mode. A CHECKOFF loan is picked up by
+   *  lib/checkoffBatches.ts's batch lines instead of relying on counter/own-initiative repayment. */
+  recovery_mode: 'DIRECT' | 'CHECKOFF';
   created_by: string | null;
   version: number;
 }
@@ -1371,11 +1436,10 @@ export interface LoanFull extends LoanWithProductName {
   gl_receivable_id: number;
   gl_interest_income_id: number;
   gl_penalty_income_id: number;
+  salary_based: Flag;
   member_no: string;
   first_name: string;
   last_name: string;
-  gross_income: Cents;
-  other_deductions: Cents;
 }
 
 export interface LoanListRow extends LoanWithProductName {
@@ -1410,6 +1474,68 @@ export interface Schedule {
   installment: Cents;
 }
 
+/** Table 52204036's "Rate Type" — distinct from a disbursed loan's InterestMethod (REDUCING/FLAT
+ *  above): a what-if Loan Calculator run lets an officer compare all three amortisation styles
+ *  against the same principal, independent of whichever method the loan product itself uses.
+ *  STRAIGHT_LINE and AMORTISED share buildSchedule()'s FLAT/REDUCING math; REDUCING_BALANCE
+ *  (constant principal, interest on the declining balance) has no level installment and is
+ *  computed separately — see lib/loanCalculator.ts. */
+export type LoanCalculatorRateType = 'STRAIGHT_LINE' | 'REDUCING_BALANCE' | 'AMORTISED';
+
+/** A calculation stays Open until converted to a real loan application — a one-way move (see
+ *  lib/loanCalculator.ts's convertLoanCalculatorToLoan()), after which it becomes read-only. */
+export type LoanCalculatorStatus = 'Open' | 'Converted';
+
+export interface LoanCalculator {
+  id: number;
+  calc_no: string;
+  member_id: number;
+  product_id: number;
+  principal: Cents;
+  interest_rate: number;
+  rate_type: LoanCalculatorRateType;
+  term_months: number;
+  repayment_start_date: IsoDate;
+  current_deposits: Cents;
+  deposit_multiplier_amount: Cents;
+  outstanding_loans: Cents;
+  deposit_appraisal: Cents;
+  installment: Cents;
+  total_interest: Cents;
+  status: LoanCalculatorStatus;
+  converted_loan_id: number | null;
+  converted_at: IsoDateTime | null;
+  converted_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface LoanCalculatorListRow extends LoanCalculator {
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  product_name: string;
+  product_code: string;
+  converted_loan_no: string | null;
+}
+
+export interface LoanCalculatorLine {
+  id: number;
+  calculator_id: number;
+  installment_no: number;
+  due_date: IsoDate;
+  opening_balance: Cents;
+  principal_due: Cents;
+  interest_due: Cents;
+  installment_amount: Cents;
+  closing_balance: Cents;
+}
+
+export interface LoanCalculatorDetail {
+  calculator: LoanCalculatorListRow;
+  lines: LoanCalculatorLine[];
+}
+
 export interface RepaymentAllocation {
   allocations: { installment_no: number; interest: Cents; principal: Cents }[];
   interest: Cents;
@@ -1430,6 +1556,16 @@ export interface GuarantorRow extends LoanGuarantor {
   member_no: string;
   first_name: string;
   last_name: string;
+}
+
+/** One candidate in the "Add guarantor" picker — an active member plus how much of OTHER
+ *  members' loans they currently qualify to guarantee (lib/guarantors.ts's guarantorCapacity). */
+export interface GuarantorCandidate {
+  id: number;
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  availableGuarantee: Cents;
 }
 
 export interface GuarantorshipRow extends LoanGuarantor {
@@ -1619,6 +1755,202 @@ export interface AvailableCollateralRow {
   collateral_balance: Cents;
 }
 
+/** A maker-checker request to release and/or substitute one or more guarantors on an
+ *  already-disbursed loan — the guarantor-only slice of the AL reference's "Loan Security Mgmt."
+ *  card (Tab52204085), narrowed the same way collateral_release narrowed its own AL card to a
+ *  single security type. See lib/loanGuarantorChanges.ts's processGuarantorChange(). */
+export interface LoanGuarantorChange {
+  no: string;
+  loan_id: number;
+  member_id: number;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface LoanGuarantorChangeWithDetails extends LoanGuarantorChange {
+  loan_no: string;
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  /** Live outstanding balance on the loan itself — for context only, not re-validated against. */
+  loan_outstanding_balance: Cents;
+}
+
+/** One currently-COMMITTED guarantor snapshotted onto the document when it was populated or
+ *  last refreshed. */
+export interface LoanGuarantorChangeLine {
+  id: number;
+  change_no: string;
+  guarantor_member_id: number;
+  initial_guaranteed: Cents;
+  outstanding_guaranteed: Cents;
+  release: boolean;
+}
+
+export interface LoanGuarantorChangeLineWithDetails extends LoanGuarantorChangeLine {
+  guarantor_member_no: string;
+  guarantor_first_name: string;
+  guarantor_last_name: string;
+  replacements: LoanGuarantorChangeReplacementWithDetails[];
+}
+
+export interface LoanGuarantorChangeReplacement {
+  id: number;
+  line_id: number;
+  replacement_member_id: number;
+  amount: Cents;
+}
+
+export interface LoanGuarantorChangeReplacementWithDetails extends LoanGuarantorChangeReplacement {
+  replacement_member_no: string;
+  replacement_first_name: string;
+  replacement_last_name: string;
+}
+
+/** A loan eligible to open a new guarantor change document against — DISBURSED, still owing a
+ *  balance, with at least one COMMITTED guarantor and no other live (non-Processed) change
+ *  already open for it. The picker behind "New guarantor change". */
+export interface ChangeableLoanRow {
+  id: number;
+  loan_no: string;
+  member_id: number;
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  outstanding_balance: Cents;
+  guarantor_count: number;
+}
+
+/** A maker-checker request to terminate a membership — settle everything the member owns
+ *  against everything they owe, pay out the difference, and close their accounts. The
+ *  guarantor-only-scoped sibling of Guarantor Change Management is what clears the Guarantees
+ *  gate below before this can be submitted. See lib/memberExits.ts's processMemberExit(). */
+export interface MemberExit {
+  no: string;
+  member_id: number;
+  exit_type: 'GENERAL' | 'RETIREE' | 'DECEASED';
+  payout_method: 'FOSA' | 'BANK_TRANSFER';
+  reason: string | null;
+  transaction_charge_id: number | null;
+  exit_date: IsoDate | null;
+  maturity_date: IsoDate | null;
+  net_amount: Cents;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface MemberExitWithDetails extends MemberExit {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  transaction_charge_code: string | null;
+  transaction_charge_description: string | null;
+  /** Live-computed from the lines (excludes share capital) — mirrors AL's Total Assets flowfield. */
+  total_assets: Cents;
+  /** Live-computed from the lines (already negative). */
+  liabilities: Cents;
+  /** Live-computed from the lines (already negative) — must net to 0 before this can be
+   *  submitted for approval; see assertReadyForApproval() in lib/memberExits.ts. */
+  guarantees: Cents;
+}
+
+/** One asset/liability/guarantee line snapshotted when the exit was opened or last refreshed. */
+export interface MemberExitLine {
+  id: number;
+  exit_no: string;
+  entry_type: 'ASSET' | 'LIABILITY' | 'GUARANTEE';
+  savings_account_id: number | null;
+  loan_id: number | null;
+  account_name: string | null;
+  balance: Cents;
+  amount: Cents;
+  is_share_capital: boolean;
+}
+
+export interface MemberExitLineWithDetails extends MemberExitLine {
+  /** The savings account's own number (ASSET lines) or the loan's own number (LIABILITY/
+   *  GUARANTEE lines) — whichever of savings_account_id/loan_id is set. */
+  account_no: string | null;
+}
+
+/** A member eligible to open a new exit against — ACTIVE, with no other exit document already
+ *  open/in-progress. The picker behind "New member exit". */
+export interface EligibleExitMemberRow {
+  id: number;
+  member_no: string;
+  first_name: string;
+  last_name: string;
+}
+
+/** Checkoff and Salary Processing's employer master — AL's "Employers" (Tab52204126) narrowed to
+ *  what routes a batch: name/contact, whether a payroll number is mandatory, and status. See
+ *  lib/employers.ts and lib/checkoffBatches.ts. */
+export interface Employer {
+  id: number;
+  code: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  payroll_no_mandatory: boolean;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface EmployerWithCounts extends Employer {
+  member_count: number;
+}
+
+/** A maker-checker batch document scoped to one employer/period. See
+ *  lib/checkoffBatches.ts's processCheckoffBatch(). */
+export interface CheckoffBatch {
+  no: string;
+  batch_type: 'CHECKOFF' | 'SALARY';
+  employer_id: number;
+  period: IsoDate;
+  posting_date: IsoDate | null;
+  description: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface CheckoffBatchWithDetails extends CheckoffBatch {
+  employer_code: string;
+  employer_name: string;
+  /** Live-computed from the lines. */
+  total_expected: Cents;
+  total_remitted: Cents;
+  total_variance: Cents;
+  line_count: number;
+}
+
+/** One member's line within a checkoff/salary batch. */
+export interface CheckoffBatchLine {
+  id: number;
+  batch_no: string;
+  member_id: number;
+  payroll_no: string | null;
+  expected_amount: Cents;
+  remitted_amount: Cents;
+  variance: Cents;
+}
+
+export interface CheckoffBatchLineWithDetails extends CheckoffBatchLine {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+}
+
 export interface AppraisalFactor {
   code: string;
   label: string;
@@ -1721,7 +2053,8 @@ export interface SubledgerEntryRow extends TxnWithMember {
 
 export type WorkflowDocumentType =
   | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
-  | 'ACCOUNT_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE';
+  | 'ACCOUNT_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE' | 'GUARANTOR_CHANGE'
+  | 'MEMBER_EXIT' | 'CHECKOFF_BATCH';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';

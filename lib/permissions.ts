@@ -52,10 +52,13 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'APPROVALS', label: 'Approvals', route: '/approvals' },
   { code: 'SAVINGS', label: 'Savings & FOSA', route: '/savings' },
   { code: 'LOANS', label: 'Loans', route: '/loans' },
+  { code: 'LOAN_CALCULATOR', label: 'Loan Calculator', route: '/loan-calculator' },
   { code: 'MEMBER_APPLICATIONS', label: 'Member Application', route: '/member-applications' },
   { code: 'MEMBERS', label: 'Members', route: '/members' },
   { code: 'MEMBER_STATEMENTS', label: 'Member Statement', route: '/member-statements' },
   { code: 'MEMBER_EDITS', label: 'Member Editing', route: '/member-edits' },
+  { code: 'MEMBER_EXITS', label: 'Member Exit', route: '/member-exits' },
+  { code: 'CHECKOFF_BATCHES', label: 'Checkoff & Salary Processing', route: '/checkoff-batches' },
   { code: 'ACCOUNT_OPENING', label: 'Account Opening', route: '/account-openings' },
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
   { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
@@ -63,6 +66,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'COLLATERAL_APPLICATIONS', label: 'Collateral Applications', route: '/collateral-applications' },
   { code: 'COLLATERAL_REGISTER', label: 'Collateral Register', route: '/collateral-register' },
   { code: 'COLLATERAL_RELEASES', label: 'Collateral Releases', route: '/collateral-releases' },
+  { code: 'GUARANTOR_CHANGES', label: 'Guarantor Changes', route: '/guarantor-changes' },
   { code: 'GL', label: 'General Ledger', route: '/accounting' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'ADMIN_COMPANY', label: 'Company Information', route: '/admin/company' },
@@ -70,6 +74,8 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ADMIN_PRODUCTS_SAVINGS', label: 'Savings Products', route: '/admin/products/savings' },
   { code: 'ADMIN_PRODUCTS_LOANS', label: 'Loan Products', route: '/admin/products/loans' },
   { code: 'ADMIN_PRODUCTS_COLLATERAL', label: 'Collateral Types', route: '/admin/products/collateral' },
+  { code: 'ADMIN_PRODUCTS_SALARY_PARAMS', label: 'Salary Appraisal Parameters', route: '/admin/products/salary' },
+  { code: 'ADMIN_PRODUCTS_EMPLOYERS', label: 'Employers', route: '/admin/products/employers' },
   { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/charges/master' },
   { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/charges/transaction' },
   { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/categories' },
@@ -163,6 +169,46 @@ export const ACTIONS = {
   },
   MEMBER_EDITS_APPROVE: { page: 'MEMBER_EDITS', tables: [['member_edit_request', 'modify'], ['member', 'modify']] },
 
+  // Member Exit — terminates a membership: settles every asset/liability/guarantee, pays out the
+  // difference and closes the member's accounts (see lib/memberExits.ts's processMemberExit()).
+  // APPROVE actually moves money — journal/loan/savings/member rights, same shape LOAN_DISBURSE
+  // and COLLATERAL_RELEASES_APPROVE already carry for their own posting steps.
+  MEMBER_EXITS_READ: { page: 'MEMBER_EXITS', tables: [['member_exit', 'read']] },
+  MEMBER_EXITS_CREATE: {
+    page: 'MEMBER_EXITS',
+    tables: [
+      ['member_exit', 'insert'], ['member_exit', 'modify'], ['member_exit_line', 'insert'], ['member_exit_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  MEMBER_EXITS_APPROVE: {
+    page: 'MEMBER_EXITS',
+    tables: [
+      ['member_exit', 'modify'], ['member', 'modify'], ['savings_account', 'modify'],
+      ['loan', 'modify'], ['loan_schedule', 'modify'], ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Checkoff and Salary Processing — an employer-scoped batch that reconciles what was actually
+  // remitted against expected loan-installment recoveries (CHECKOFF) or simply credits salary
+  // (SALARY). APPROVE actually moves money — journal/loan/savings rights, same shape
+  // MEMBER_EXITS_APPROVE above already carries for its own posting step.
+  CHECKOFF_BATCHES_READ: { page: 'CHECKOFF_BATCHES', tables: [['checkoff_batch', 'read']] },
+  CHECKOFF_BATCHES_CREATE: {
+    page: 'CHECKOFF_BATCHES',
+    tables: [
+      ['checkoff_batch', 'insert'], ['checkoff_batch', 'modify'], ['checkoff_batch_line', 'insert'], ['checkoff_batch_line', 'modify'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  CHECKOFF_BATCHES_APPROVE: {
+    page: 'CHECKOFF_BATCHES',
+    tables: [
+      ['checkoff_batch', 'modify'], ['loan', 'modify'], ['loan_schedule', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
   // Account Opening — additional savings accounts, not a member category's default account
   // (those are provisioned automatically; see pool.getDefaultAccountsBacklog()). Always opens
   // at a zero balance — no deposit, so no journal/txn rights are needed; funding the account
@@ -254,6 +300,18 @@ export const ACTIONS = {
     tables: [['journal', 'insert'], ['journal_line', 'insert'], ['loan_schedule', 'modify'], ['loan', 'modify'], ['savings_account', 'modify'], ['txn', 'insert']],
   },
 
+  // Loan Calculator — a what-if repayment quote against a member/product/principal/term, saved
+  // as its own immutable record (like loan_appraisal) rather than a real application. No
+  // approval workflow and no posting: creating a run and reading it back is the whole lifecycle,
+  // plus letting its own creator delete a run they no longer need.
+  LOAN_CALCULATOR_READ: { page: 'LOAN_CALCULATOR', tables: [['loan_calculator', 'read']] },
+  LOAN_CALCULATOR_CREATE: { page: 'LOAN_CALCULATOR', tables: [['loan_calculator', 'insert']] },
+  LOAN_CALCULATOR_DELETE: { page: 'LOAN_CALCULATOR', tables: [['loan_calculator', 'delete']] },
+  // Converts an Open calculation into a real loan application via lib/loanService.ts's own
+  // apply() — grants exactly what that call writes (a new loan row, no guarantors from here)
+  // plus modify on loan_calculator itself, to flip it to Converted and link the new loan.
+  LOAN_CALCULATOR_CONVERT: { page: 'LOAN_CALCULATOR', tables: [['loan_calculator', 'modify'], ['loan', 'insert']] },
+
   // Collateral — a member pledges a titled asset (vehicle, land, building) as security,
   // alongside or instead of guarantors — see loan_collateral, the join a loan officer uses
   // to attach an accepted register item as a loan's security (granted through LOAN_CREATE
@@ -283,6 +341,23 @@ export const ACTIONS = {
   COLLATERAL_RELEASES_APPROVE: {
     page: 'COLLATERAL_RELEASES',
     tables: [['collateral_release', 'modify'], ['collateral_register', 'modify']],
+  },
+
+  // Guarantor Change Management — releases and/or substitutes guarantors on an already-disbursed
+  // loan (loan_guarantor is otherwise frozen once DISBURSED — see commitGuarantor/releaseGuarantor
+  // in lib/loanService.ts, which only work while a loan is still OPEN). Same maker-checker shape
+  // as Collateral Releases above.
+  GUARANTOR_CHANGES_READ: { page: 'GUARANTOR_CHANGES', tables: [['loan_guarantor_change', 'read']] },
+  GUARANTOR_CHANGES_CREATE: {
+    page: 'GUARANTOR_CHANGES',
+    tables: [
+      ['loan_guarantor_change', 'insert'], ['loan_guarantor_change', 'modify'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  GUARANTOR_CHANGES_APPROVE: {
+    page: 'GUARANTOR_CHANGES',
+    tables: [['loan_guarantor_change', 'modify'], ['loan_guarantor', 'modify'], ['loan_guarantor', 'insert']],
   },
 
   // General Ledger
@@ -317,6 +392,11 @@ export const ACTIONS = {
     ],
   },
   ADMIN_PRODUCTS_COLLATERAL_MANAGE: { page: 'ADMIN_PRODUCTS_COLLATERAL', tables: [['collateral_type', 'insert'], ['collateral_type', 'modify']] },
+  ADMIN_PRODUCTS_SALARY_PARAMS_MANAGE: {
+    page: 'ADMIN_PRODUCTS_SALARY_PARAMS',
+    tables: [['salary_appraisal_parameter', 'insert'], ['salary_appraisal_parameter', 'modify']],
+  },
+  EMPLOYERS_MANAGE: { page: 'ADMIN_PRODUCTS_EMPLOYERS', tables: [['employer', 'insert'], ['employer', 'modify']] },
   ADMIN_CHARGES_MASTER_MANAGE: { page: 'ADMIN_CHARGES_MASTER', tables: [['charge', 'insert'], ['charge', 'modify']] },
   ADMIN_CHARGES_TRANSACTION_MANAGE: {
     page: 'ADMIN_CHARGES_TRANSACTION',

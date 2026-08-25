@@ -221,7 +221,8 @@ export async function updateSavingsProduct(
 const LOAN_PRODUCT_FIELDS = [
   'code', 'name', 'interest_rate', 'interest_method', 'max_term_months', 'min_amount', 'max_amount',
   'deposit_multiplier', 'min_membership_months', 'penalty_rate',
-  'guarantors_required', 'max_dsr_pct', 'gl_receivable_id', 'gl_interest_income_id',
+  'guarantors_required', 'max_dsr_pct', 'salary_based', 'repayment_cutoff_date',
+  'gl_receivable_id', 'gl_interest_income_id',
   'gl_penalty_income_id', 'status',
 ] as const satisfies readonly (keyof LoanProduct)[];
 

@@ -78,3 +78,13 @@ export async function previewTransactionChargeAmount(
     return chargesLib.previewTransactionChargeById(transactionChargeId, baseAmount);
   });
 }
+
+/** The Charge Code picklist for Member Exit — same 'General' reuse as Account Activation's
+ *  reactivation fee (AL's own Charge Code field on Member Withdrawal has no type restriction
+ *  either — it's a free Transaction Charges lookup). */
+export async function listMemberExitChargeCodes(): Promise<ActionResult<TransactionCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('MEMBER_EXITS_CREATE');
+    return chargesLib.listTransactionChargesByType('General');
+  });
+}

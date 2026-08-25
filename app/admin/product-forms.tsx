@@ -176,7 +176,14 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
               defaultValue={p ? p.max_dsr_pct : 66.7} />
             <Field name="penalty_rate" label="Penalty rate (% per month)" type="number" step="0.01"
               defaultValue={p ? p.penalty_rate : 1} />
+            <Field name="repayment_cutoff_date" label="Repayment cutoff date (day of month)" type="number" min={0}
+              defaultValue={p ? p.repayment_cutoff_date : 0}
+              hint="Before this day, the first instalment falls due at month-end; on or after it, a further month out. 0 = no cutoff." />
           </div>
+          <Field
+            name="salary_based" type="checkbox" defaultValue={p ? p.salary_based : 1}
+            label="Salary based — auto-adds the Salary Appraisal section to this product's loan card (leave on for virtually every product; repayment capability depends on the payslip regardless of product type)"
+          />
 
           <h4 className="section-title">Loan product charges</h4>
           <div className="card-sub">

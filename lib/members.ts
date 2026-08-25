@@ -18,7 +18,7 @@ import type {
 export const MEMBER_FIELDS = [
   'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'identification_no', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
-  'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
+  'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no',
   'status', 'kyc_verified', 'join_date',
   'notes', 'photo', 'front_id_image', 'back_id_image', 'signature_image',
   'fingerprint1_image', 'fingerprint2_image',
@@ -58,8 +58,6 @@ export const MEMBER_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'employer', label: 'Employer', type: 'text', column: 'm.employer' },
   { key: 'employment_status', label: 'Employment Status', type: 'select', column: 'm.employment_status', options: EMPLOYMENT_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
   { key: 'staff_no', label: 'Staff No.', type: 'text', column: 'm.staff_no' },
-  { key: 'gross_income', label: 'Gross Income', type: 'number', column: 'm.gross_income' },
-  { key: 'other_deductions', label: 'Other Deductions', type: 'number', column: 'm.other_deductions' },
   { key: 'status', label: 'Status', type: 'select', column: 'm.status', options: MEMBER_STATUSES.map((s) => ({ value: s, label: s })) },
   { key: 'kyc_verified', label: 'KYC Verified', type: 'select', column: 'm.kyc_verified', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] },
   { key: 'join_date', label: 'Join Date', type: 'date', column: 'm.join_date' },
@@ -162,13 +160,15 @@ export const getMember = (id: number): Promise<MemberWithDimensions | undefined>
     `SELECT m.*, c.name AS county_name, sc.name AS sub_county_name,
             mc.description AS member_category_name, mc.category_type AS member_category_type,
             gd1.code AS global_dimension_1_code, gd1.name AS global_dimension_1_name,
-            gd2.code AS global_dimension_2_code, gd2.name AS global_dimension_2_name
+            gd2.code AS global_dimension_2_code, gd2.name AS global_dimension_2_name,
+            emp.name AS employer_ref_name
      FROM member m
      LEFT JOIN county c ON c.id = m.county_id
      LEFT JOIN sub_county sc ON sc.id = m.sub_county_id
      LEFT JOIN member_category mc ON mc.id = m.member_category_id
      LEFT JOIN global_dimension_1_value gd1 ON gd1.id = m.global_dimension_1_id
      LEFT JOIN global_dimension_2_value gd2 ON gd2.id = m.global_dimension_2_id
+     LEFT JOIN employer emp ON emp.id = m.employer_id
      WHERE m.id = ?`,
     id,
   );

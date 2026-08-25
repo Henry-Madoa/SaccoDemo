@@ -8,8 +8,9 @@
  */
 import type {
   Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CollateralCategory, DocumentStatus,
-  GlAccountStructureType, GlAccountType, InterestMethod, LoanChargeCalculationType, LoanStatus,
-  MemberCategoryType, MemberStatus, SavingsAccountStatus, SavingsCategory, UserStatus,
+  GlAccountStructureType, GlAccountType, InterestMethod, LoanCalculatorRateType, LoanChargeCalculationType,
+  LoanStatus, MemberCategoryType, MemberStatus, SalaryAppraisalLineType, SalaryAppraisalSpecialType,
+  SavingsAccountStatus, SavingsCategory, UserStatus,
 } from './types.ts';
 
 export const MEMBER_STATUSES: MemberStatus[] =
@@ -52,6 +53,33 @@ export const MEMBER_CATEGORY_STATUSES = ['ACTIVE', 'INACTIVE'];
 
 export const LOAN_STATUSES: LoanStatus[] = ['OPEN','PENDING APPROVAL', 'APPROVED', 'DISBURSED', 'CLOSED', 'ARCHIVED','WRITTEN OFF',];
 export const INTEREST_METHODS: InterestMethod[] = ['REDUCING', 'FLAT'];
+
+/** Salary Appraisal Parameters' own Type/Special type option lists (Admin Centre → Sacco
+ *  Products → Salary Appraisal Parameters). Special type is only meaningful on an Earning
+ *  line — it flags the one line the one-third affordability cap is computed against. */
+export const SALARY_APPRAISAL_LINE_TYPES: { value: SalaryAppraisalLineType; label: string }[] = [
+  { value: 'EARNING', label: 'Earning' },
+  { value: 'DEDUCTION', label: 'Deduction' },
+];
+export const SALARY_APPRAISAL_SPECIAL_TYPES: { value: SalaryAppraisalSpecialType; label: string }[] = [
+  { value: 'NONE', label: 'None' },
+  { value: 'BASIC_SALARY', label: 'Basic Salary (drives the 1/3 cap)' },
+];
+
+/** Loan Calculator's Rate Type options (Table 52204036) — see LoanCalculatorRateType. */
+export const LOAN_CALCULATOR_RATE_TYPES: { value: LoanCalculatorRateType; label: string }[] = [
+  { value: 'AMORTISED', label: 'Amortised (level installment)' },
+  { value: 'REDUCING_BALANCE', label: 'Reducing Balance (constant principal)' },
+  { value: 'STRAIGHT_LINE', label: 'Straight Line (flat interest)' },
+];
+
+/** Loan Calculator's default Rate Type per product Interest Method — mirrors Table 52204036's
+ *  "Rate Type" := SaccoProduct."Interest Repayment Method" default, mapped onto the calculator's
+ *  three-way vocabulary (REDUCING here means "level installment", i.e. AMORTISED). */
+export const LOAN_CALCULATOR_RATE_TYPE_FOR_METHOD: Record<InterestMethod, LoanCalculatorRateType> = {
+  REDUCING: 'AMORTISED',
+  FLAT: 'STRAIGHT_LINE',
+};
 
 export const GL_ACCOUNT_TYPES: GlAccountType[] =
   ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
@@ -154,6 +182,27 @@ export const COLLATERAL_ATTACHMENT_CATEGORIES = [
 export const NATIONALITIES: { value: 'LOCAL' | 'DIASPORA'; label: string }[] = [
   { value: 'LOCAL', label: 'Local' },
   { value: 'DIASPORA', label: 'Diaspora' },
+];
+
+export const EXIT_TYPES: { value: 'GENERAL' | 'RETIREE' | 'DECEASED'; label: string }[] = [
+  { value: 'GENERAL', label: 'General' },
+  { value: 'RETIREE', label: 'Retiree' },
+  { value: 'DECEASED', label: 'Deceased' },
+];
+
+export const PAYOUT_METHODS: { value: 'FOSA' | 'BANK_TRANSFER'; label: string }[] = [
+  { value: 'FOSA', label: 'FOSA withdrawal' },
+  { value: 'BANK_TRANSFER', label: 'Bank transfer' },
+];
+
+export const BATCH_TYPES: { value: 'CHECKOFF' | 'SALARY'; label: string }[] = [
+  { value: 'CHECKOFF', label: 'Checkoff (loan recovery)' },
+  { value: 'SALARY', label: 'Salary (FOSA credit)' },
+];
+
+export const RECOVERY_MODES: { value: 'DIRECT' | 'CHECKOFF'; label: string }[] = [
+  { value: 'DIRECT', label: 'Direct — member repays over the counter' },
+  { value: 'CHECKOFF', label: 'Checkoff — recovered via employer payroll deduction' },
 ];
 
 export const MONTH_NAMES = [

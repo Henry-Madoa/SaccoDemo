@@ -10,11 +10,11 @@
  *
  * A few things the source design doc assumed have no real counterpart here and are deliberately
  * left out rather than fabricated: there is no "witness" concept, no "existing recoveries being
- * refinanced" concept, no payroll-transaction feed (affordability instead uses the member's
- * static gross_income/other_deductions — see appraise() in loanService.ts), no per-approver
- * signature image (only a member's own signature_image exists), and no separate "approved
- * amount" distinct from the applied principal (this system never re-prices a loan at appraisal
- * time — principal is principal throughout).
+ * refinanced" concept, no per-approver signature image (only a member's own signature_image
+ * exists), and no separate "approved amount" distinct from the applied principal (this system
+ * never re-prices a loan at appraisal time — principal is principal throughout). Affordability
+ * itself comes from the loan's own itemised Salary Appraisal lines (lib/salaryAppraisal.ts) —
+ * see appraise() in loanService.ts.
  */
 import { all, one } from './db.ts';
 import { getMember } from './members.ts';
@@ -65,8 +65,8 @@ async function resolveLoans(filters: LoanSelectionFilters): Promise<LoanFull[]> 
 
   return all<LoanFull>(
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
-            p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id,
-            m.member_no, m.first_name, m.last_name, m.gross_income, m.other_deductions
+            p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id, p.salary_based,
+            m.member_no, m.first_name, m.last_name
      FROM loan l JOIN loan_product p ON p.id = l.product_id JOIN member m ON m.id = l.member_id
      WHERE ${clauses.join(' AND ')}
      ORDER BY l.id`,

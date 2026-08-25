@@ -1,0 +1,665 @@
+codeunit	codeunit	52204000	Approval Mgmt. CBS Ext
+codeunit	codeunit	52204001	Workflow Event Handling C_Ext
+codeunit	codeunit	52204002	Workflow Response Handling Cxt
+codeunit	codeunit	52204003	Page Management CBS Ext
+codeunit	codeunit	52204004	Document Attachment Mgmt Cxt
+codeunit	codeunit	52204006	Product Management
+codeunit	codeunit	52204007	Member Management
+codeunit	codeunit	52204008	Loans Management
+codeunit	codeunit	52204009	Payroll Loan Management
+codeunit	codeunit	52204010	Fixed Deposit Mgt.
+codeunit	codeunit	52204011	Global Event Subscribers
+codeunit	codeunit	52204012	Journal Management
+codeunit	codeunit	52204013	Checkoff Management
+codeunit	codeunit	52204014	Scheduled Activities
+codeunit	codeunit	52204015	Notifications Management
+codeunit	codeunit	52204016	Integrations Mgmt
+codeunit	codeunit	52204017	Channels Integrations
+codeunit	codeunit	52204018	Debtor Collection Integrations
+codeunit	codeunit	52204019	FOSA Management
+codeunit	codeunit	52204020	CBS Communications Mgmt
+codeunit	codeunit	52204021	CBS Cash Management
+codeunit	codeunit	52204022	Share Trading Mgmt
+codeunit	codeunit	52204023	Dividend Management
+codeunit	codeunit	52204024	Coop B2B Integration
+codeunit	codeunit	52204025	ATM Integration
+codeunit	codeunit	52204027	User Profile Management
+codeunit	codeunit	52204028	Money Laundary Mgmt.
+codeunit	codeunit	52204029	Custodial Management
+enum	enum	52204000	Portal Modules
+enum	enum	52204001	Standing Order Frequency
+enum	enum	52204002	Member Status
+enum	enum	52204003	Member Category Types
+enum	enum	52204004	FOSA Transaction Types
+enum	enum	52204005	Prouct Source
+enum	enum	52204006	Loan Recovery Types
+enum	enum	52204007	Kin Type
+enum	enum	52204008	Employee Type
+enum	enum	52204009	Collateral Status
+enum	enum	52204010	Company Members Type
+enum	enum	52204011	Loan Rate Type
+enum	enum	52204012	Cheque Type
+enum	enum	52204013	Cheque Deposit Type
+enum	enum	52204014	Repayment Frequency
+enum	enum	52204015	Member Accounts Mgmt. Types
+enum	enum	52204016	ATM Types
+enum	enum	52204017	Identity Type
+enum	enum	52204018	Nationality Types
+enum	enum	52204019	Account Instruction Type
+enum	enum	52204020	Member Designation Type
+enum	enum	52204021	Loanees Payroll Trans Types
+enum	enum	52204022	Sacco Lookup Values
+enum	enum	52204023	Product Posting Type
+enum	enum	52204024	Sacco Transaction Type
+enum	enum	52204025	Loan Source Types
+enum	enum	52204026	Mode of Disbursement
+enum	enum	52204027	Dividend Recovery Types
+enum	enum	52204028	ATM Transaction Type Charges
+enum	enum	52204029	Checkoff Entries Types
+enum	enum	52204030	STO Types
+enum	enum	52204031	Moratorium Types
+enum	enum	52204032	Recovery Modes
+enum	enum	52204033	Security Type
+enum	enum	52204034	CheckOff Search Type
+enum	enum	52204035	Mobile Transaction Type
+enum	enum	52204036	Paybill Transaction Types
+enum	enum	52204037	Contribution Classification
+enum	enum	52204038	Channel Transactions Status
+enum	enum	52204039	Channel Transactions Direction
+enumextension	enumextension	52204000	Receipt Type
+enumextension	enumextension	52204001	Payment Types
+enumextension	enumextension	52204002	Payroll Transaction Types
+page	page	52204000	Role Center
+page	page	52204001	Sacco Setup
+page	page	52204002	Member Categories
+page	page	52204003	Sacco Products
+page	page	52204004	Sacco Product
+page	page	52204005	Sacco Product Categories
+page	page	52204006	Member Applications
+page	page	52204007	Member Application
+page	page	52204008	Member Nominees/Kins
+page	page	52204009	Application Subscriptions
+page	page	52204010	Members
+page	page	52204011	Member
+page	page	52204012	Member Versions
+page	page	52204013	Member Statistics
+page	page	52204014	Member Application Referee
+page	page	52204015	Member Editings
+page	page	52204016	Member Editing
+page	page	52204017	Member Accounts
+page	page	52204018	Member Default Accounts
+page	page	52204019	Member Profile Picture
+page	page	52204020	Member Images
+page	page	52204021	Member Account Instructions
+page	page	52204022	Member Designations
+page	page	52204023	Category Checklist Setup
+page	page	52204024	Member App Doc. Checklist
+page	page	52204025	Member Account Deactivations
+page	page	52204026	Member Account Deactivation
+page	page	52204027	Member Account Activations
+page	page	52204028	Member Account Activation
+page	page	52204029	Collateral Types
+page	page	52204030	Collateral Applications
+page	page	52204031	Collateral Application
+page	page	52204032	Collateral Registers
+page	page	52204033	Collateral Releases
+page	page	52204034	Collateral Release
+page	page	52204035	Loanees Payroll Codes
+page	page	52204036	Loanees Payroll Transactions
+page	page	52204037	Loan Calculators
+page	page	52204038	Loan Calculator
+page	page	52204039	Loan Calculator Lines
+page	page	52204040	Loans
+page	page	52204041	Loan
+page	page	52204042	Loan Schedule
+page	page	52204043	Loan Guarantees
+page	page	52204044	Loan Statistics
+page	page	52204045	Loan Interest Bands
+page	page	52204046	Collateral Linked Loans
+page	page	52204047	Interest Accruals
+page	page	52204048	Appraisal Account Balances
+page	page	52204049	Loan Guarantors
+page	page	52204050	External Recoveries Setup
+page	page	52204051	Loan Recoveries
+page	page	52204052	Defaulter Notices
+page	page	52204053	Defaulter Notice
+page	page	52204054	Notice Lines
+page	page	52204055	Cheque Instructions
+page	page	52204056	Bankers Cheque Types
+page	page	52204057	Bankers Cheques
+page	page	52204058	Bankers Cheque
+page	page	52204059	External Cheque Types
+page	page	52204060	Internal Cheque Types
+page	page	52204061	Cheque Deposits
+page	page	52204062	Cheque Deposit
+page	page	52204063	Cheque Clearances
+page	page	52204064	Cheque Clearance
+page	page	52204065	Cheque Book Applications
+page	page	52204066	Cheque Book Application
+page	page	52204067	Cheque Books
+page	page	52204068	Teller Setup
+page	page	52204069	Denominations Setup
+page	page	52204070	Receive From Banks
+page	page	52204071	Receive From Bank
+page	page	52204072	Send To Banks
+page	page	52204073	Send To Bank
+page	page	52204074	Treasury Requests
+page	page	52204075	Treasury Request
+page	page	52204076	Inter Teller Transfers
+page	page	52204077	Inter Teller Transfer
+page	page	52204078	Treasury Returns
+page	page	52204079	Treasury Return
+page	page	52204080	Transaction Denominations
+page	page	52204081	Teller Transactions
+page	page	52204082	Teller Transaction
+page	page	52204083	Journal Vouchers
+page	page	52204084	Journal Voucher
+page	page	52204085	Journal Voucher Lines
+page	page	52204086	Vendor Lookup Custom
+page	page	52204087	Charges
+page	page	52204088	Transaction Charges
+page	page	52204089	Transaction Charge
+page	page	52204090	Transaction Charges Setup
+page	page	52204091	Transaction Calc. Scheme
+page	page	52204092	Transaction Recoveries
+page	page	52204093	Product Charge Setup
+page	page	52204094	ATM Type
+page	page	52204095	ATM Types
+page	page	52204096	ATM Applications
+page	page	52204097	ATM Application
+page	page	52204098	Approval Entries Ext
+page	page	52204099	ATM Cards
+page	page	52204100	Protected ATM Cards
+page	page	52204101	Loan Security Mgmt Lines
+page	page	52204102	Loan Security Mgmt Det. Lines
+page	page	52204103	Loan Security Mgts.
+page	page	52204104	Loan Security Mgmt.
+page	page	52204105	BOSA Dividends
+page	page	52204106	BOSA Dividend
+page	page	52204107	Dividend Calculation Setup
+page	page	52204108	Dividend Lines
+page	page	52204109	Dividend Member List
+page	page	52204110	Dividend Recoveries
+page	page	52204111	Dividend Withdrawn Members
+page	page	52204112	Dividend Det. Lines
+page	page	52204113	Checkoffs
+page	page	52204114	Checkoff
+page	page	52204115	Checkoff Lines
+page	page	52204116	Checkoff Upload Entries
+page	page	52204117	Checkoff Calculations
+page	page	52204118	Checkoff Variations
+page	page	52204119	Checkoff Variation Lines
+page	page	52204120	Checkoff Variation
+page	page	52204121	Checkoff Advice
+page	page	52204122	Standing Order Types
+page	page	52204123	Standing Orders
+page	page	52204124	Standing Order
+page	page	52204125	Employer Payroll Details
+page	page	52204126	Economic Sectors
+page	page	52204127	Economic Sector
+page	page	52204128	Economic Subsectors
+page	page	52204129	Economic Sub-Subsectors
+page	page	52204130	Channel Transaction Setup
+page	page	52204131	Employers
+page	page	52204132	Employer
+page	page	52204133	Employer Stations
+page	page	52204134	Employer Departments
+page	page	52204135	Channels Transactions
+page	page	52204136	Channel Guarantor Requests
+page	page	52204137	Channel Guarantor Sub.
+page	page	52204138	Channel Guarantor Mgmt.
+page	page	52204139	Channel Loan Applications
+page	page	52204140	Channel Loan Application
+page	page	52204141	Channel Loan Block
+page	page	52204142	Money Laundary Checks
+page	page	52204143	Money Laundary Check
+page	page	52204144	Loan Batch
+page	page	52204145	Loan Batches
+page	page	52204146	Loan Batch Lines
+page	page	52204147	Member Fixed Deposit Types
+page	page	52204148	Member Fixed Deposits
+page	page	52204149	Member Fixed Deposit
+page	page	52204150	Member Fixed Deposit Schedule
+page	page	52204151	Loan Recovery List
+page	page	52204152	Loan Recovery Lines
+page	page	52204153	Loan Recovery
+page	page	52204154	Member Exits
+page	page	52204155	Member Exit
+page	page	52204156	Member Withdrawal Lines
+page	page	52204157	Member Activations
+page	page	52204158	Member Activation
+page	page	52204159	Document Uploads
+page	page	52204160	Account Instructions
+page	page	52204161	Signatories & Directors
+page	page	52204162	Signatory Images
+page	page	52204163	Inter Account Transfers
+page	page	52204164	Inter Account Transfer
+page	page	52204165	Account Openings
+page	page	52204166	Account Opening
+page	page	52204167	Loan Securities
+page	page	52204168	Bulk SMS List
+page	page	52204169	Bulk SMS Lines
+page	page	52204170	Bulk SMS
+page	page	52204171	Member Subscriptions
+page	page	52204172	Member Controls
+page	page	52204173	Mobile Applications
+page	page	52204174	Mobile Application
+page	page	52204175	Mobile Members
+page	page	52204176	Mobile Ledger
+page	page	52204177	Customer Feedback
+page	page	52204178	Witness Requests
+page	page	52204179	Member Images FactBox
+page	page	52204180	Member Accounts List
+page	page	52204181	Held Amounts
+page	page	52204182	Member Account Card
+page	page	52204183	Account Statistics
+page	page	52204184	Loan Recovery Accounts
+page	page	52204185	Portal Economic Subsectors
+page	page	52204186	Portal Economic Sub-Subsectors
+page	page	52204187	Linked Products
+page	page	52204188	Loan Documents
+page	page	52204189	Job Execution Entries
+page	page	52204190	Signatories Card
+page	page	52204191	Member Nominee/Kin
+page	page	52204192	SMS Ledger
+page	page	52204193	BCRQ Setup
+page	page	52204194	Archived Channel Transactions
+page	page	52204195	Loan Repayments
+page	page	52204196	Loan Repayment Lines
+page	page	52204197	Loan Repayment
+page	page	52204198	E-Loans
+page	page	52204199	Mobile Transactions Dump
+page	page	52204200	Paybill Keywords
+page	page	52204201	Mobile Responses
+page	page	52204202	Member View Logs
+page	page	52204203	Channel Feedbacks
+page	page	52204204	Member Mgmt Role Center
+page	page	52204205	Headlines
+page	page	52204206	Sacco Cues
+page	page	52204207	Member View Reason Dialog
+page	page	52204210	Member Receipt Lines
+page	page	52204211	Credit Reports
+page	page	52204212	Share Trading Setup
+page	page	52204213	Share Floating
+page	page	52204214	Share Floatings
+page	page	52204215	Share Floating Lines
+page	page	52204216	Floated Shares
+page	page	52204217	Share Floating Mobile
+page	page	52204218	Floated Share
+page	page	52204219	Share Floating Lines -Mobile
+page	page	52204220	Share Transfer Receipts
+page	page	52204221	Share Trading Checklist Setup
+page	page	52204222	Share Trading Checklist
+page	page	52204224	Deposits Lookup
+page	page	52204225	Sacco Lookup Values
+page	page	52204226	Loan Charges
+page	page	52204227	Loan Moratoriums
+page	page	52204228	Loan Moratorium
+page	page	52204229	Workflow Event Ext
+page	page	52204230	B2B Transactions
+page	page	52204231	Member Accounts Balances
+page	page	52204232	ATM Transactions
+page	page	52204233	ATM Posted Transactions
+page	page	52204235	Liens
+page	page	52204236	Lien
+page	page	52204237	Payroll Role Center
+page	page	52204238	Benevolent Funds
+page	page	52204239	Benevolent Fund
+page	page	52204240	Product Appplications
+page	page	52204241	Product Appplication
+page	page	52204242	Product Editings
+page	page	52204243	Product Editing
+page	page	52204244	Loan Disbursements
+page	page	52204245	Loan Disbursement
+page	page	52204246	Member Refunds
+page	page	52204247	Member Refund
+page	page	52204248	Salaries
+page	page	52204249	Salary
+page	page	52204250	Custodial Service Types
+page	page	52204251	Custodial Applications
+page	page	52204252	Custodial Application
+page	page	52204253	Custodial Entries
+page	page	52204254	Release
+page	page	52204255	Storage Types
+page	page	52204256	Storage Type Header
+page	page	52204257	Storage Type Lines
+page	page	52204258	Custodial Movement Entries
+page	page	52204259	Custodial Checkins
+page	page	52204260	Loans Payable Advice
+page	page	52204262	Member Chargings
+page	page	52204263	Member Charging
+page	page	52204264	Finance Role Center
+page	page	52204265	FOSA Dividends
+page	page	52204266	FOSA Dividend
+page	page	52204267	Loans Voucher Lines
+page	page	52204268	Dividend Det. Running Entries
+page	page	52204269	Share Capital Transfers
+page	page	52204270	Share Capital Transfer
+page	page	52204271	Pesalink Transactions
+page	page	52204272	Archived Pesalink Transactions
+pageextension	pageextension	52204000	User Setup CBS
+pageextension	pageextension	52204001	General Ledger Setup CBS
+pageextension	pageextension	52204002	General Journal
+pageextension	pageextension	52204003	Company Information CBS
+pageextension	pageextension	52204004	Vendor Ledger CBS Ext.
+pageextension	pageextension	52204005	Det. Vendor Ledger CBS Ext.
+pageextension	pageextension	52204007	G/L Entries Preview CBS Ext.
+pageextension	pageextension	52204008	G/L Entries CBS Ext.
+pageextension	pageextension	52204009	Payment Journal CBS Ext.
+pageextension	pageextension	52204010	Receipts extends Receipts
+pageextension	pageextension	52204011	Receipt extends Receipt
+pageextension	pageextension	52204012	Countries/Regions
+pageextension	pageextension	52204013	Payment Voucher
+pageextension	pageextension	52204014	Payment Schedule
+pageextension	pageextension	52204015	My Settings CBS
+pageextension	pageextension	52204016	Bank Account Ledger Entries
+pageextension	pageextension	52204018	Payroll Transaction Code
+pageextension	pageextension	52204019	Vendor Posting Groups
+pageextension	pageextension	52204020	Vendor Posting Group Card
+pageextension	pageextension	52204021	Bank Account List CBS
+pageextension	pageextension	52204022	Bank Account Card CBS
+pageextension	pageextension	52204023	General Ledger Entries
+pageextension	pageextension	52204024	Vendor Ledger Entries
+pageextension	pageextension	52204025	Customer Ledger Entries
+pageextension	pageextension	52204026	Employee Ledger Entries
+pageextension	pageextension	52204027	Detailed Vendor Ledg. Entries
+pageextension	pageextension	52204028	Detailed Cust. Ledg. Entries
+pageextension	pageextension	52204029	Detailed Empl. Ledger Entries
+pageextension	pageextension	52204030	Payroll Vital Setup
+pageextension	pageextension	52204031	Document Attachment Details
+query	query	52204000	Members Query
+query	query	52204001	Loans
+query	query	52204002	Credit Ledger Entry
+query	query	52204003	Savings Ledger Entry
+report	report	52204000	Post Payroll
+report	report	52204001	Accrue Interest
+report	report	52204002	Interest Billing
+report	report	52204003	Update Debt Collector
+report	report	52204004	Post Penalties
+report	report	52204005	Loan Repayment Schedule
+report	report	52204006	Loan Appraisal
+report	report	52204007	Generate Loan Ageing
+report	report	52204008	Update Mobi Loan Limit
+report	report	52204009	Loan Register
+report	report	52204010	Member Statement
+report	report	52204011	Payments Due
+report	report	52204012	Contribution Classification
+report	report	52204013	Payment Reminders
+report	report	52204014	Send SMS
+report	report	52204015	Loan Transactions
+report	report	52204016	Defaulter Notice
+report	report	52204017	Member List
+report	report	52204018	Accrue FD Interests
+report	report	52204019	Marture Fixed Deposits
+report	report	52204020	Cash Book
+report	report	52204021	Run Standing Orders
+report	report	52204022	Disbursement Schedule
+report	report	52204023	Guarantor Register
+report	report	52204024	Statement of Deposit Rtn.
+report	report	52204025	Risk Classification
+report	report	52204026	Defaulters
+report	report	52204027	Member Account List
+report	report	52204028	Member Application
+report	report	52204029	Checkoff Advise
+report	report	52204030	Loan Recovery
+report	report	52204031	Member KINS
+report	report	52204032	Member Guarantees
+report	report	52204033	Member Guarantors
+report	report	52204034	Sectorial Lending
+report	report	52204035	Channel Loan Application
+report	report	52204036	Member Statement2
+report	report	52204037	Channel Repayment Schedule
+report	report	52204038	Membership Form
+report	report	52204039	Standing Order Register
+report	report	52204040	Disbursement Summary
+report	report	52204041	Loan Balances Summary
+report	report	52204042	Savings And Loan Listing
+report	report	52204043	Loan Ageing Analysis
+report	report	52204044	Loan Defaulters
+report	report	52204045	Gen. Loan Defaulters
+report	report	52204046	Progression Report
+report	report	52204047	Underpaid Principal
+report	report	52204048	Double Loans
+report	report	52204049	Entrance Fee Recovery
+report	report	52204050	Share Capital Transfer
+report	report	52204051	Mobi Loans Reminder
+report	report	52204052	Mobi Loans Recovery
+report	report	52204053	Update Member Accounts
+report	report	52204054	Overdrawn Accounts
+report	report	52204055	Defaulter 1st Notice
+report	report	52204056	Defaulter 2nd Notice
+report	report	52204057	Defaulter 3rd Notice
+report	report	52204058	Member Withdrawal
+report	report	52204059	Update Mobile Transactions
+report	report	52204060	Dividend Slipt
+report	report	52204061	Loan Checkoff Analysis
+report	report	52204062	Loan Pro-rata Interest
+report	report	52204063	OverPaid Principal
+report	report	52204064	Non_Guaranteed Loans
+report	report	52204065	Membership Statistics
+report	report	52204066	Collateral Register
+report	report	52204067	Collateral Release
+report	report	52204068	Cash Deposit Receipt
+report	report	52204069	Cash Withdrawal
+report	report	52204071	Validate ATM Cards
+report	report	52204072	Job Queue Execution
+report	report	52204073	Monthly Receipts
+report	report	52204074	Loan Application
+report	report	52204075	Member Cash Receipt
+report	report	52204076	Share Trading Details
+report	report	52204077	Share Transfer
+report	report	52204078	Update Member Status
+report	report	52204079	Loan Payments
+report	report	52204080	Dividend Slip
+report	report	52204081	Loan Processing Perfomance
+report	report	52204082	Cheque Deposit Slip
+report	report	52204083	Update Vendor Ledger Entries
+report	report	52204084	STO Freeze Management
+report	report	52204085	Benevolent Fund
+report	report	52204086	Risk Categorization
+report	report	52204087	Custodial Holding
+report	report	52204088	Custodial Application Receipt
+report	report	52204089	Loan Statistics
+report	report	52204090	Variance Report
+report	report	52204091	Loan Streaming
+report	report	52204092	Loan Banding
+report	report	52204093	Loan Roll Rate Report
+report	report	52204094	Mobile Loan Eligibility
+report	report	52204095	GL Balance vs Listing
+report	report	52204096	Fixed Deposit Certificate
+report	report	52204097	Bankers Cheque Schedule
+report	report	52204098	Bank Balances Report
+table	table	52204000	Sacco Products
+table	table	52204001	Member Categories
+table	table	52204002	Member Default Accounts
+table	table	52204003	Member Application
+table	table	52204004	Members
+table	table	52204005	Member Nominee/Kin
+table	table	52204006	Member Subscriptions
+table	table	52204007	Member Accounts Mgmt.
+table	table	52204008	Sacco Lookup Values
+table	table	52204009	Member Account Instructions
+table	table	52204010	Member Editing
+table	table	52204011	Member Versions
+table	table	52204012	Member Designation
+table	table	52204013	Doc. Attachments Checklist
+table	table	52204014	Loans
+table	table	52204015	Loan Schedule
+table	table	52204016	Repayment Schedule
+table	table	52204017	Member Fixed Deposit Types
+table	table	52204018	Member Fixed Deposits
+table	table	52204019	Member Fixed Deposit Schedule
+table	table	52204020	Member Accounts Buffer
+table	table	52204021	Transaction Charges
+table	table	52204022	Transaction Charges Setup
+table	table	52204023	Transaction Calc. Scheme
+table	table	52204024	Product Charge Setup
+table	table	52204025	Collateral Types
+table	table	52204026	Collateral Application
+table	table	52204027	Collateral Register
+table	table	52204028	Loan Securities
+table	table	52204029	Loan Interest Accrual
+table	table	52204030	Product Interest Bands
+table	table	52204031	Collateral Release
+table	table	52204032	Defaulter Notice
+table	table	52204033	Defaulter Notice Lines
+table	table	52204034	Loanees Payroll Codes
+table	table	52204035	Loanees Payroll Transactions
+table	table	52204036	Loan Calculator
+table	table	52204037	Loan Calculator Lines
+table	table	52204038	Collateral Linked Loans
+table	table	52204039	Journal Voucher Header
+table	table	52204040	Journal Voucher Lines
+table	table	52204041	Member View Logs
+table	table	52204042	Teller Setup
+table	table	52204043	Denominations Setup
+table	table	52204044	FOSA Transactions
+table	table	52204045	Transaction Denomination
+table	table	52204046	Teller Transactions
+table	table	52204047	Appraisal Accounts
+table	table	52204048	Loan Guarantees
+table	table	52204049	External Recoveries Setup
+table	table	52204050	Loan Recoveries
+table	table	52204051	ATM Types
+table	table	52204052	ATM Cards
+table	table	52204053	ATM Application
+table	table	52204055	Member Withdrawal
+table	table	52204056	Member Withdrawal Lines
+table	table	52204057	Loan Recovery Header
+table	table	52204058	Loan Security Mgmt Lines
+table	table	52204059	Loan Security Mgmt Det. Lines
+table	table	52204060	Checkoff Header
+table	table	52204061	Checkoff Lines
+table	table	52204062	Checkoff Upload
+table	table	52204063	Checkoff Calculation
+table	table	52204064	Sacco Product Categories
+table	table	52204065	Transaction Recoveries
+table	table	52204066	Channel Guarantor Requests
+table	table	52204067	Dividend Recoveries
+table	table	52204068	Dividend Header
+table	table	52204069	Dividend Lines
+table	table	52204070	Dividend Calculation Params
+table	table	52204071	Dividend Member List
+table	table	52204072	Dividend Withdrawn Members
+table	table	52204073	Dividend Det. Entries
+table	table	52204074	Dividend Earned Entries
+table	table	52204075	Standing Order Types
+table	table	52204076	Standing Order
+table	table	52204077	Economic Sectors
+table	table	52204078	Economic Subsectors
+table	table	52204079	Economic Sub-subsector
+table	table	52204080	Channel Transaction Setup
+table	table	52204081	Loan Batch Header
+table	table	52204082	Loan Batch Lines
+table	table	52204083	Uncleared Funds
+table	table	52204084	Member Activations
+table	table	52204085	Loan Security Mgmt
+table	table	52204086	Loan Recovery Lines
+table	table	52204087	Cheque Instructions
+table	table	52204088	Document Uploads
+table	table	52204089	Channel Guarantor Sub.
+table	table	52204090	Cheque Books
+table	table	52204091	Cheque Book Applications
+table	table	52204092	Signatories & Directors
+table	table	52204093	Inter Account Transfer
+table	table	52204094	Account Opening
+table	table	52204095	Bulk SMS Header
+table	table	52204096	Bulk SMS Lines
+table	table	52204097	Checkoff Variation Header
+table	table	52204098	Checkoff Variation Lines
+table	table	52204099	Checkoff Advice
+table	table	52204100	Mobile Application
+table	table	52204101	Mobile Members
+table	table	52204102	Mobile Member Ledger
+table	table	52204103	Customer Feedback
+table	table	52204104	Channel Loan Application
+table	table	52204105	Loan Recovey Accounts
+table	table	52204106	Loan Product Linking
+table	table	52204107	Channel Loan Blocking
+table	table	52204108	Appraisal Documents
+table	table	52204109	Channel Reversals
+table	table	52204110	Job Execution Entries
+table	table	52204111	ATM Ledger
+table	table	52204112	SMS Ledger
+table	table	52204113	BCRQ Setup
+table	table	52204114	Archived Channel Transactions
+table	table	52204115	STO Buffer
+table	table	52204116	Loan Repayment Header
+table	table	52204117	Loan Repayment Lines
+table	table	52204118	E-Loan Application
+table	table	52204119	Channel Transaction Dump
+table	table	52204120	Paybill Keywords
+table	table	52204121	Mobile Responses
+table	table	52204122	Cheque Types
+table	table	52204123	Bankers Cheque
+table	table	52204124	Cheque Deposits
+table	table	52204125	Charges
+table	table	52204126	Employers
+table	table	52204127	Employer Stations
+table	table	52204128	Employer Departments
+table	table	52204129	Account Instructions
+table	table	52204130	Money Laundary Check
+table	table	52204131	Channel Feedbacks
+table	table	52204132	Member Application Referees
+table	table	52204133	Share Trading Setup
+table	table	52204134	Share Floating
+table	table	52204135	Share Trading Lines
+table	table	52204136	Share Transfer Receipt
+table	table	52204137	PesaLink Transactions
+table	table	52204138	Archived PesaLink Transactions
+table	table	52204139	Employer Payroll Details
+table	table	52204140	Loan Charges
+table	table	52204141	Channel Transactions
+table	table	52204142	Loan Moratorium
+table	table	52204143	B2B Transactions
+table	table	52204144	Member Accounts Balances
+table	table	52204145	ATM Transactions
+table	table	52204146	ATM Posted Transactions
+table	table	52204192	Lien
+table	table	52204193	Benevolent Fund
+table	table	52204194	Products Management
+table	table	52204195	Loan Disbursement
+table	table	52204196	Custodia Service Types
+table	table	52204197	Custodial Header
+table	table	52204198	Custodial Services Entries
+table	table	52204199	Storage Types
+table	table	52204200	Deposit Box Lines
+table	table	52204201	Custodial Movement
+table	table	52204202	Loans Payable Advice
+table	table	52204203	Sacco Cues
+table	table	52204204	CBS Event Notifications
+table	table	52204205	ICS Mobile Transactions
+table	table	52204206	Member Charging
+table	table	52204207	Dividend Det. Running Entries
+table	table	52204208	FOSA Queue
+tableextension	tableextension	52204000	Company Information CBS Ext.
+tableextension	tableextension	52204001	General Ledger Setup CBS
+tableextension	tableextension	52204002	Bank Acc Ledger Entry CBS Ext.
+tableextension	tableextension	52204003	Vendor Ledger CBS Ext.
+tableextension	tableextension	52204004	Det Vendor Ledg Entry CBS Ext.
+tableextension	tableextension	52204005	Cust. Ledger CBS Ext.
+tableextension	tableextension	52204006	Det. Cust. Ledg. CBS Ext.
+tableextension	tableextension	52204007	Posted Gen. Journal CBS Ext.
+tableextension	tableextension	52204008	Vendor CBS Ext.
+tableextension	tableextension	52204009	G/L Entry CBS Ext.
+tableextension	tableextension	52204010	Gen. Journal Line CBS Ext.
+tableextension	tableextension	52204011	User Setup CBS Ext.
+tableextension	tableextension	52204012	Payroll Transaction Code
+tableextension	tableextension	52204013	Payroll Emp Transaction
+tableextension	tableextension	52204014	Receipt Header
+tableextension	tableextension	52204015	Receipt Lines
+tableextension	tableextension	52204016	Country/Region
+tableextension	tableextension	52204017	Payment Voucher
+tableextension	tableextension	52204018	Payment Voucher Lines
+tableextension	tableextension	52204019	Payment Schedule
+tableextension	tableextension	52204020	Vendor Posting Group
+tableextension	tableextension	52204021	Payroll Employee Transaction
+tableextension	tableextension	52204022	Payroll Vital Setup
+tableextension	tableextension	52204023	Document Attachments
+xmlport	xmlport	52204000	Import Checkoff
+xmlport	xmlport	52204001	Import BulkSMS
+xmlport	xmlport	52204002	Dividend Upload
+xmlport	xmlport	52204003	Dividend Upload Calculated
+xmlport	xmlport	52204004	Dividend Withdrawn Members
+xmlport	xmlport	52204005	Dividend Member Earnings
+xmlport	xmlport	52204006	Debts & HR Loans

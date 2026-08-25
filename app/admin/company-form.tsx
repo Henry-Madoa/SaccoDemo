@@ -145,6 +145,32 @@ export function CompanyForm({ org, logoSrc, mediaEnabled }: CompanyFormProps) {
             <Field name="statement_footer" label="Statement footer text" type="textarea"
               defaultValue={org.statement_footer} />
           </Card>
+
+          <Card>
+            <h3>Guarantorship</h3>
+            <div className="card-sub">
+              How much of their own deposits a member can put up as security — for other
+              members' loans, and for their own.
+            </div>
+            <div className="grid g2">
+              <Field name="guarantor_multiplier" label="Guarantor multiplier" type="number" step="0.1"
+                defaultValue={org.guarantor_multiplier ?? 1}
+                hint="Deposits × this = how much of OTHER members' loans a member qualifies to guarantee" />
+              <Field name="self_guarantor_multiplier" label="Self guarantor multiplier" type="number" step="0.1"
+                defaultValue={org.self_guarantor_multiplier ?? 1}
+                hint="Deposits × this = how much of a member's OWN loan their own deposits can secure" />
+            </div>
+          </Card>
+
+          <Card>
+            <h3>Membership</h3>
+            <div className="card-sub">Member Exit's notice period before a request can be processed.</div>
+            <div className="grid g2">
+              <Field name="member_exit_notice_days" label="Exit notice period (days)" type="number" step="1"
+                defaultValue={org.member_exit_notice_days ?? 30}
+                hint="A member exit cannot be processed before this many days after it was opened" />
+            </div>
+          </Card>
         </div>
 
         <div>

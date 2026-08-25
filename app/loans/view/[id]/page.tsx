@@ -9,6 +9,8 @@ import { listAttachments } from '@/lib/attachments';
 import { isConfigured } from '@/lib/cloudinary';
 import { calculateLoanProductCharges } from '@/lib/loans';
 import { listLoanProductCharges } from '@/lib/loanProductCharges';
+import { ensureSalaryAppraisalLines } from '@/lib/salaryAppraisal';
+import { hasLiveGuarantorChange } from '@/lib/loanGuarantorChanges';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { parseSort } from '@/lib/listSort';
 import { getDimensionCaptions } from '@/lib/org';
@@ -25,12 +27,13 @@ import { CardNav } from '@/components/ui/card-nav';
 import { JournalLink } from '@/app/accounting/drill-downs';
 import {
   SubmitButton, DecideButtons, DisburseButton, RepayButton, AttachCollateralButton, DetachCollateralButton,
-  AddGuarantorButton, RemoveGuarantorButton, RunAppraisalButton,
+  AddGuarantorButton, ReleaseGuarantorButton, RunAppraisalButton,
 } from './loan-actions';
 import { EditLoanButton } from '../../application-form';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 import { AppraisalCard, AppraisalHistoryTable, AppraisalMeta, toAppraisal } from '@/components/loans/appraisal-card';
 import { ChargesBreakdownButton } from '@/components/loans/charges-breakdown';
+import { SalaryAppraisalCard } from '@/components/loans/salary-appraisal-card';
 
 export default async function LoanDetailPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
@@ -47,14 +50,30 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const { loan: l, schedule, guarantors, collateral, transactions, appraisals } = detail;
   const latestAppraisal = appraisals[0] ?? null;
   const canAppraise = ['OPEN', 'PENDING APPROVAL', 'APPROVED'].includes(l.status);
-  const [canApprove, canDisburse, canRepay, canCreate, attachments, tasks, { prevId, nextId }, { caption1, caption2 }] =
-    await Promise.all([
+  const [
+    canApprove, canDisburse, canRepay, canCreate, canChangeGuarantors, attachments, tasks,
+    { prevId, nextId }, { caption1, caption2 },
+  ] = await Promise.all([
       currentCanAction('LOAN_APPROVE'), currentCanAction('LOAN_DISBURSE'), currentCanAction('LOAN_REPAY'),
-      currentCanAction('LOAN_CREATE'), listAttachments('loan', l.id),
+      currentCanAction('LOAN_CREATE'), currentCanAction('GUARANTOR_CHANGES_CREATE'), listAttachments('loan', l.id),
       listWorkflowTasksForDocument('LOAN', String(l.id)),
       getAdjacentLoanIds(l.id, tab ? LOAN_TAB_STATUS[tab] : undefined),
       getDimensionCaptions(),
     ]);
+
+  // Offered only once the loan is DISBURSED (guarantors are otherwise still editable inline via
+  // Edit above), it still has committed guarantors to review, and no other change document is
+  // already open/in-progress against it — same eligibility lib/loanGuarantorChanges.ts's
+  // listChangeableLoans() itself enforces.
+  const canOpenGuarantorChange = l.status === 'DISBURSED' && canChangeGuarantors && guarantors.length > 0
+    && !(await hasLiveGuarantorChange(l.id));
+
+  // Whether the Guarantors/Collateral security tiles appear at all — editable while OPEN (always
+  // shown then, even with nothing committed yet, so there's somewhere to add the first one),
+  // read-only afterwards only once there's something to show. Paired side by side only when both
+  // are actually going to render, so a lone tile never sits next to empty grid space.
+  const showGuarantors = (l.status === 'OPEN' && canCreate) || guarantors.length > 0;
+  const showCollateral = (l.status === 'OPEN' && canCreate) || collateral.length > 0;
 
   // Send for approval is only offered to whoever captured this loan — unless they can also
   // approve loans, in which case only their own drafts (an approver editing someone else's
@@ -89,6 +108,12 @@ export default async function LoanDetailPage({ params, searchParams }: {
   // through appraisal and approval, not just at the point of application.
   const chargeLines = await listLoanProductCharges(l.product_id);
   const computedCharges = calculateLoanProductCharges(chargeLines, l.principal, l.term_months);
+
+  // Auto-seeds/refreshes the Salary Appraisal section on every view for a salary-based product
+  // (lib/salaryAppraisal.ts's ensureSalaryAppraisalLines) — cheap to no-op once the parameter
+  // lines are on file, and always keeps the auto-derived other-loan deduction rows current.
+  const salaryLines = l.salary_based ? await ensureSalaryAppraisalLines(l.id, l.member_id) : [];
+  const canEditSalary = l.status === 'OPEN' && canCreate;
 
   const totals = schedule.reduce(
     (a, s) => ({
@@ -140,6 +165,128 @@ export default async function LoanDetailPage({ params, searchParams }: {
       return actSort!.dir === 'desc' ? -cmp : cmp;
     });
 
+  const facilityDetailsCard = (
+    <CollapsibleCard title="Facility details" sub={<>Status <Pill status={l.status} /></>}>
+      <DefinitionList items={[
+        ['Loan number', <span className="mono" key="no">{l.loan_no}</span>],
+        ['Member', <>{l.first_name} {l.last_name} <span className="mono">({l.member_no})</span></>],
+        ['Product', l.product_name],
+        ['Purpose', l.purpose || '—'],
+        ['Recovery mode', humanise(l.recovery_mode)],
+        ['Applied', `${formatDate(l.applied_date)} by ${l.created_by || '—'}`],
+        ['Approved', l.approved_date ? `${formatDate(l.approved_date)} by ${l.approved_by}` : '—'],
+        l.rejected_reason ? ['Rejected because', l.rejected_reason] : null,
+        ['Disbursed', formatDate(l.disbursed_date)],
+        ['First instalment', formatDate(l.first_due_date)],
+        ['Total interest', <Money cents={l.total_interest} key="ti" />],
+        l.status === 'DISBURSED' || l.status === 'CLOSED'
+          ? ['Charges recovered',
+            <ChargesBreakdownButton key="fees" charges={computedCharges} totalOverride={l.fees_charged}
+              label="Charges recovered at disbursement" />]
+          : ['Estimated charges',
+            <ChargesBreakdownButton key="fees" charges={computedCharges} label="Estimated charges" />],
+        ['Principal repaid', <Money cents={l.principal_paid} key="pp" />],
+        ['Interest repaid', <Money cents={l.interest_paid} key="ip" />],
+      ]} />
+    </CollapsibleCard>
+  );
+
+  const earningsDeductionsCard = l.salary_based ? (
+    <CollapsibleCard
+      title="Earnings and Deductions"
+      sub="Predefined payslip lines the officer fills in to mimic the member's payslip — the 1/3 cap and headroom below update as amounts are typed"
+    >
+      <SalaryAppraisalCard loanId={l.id} lines={salaryLines} editable={canEditSalary} />
+    </CollapsibleCard>
+  ) : null;
+
+  const guarantorsCard = showGuarantors ? (
+    l.status === 'OPEN' && canCreate ? (
+      <CollapsibleCard title="Guarantors" sub="Members who have committed to guarantee this loan">
+        {guarantors.length ? (
+          <TableWrap>
+            <thead><tr><th>Member</th><th className="num">Committed</th><th className="num" /></tr></thead>
+            <tbody>
+              {guarantors.map((g) => (
+                <tr key={g.id}>
+                  <td><Link href={`/members/${g.member_id}`}>{g.first_name} {g.last_name}</Link></td>
+                  <td className="num"><Money cents={g.amount} decimals={0} /></td>
+                  <td className="num"><ReleaseGuarantorButton loanId={l.id} memberId={g.member_id} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🤝" title="No guarantors committed" />}
+        <Toolbar>
+          <Spacer />
+          <AddGuarantorButton loanId={l.id} memberId={l.member_id} existingMemberIds={guarantors.map((g) => g.member_id)} />
+        </Toolbar>
+      </CollapsibleCard>
+    ) : (
+      <CollapsibleCard title="Guarantors" sub="Members who have committed to guarantee this loan">
+        <TableWrap>
+          <thead><tr><th>Member</th><th className="num">Committed</th></tr></thead>
+          <tbody>
+            {guarantors.map((g) => (
+              <tr key={g.id}>
+                <td><Link href={`/members/${g.member_id}`}>{g.first_name} {g.last_name}</Link></td>
+                <td className="num"><Money cents={g.amount} decimals={0} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+        {canOpenGuarantorChange ? (
+          <Toolbar>
+            <Spacer />
+            <Link href={`/guarantor-changes?new=${l.id}`} className="btn sm ghost">Change guarantors</Link>
+          </Toolbar>
+        ) : null}
+      </CollapsibleCard>
+    )
+  ) : null;
+
+  const collateralCard = showCollateral ? (
+    l.status === 'OPEN' && canCreate ? (
+      <CollapsibleCard title="Collateral security" sub="Registered assets pledged against this loan">
+        {collateral.length ? (
+          <TableWrap>
+            <thead><tr><th>Collateral</th><th className="num">Cover drawn</th><th className="num" /></tr></thead>
+            <tbody>
+              {collateral.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <Link href={`/collateral-register/view/${c.collateral_no}`} className="mono">{c.collateral_no}</Link>
+                    <div className="tiny">{c.collateral_description || '—'}</div>
+                  </td>
+                  <td className="num"><Money cents={c.guarantee} decimals={0} /></td>
+                  <td className="num"><DetachCollateralButton loanId={l.id} collateralNo={c.collateral_no} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🏠" title="No collateral attached" />}
+        <Toolbar><Spacer /><AttachCollateralButton loanId={l.id} memberId={l.member_id} /></Toolbar>
+      </CollapsibleCard>
+    ) : (
+      <CollapsibleCard title="Collateral security" sub="Registered assets pledged against this loan">
+        <TableWrap>
+          <thead><tr><th>Collateral</th><th className="num">Cover drawn</th></tr></thead>
+          <tbody>
+            {collateral.map((c) => (
+              <tr key={c.id}>
+                <td>
+                  <Link href={`/collateral-register/view/${c.collateral_no}`} className="mono">{c.collateral_no}</Link>
+                  <div className="tiny">{c.collateral_description || '—'}</div>
+                </td>
+                <td className="num"><Money cents={c.guarantee} decimals={0} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      </CollapsibleCard>
+    )
+  ) : null;
+
   return (
     <>
       <CardNav
@@ -162,11 +309,13 @@ export default async function LoanDetailPage({ params, searchParams }: {
             loan={{
               id: l.id, loan_no: l.loan_no, member_id: l.member_id, product_id: l.product_id,
               principal: l.principal, term_months: l.term_months, purpose: l.purpose,
-              disburse_to_account_id: l.disburse_to_account_id,
+              disburse_to_account_id: l.disburse_to_account_id, recovery_mode: l.recovery_mode,
             }}
           />
         ) : null}
-        {l.status === 'OPEN' && canSubmit ? <SubmitButton loanId={l.id} hasAppraisal={!!latestAppraisal} /> : null}
+        {l.status === 'OPEN' && canSubmit ? (
+          <SubmitButton loanId={l.id} appraisalDecision={latestAppraisal?.decision ?? null} />
+        ) : null}
         {l.status === 'PENDING APPROVAL' && canDecideThis ? (
           <DecideButtons loan={l} routedTaskId={routedTask?.id ?? null} />
         ) : null}
@@ -196,265 +345,176 @@ export default async function LoanDetailPage({ params, searchParams }: {
           foot={`${l.days_in_arrears} days · ${humanise(l.classification)}`} />
       </div>
 
-      <div className="grid split-side-sm">
-        <div>
-          <CollapsibleCard title="Facility details" sub={<>Status <Pill status={l.status} /></>}>
-            <DefinitionList items={[
-              ['Loan number', <span className="mono" key="no">{l.loan_no}</span>],
-              ['Member', <>{l.first_name} {l.last_name} <span className="mono">({l.member_no})</span></>],
-              ['Product', l.product_name],
-              ['Purpose', l.purpose || '—'],
-              ['Applied', `${formatDate(l.applied_date)} by ${l.created_by || '—'}`],
-              ['Approved', l.approved_date ? `${formatDate(l.approved_date)} by ${l.approved_by}` : '—'],
-              l.rejected_reason ? ['Rejected because', l.rejected_reason] : null,
-              ['Disbursed', formatDate(l.disbursed_date)],
-              ['First instalment', formatDate(l.first_due_date)],
-              ['Total interest', <Money cents={l.total_interest} key="ti" />],
-              l.status === 'DISBURSED' || l.status === 'CLOSED'
-                ? ['Charges recovered',
-                  <ChargesBreakdownButton key="fees" charges={computedCharges} totalOverride={l.fees_charged}
-                    label="Charges recovered at disbursement" />]
-                : ['Estimated charges',
-                  <ChargesBreakdownButton key="fees" charges={computedCharges} label="Estimated charges" />],
-              ['Principal repaid', <Money cents={l.principal_paid} key="pp" />],
-              ['Interest repaid', <Money cents={l.interest_paid} key="ip" />],
-            ]} />
-          </CollapsibleCard>
-
-          <CollapsibleCard
-            title="Appraisal"
-            sub={latestAppraisal
-              ? `Latest run · ${appraisals.length} on file`
-              : 'No appraisal has been run against this application yet'}
-          >
-            {latestAppraisal ? (
-              <>
-                <AppraisalMeta appraisal={latestAppraisal} />
-                <AppraisalCard appraisal={toAppraisal(latestAppraisal)} />
-              </>
-            ) : (
-              <EmptyState icon="🧮" title="Not yet appraised"
-                sub={canAppraise && canCreate ? 'Run appraisal above to file the first decision.' : undefined} />
-            )}
-          </CollapsibleCard>
-
-          <AppraisalHistoryTable appraisals={appraisals} />
-
-          <CollapsibleCard
-            title="Approval details"
-            sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
-          >
-            {tasks.length ? (
-              <TableWrap>
-                <thead>
-                  <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
-                </thead>
-                <tbody>
-                  {tasks.flatMap((t) => [
-                    ...t.level_decisions.map((ld, i) => (
-                      <tr key={`${t.id}-level-${i}`} className="muted">
-                        <td>—</td>
-                        <td>—</td>
-                        <td className="muted-cell">
-                          Level {ld.sequence}: {ld.decided_by}
-                          {ld.comment ? ` — "${ld.comment}"` : ''}
-                        </td>
-                        <td>{formatDateTime(ld.decided_at)}</td>
-                        <td><Pill tone="ok">CLEARED</Pill></td>
-                      </tr>
-                    )),
-                    <tr key={t.id}>
-                      <td>{t.requested_by || '—'}</td>
-                      <td>{formatDateTime(t.requested_at)}</td>
-                      <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
-                      <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
-                      <td><Pill status={t.status} /></td>
-                    </tr>,
-                  ])}
-                </tbody>
-              </TableWrap>
-            ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
-          </CollapsibleCard>
-
-          {l.status === 'OPEN' && canCreate ? (
-            <CollapsibleCard title="Guarantors" sub="Members who have committed to guarantee this loan">
-              {guarantors.length ? (
-                <TableWrap>
-                  <thead><tr><th>Member</th><th className="num">Committed</th><th className="num" /></tr></thead>
-                  <tbody>
-                    {guarantors.map((g) => (
-                      <tr key={g.id}>
-                        <td><Link href={`/members/${g.member_id}`}>{g.first_name} {g.last_name}</Link></td>
-                        <td className="num"><Money cents={g.amount} decimals={0} /></td>
-                        <td className="num"><RemoveGuarantorButton loanId={l.id} memberId={g.member_id} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </TableWrap>
-              ) : <EmptyState icon="🤝" title="No guarantors committed" />}
-              <Toolbar>
-                <Spacer />
-                <AddGuarantorButton loanId={l.id} memberId={l.member_id}
-                  existingMemberIds={guarantors.map((g) => g.member_id)} />
-              </Toolbar>
-            </CollapsibleCard>
-          ) : guarantors.length ? (
-            <CollapsibleCard title="Guarantors">
-              <TableWrap>
-                <thead><tr><th>Member</th><th className="num">Committed</th></tr></thead>
-                <tbody>
-                  {guarantors.map((g) => (
-                    <tr key={g.id}>
-                      <td><Link href={`/members/${g.member_id}`}>{g.first_name} {g.last_name}</Link></td>
-                      <td className="num"><Money cents={g.amount} decimals={0} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableWrap>
-            </CollapsibleCard>
-          ) : null}
-
-          {l.status === 'OPEN' && canCreate ? (
-            <CollapsibleCard title="Collateral security" sub="Registered assets pledged against this loan">
-              {collateral.length ? (
-                <TableWrap>
-                  <thead><tr><th>Collateral</th><th className="num">Cover drawn</th><th className="num" /></tr></thead>
-                  <tbody>
-                    {collateral.map((c) => (
-                      <tr key={c.id}>
-                        <td>
-                          <Link href={`/collateral-register/view/${c.collateral_no}`} className="mono">{c.collateral_no}</Link>
-                          <div className="tiny">{c.collateral_description || '—'}</div>
-                        </td>
-                        <td className="num"><Money cents={c.guarantee} decimals={0} /></td>
-                        <td className="num"><DetachCollateralButton loanId={l.id} collateralNo={c.collateral_no} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </TableWrap>
-              ) : <EmptyState icon="🏠" title="No collateral attached" />}
-              <Toolbar><Spacer /><AttachCollateralButton loanId={l.id} memberId={l.member_id} /></Toolbar>
-            </CollapsibleCard>
-          ) : collateral.length ? (
-            <CollapsibleCard title="Collateral security">
-              <TableWrap>
-                <thead><tr><th>Collateral</th><th className="num">Cover drawn</th></tr></thead>
-                <tbody>
-                  {collateral.map((c) => (
-                    <tr key={c.id}>
-                      <td>
-                        <Link href={`/collateral-register/view/${c.collateral_no}`} className="mono">{c.collateral_no}</Link>
-                        <div className="tiny">{c.collateral_description || '—'}</div>
-                      </td>
-                      <td className="num"><Money cents={c.guarantee} decimals={0} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableWrap>
-            </CollapsibleCard>
-          ) : null}
+      {earningsDeductionsCard ? (
+        <div className="grid g2 stack-2">
+          {facilityDetailsCard}
+          {earningsDeductionsCard}
         </div>
+      ) : facilityDetailsCard}
 
-        <div>
-          <CollapsibleCard
-            title="Repayment schedule"
-            sub={`${l.interest_method === 'REDUCING' ? 'Reducing balance amortisation' : 'Flat rate'} · ${schedule.length} instalments`}
-          >
-            {schedule.length ? (
-              <TableWrap>
-                <thead>
-                  <tr>
-                    <th className="num"><SortLink sortKey="installment_no" paramName="schSort">#</SortLink></th>
-                    <th><SortLink sortKey="due_date" paramName="schSort">Due date</SortLink></th>
-                    <th className="num"><SortLink sortKey="opening_balance" paramName="schSort">Opening</SortLink></th>
-                    <th className="num"><SortLink sortKey="principal_due" paramName="schSort">Principal</SortLink></th>
-                    <th className="num"><SortLink sortKey="interest_due" paramName="schSort">Interest</SortLink></th>
-                    <th className="num"><SortLink sortKey="instalment" paramName="schSort">Instalment</SortLink></th>
-                    <th className="num"><SortLink sortKey="paid" paramName="schSort">Paid</SortLink></th>
-                    <th><SortLink sortKey="status" paramName="schSort">Status</SortLink></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displaySchedule.map((s) => (
-                    <tr key={s.id}>
-                      <td className="num">{s.installment_no}</td>
-                      <td>{formatDate(s.due_date)}</td>
-                      <td className="num"><Money cents={s.opening_balance} symbol={false} decimals={0} /></td>
-                      <td className="num"><Money cents={s.principal_due} symbol={false} /></td>
-                      <td className="num"><Money cents={s.interest_due} symbol={false} /></td>
-                      <td className="num">
-                        <b><Money cents={s.principal_due + s.interest_due} symbol={false} /></b>
-                      </td>
-                      <td className="num"><Money cents={s.principal_paid + s.interest_paid} symbol={false} /></td>
-                      <td><Pill status={s.status} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={3}>Totals</td>
-                    <td className="num"><Money cents={totals.principal} symbol={false} /></td>
-                    <td className="num"><Money cents={totals.interest} symbol={false} /></td>
-                    <td className="num"><Money cents={totals.principal + totals.interest} symbol={false} /></td>
-                    <td className="num"><Money cents={totals.paid} symbol={false} /></td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </TableWrap>
-            ) : <EmptyState icon="📅" title="The schedule is generated on disbursement" />}
-          </CollapsibleCard>
-
-          <AttachmentPanel
-            entity="loan"
-            entityId={l.id}
-            attachments={attachments}
-            canManage={canCreate}
-            mediaEnabled={isConfigured()}
-          />
-
-          <CollapsibleCard title="Loan account activity" sub="Every entry carries the journal it posted">
-            {transactions.length ? (
-              <>
-                <Toolbar>
-                  <SearchInput paramName="actQ" placeholder="Find entries — reference, document no., description or type…" />
-                </Toolbar>
-                <TableWrap>
-                  <thead>
-                    <tr>
-                      <th><SortLink sortKey="txn_ref" paramName="actSort">Reference</SortLink></th>
-                      <th><SortLink sortKey="document_no" paramName="actSort">Document No.</SortLink></th>
-                      <th><SortLink sortKey="value_date" paramName="actSort">Date</SortLink></th>
-                      <th><SortLink sortKey="txn_type" paramName="actSort">Type</SortLink></th>
-                      <th><SortLink sortKey="description" paramName="actSort">Description</SortLink></th>
-                      <th className="num"><SortLink sortKey="amount" paramName="actSort">Amount</SortLink></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayTransactions.length ? displayTransactions.map((t) => (
-                      <tr key={t.id}>
-                        <td className="mono">{t.txn_ref}</td>
-                        <td className="mono">
-                          {t.journal_id ? (
-                            <JournalLink id={t.journal_id} canReverse={false} caption1={caption1} caption2={caption2}>
-                              {t.document_no || '—'}
-                            </JournalLink>
-                          ) : (t.document_no || '—')}
-                        </td>
-                        <td>{formatDate(t.value_date)}</td>
-                        <td><Pill status={t.txn_type} /></td>
-                        <td>{t.description || ''}</td>
-                        <td className="num"><Money cents={t.amount} /></td>
-                      </tr>
-                    )) : (
-                      <tr><td colSpan={6}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
-                    )}
-                  </tbody>
-                </TableWrap>
-              </>
-            ) : <EmptyState icon="🧾" title="No postings yet" />}
-          </CollapsibleCard>
+      {guarantorsCard && collateralCard ? (
+        <div className="grid g2 stack-2">
+          {guarantorsCard}
+          {collateralCard}
         </div>
-      </div>
+      ) : (guarantorsCard || collateralCard)}
+
+      <CollapsibleCard
+        title="Appraisal"
+        sub={latestAppraisal
+          ? `Latest run · ${appraisals.length} on file`
+          : 'No appraisal has been run against this application yet'}
+      >
+        {latestAppraisal ? (
+          <>
+            <AppraisalMeta appraisal={latestAppraisal} />
+            <AppraisalCard appraisal={toAppraisal(latestAppraisal)} />
+          </>
+        ) : (
+          <EmptyState icon="🧮" title="Not yet appraised"
+            sub={canAppraise && canCreate ? 'Run appraisal above to file the first decision.' : undefined} />
+        )}
+      </CollapsibleCard>
+
+      <AppraisalHistoryTable appraisals={appraisals} />
+
+      <AttachmentPanel
+        entity="loan"
+        entityId={l.id}
+        attachments={attachments}
+        canManage={canCreate}
+        mediaEnabled={isConfigured()}
+      />
+
+      {/* Repayment schedule and Loan account activity close out the page — the two widest,
+          most detail-dense tables, so they read best with the full page width to themselves
+          rather than squeezed alongside the detail cards above. */}
+      <CollapsibleCard
+        title="Repayment schedule"
+        sub={`${l.interest_method === 'REDUCING' ? 'Reducing balance amortisation' : 'Flat rate'} · ${schedule.length} instalments`
+          + (l.status === 'DISBURSED' || l.status === 'CLOSED' ? '' : ' · projected from the appraisal, regenerated at disbursement')}
+      >
+        {schedule.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th className="num"><SortLink sortKey="installment_no" paramName="schSort">#</SortLink></th>
+                <th><SortLink sortKey="due_date" paramName="schSort">Due date</SortLink></th>
+                <th className="num"><SortLink sortKey="opening_balance" paramName="schSort">Opening</SortLink></th>
+                <th className="num"><SortLink sortKey="principal_due" paramName="schSort">Principal</SortLink></th>
+                <th className="num"><SortLink sortKey="interest_due" paramName="schSort">Interest</SortLink></th>
+                <th className="num"><SortLink sortKey="instalment" paramName="schSort">Instalment</SortLink></th>
+                <th className="num"><SortLink sortKey="paid" paramName="schSort">Paid</SortLink></th>
+                <th><SortLink sortKey="status" paramName="schSort">Status</SortLink></th>
+              </tr>
+            </thead>
+            <tbody>
+              {displaySchedule.map((s) => (
+                <tr key={s.id}>
+                  <td className="num">{s.installment_no}</td>
+                  <td>{formatDate(s.due_date)}</td>
+                  <td className="num"><Money cents={s.opening_balance} symbol={false} decimals={0} /></td>
+                  <td className="num"><Money cents={s.principal_due} symbol={false} /></td>
+                  <td className="num"><Money cents={s.interest_due} symbol={false} /></td>
+                  <td className="num">
+                    <b><Money cents={s.principal_due + s.interest_due} symbol={false} /></b>
+                  </td>
+                  <td className="num"><Money cents={s.principal_paid + s.interest_paid} symbol={false} /></td>
+                  <td><Pill status={s.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Totals</td>
+                <td className="num"><Money cents={totals.principal} symbol={false} /></td>
+                <td className="num"><Money cents={totals.interest} symbol={false} /></td>
+                <td className="num"><Money cents={totals.principal + totals.interest} symbol={false} /></td>
+                <td className="num"><Money cents={totals.paid} symbol={false} /></td>
+                <td />
+              </tr>
+            </tfoot>
+          </TableWrap>
+        ) : <EmptyState icon="📅" title="Run appraisal to generate a projected schedule" />}
+      </CollapsibleCard>
+
+      <CollapsibleCard title="Loan account activity" sub="Every entry carries the journal it posted">
+        {transactions.length ? (
+          <>
+            <Toolbar>
+              <SearchInput paramName="actQ" placeholder="Find entries — reference, document no., description or type…" />
+            </Toolbar>
+            <TableWrap>
+              <thead>
+                <tr>
+                  <th><SortLink sortKey="txn_ref" paramName="actSort">Reference</SortLink></th>
+                  <th><SortLink sortKey="document_no" paramName="actSort">Document No.</SortLink></th>
+                  <th><SortLink sortKey="value_date" paramName="actSort">Date</SortLink></th>
+                  <th><SortLink sortKey="txn_type" paramName="actSort">Type</SortLink></th>
+                  <th><SortLink sortKey="description" paramName="actSort">Description</SortLink></th>
+                  <th className="num"><SortLink sortKey="amount" paramName="actSort">Amount</SortLink></th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayTransactions.length ? displayTransactions.map((t) => (
+                  <tr key={t.id}>
+                    <td className="mono">{t.txn_ref}</td>
+                    <td className="mono">
+                      {t.journal_id ? (
+                        <JournalLink id={t.journal_id} canReverse={false} caption1={caption1} caption2={caption2}>
+                          {t.document_no || '—'}
+                        </JournalLink>
+                      ) : (t.document_no || '—')}
+                    </td>
+                    <td>{formatDate(t.value_date)}</td>
+                    <td><Pill status={t.txn_type} /></td>
+                    <td>{t.description || ''}</td>
+                    <td className="num"><Money cents={t.amount} /></td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={6}><EmptyState icon="🔎" title="No entries match your search" /></td></tr>
+                )}
+              </tbody>
+            </TableWrap>
+          </>
+        ) : <EmptyState icon="🧾" title="No postings yet" />}
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="Approval details"
+        sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+      >
+        {tasks.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
+            </thead>
+            <tbody>
+              {tasks.flatMap((t) => [
+                ...t.level_decisions.map((ld, i) => (
+                  <tr key={`${t.id}-level-${i}`} className="muted">
+                    <td>—</td>
+                    <td>—</td>
+                    <td className="muted-cell">
+                      Level {ld.sequence}: {ld.decided_by}
+                      {ld.comment ? ` — "${ld.comment}"` : ''}
+                    </td>
+                    <td>{formatDateTime(ld.decided_at)}</td>
+                    <td><Pill tone="ok">CLEARED</Pill></td>
+                  </tr>
+                )),
+                <tr key={t.id}>
+                  <td>{t.requested_by || '—'}</td>
+                  <td>{formatDateTime(t.requested_at)}</td>
+                  <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
+                  <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
+                  <td><Pill status={t.status} /></td>
+                </tr>,
+              ])}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
+      </CollapsibleCard>
       </Page>
     </>
   );

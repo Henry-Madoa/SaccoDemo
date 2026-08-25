@@ -47,8 +47,8 @@ const FIELD_LABELS: Record<MemberEditField, string> = {
   gender: 'Gender', marital_status: 'Marital status', phone: 'Phone', email: 'Email',
   postal_address: 'Postal address', physical_address: 'Physical address',
   county_id: 'County', sub_county_id: 'Sub-county', employer: 'Employer',
-  employment_status: 'Employment status', staff_no: 'Staff no.', gross_income: 'Gross income',
-  other_deductions: 'Other deductions', kyc_verified: 'KYC verified', join_date: 'Date joined',
+  employment_status: 'Employment status', staff_no: 'Staff no.',
+  kyc_verified: 'KYC verified', join_date: 'Date joined',
   photo: 'Photo', front_id_image: 'Front ID image', back_id_image: 'Back ID image',
   signature_image: 'Signature', fingerprint1_image: 'Fingerprint 1', fingerprint2_image: 'Fingerprint 2',
   notes: 'Notes', group_name: 'Group / entity name', registration_no: 'Registration no.',
@@ -98,8 +98,6 @@ export const EDIT_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'employer', label: 'Employer', type: 'text', column: 'e.employer' },
   { key: 'employment_status', label: 'Employment Status', type: 'select', column: 'e.employment_status', options: EMPLOYMENT_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
   { key: 'staff_no', label: 'Staff No.', type: 'text', column: 'e.staff_no' },
-  { key: 'gross_income', label: 'Gross Income', type: 'number', column: 'e.gross_income' },
-  { key: 'other_deductions', label: 'Other Deductions', type: 'number', column: 'e.other_deductions' },
   { key: 'kyc_verified', label: 'KYC Verified', type: 'select', column: 'e.kyc_verified', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] },
   { key: 'join_date', label: 'Join Date', type: 'date', column: 'e.join_date' },
   { key: 'notes', label: 'Notes', type: 'text', column: 'e.notes' },
@@ -338,7 +336,7 @@ export async function submitMemberEditRequest(no: string, user: Actor): Promise<
       [{ field: 'status', oldValue: req.status, newValue: 'Pending Approval' }], user,
     );
     await startWorkflow(matched.workflow, matched.steps, {
-      documentType: 'MEMBER_EDIT', entityId: no, requestedBy: user.username, amount: req.gross_income,
+      documentType: 'MEMBER_EDIT', entityId: no, requestedBy: user.username, amount: 0,
     });
   });
 

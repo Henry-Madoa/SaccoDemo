@@ -11,8 +11,11 @@ import { Money } from '@/components/ui/money';
 import { AppraisalCard } from '@/components/loans/appraisal-card';
 import { appraiseLoan, applyForLoan, memberDisbursementAccounts, updateLoanApplication } from '@/app/actions/loans';
 import { calculateLoanProductCharges } from '@/lib/loans';
+import { RECOVERY_MODES } from '@/lib/constants';
 import { toCents, toUnits } from '@/lib/format';
-import type { Appraisal, Cents, LoanProductWithCharges, Member, SavingsAccountWithProduct } from '@/lib/types';
+import type {
+  Appraisal, Cents, LoanProductWithCharges, Member, SavingsAccountWithProduct,
+} from '@/lib/types';
 
 export interface ApplicationFormProps {
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
@@ -32,6 +35,7 @@ export interface EditableLoan {
   term_months: number;
   purpose: string | null;
   disburse_to_account_id: number | null;
+  recovery_mode?: 'DIRECT' | 'CHECKOFF';
 }
 
 interface LoanFormProps {
@@ -159,6 +163,9 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
             { value: '', label: 'Pay out through the bank' },
             ...accounts.map((a) => ({ value: a.id, label: `${a.account_no} — ${a.product_name}` })),
           ]} />
+        <Field name="recoveryMode" label="Recovery mode" type="select" options={RECOVERY_MODES}
+          defaultValue={loan?.recovery_mode ?? 'DIRECT'}
+          hint="Checkoff is recovered via Checkoff & Salary Processing batches instead of counter repayment" />
       </div>
 
       {charges.length ? (

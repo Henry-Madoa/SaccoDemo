@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { getMemberDetail, getAdjacentMemberIds, MEMBER_STATUSES } from '@/lib/members';
+import { listActiveEmployers } from '@/lib/employers';
 import type { MemberStatus } from '@/lib/types';
 import { getDimensionCaptions } from '@/lib/org';
 import { listAttachments } from '@/lib/attachments';
@@ -17,6 +18,7 @@ import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { Money, SignedMoney } from '@/components/ui/money';
 import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
+import { SetEmployerButton } from './set-employer-button';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 
 export default async function MemberDetailPage({ params, searchParams }: {
@@ -34,15 +36,18 @@ export default async function MemberDetailPage({ params, searchParams }: {
     member: m, accounts, loans, guaranteeing, transactions, appraisal, nextOfKin, nominees, signatories,
   } = detail;
   const [
-    canOpen, canCreateLoan, canViewStatement, attachments, { caption1, caption2 }, { prevId, nextId },
+    canOpen, canCreateLoan, canViewStatement, canExit, canSetEmployer, attachments,
+    { caption1, caption2 }, { prevId, nextId },
   ] = await Promise.all([
     currentCanAction('ACCOUNT_OPENING_CREATE'), currentCanAction('LOAN_CREATE'),
-    currentCanAction('MEMBER_STATEMENTS_READ'),
+    currentCanAction('MEMBER_STATEMENTS_READ'), currentCanAction('MEMBER_EXITS_CREATE'),
+    currentCanAction('MEMBERS_UPDATE'),
     listAttachments('member', m.id),
     getDimensionCaptions(),
     getAdjacentMemberIds(m.id, status),
   ]);
   const mediaEnabled = isConfigured();
+  const employers = canSetEmployer ? await listActiveEmployers() : [];
 
   const totalSavings = accounts.reduce((a, x) => a + x.balance, 0);
   const runningLoans = loans.filter((l) => l.status === 'DISBURSED');
@@ -70,6 +75,9 @@ export default async function MemberDetailPage({ params, searchParams }: {
         ) : null}
         {canCreateLoan ? (
           <Link href={`/loans?new=${m.id}`} className="btn">New loan application</Link>
+        ) : null}
+        {canExit && m.status === 'ACTIVE' ? (
+          <Link href={`/member-exits?new=${m.id}`} className="btn ghost">Exit membership</Link>
         ) : null}
         <DocumentActionsMenu />
       </Toolbar>
@@ -141,14 +149,19 @@ export default async function MemberDetailPage({ params, searchParams }: {
             mediaEnabled={mediaEnabled}
           />
 
-          <CollapsibleCard title="Employment" sub="Drives the affordability test">
+          <CollapsibleCard title="Employment" sub="Affordability itself is assessed per-loan on the Salary Appraisal card">
             <DefinitionList items={[
               ['Employer', m.employer || '—'],
               ['Status', m.employment_status || '—'],
               ['Staff no.', <span className="mono" key="staff">{m.staff_no || '—'}</span>],
-              ['Gross income', <Money cents={m.gross_income} key="gi" />],
-              ['Other deductions', <Money cents={m.other_deductions} key="od" />],
+              ['Checkoff employer', m.employer_ref_name || '—'],
             ]} />
+            {canSetEmployer ? (
+              <Toolbar>
+                <Spacer />
+                <SetEmployerButton memberId={m.id} currentEmployerId={m.employer_id} employers={employers} />
+              </Toolbar>
+            ) : null}
           </CollapsibleCard>
 
           {m.member_category_type && m.member_category_type !== 'INDIVIDUAL' ? (

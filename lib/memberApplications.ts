@@ -21,7 +21,7 @@ import type {
 const APPLICATION_FIELDS = [
   'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'identification_no', 'kra_pin',
   'date_of_birth', 'gender', 'marital_status', 'phone', 'email', 'postal_address', 'physical_address',
-  'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no', 'gross_income', 'other_deductions',
+  'county_id', 'sub_county_id', 'employer', 'employment_status', 'staff_no',
   'kyc_verified', 'join_date',
   'notes', 'photo', 'front_id_image', 'back_id_image', 'signature_image',
   'fingerprint1_image', 'fingerprint2_image',
@@ -85,8 +85,6 @@ export const APPLICATION_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'employer', label: 'Employer', type: 'text', column: 'a.employer' },
   { key: 'employment_status', label: 'Employment Status', type: 'select', column: 'a.employment_status', options: EMPLOYMENT_STATUSES.filter(Boolean).map((s) => ({ value: s, label: s })) },
   { key: 'staff_no', label: 'Staff No.', type: 'text', column: 'a.staff_no' },
-  { key: 'gross_income', label: 'Gross Income', type: 'number', column: 'a.gross_income' },
-  { key: 'other_deductions', label: 'Other Deductions', type: 'number', column: 'a.other_deductions' },
   { key: 'kyc_verified', label: 'KYC Verified', type: 'select', column: 'a.kyc_verified', options: [{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] },
   { key: 'join_date', label: 'Join Date', type: 'date', column: 'a.join_date' },
   { key: 'notes', label: 'Notes', type: 'text', column: 'a.notes' },
@@ -250,7 +248,7 @@ export async function submitMemberApplication(no: string, user: Actor): Promise<
       [{ field: 'status', oldValue: app.status, newValue: 'Pending Approval' }], user,
     );
     await startWorkflow(matched.workflow, matched.steps, {
-      documentType: 'MEMBER_APPLICATION', entityId: no, requestedBy: user.username, amount: app.gross_income,
+      documentType: 'MEMBER_APPLICATION', entityId: no, requestedBy: user.username, amount: 0,
     });
   });
 
@@ -332,8 +330,7 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
       gender: app.gender, marital_status: app.marital_status, phone: app.phone, email: app.email,
       postal_address: app.postal_address, physical_address: app.physical_address,
       county_id: app.county_id, sub_county_id: app.sub_county_id, employer: app.employer,
-      employment_status: app.employment_status, staff_no: app.staff_no, gross_income: app.gross_income,
-      other_deductions: app.other_deductions, status: 'NOT PAID UP',
+      employment_status: app.employment_status, staff_no: app.staff_no, status: 'NOT PAID UP',
       kyc_verified: app.kyc_verified, join_date: app.join_date, notes: app.notes, photo: app.photo,
       front_id_image: app.front_id_image, back_id_image: app.back_id_image,
       signature_image: app.signature_image, fingerprint1_image: app.fingerprint1_image,

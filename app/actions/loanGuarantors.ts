@@ -5,7 +5,8 @@ import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import { commitGuarantor, releaseGuarantor } from '@/lib/loanService';
 import { listActiveMembers } from '@/lib/members';
-import type { ActionResult, Member } from '@/lib/types';
+import { guarantorCapacity } from '@/lib/guarantors';
+import type { ActionResult, GuarantorCandidate } from '@/lib/types';
 
 export async function commitGuarantorToLoanRequest(
   loanId: number, memberId: number, amountSh: string | number,
@@ -31,13 +32,18 @@ export async function releaseGuarantorFromLoanRequest(
 }
 
 /** Active members who could still guarantee this loan — everyone except the applicant and
- *  whoever has already committed. The picker behind "Add guarantor" on a loan. */
+ *  whoever has already committed — each with how much they currently qualify to guarantee
+ *  (lib/guarantors.ts's guarantorCapacity). The picker behind "Add guarantor" on a loan. */
 export async function availableGuarantorsForLoan(
   borrowerMemberId: number, existingMemberIds: number[],
-): Promise<ActionResult<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[]>> {
+): Promise<ActionResult<GuarantorCandidate[]>> {
   return actionResult(async () => {
     await requireAction('LOAN_CREATE');
     const exclude = new Set([borrowerMemberId, ...existingMemberIds]);
-    return (await listActiveMembers()).filter((m) => !exclude.has(m.id));
+    const candidates = (await listActiveMembers()).filter((m) => !exclude.has(m.id));
+    return Promise.all(candidates.map(async (m) => ({
+      id: m.id, member_no: m.member_no, first_name: m.first_name, last_name: m.last_name,
+      availableGuarantee: (await guarantorCapacity(m.id)).available,
+    })));
   });
 }

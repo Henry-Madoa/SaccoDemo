@@ -91,9 +91,13 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW',
       'SAVINGS_REVERSE', 'LOAN_READ', 'LOAN_CREATE', 'LOAN_APPROVE', 'LOAN_DISBURSE', 'LOAN_REPAY', 'GL_READ',
+      'LOAN_CALCULATOR_READ', 'LOAN_CALCULATOR_CREATE', 'LOAN_CALCULATOR_DELETE', 'LOAN_CALCULATOR_CONVERT',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_APPLICATIONS_APPROVE',
       'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE',
       'COLLATERAL_RELEASES_APPROVE', 'ADMIN_PRODUCTS_COLLATERAL_MANAGE',
+      'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE', 'GUARANTOR_CHANGES_APPROVE',
+      'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE', 'MEMBER_EXITS_APPROVE',
+      'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE', 'CHECKOFF_BATCHES_APPROVE', 'EMPLOYERS_MANAGE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW', 'ADMIN_CHANGE_LOG_MANAGE',
     ],
   },
@@ -103,10 +107,12 @@ export const ROLES: RoleSeed[] = [
     actions: [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'MEMBER_APPLICATIONS_CREATE',
       'MEMBERS_UPDATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_EDITS_UPDATE', 'ACCOUNT_OPENING_READ',
-      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_EXITS_READ', 'CHECKOFF_BATCHES_READ',
       'SAVINGS_READ', 'LOAN_READ', 'LOAN_CREATE', 'LOAN_REPAY',
+      'LOAN_CALCULATOR_READ', 'LOAN_CALCULATOR_CREATE', 'LOAN_CALCULATOR_DELETE', 'LOAN_CALCULATOR_CONVERT',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_REGISTER_READ',
       'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE',
+      'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -116,10 +122,11 @@ export const ROLES: RoleSeed[] = [
     actions: [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_OPENING_CREATE', 'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE',
-      'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE',
+      'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE', 'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE',
+      'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE',
       'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW', 'LOAN_READ', 'LOAN_REPAY',
-      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
+      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -128,11 +135,12 @@ export const ROLES: RoleSeed[] = [
     description: 'General ledger, journals and financial reporting.',
     actions: [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
-      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ', 'MEMBER_EXITS_READ',
+      'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE',
       'GL_ACCOUNT_MANAGE', 'GL_BANK_RECONCILE',
       'ADMIN_CHARGES_MASTER_MANAGE', 'ADMIN_CHARGES_TRANSACTION_MANAGE',
-      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
+      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -141,8 +149,10 @@ export const ROLES: RoleSeed[] = [
     description: 'Read-only across the system, including the audit trail.',
     actions: [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
-      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_CHARGING_READ', 'SAVINGS_READ', 'MEMBER_EXITS_READ',
+      'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
+      'GUARANTOR_CHANGES_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
     ],
   },
@@ -301,16 +311,26 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   const INS_LP =
     `INSERT INTO loan_product (code, name, interest_rate, interest_method, max_term_months, min_amount,
       max_amount, deposit_multiplier, min_membership_months, penalty_rate,
-      guarantors_required, max_dsr_pct, gl_receivable_id, gl_interest_income_id, gl_penalty_income_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  await run(INS_LP, 'NORM', 'Normal Loan', 12, 'REDUCING', 48, K(10000), K(4000000), 3, 6, 1, 2, 66.7,
+      guarantors_required, max_dsr_pct, salary_based, gl_receivable_id, gl_interest_income_id, gl_penalty_income_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  await run(INS_LP, 'NORM', 'Normal Loan', 12, 'REDUCING', 48, K(10000), K(4000000), 3, 6, 1, 2, 66.7, 1,
     a1110, a4010, a4030);
-  await run(INS_LP, 'EMER', 'Emergency Loan', 12, 'REDUCING', 12, K(5000), K(300000), 1, 3, 1, 1, 66.7,
+  await run(INS_LP, 'EMER', 'Emergency Loan', 12, 'REDUCING', 12, K(5000), K(300000), 1, 3, 1, 1, 66.7, 1,
     a1120, a4010, a4030);
-  await run(INS_LP, 'SCHL', 'School Fees Loan', 12, 'REDUCING', 12, K(5000), K(500000), 2, 6, 1, 2, 66.7,
+  await run(INS_LP, 'SCHL', 'School Fees Loan', 12, 'REDUCING', 12, K(5000), K(500000), 2, 6, 1, 2, 66.7, 1,
     a1130, a4010, a4030);
-  await run(INS_LP, 'DEV', 'Development Loan', 14, 'REDUCING', 60, K(50000), K(6000000), 3, 12, 1, 3, 66.7,
+  await run(INS_LP, 'DEV', 'Development Loan', 14, 'REDUCING', 60, K(50000), K(6000000), 3, 12, 1, 3, 66.7, 1,
     a1140, a4010, a4030);
+
+  // Salary Appraisal Parameters (Table 52204034 "Loanees Payroll Codes") — the predefined
+  // payslip line items the Normal Loan (salary_based above) auto-adds to its loan card.
+  const INS_SAP = 'INSERT INTO salary_appraisal_parameter (code, name, type, special_type, sort_order) VALUES (?,?,?,?,?)';
+  await run(INS_SAP, 'BASIC', 'Basic Salary', 'EARNING', 'BASIC_SALARY', 1);
+  await run(INS_SAP, 'HOUSE', 'House Allowance', 'EARNING', 'NONE', 2);
+  await run(INS_SAP, 'OTHALLOW', 'Other Allowances', 'EARNING', 'NONE', 3);
+  await run(INS_SAP, 'PAYE', 'PAYE (Income Tax)', 'DEDUCTION', 'NONE', 4);
+  await run(INS_SAP, 'NHIF', 'NHIF / SHIF', 'DEDUCTION', 'NONE', 5);
+  await run(INS_SAP, 'NSSF', 'NSSF', 'DEDUCTION', 'NONE', 6);
 }
 
 async function seedMembersAndHistory(
@@ -347,20 +367,19 @@ async function seedMembersAndHistory(
   const INS_MEMBER =
     `INSERT INTO member (member_no, member_type, title, first_name, middle_name, last_name, identification_no, kra_pin,
       date_of_birth, gender, marital_status, phone, email, postal_address, physical_address, county_id, employer,
-      employment_status, staff_no, gross_income, other_deductions,
+      employment_status, staff_no,
       status, kyc_verified, join_date, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const INS_NOK =
     'INSERT INTO member_next_of_kin (member_id, name, relationship, phone) VALUES (?,?,?,?)';
 
-  const memberIds: { id: number; joinDate: IsoDate; income: Cents }[] = [];
+  const memberIds: { id: number; joinDate: IsoDate }[] = [];
   for (let i = 0; i < 120; i++) {
     const female = rnd() < 0.48;
     const fn = female ? pick(FIRST_F) : pick(FIRST_M);
     const mn = female ? pick(FIRST_F) : pick(FIRST_M);
     const ln = pick(LAST);
     const joinDate = addMonths(todayIso, -int(7, 24));
-    const income = K(int(35, 220) * 1000);
     const info = await run(
       INS_MEMBER,
       await nextSequence('MEMBER'), 'INDIVIDUAL', female ? 'Ms.' : 'Mr.', fn, mn, ln,
@@ -370,7 +389,6 @@ async function seedMembersAndHistory(
       '+2547' + int(10000000, 99999999), `${fn.toLowerCase()}.${ln.toLowerCase()}@example.co.ke`,
       'P.O. Box ' + int(100, 9999) + '–20100', pick(COUNTIES) + ' Town', countyByName[pick(COUNTIES)], pick(EMPLOYERS),
       pick(['PERMANENT', 'PERMANENT', 'CONTRACT', 'SELF_EMPLOYED']), 'EMP' + int(1000, 9999),
-      income, K(int(0, 15) * 1000),
       i < 112 ? 'ACTIVE' : pick(['DORMANT', 'WITHDRAWN', 'INACTIVE']), i < 115 ? 1 : 0,
       joinDate, now, 'system',
     );
@@ -379,7 +397,7 @@ async function seedMembersAndHistory(
       INS_NOK, memberId, pick(FIRST_F) + ' ' + ln,
       pick(['Spouse', 'Parent', 'Sibling', 'Child']), '+2547' + int(10000000, 99999999),
     );
-    memberIds.push({ id: memberId, joinDate, income });
+    memberIds.push({ id: memberId, joinDate });
   }
 
   // Share capital + deposits + FOSA activity

@@ -20,6 +20,9 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
       ...values,
       fy_start_month: Number(values.fy_start_month),
       fy_start_day: Number(values.fy_start_day),
+      guarantor_multiplier: Number(values.guarantor_multiplier) || 1,
+      self_guarantor_multiplier: Number(values.self_guarantor_multiplier) || 1,
+      member_exit_notice_days: Number(values.member_exit_notice_days) || 30,
     }, user);
     // The society's name, logo and currency appear in the shell on every page.
     revalidatePath('/', 'layout');
@@ -121,7 +124,7 @@ export async function saveSavingsProduct(
 /* ----------------------------------------------------------- loan products */
 const LOAN_NUMERIC = [
   'interest_rate', 'max_term_months', 'deposit_multiplier', 'min_membership_months',
-  'penalty_rate', 'guarantors_required', 'max_dsr_pct',
+  'penalty_rate', 'guarantors_required', 'max_dsr_pct', 'salary_based', 'repayment_cutoff_date',
   'gl_receivable_id', 'gl_interest_income_id', 'gl_penalty_income_id',
 ] as const;
 

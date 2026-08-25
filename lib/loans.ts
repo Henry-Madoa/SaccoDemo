@@ -71,6 +71,29 @@ export function addMonths(isoDate: IsoDate, n: number): IsoDate {
   return d.toISOString().slice(0, 10);
 }
 
+/** The last calendar day of the month `monthsAhead` months after `isoDate` — Business Central's
+ *  CalcDate('CM', ...) / CalcDate('CM+1M', ...). */
+export function endOfMonth(isoDate: IsoDate, monthsAhead = 0): IsoDate {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + monthsAhead + 1);
+  d.setUTCDate(0); // rolls back to the last day of the previous (target) month
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A loan product's own schedule start-date rule (the AL reference's GetRepaymentStartDate,
+ * Cod52204008.LoansManagement.al): before the product's Repayment Cutoff Date (a day-of-month;
+ * 0 means no cutoff), the first instalment falls due at the end of `refDate`'s own calendar
+ * month; on or after the cutoff day, it's pushed a further month out. `refDate` is the
+ * Application Date pre-disbursement, or the Disbursement/Posting Date once the loan is posted —
+ * the same date resolves differently depending on which stage generates the schedule.
+ */
+export function repaymentStartDate(refDate: IsoDate, cutoffDay: number): IsoDate {
+  const dayNo = Number(refDate.slice(8, 10));
+  return (!cutoffDay || dayNo < cutoffDay) ? endOfMonth(refDate, 0) : endOfMonth(refDate, 1);
+}
+
 /**
  * Build an amortisation schedule.
  * @param principal  minor units

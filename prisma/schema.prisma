@@ -351,6 +351,7 @@ model transaction_charge {
   transaction_charge_setup   transaction_charge_setup[]
   account_activation_request account_activation_request[]
   member_charging            member_charging[]
+  member_exit                member_exit[]
 
   @@index([transaction_type], map: "ix_tc_type")
 }
@@ -579,6 +580,9 @@ model loan {
   days_in_arrears        Int               @default(0)
   classification         String            @default("PERFORMING")
   disburse_to_account_id Int?
+  /// 'DIRECT' | 'CHECKOFF' — AL's Recovery Mode. A CHECKOFF loan is picked up by
+  /// lib/checkoffBatches.ts's batch lines instead of relying on counter/own-initiative repayment.
+  recovery_mode          String            @default("DIRECT")
   created_by             String?
   version                Int               @default(0)
   savings_account        savings_account?  @relation(fields: [disburse_to_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -589,8 +593,13 @@ model loan {
   txn                    txn[]
   loan_collateral        loan_collateral[]
   loan_appraisal         loan_appraisal[]
+  loan_calculator        loan_calculator[]
+  loan_salary_appraisal_line loan_salary_appraisal_line[]
+  loan_guarantor_change  loan_guarantor_change[]
+  member_exit_line       member_exit_line[]
 
   @@index([member_id], map: "ix_loan_member")
+  @@index([recovery_mode], map: "ix_loan_recovery_mode")
   @@index([product_id], map: "ix_loan_product")
   @@index([status], map: "ix_loan_status")
 }
@@ -622,11 +631,14 @@ model loan_product {
   penalty_rate                                              Float                 @default(1)
   guarantors_required                                       Int                   @default(2)
   max_dsr_pct                                               Float                 @default(66.7)
+  salary_based                                              Int                   @default(0)
+  repayment_cutoff_date                                     Int                   @default(0)
   gl_receivable_id                                          Int?
   gl_interest_income_id                                     Int?
   gl_penalty_income_id                                      Int?
   status                                                    String                @default("ACTIVE")
   loan                                                      loan[]
+  loan_calculator                                           loan_calculator[]
   gl_account_loan_product_gl_interest_income_idTogl_account gl_account?           @relation("loan_product_gl_interest_income_idTogl_account", fields: [gl_interest_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   gl_account_loan_product_gl_penalty_income_idTogl_account  gl_account?           @relation("loan_product_gl_penalty_income_idTogl_account", fields: [gl_penalty_income_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   gl_account_loan_product_gl_receivable_idTogl_account      gl_account?           @relation("loan_product_gl_receivable_idTogl_account", fields: [gl_receivable_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -742,6 +754,107 @@ model loan_appraisal_factor {
   @@index([appraisal_id], map: "ix_lapf_appraisal")
 }
 
+/**
+ * A predefined payslip line item (Table 52204034 "Loanees Payroll Codes") — the master list of
+ * earnings and deductions a "salary based" loan product's Salary Appraisal section is built
+ * from. `special_type` flags the one earning line ("BASIC_SALARY") the one-third affordability
+ * cap is computed against; every other line is a plain, freely-added code.
+ */
+model salary_appraisal_parameter {
+  id           Int    @id @default(autoincrement())
+  code         String @unique
+  name         String
+  type         String // EARNING | DEDUCTION
+  special_type String @default("NONE") // NONE | BASIC_SALARY
+  sort_order   Int    @default(0)
+  status       String @default("ACTIVE")
+
+  loan_salary_appraisal_line loan_salary_appraisal_line[]
+}
+
+/**
+ * One salary-appraisal line on a loan (Table 52204035 "Loanees Payroll Transactions") — a
+ * snapshot of a salary_appraisal_parameter's code/name/type at the time the loan was seeded,
+ * plus the amount the loan officer typed in to mimic the member's payslip. `parameter_id` is
+ * null and `editable` false for the auto-derived rows representing the member's other disbursed
+ * loans' installments (special_type LOAN_DEDUCTION) — those are regenerated on every view, not
+ * hand-entered.
+ */
+model loan_salary_appraisal_line {
+  id           Int     @id @default(autoincrement())
+  loan_id      Int
+  parameter_id Int?
+  code         String
+  name         String
+  type         String // EARNING | DEDUCTION
+  special_type String  @default("NONE") // NONE | BASIC_SALARY | LOAN_DEDUCTION
+  amount       BigInt  @default(0)
+  editable     Boolean @default(true)
+
+  loan                        loan                         @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salary_appraisal_parameter  salary_appraisal_parameter?  @relation(fields: [parameter_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([loan_id, code])
+  @@index([loan_id], map: "ix_lsal_loan")
+}
+
+/**
+ * A dated, immutable what-if loan calculation (Table 52204036 "Loan Calculator") — a loan
+ * officer picks a member and product, types a principal and term, and this snapshots the
+ * member's deposit-multiplier headroom (loanableDeposits x product.deposit_multiplier, less
+ * existing exposure) alongside a full repayment schedule under whichever Rate Type they want
+ * to compare, without capturing an actual loan application. Never edited or recalculated in
+ * place — like loan_appraisal, a new run is simply a new row — so a member's calculation
+ * history stays an honest record of what was quoted and when.
+ */
+model loan_calculator {
+  id                        Int                   @id @default(autoincrement())
+  calc_no                   String                @unique
+  member_id                 Int
+  product_id                Int
+  principal                 BigInt                @default(0)
+  interest_rate             Float                 @default(0)
+  rate_type                 String                @default("AMORTISED")
+  term_months               Int
+  repayment_start_date      String
+  current_deposits          BigInt                @default(0)
+  deposit_multiplier_amount BigInt                @default(0)
+  outstanding_loans         BigInt                @default(0)
+  deposit_appraisal         BigInt                @default(0)
+  installment               BigInt                @default(0)
+  total_interest            BigInt                @default(0)
+  status                    String                @default("Open")
+  converted_loan_id         Int?
+  converted_at              String?
+  converted_by              String?
+  created_at                String?
+  created_by                String?
+  member                    member                @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_product              loan_product          @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan                      loan?                 @relation(fields: [converted_loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_calculator_line      loan_calculator_line[]
+
+  @@index([member_id], map: "ix_lc_member")
+  @@index([product_id], map: "ix_lc_product")
+  @@index([status], map: "ix_lc_status")
+}
+
+/** One projected installment of a loan_calculator run (Table 52204037 "Loan Calculator Lines"). */
+model loan_calculator_line {
+  id                  Int             @id @default(autoincrement())
+  calculator_id       Int
+  installment_no      Int
+  due_date            String
+  opening_balance     BigInt          @default(0)
+  principal_due       BigInt          @default(0)
+  interest_due        BigInt          @default(0)
+  installment_amount  BigInt          @default(0)
+  closing_balance     BigInt          @default(0)
+  loan_calculator     loan_calculator @relation(fields: [calculator_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([calculator_id, installment_no], map: "ix_lcl_calculator")
+}
+
 model member_next_of_kin {
   id                Int     @id @default(autoincrement())
   member_id         Int
@@ -808,8 +921,6 @@ model member_application {
   employer                       String?
   employment_status              String?
   staff_no                       String?
-  gross_income                   BigInt                           @default(0)
-  other_deductions               BigInt                           @default(0)
   kyc_verified                   Int                              @default(0)
   join_date                      String?
   photo                          String?
@@ -941,8 +1052,6 @@ model member_edit_request {
   employer                 String?
   employment_status        String?
   staff_no                 String?
-  gross_income             BigInt                    @default(0)
-  other_deductions         BigInt                    @default(0)
   kyc_verified             Int                       @default(0)
   join_date                String?
   photo                    String?
@@ -1100,8 +1209,11 @@ model member {
   employer                 String?
   employment_status        String?
   staff_no                 String?
-  gross_income             BigInt                    @default(0)
-  other_deductions         BigInt                    @default(0)
+  /// The formal Employer master record this member is linked to, for checkoff/salary batch
+  /// routing (lib/checkoffBatches.ts) — separate from the free-text `employer` column above,
+  /// which member applications/edits keep using unchanged. Set directly (no approval workflow)
+  /// via lib/employers.ts's setMemberEmployer().
+  employer_id              Int?
   status                   String                    @default("ACTIVE")
   kyc_verified             Int                       @default(0)
   join_date                String?
@@ -1126,11 +1238,13 @@ model member {
   journal                  journal[]
   loan                     loan[]
   loan_guarantor           loan_guarantor[]
+  loan_calculator          loan_calculator[]
   county                   county?                   @relation(fields: [county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sub_county               sub_county?               @relation(fields: [sub_county_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member_category          member_category?          @relation(fields: [member_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   global_dimension_1_value global_dimension_1_value? @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   global_dimension_2_value global_dimension_2_value? @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employer_ref             employer?                 @relation(fields: [employer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member_next_of_kin       member_next_of_kin[]
   member_nominee           member_nominee[]
   member_signatory         member_signatory[]
@@ -1143,8 +1257,14 @@ model member {
   collateral_application   collateral_application[]
   collateral_register      collateral_register[]
   collateral_release       collateral_release[]
+  loan_guarantor_change            loan_guarantor_change[]
+  loan_guarantor_change_line       loan_guarantor_change_line[]
+  loan_guarantor_change_replacement loan_guarantor_change_replacement[]
+  member_exit                      member_exit[]
+  checkoff_batch_line               checkoff_batch_line[]
 
   @@index([county_id], map: "ix_member_county")
+  @@index([employer_id], map: "ix_member_employer")
   @@index([sub_county_id], map: "ix_member_sub_county")
   @@index([member_category_id], map: "ix_member_category")
   @@index([global_dimension_1_id], map: "ix_member_gd1")
@@ -1186,6 +1306,11 @@ model organisation {
   statement_footer           String?
   global_dimension_1_caption String? @default("Global Dimension 1 Code")
   global_dimension_2_caption String? @default("Global Dimension 2 Code")
+  guarantor_multiplier       Float?  @default(1)
+  self_guarantor_multiplier  Float?  @default(1)
+  /// AL's "Withdrawal Period" DateFormula, simplified to a plain day count — how long after a
+  /// Member Exit is opened its maturity date falls, before it can be processed.
+  member_exit_notice_days    Int?    @default(30)
   updated_at                 String?
   updated_by                 String?
 }
@@ -1250,6 +1375,7 @@ model savings_account {
   account_activation_request       account_activation_request[]   @relation("aar_activated_account")
   account_activation_request_debit account_activation_request[]   @relation("aar_debit_account")
   member_charging                  member_charging[]
+  member_exit_line                 member_exit_line[]
 
   @@index([member_id], map: "ix_sa_member")
   @@index([product_id], map: "ix_sa_product")
@@ -1634,4 +1760,201 @@ model loan_collateral {
   @@unique([loan_id, collateral_no], map: "ux_loan_collateral")
   @@index([collateral_no], map: "ix_lc_collateral")
   @@index([loan_id], map: "ix_lc_loan")
+}
+
+/// Guarantor Change Management — maker-checker request to release and/or substitute guarantors
+/// on an already-disbursed loan, ported from the AL reference's "Loan Security Mgmt." card
+/// (Tab52204085 + Tab52204058 + Tab52204059) narrowed to Security Type = Guarantor only, since
+/// collateral already has its own release lifecycle (collateral_release above). One header per
+/// review, one line per guarantor currently COMMITTED to the loan at the time it was opened/last
+/// refreshed, each line either released outright or covered by one or more replacement guarantors.
+model loan_guarantor_change {
+  no              String                       @id
+  loan_id         Int
+  /// The loan's own borrower, snapshotted from loan.member_id at creation.
+  member_id       Int
+  /// "Document Status" — the approval workflow state.
+  status          String                       @default("Open")
+  decision_reason String?
+  processed_at    String?
+  processed_by    String?
+  created_at      String?
+  created_by      String?
+  loan            loan                         @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member          member                       @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines           loan_guarantor_change_line[]
+
+  @@index([loan_id], map: "ix_lgc_loan")
+  @@index([status], map: "ix_lgc_status")
+}
+
+/// One row per guarantor COMMITTED to the loan when this document was populated — the officer
+/// marks it `release` (drop outright) or leaves it alone and attaches replacement rows instead.
+model loan_guarantor_change_line {
+  id                     Int                                 @id @default(autoincrement())
+  change_no              String
+  /// The currently-committed guarantor this line reviews.
+  guarantor_member_id    Int
+  /// Snapshot of loan_guarantor.amount at populate time.
+  initial_guaranteed     BigInt                              @default(0)
+  /// Snapshot of that guarantor's prorated exposure on this loan at populate time (same formula
+  /// as lib/guarantors.ts's guaranteeSplit — capped at the loan's current outstanding balance).
+  outstanding_guaranteed BigInt                              @default(0)
+  release                Boolean                              @default(false)
+  change                 loan_guarantor_change               @relation(fields: [change_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  guarantor_member       member                               @relation(fields: [guarantor_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacements           loan_guarantor_change_replacement[]
+
+  @@unique([change_no, guarantor_member_id], map: "ux_lgcl_change_member")
+  @@index([change_no], map: "ix_lgcl_change")
+}
+
+/// A proposed replacement guarantor covering (part of) a line's outstanding amount — never the
+/// loan's own borrower (self-guarantee isn't a loan_guarantor row in this schema, see
+/// lib/guarantors.ts's selfGuaranteeCapacity), always vetted against the replacement member's own
+/// live guarantee capacity.
+model loan_guarantor_change_replacement {
+  id                    Int                        @id @default(autoincrement())
+  line_id               Int
+  replacement_member_id Int
+  amount                BigInt                     @default(0)
+  line                  loan_guarantor_change_line @relation(fields: [line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacement_member    member                     @relation(fields: [replacement_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([line_id], map: "ix_lgcr_line")
+}
+
+/// Member Exit Module — the maker-checker process for terminating a membership, ported from the
+/// AL reference's "Member Withdrawal" table (Tab52204055) narrowed to Document Type = Withdrawal
+/// only (the sibling "Refund" variant on the same AL table is a partial-withdrawal-without-exit
+/// feature of its own, out of scope here). Settles everything the member owns against everything
+/// they owe (see lib/memberExits.ts's processMemberExit()), pays out the difference, and closes
+/// their accounts.
+model member_exit {
+  no                    String             @id
+  member_id             Int
+  /// 'GENERAL' | 'RETIREE' | 'DECEASED' — AL's "Withdrawal Type". DECEASED skips the
+  /// loan/guarantee liability checks (an estate isn't blocked on clearing loans first).
+  exit_type             String             @default("GENERAL")
+  /// 'FOSA' | 'BANK_TRANSFER' — AL's "Balance Option", which channel the final payout uses.
+  payout_method         String             @default("FOSA")
+  reason                String?
+  /// AL's "Charge Code" — optional, posted via lib/charges.ts's postTransactionCharges() at
+  /// processing time.
+  transaction_charge_id Int?
+  exit_date             String?
+  /// exit_date + organisation.member_exit_notice_days — processMemberExit() refuses to run
+  /// before this date, same as AL's own maturity check.
+  maturity_date         String?
+  /// Snapshotted by populateLines()/refreshMemberExitLines() — total_assets (excl. share
+  /// capital) + liabilities. Guarantees deliberately excluded, same as AL's own Net Amount.
+  net_amount            BigInt             @default(0)
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status                String             @default("Open")
+  decision_reason       String?
+  processed_at          String?
+  processed_by          String?
+  created_at            String?
+  created_by            String?
+  member                member             @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge    transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines                 member_exit_line[]
+
+  @@index([member_id], map: "ix_mex_member")
+  @@index([status], map: "ix_mex_status")
+}
+
+/// One asset/liability/guarantee line snapshotted when the exit was opened or last refreshed.
+/// Unlike AL's free-text "Account No", this carries real FKs into savings_account/loan — this
+/// schema already has ids for both, so the card can link straight to the source record.
+model member_exit_line {
+  id                 Int              @id @default(autoincrement())
+  exit_no            String
+  /// 'ASSET' | 'LIABILITY' | 'GUARANTEE'
+  entry_type         String
+  /// Set for ASSET lines.
+  savings_account_id Int?
+  /// Set for LIABILITY (this member's own loan) and GUARANTEE (a loan this member guarantees
+  /// for someone else) lines.
+  loan_id            Int?
+  account_name       String?
+  balance            BigInt           @default(0)
+  /// Signed: positive for an asset, negative for a liability or guarantee.
+  amount             BigInt           @default(0)
+  /// Share capital is captured for visibility but excluded from net_amount and never
+  /// transferred/paid out during processing — matches AL's own Total Assets flowfield and
+  /// posting loop, both of which explicitly exclude it.
+  is_share_capital   Boolean          @default(false)
+  exit               member_exit      @relation(fields: [exit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  savings_account    savings_account? @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan               loan?            @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([exit_no], map: "ix_mexl_exit")
+}
+
+/// Checkoff and Salary Processing — the employer master, ported from the AL reference's
+/// "Employers" table (Tab52204126) narrowed to what routes a checkoff/salary batch: name/contact,
+/// whether a payroll number is mandatory for its members, and status. The 59-file AL module this
+/// narrows (Checkoff Upload/Calculation reconciliation ledgers, Standing Orders, Checkoff
+/// Variations, Checkoff Advice, Employer Payroll Details staging, several analysis reports) is
+/// scoped down in lib/checkoffBatches.ts's own header comment.
+model employer {
+  id                   Int              @id @default(autoincrement())
+  code                 String           @unique
+  name                 String
+  phone                String?
+  email                String?
+  payroll_no_mandatory Boolean          @default(false)
+  status               String           @default("ACTIVE")
+  member               member[]
+  checkoff_batch       checkoff_batch[]
+}
+
+/// A maker-checker batch document scoped to one employer/period: CHECKOFF lines compute each
+/// member's expected loan-installment recovery and record what was actually remitted (the
+/// reconciliation step), SALARY lines simply record each member's remitted net salary — see
+/// lib/checkoffBatches.ts's processCheckoffBatch() for how each type posts.
+model checkoff_batch {
+  no              String                @id
+  /// 'CHECKOFF' | 'SALARY'
+  batch_type      String
+  employer_id     Int
+  /// First-of-month, e.g. '2026-08-01' — the payroll period this batch covers.
+  period          String
+  posting_date    String?
+  description     String?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status          String                @default("Open")
+  decision_reason String?
+  processed_at    String?
+  processed_by    String?
+  created_at      String?
+  created_by      String?
+  employer        employer              @relation(fields: [employer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines           checkoff_batch_line[]
+
+  @@index([employer_id], map: "ix_cob_employer")
+  @@index([status], map: "ix_cob_status")
+}
+
+/// One member's line within a checkoff/salary batch.
+model checkoff_batch_line {
+  id              Int            @id @default(autoincrement())
+  batch_no        String
+  member_id       Int
+  payroll_no      String?
+  /// CHECKOFF only — sum of this member's recovery_mode='CHECKOFF' disbursed loan installments,
+  /// each capped at that loan's own outstanding balance. Always 0 for a SALARY line (this port
+  /// excludes AL's Employer Payroll Details staging table, so there is nothing to compute an
+  /// expected salary from — the officer records the actual remitted amount directly instead).
+  expected_amount BigInt         @default(0)
+  /// What the officer records as actually remitted for this member — the reconciliation input
+  /// both batch types share.
+  remitted_amount BigInt         @default(0)
+  /// remitted_amount - expected_amount (CHECKOFF only; always 0 for SALARY).
+  variance        BigInt         @default(0)
+  batch           checkoff_batch @relation(fields: [batch_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  member          member         @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([batch_no, member_id], map: "ux_cobl_batch_member")
 }

@@ -7,6 +7,8 @@ import {
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
 import { listCollateralTypes } from '@/lib/collateralTypes';
+import { listSalaryAppraisalParameters } from '@/lib/salaryAppraisal';
+import { listEmployers } from '@/lib/employers';
 import {
   listChangeLogSetup, listChangeLogEntries, hasAnyChangeLogEntries, listAvailableChangeLogTables,
   CHANGE_LOG_FILTER_FIELDS,
@@ -43,6 +45,8 @@ import { UserFormButton } from '../user-form';
 import { RoleFormButton, RoleRow } from '../role-form';
 import { SavingsProductButton, LoanProductButton } from '../product-forms';
 import { CollateralTypeButton } from '../collateral-type-form';
+import { SalaryAppraisalParameterFormButton } from '../salary-appraisal-parameter-form';
+import { EmployerFormButton } from '../employer-form';
 import { MemberCategoryFormButton, MemberCategoryRow } from '../member-category-form';
 import { CountyFormButton, CountyRow } from '../county-form';
 import { DimensionValueFormButton } from '../dimension-value-form';
@@ -88,6 +92,8 @@ const PRODUCTS_TABS: AdminTab[] = [
   { key: 'savings', label: 'Savings Products', page: 'ADMIN_PRODUCTS_SAVINGS' },
   { key: 'loans', label: 'Loan Products', page: 'ADMIN_PRODUCTS_LOANS' },
   { key: 'collateral', label: 'Collateral Types', page: 'ADMIN_PRODUCTS_COLLATERAL' },
+  { key: 'salary', label: 'Salary Appraisal Parameters', page: 'ADMIN_PRODUCTS_SALARY_PARAMS' },
+  { key: 'employers', label: 'Employers', page: 'ADMIN_PRODUCTS_EMPLOYERS' },
 ];
 
 /** Charges' own sub-navigation. */
@@ -185,6 +191,8 @@ export default async function AdminPage({ params, searchParams }: {
           {productsTab === 'savings' ? <SavingsProductsTab /> : null}
           {productsTab === 'loans' ? <LoanProductsTab /> : null}
           {productsTab === 'collateral' ? <CollateralTypesTab /> : null}
+          {productsTab === 'salary' ? <SalaryParamsTab /> : null}
+          {productsTab === 'employers' ? <EmployersTab /> : null}
         </>
       ) : null}
       {tab === 'charges' ? (
@@ -462,6 +470,87 @@ async function CollateralTypesTab() {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="🏠" title="No collateral types yet" sub="Add one before collateral can be pledged against it" />}
+      </Card>
+    </>
+  );
+}
+
+async function SalaryParamsTab() {
+  const rows = await listSalaryAppraisalParameters();
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <SalaryAppraisalParameterFormButton>Add parameter</SalaryAppraisalParameterFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Salary appraisal parameters"
+          sub="Predefined payslip line items — every active one is auto-added to a salary-based loan product's Salary Appraisal card"
+        />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Code</th><th>Name</th><th>Type</th><th>Special type</th><th>Status</th><th className="num" /></tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => (
+                <tr key={p.id}>
+                  <td className="mono">{p.code}</td>
+                  <td><b>{p.name}</b></td>
+                  <td>{p.type === 'EARNING' ? 'Earning' : 'Deduction'}</td>
+                  <td>{p.special_type === 'BASIC_SALARY' ? <Pill tone="info">BASIC SALARY</Pill> : '—'}</td>
+                  <td><Pill status={p.status} /></td>
+                  <td className="num">
+                    <SalaryAppraisalParameterFormButton parameter={p} className="btn sm ghost">Edit</SalaryAppraisalParameterFormButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🧾" title="No salary appraisal parameters yet" sub="Add earning and deduction codes before turning a loan product Salary based" />}
+      </Card>
+    </>
+  );
+}
+
+async function EmployersTab() {
+  const rows = await listEmployers();
+
+  return (
+    <>
+      <Toolbar>
+        <Spacer />
+        <EmployerFormButton>Add employer</EmployerFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead
+          title="Employers"
+          sub="Members linked to an employer can be pulled into a Checkoff & Salary Processing batch for it"
+        />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Code</th><th>Name</th><th>Phone</th><th>Email</th><th className="num">Members</th><th>Status</th><th className="num" /></tr>
+            </thead>
+            <tbody>
+              {rows.map((e) => (
+                <tr key={e.id}>
+                  <td className="mono">{e.code}</td>
+                  <td><b>{e.name}</b></td>
+                  <td>{e.phone || '—'}</td>
+                  <td>{e.email || '—'}</td>
+                  <td className="num">{e.member_count}</td>
+                  <td><Pill status={e.status} /></td>
+                  <td className="num">
+                    <EmployerFormButton employer={e} className="btn sm ghost">Edit</EmployerFormButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="💼" title="No employers yet" sub="Add one before a checkoff/salary batch can find its members" />}
       </Card>
     </>
   );

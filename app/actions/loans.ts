@@ -56,6 +56,7 @@ export async function applyForLoan(values: FormValues): Promise<ActionResult<Loa
       termMonths: Number(values.termMonths),
       purpose: String(values.purpose || ''),
       disburseToAccountId: values.disburseToAccountId ? Number(values.disburseToAccountId) : null,
+      recoveryMode: values.recoveryMode === 'CHECKOFF' ? 'CHECKOFF' : 'DIRECT',
       user,
     });
     revalidatePath('/loans');
@@ -75,6 +76,7 @@ export async function updateLoanApplication(loanId: number, values: FormValues):
       termMonths: Number(values.termMonths),
       purpose: String(values.purpose || ''),
       disburseToAccountId: values.disburseToAccountId ? Number(values.disburseToAccountId) : null,
+      recoveryMode: values.recoveryMode === 'CHECKOFF' ? 'CHECKOFF' : 'DIRECT',
       user,
     });
     revalidatePath('/loans');
