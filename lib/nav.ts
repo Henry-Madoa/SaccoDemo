@@ -34,12 +34,10 @@ export const NAV: NavGroup[] = [
       { path: '/account-openings', label: 'Account Opening', icon: '🏦', page: 'ACCOUNT_OPENING' },
       { path: '/account-deactivations', label: 'Account Deactivation', icon: '🚫', page: 'ACCOUNT_DEACTIVATION' },
       { path: '/account-activations', label: 'Account Activation', icon: '✅', page: 'ACCOUNT_ACTIVATION' },
-      { path: '/member-activations', label: 'Member Activation', icon: '🔓', page: 'MEMBER_ACTIVATIONS' },
       { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
-      { path: '/entrance-fee-recovery', label: 'Entrance Fee Recovery', icon: '🎟', page: 'ENTRANCE_FEE_RECOVERY' },
-      { path: '/member-status-update', label: 'Member Status Update', icon: '🕰', page: 'MEMBER_STATUS_UPDATE' },
       { path: '/member-exits', label: 'Member Exit', icon: '🚪', page: 'MEMBER_EXITS' },
-    ],
+      { path: '/member-activations', label: 'Member Activation', icon: '🔓', page: 'MEMBER_ACTIVATIONS' },
+      ],
   },
   {
     group:'Credit',
@@ -74,6 +72,13 @@ export const NAV: NavGroup[] = [
       { path: '/loan-documents', label: 'Loans Reports', icon: '🖨', page: 'LOANS' },
       { path: '/reports', label: 'Financial Reports', icon: '📊', page: 'REPORTS' },
     ],
+  },
+  {
+    group: 'Automations',
+    items: [
+        { path: '/entrance-fee-recovery', label: 'Entrance Fee Recovery', icon: '🎟', page: 'ENTRANCE_FEE_RECOVERY' },
+        { path: '/member-status-update', label: 'Member Status Update', icon: '🕰', page: 'MEMBER_STATUS_UPDATE' },
+     ],
   },
   {
     group: 'Administration',

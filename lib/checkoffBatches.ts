@@ -15,19 +15,28 @@
  *     no need to re-run daily interest accrual first.
  *   - SALARY lines carry no computed expectation — AL derived it from the Employer Payroll
  *     Details staging table this port excludes, so there is nothing to compute a salary amount
- *     from. The officer records what was actually remitted directly (the same reconciliation
- *     field CHECKOFF lines use for their own actual-vs-expected comparison).
- *   - Deliberately excluded: Standing Orders, Member Subscriptions/block-amount recovery, the
- *     priority-ordered Transaction Recoveries/commission waterfall, Employer Payroll Details,
- *     Checkoff Variations, Checkoff Advice, and the various analysis reports.
+ *     from. Instead, a CSV upload (applyCheckoffCsvUpload(), ApplyEmployerUpload's own role
+ *     narrowed to apply straight onto this batch's lines rather than a separate staging table)
+ *     or a manual entry (recordRemittedAmount()) records what was actually remitted, and
+ *     Calculate (calculateCheckoffRecoveries()) then runs the batch's attached Transaction
+ *     Charge and Transaction Recoveries waterfall (lib/charges.ts, lib/types.ts's
+ *     TransactionRecovery) against it — CalculateRecoveries narrowed to the two recovery types
+ *     this port can act on without further master data (see TransactionRecoveryType).
+ *   - Deliberately excluded: Standing Order as a Transaction Recovery type (this app's own
+ *     Standing Order module already recovers on its own independent daily schedule — see
+ *     lib/standingOrders.ts), Member Subscriptions/block-amount recovery, the ongoing Employer
+ *     Payroll Details staging table (a CSV upload is applied directly instead), Checkoff
+ *     Variations, Checkoff Advice, and the various analysis reports.
  *
  * Processing reuses the engines every other module here already trusts — no new GL mechanics:
  *   - loanService.repay({channel: 'CHECKOFF'}) for loan recoveries.
- *   - lib/savings.ts's deposit({channel: 'CHECKOFF'}) for salary credits.
- * Both already post through CHANNEL_GL.CHECKOFF -> GL account 1040 "Check-off Receivable
- * Clearing" (already seeded as both a GL account and a bank_account row), which is what let AL's
- * own "Balancing Account" concept on Checkoff Header be dropped entirely — reconciling whatever
- * an employer actually remits into that clearing account is an ordinary bank-reconciliation task
+ *   - lib/savings.ts's deposit({channel: 'CHECKOFF'}) for salary credits and internal-deposit
+ *     recoveries.
+ *   - lib/charges.ts's postTransactionCharges() for a SALARY batch's charge components.
+ * All post through CHANNEL_GL.CHECKOFF -> GL account 1040 "Check-off Receivable Clearing"
+ * (already seeded as both a GL account and a bank_account row), which is what let AL's own
+ * "Balancing Account" concept on Checkoff Header be dropped entirely — reconciling whatever an
+ * employer actually remits into that clearing account is an ordinary bank-reconciliation task
  * this app already has tooling for, entirely separate from this batch.
  */
 import {
@@ -36,10 +45,13 @@ import {
 import { AppError } from './errors.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { repay } from './loanService.ts';
-import { deposit } from './savings.ts';
+import { deposit, CHANNEL_GL } from './savings.ts';
 import { today } from './format.ts';
+import { parseCsv } from './csv.ts';
+import * as chargesLib from './charges.ts';
 import type {
-  Actor, CheckoffBatch, CheckoffBatchLineWithDetails, CheckoffBatchWithDetails,
+  Actor, Cents, CheckoffBatch, CheckoffBatchLineWithDetails, CheckoffBatchWithDetails,
+  TransactionCharge,
 } from './types.ts';
 
 export type CheckoffBatchView = 'open' | 'pending' | 'approved' | 'processed';
@@ -52,13 +64,17 @@ const VIEW_CLAUSE: Record<CheckoffBatchView, string> = {
 };
 
 const SELECT_BATCH = `
-  SELECT b.*, e.code AS employer_code, e.name AS employer_name,
+  SELECT b.*, e.code AS employer_code, e.name AS employer_name, tc.code AS transaction_charge_code,
          COALESCE((SELECT SUM(expected_amount) FROM checkoff_batch_line WHERE batch_no = b.no), 0) AS total_expected,
          COALESCE((SELECT SUM(remitted_amount) FROM checkoff_batch_line WHERE batch_no = b.no), 0) AS total_remitted,
          COALESCE((SELECT SUM(variance) FROM checkoff_batch_line WHERE batch_no = b.no), 0) AS total_variance,
-         COALESCE((SELECT COUNT(*) FROM checkoff_batch_line WHERE batch_no = b.no), 0) AS line_count
+         COALESCE((SELECT SUM(uploaded_amount) FROM checkoff_batch_line WHERE batch_no = b.no), 0) AS total_uploaded,
+         COALESCE((SELECT COUNT(*) FROM checkoff_batch_line WHERE batch_no = b.no AND NOT matched), 0) AS unmatched_count,
+         COALESCE((SELECT COUNT(*) FROM checkoff_batch_line WHERE batch_no = b.no), 0) AS line_count,
+         EXISTS(SELECT 1 FROM checkoff_calculation WHERE batch_no = b.no) AS calculated
   FROM checkoff_batch b
-  JOIN employer e ON e.id = b.employer_id`;
+  JOIN employer e ON e.id = b.employer_id
+  LEFT JOIN transaction_charge tc ON tc.id = b.transaction_charge_id`;
 
 export interface ListCheckoffBatchOptions {
   view?: CheckoffBatchView;
@@ -103,6 +119,8 @@ export const listCheckoffBatchLines = (batchNo: string): Promise<CheckoffBatchLi
 /** Wipes and re-populates a batch's lines from the members' current live position — used by both
  *  createCheckoffBatch() and refreshCheckoffBatchLines(). */
 async function populateLines(batchNo: string, employerId: number, batchType: string): Promise<void> {
+  // Calculate's own rows reference a line id, so they must go before the lines they reference do.
+  await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', batchNo);
   await run('DELETE FROM checkoff_batch_line WHERE batch_no = ?', batchNo);
 
   if (batchType === 'CHECKOFF') {
@@ -155,24 +173,46 @@ async function assertNoLiveBatch(employerId: number, batchType: string, period: 
 
 export async function createCheckoffBatch(
   employerId: number, batchType: 'CHECKOFF' | 'SALARY', period: string, user: Actor,
+  transactionChargeId?: number | null,
 ): Promise<{ no: string }> {
   if (!(await one('SELECT 1 FROM employer WHERE id = ?', employerId))) {
     throw new AppError('Employer not found', 'NOT_FOUND');
   }
   await assertNoLiveBatch(employerId, batchType, period);
+  const chargeId = batchType === 'SALARY' ? transactionChargeId || null : null;
 
   const no = await nextSequence('CHECKOFF_BATCH');
   await tx(async () => {
     await run(
-      `INSERT INTO checkoff_batch (no, batch_type, employer_id, period, posting_date, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?)`,
-      no, batchType, employerId, period, today(), new Date().toISOString(), user.username,
+      `INSERT INTO checkoff_batch (no, batch_type, employer_id, period, posting_date, transaction_charge_id, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      no, batchType, employerId, period, today(), chargeId, new Date().toISOString(), user.username,
     );
     await populateLines(no, employerId, batchType);
   });
-  await audit(user, 'CHECKOFF_BATCH_CREATE', 'checkoff_batch', no, { employerId, batchType, period });
+  await audit(user, 'CHECKOFF_BATCH_CREATE', 'checkoff_batch', no, { employerId, batchType, period, chargeId });
   return { no };
 }
+
+/** SALARY only — lets the officer attach or change the 'End Month Salary' Charge Code Calculate
+ *  will run against, while the batch is still Open. Clears any stale Calculate output so a
+ *  changed charge can never post against a previous charge's breakdown. */
+export async function setCheckoffBatchChargeCode(no: string, transactionChargeId: number | null, user: Actor): Promise<void> {
+  const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
+  if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
+  if (req.status !== 'Open') throw new AppError('Only an open batch can be edited', 'VALIDATION');
+  if (req.batch_type !== 'SALARY') throw new AppError('Only a Salary Processing batch can have a Charge Code', 'VALIDATION');
+  await tx(async () => {
+    await run('UPDATE checkoff_batch SET transaction_charge_id = ? WHERE no = ?', transactionChargeId, no);
+    await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', no);
+  });
+  await audit(user, 'CHECKOFF_BATCH_SET_CHARGE_CODE', 'checkoff_batch', no, { transactionChargeId });
+}
+
+/** The Charge Code picklist for a Salary Processing batch — every enabled Transaction Charge
+ *  configured for 'End Month Salary'. */
+export const listSalaryChargeCodes = (): Promise<TransactionCharge[]> =>
+  chargesLib.listTransactionChargesByType('End Month Salary');
 
 export async function refreshCheckoffBatchLines(no: string, user: Actor): Promise<void> {
   const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
@@ -195,20 +235,292 @@ export async function recordRemittedAmount(no: string, lineId: number, amountSh:
 
   const amount = Math.max(0, Math.round(amountSh));
   const variance = req.batch_type === 'CHECKOFF' ? amount - line.expected_amount : 0;
-  await run('UPDATE checkoff_batch_line SET remitted_amount = ?, variance = ? WHERE id = ?', amount, variance, lineId);
+  await tx(async () => {
+    await run('UPDATE checkoff_batch_line SET remitted_amount = ?, variance = ? WHERE id = ?', amount, variance, lineId);
+    // A hand-edit after Calculate invalidates that line's own breakdown — it was computed
+    // against the amount just replaced. Cleared rather than left stale so
+    // assertReadyForApproval()'s "must have been Calculated" gate catches it again.
+    await run('DELETE FROM checkoff_calculation WHERE line_id = ?', lineId);
+  });
   await audit(user, 'CHECKOFF_BATCH_RECORD_REMITTED', 'checkoff_batch', no, { lineId, amount });
 }
+
+const CSV_ID_HEADERS = ['payroll no', 'payroll no.', 'staff no', 'staff no.', 'employee no', 'payroll number', 'staff number'];
+const CSV_NAME_HEADERS = ['name', 'employee name', 'member name'];
+const CSV_AMOUNT_HEADERS = ['amount', 'remitted amount', 'salary', 'net pay'];
+
+function findCsvColumn(header: string[], candidates: string[]): number {
+  const lower = header.map((h) => h.trim().toLowerCase());
+  for (const c of candidates) {
+    const idx = lower.indexOf(c);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+export interface CheckoffCsvUploadResult {
+  matchedCount: number;
+  unmatchedRows: string[];
+  totalUploaded: Cents;
+}
+
+/**
+ * Ported from ApplyEmployerUpload (Cod52204013.CheckoffManagement.al), narrowed since this port
+ * has no separate Employer Payroll Details staging table: applies a CSV (Payroll/Staff No.,
+ * Name, Amount) straight onto the batch's own lines, matched by payroll no. A matched row also
+ * overwrites that line's remitted_amount, so it's ready to Validate/Calculate/submit without a
+ * separate manual entry pass — the officer only needs to hand-edit a line afterward to correct
+ * or override what the file said. Unmatched rows (no line carries that payroll no.) are reported
+ * back rather than silently dropped, mirroring AL's own Suspense Account fallback in spirit
+ * without needing a dedicated suspense posting of its own.
+ */
+export async function applyCheckoffCsvUpload(no: string, csvText: string, user: Actor): Promise<CheckoffCsvUploadResult> {
+  const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
+  if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
+  if (req.status !== 'Open') throw new AppError('Only an open batch can be updated from a CSV upload', 'VALIDATION');
+
+  const rows = parseCsv(csvText);
+  if (rows.length < 2) throw new AppError('The CSV file has no data rows', 'VALIDATION');
+  const [header, ...dataRows] = rows;
+  const idCol = findCsvColumn(header, CSV_ID_HEADERS);
+  const nameCol = findCsvColumn(header, CSV_NAME_HEADERS);
+  const amountCol = findCsvColumn(header, CSV_AMOUNT_HEADERS);
+  if (idCol === -1 || amountCol === -1) {
+    throw new AppError('The CSV must have a Payroll No./Staff No. column and an Amount column', 'VALIDATION');
+  }
+
+  const lines = await all<{ id: number; payroll_no: string | null; expected_amount: number }>(
+    'SELECT id, payroll_no, expected_amount FROM checkoff_batch_line WHERE batch_no = ?', no,
+  );
+  const byPayrollNo = new Map(lines.filter((l) => l.payroll_no).map((l) => [l.payroll_no!.trim().toLowerCase(), l]));
+
+  let matchedCount = 0;
+  let totalUploaded = 0;
+  const unmatchedRows: string[] = [];
+
+  await tx(async () => {
+    await run(
+      "UPDATE checkoff_batch_line SET uploaded_amount = 0, uploaded_name = NULL, matched = false WHERE batch_no = ?", no,
+    );
+    // An upload replaces remitted_amount for every matched line, invalidating any prior
+    // Calculate breakdown for this batch — same reasoning as recordRemittedAmount()'s own clear.
+    await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', no);
+    for (const row of dataRows) {
+      if (!row.some((c) => c.trim())) continue;
+      const payrollNo = (row[idCol] || '').trim();
+      const name = nameCol !== -1 ? (row[nameCol] || '').trim() : '';
+      const amount = Math.max(0, Math.round(Number(String(row[amountCol] || '0').replace(/,/g, '')) * 100)) || 0;
+      if (!payrollNo) continue;
+      const line = byPayrollNo.get(payrollNo.toLowerCase());
+      if (!line) {
+        unmatchedRows.push(`${payrollNo}${name ? ` (${name})` : ''}`);
+        continue;
+      }
+      const variance = req.batch_type === 'CHECKOFF' ? amount - line.expected_amount : 0;
+      await run(
+        `UPDATE checkoff_batch_line
+         SET uploaded_amount = ?, uploaded_name = ?, matched = true, remitted_amount = ?, variance = ?
+         WHERE id = ?`,
+        amount, name || null, amount, variance, line.id,
+      );
+      matchedCount += 1;
+      totalUploaded += amount;
+    }
+  });
+
+  await audit(user, 'CHECKOFF_BATCH_CSV_UPLOAD', 'checkoff_batch', no, {
+    matchedCount, unmatchedCount: unmatchedRows.length, totalUploaded,
+  });
+  return { matchedCount, unmatchedRows, totalUploaded };
+}
+
+export interface CheckoffValidationResult {
+  totalRemitted: Cents;
+  totalUploaded: Cents;
+  tallyVariance: Cents;
+  unmatchedCount: number;
+  mismatchedLines: { lineId: number; memberName: string; remitted: Cents; uploaded: Cents }[];
+}
+
+/**
+ * Ported from ValidateUpload (Cod52204013.CheckoffManagement.al): a non-blocking tally of what
+ * the CSV upload carried against what the card currently shows (an officer may have hand-edited
+ * a line's remitted amount after uploading), surfaced for review before Calculate/submission
+ * rather than enforced as a hard gate — the same posture AL's own ValidateUpload takes.
+ */
+export async function validateCheckoffBatch(no: string, user: Actor): Promise<CheckoffValidationResult> {
+  const req = await getCheckoffBatch(no);
+  if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
+  const lines = await listCheckoffBatchLines(no);
+  const mismatched = lines.filter((l) => l.uploaded_amount > 0 && l.uploaded_amount !== l.remitted_amount);
+
+  const result: CheckoffValidationResult = {
+    totalRemitted: req.total_remitted,
+    totalUploaded: req.total_uploaded,
+    tallyVariance: req.total_remitted - req.total_uploaded,
+    unmatchedCount: req.unmatched_count,
+    mismatchedLines: mismatched.map((l) => ({
+      lineId: l.id, memberName: `${l.member_first_name} ${l.member_last_name}`,
+      remitted: l.remitted_amount, uploaded: l.uploaded_amount,
+    })),
+  };
+  await audit(user, 'CHECKOFF_BATCH_VALIDATE', 'checkoff_batch', no, {
+    tallyVariance: result.tallyVariance, unmatchedCount: result.unmatchedCount, mismatchedCount: mismatched.length,
+  });
+  return result;
+}
+
+/**
+ * SALARY only — ported from CalculateRecoveries (Cod52204013.CheckoffManagement.al): applies the
+ * batch's attached Transaction Charge components to each line's remitted amount, then its
+ * Transaction Recoveries by ascending Priority (Loan first-come-first-served by lowest balance,
+ * Internal Deposit against the configured savings product), writing every step to
+ * checkoff_calculation for review before Send for approval. Whatever is left after every
+ * recovery is exhausted is recorded as a NET_AMOUNT row — what processCheckoffBatch() deposits
+ * to the member's own withdrawable account. Re-running Calculate wipes and rebuilds this batch's
+ * rows from scratch, so it's always safe to re-run after editing a line.
+ */
+export async function calculateCheckoffRecoveries(no: string, user: Actor): Promise<{ linesCalculated: number }> {
+  const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
+  if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
+  if (req.status !== 'Open') throw new AppError('Only an open batch can be calculated', 'VALIDATION');
+  if (req.batch_type !== 'SALARY') throw new AppError('Calculate only applies to Salary Processing batches', 'VALIDATION');
+  if (!req.transaction_charge_id) throw new AppError('Attach a Charge Code to this batch before calculating', 'VALIDATION');
+
+  const detail = await chargesLib.getTransactionCharge(req.transaction_charge_id);
+  if (!detail) throw new AppError('Charge Code not found', 'NOT_FOUND');
+  const activeRecoveries = detail.recoveries.filter((r) => r.status === 'ACTIVE').sort((a, b) => a.priority - b.priority);
+
+  const lines = await all<{ id: number; member_id: number; remitted_amount: number }>(
+    'SELECT id, member_id, remitted_amount FROM checkoff_batch_line WHERE batch_no = ?', no,
+  );
+
+  let linesCalculated = 0;
+  await tx(async () => {
+    await run('DELETE FROM checkoff_calculation WHERE batch_no = ?', no);
+
+    for (const line of lines) {
+      if (line.remitted_amount <= 0) continue;
+      let remaining = line.remitted_amount;
+
+      const charges = chargesLib.calculateTransactionCharges(detail, line.remitted_amount);
+      for (const c of charges) {
+        const amt = Math.min(remaining, c.amount);
+        if (amt <= 0) continue;
+        await run(
+          `INSERT INTO checkoff_calculation (batch_no, line_id, entry_type, description, gl_account_id, amount)
+           VALUES (?,?,?,?,?,?)`,
+          no, line.id, 'CHARGE', c.chargeCode, c.glAccountId, amt,
+        );
+        remaining -= amt;
+      }
+
+      for (const rec of activeRecoveries) {
+        if (remaining <= 0) break;
+
+        if (rec.recovery_type === 'LOAN') {
+          const loans = await all<{ id: number; owed: number; installment: number; arrears_amount: number }>(
+            `SELECT id, (principal_balance + interest_balance + penalty_balance) AS owed, installment, arrears_amount
+             FROM loan WHERE member_id = ? AND status = 'DISBURSED' AND recovery_mode = 'CHECKOFF'
+               AND (principal_balance + interest_balance + penalty_balance) > 0
+             ORDER BY owed ASC`,
+            line.member_id,
+          );
+          for (const loanRow of loans) {
+            if (remaining <= 0) break;
+            const target = rec.deduction_type === 'ARREARS' ? Math.min(loanRow.arrears_amount, loanRow.owed)
+              : rec.deduction_type === 'BALANCE' ? loanRow.owed
+                : Math.min(loanRow.installment, loanRow.owed);
+            const amt = Math.min(remaining, target);
+            if (amt <= 0) continue;
+            await run(
+              `INSERT INTO checkoff_calculation (batch_no, line_id, entry_type, description, loan_id, amount)
+               VALUES (?,?,?,?,?,?)`,
+              no, line.id, 'LOAN_RECOVERY', rec.description || 'Loan recovery', loanRow.id, amt,
+            );
+            remaining -= amt;
+          }
+        } else {
+          const account = await one<{ id: number; balance: number; min_balance: number }>(
+            `SELECT sa.id, sa.balance, p.min_balance FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
+             WHERE sa.member_id = ? AND sa.product_id = ? AND sa.status = 'ACTIVE' ORDER BY sa.id LIMIT 1`,
+            line.member_id, rec.savings_product_id,
+          );
+          if (!account) continue;
+          const target = rec.deduction_type === 'BOOST_TO_MINIMUM'
+            ? Math.max(0, account.min_balance - account.balance)
+            : remaining;
+          const amt = Math.min(remaining, target);
+          if (amt <= 0) continue;
+          await run(
+            `INSERT INTO checkoff_calculation (batch_no, line_id, entry_type, description, savings_account_id, amount)
+             VALUES (?,?,?,?,?,?)`,
+            no, line.id, 'INTERNAL_DEPOSIT', rec.description || 'Internal deposit', account.id, amt,
+          );
+          remaining -= amt;
+        }
+      }
+
+      if (remaining > 0) {
+        await run(
+          `INSERT INTO checkoff_calculation (batch_no, line_id, entry_type, description, amount) VALUES (?,?,?,?,?)`,
+          no, line.id, 'NET_AMOUNT', 'Net amount to savings', remaining,
+        );
+      }
+      linesCalculated += 1;
+    }
+  });
+
+  await audit(user, 'CHECKOFF_BATCH_CALCULATE', 'checkoff_batch', no, { linesCalculated });
+  return { linesCalculated };
+}
+
+export interface CheckoffCalculationWithDetail {
+  id: number;
+  batch_no: string;
+  line_id: number;
+  entry_type: string;
+  description: string;
+  loan_id: number | null;
+  loan_no: string | null;
+  savings_account_id: number | null;
+  savings_account_no: string | null;
+  gl_account_id: number | null;
+  gl_account_code: string | null;
+  amount: Cents;
+}
+
+/** Calculate's breakdown for a batch — the source both processCheckoffBatch() posts from and
+ *  the view page shows as a "here's what will post" review before Send for approval. */
+export const listCheckoffCalculations = (no: string): Promise<CheckoffCalculationWithDetail[]> =>
+  all<CheckoffCalculationWithDetail>(
+    `SELECT c.*, l.loan_no, sa.account_no AS savings_account_no, g.code AS gl_account_code
+     FROM checkoff_calculation c
+     LEFT JOIN loan l ON l.id = c.loan_id
+     LEFT JOIN savings_account sa ON sa.id = c.savings_account_id
+     LEFT JOIN gl_account g ON g.id = c.gl_account_id
+     WHERE c.batch_no = ? ORDER BY c.line_id, c.id`,
+    no,
+  );
 
 /** At least one line must actually carry a remitted amount, otherwise the batch would process
  *  into a no-op — the same "something must actually be changed" gate every other module here
  *  checks before submission (not AL's stricter "every kobo must reconcile exactly", which would
- *  block a batch where a genuinely absent member simply remitted nothing that period). */
-async function assertReadyForApproval(no: string): Promise<void> {
+ *  block a batch where a genuinely absent member simply remitted nothing that period). A SALARY
+ *  batch with a Charge Code attached must also have been Calculated, so what's approved is
+ *  exactly what processCheckoffBatch() will post rather than a stale or never-run breakdown. */
+async function assertReadyForApproval(no: string, req: CheckoffBatch): Promise<void> {
   const hasRemittance = await one(
     "SELECT 1 FROM checkoff_batch_line WHERE batch_no = ? AND remitted_amount > 0", no,
   );
   if (!hasRemittance) {
     throw new AppError('Record at least one member’s remitted amount before sending this for approval', 'VALIDATION');
+  }
+  if (req.batch_type === 'SALARY' && req.transaction_charge_id) {
+    const calculated = await one('SELECT 1 FROM checkoff_calculation WHERE batch_no = ?', no);
+    if (!calculated) {
+      throw new AppError('Run Calculate before sending this batch for approval', 'VALIDATION');
+    }
   }
 }
 
@@ -216,7 +528,7 @@ export async function submitCheckoffBatch(no: string, user: Actor): Promise<{ au
   const req = await one<CheckoffBatch>('SELECT * FROM checkoff_batch WHERE no = ?', no);
   if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open batch can be submitted for approval', 'VALIDATION');
-  await assertReadyForApproval(no);
+  await assertReadyForApproval(no, req);
 
   const matched = await findMatchingWorkflow('CHECKOFF_BATCH', await pickConditionFields('CHECKOFF_BATCH', req));
   if (!matched) throw new AppError('There is no enabled workflow for this document', 'NO_WORKFLOW');
@@ -266,15 +578,34 @@ export async function rejectCheckoffBatch(no: string, reason: string | null, use
   await audit(user, 'CHECKOFF_BATCH_REJECT', 'checkoff_batch', no, { reason });
 }
 
+/** Every SALARY line's own withdrawable deposit account — the fallback deposit target both the
+ *  no-Calculate path and a Calculate NET_AMOUNT row post the leftover amount to. */
+async function memberWithdrawableAccountId(memberId: number): Promise<number | undefined> {
+  const account = await one<{ id: number }>(
+    `SELECT sa.id FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
+     WHERE sa.member_id = ? AND sa.status = 'ACTIVE' AND p.category = 'WITHDRAWABLE DEPOSIT'
+     ORDER BY sa.id LIMIT 1`,
+    memberId,
+  );
+  return account?.id;
+}
+
 /**
  * Approved -> posts every line with a remitted amount, ported from PostCheckoff/ApplyEmployerUpload
- * (Cod52204013.CheckoffManagement.al), stripped to the two postings this port keeps:
+ * (Cod52204013.CheckoffManagement.al):
  *   - CHECKOFF: pay down the member's own recovery_mode='CHECKOFF' disbursed loans (lowest
  *     balance first) with loanService.repay({channel: 'CHECKOFF'}) until the line's remitted
  *     amount is exhausted. Whatever's left over once every such loan is cleared is left unposted
  *     rather than silently absorbed — surfaced back to the caller as `unallocated` per line.
- *   - SALARY: credit the member's withdrawable deposit account with
- *     savings.deposit({channel: 'CHECKOFF'}).
+ *   - SALARY, Calculate never run for this line (no checkoff_calculation rows — a batch with no
+ *     Charge Code attached, per assertReadyForApproval()'s gate): the whole remitted amount goes
+ *     straight to the member's withdrawable deposit account, same as before Calculate existed.
+ *   - SALARY, Calculate has run: posts exactly what Calculate found, rather than recomputing —
+ *     the batch's Transaction Charge components (via postTransactionCharges(), deterministic
+ *     against the same remitted amount and charge config Calculate used), each stored
+ *     LOAN_RECOVERY row (loanService.repay()), each stored INTERNAL_DEPOSIT row
+ *     (savings.deposit() into that recovery's configured product account), and the stored
+ *     NET_AMOUNT row (savings.deposit() into the member's own withdrawable account).
  * All inside one tx() so a failure partway through leaves the batch, and every account/loan it
  * touches, untouched.
  */
@@ -311,18 +642,54 @@ export async function processCheckoffBatch(no: string, user: Actor): Promise<{ e
           });
           remaining -= amount;
         }
-      } else {
-        const account = await one<{ id: number }>(
-          `SELECT sa.id FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
-           WHERE sa.member_id = ? AND sa.status = 'ACTIVE' AND p.category = 'WITHDRAWABLE DEPOSIT'
-           ORDER BY sa.id LIMIT 1`,
-          line.member_id,
-        );
-        if (!account) continue;
+        continue;
+      }
+
+      const calcRows = await all<{
+        id: number; entry_type: string; loan_id: number | null; savings_account_id: number | null; amount: number;
+      }>(
+        'SELECT id, entry_type, loan_id, savings_account_id, amount FROM checkoff_calculation WHERE line_id = ? ORDER BY id',
+        line.id,
+      );
+
+      if (!calcRows.length) {
+        const accountId = await memberWithdrawableAccountId(line.member_id);
+        if (!accountId) continue;
         await deposit({
-          accountId: account.id, amount: line.remitted_amount, channel: 'CHECKOFF', valueDate: vd,
+          accountId, amount: line.remitted_amount, channel: 'CHECKOFF', valueDate: vd,
           description: `Salary processing ${no}`, user,
         });
+        continue;
+      }
+
+      if (req.transaction_charge_id && calcRows.some((c) => c.entry_type === 'CHARGE')) {
+        await chargesLib.postTransactionCharges({
+          transactionChargeId: req.transaction_charge_id, baseAmount: line.remitted_amount,
+          debitAccountCode: CHANNEL_GL.CHECKOFF, valueDate: vd, module: 'CHECKOFF',
+          eventType: 'End Month Salary', memberId: line.member_id,
+          description: `Salary processing ${no}`, reference: no, user,
+        });
+      }
+      for (const calc of calcRows) {
+        if (calc.entry_type === 'LOAN_RECOVERY' && calc.loan_id) {
+          await repay({
+            loanId: calc.loan_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
+            description: `Checkoff ${no}`, user,
+          });
+        } else if (calc.entry_type === 'INTERNAL_DEPOSIT' && calc.savings_account_id) {
+          await deposit({
+            accountId: calc.savings_account_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
+            description: `Salary processing ${no}`, user,
+          });
+        } else if (calc.entry_type === 'NET_AMOUNT') {
+          const accountId = await memberWithdrawableAccountId(line.member_id);
+          if (accountId) {
+            await deposit({
+              accountId, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
+              description: `Salary processing ${no}`, user,
+            });
+          }
+        }
       }
     }
 

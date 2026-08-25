@@ -21,10 +21,10 @@ import {
 import {
   availableGuarantorsForLoan, commitGuarantorToLoanRequest, releaseGuarantorFromLoanRequest,
 } from '@/app/actions/loanGuarantors';
-import { DISBURSE_CHANNELS, REPAY_CHANNELS } from '@/lib/constants';
+import { PAY_MODES } from '@/lib/constants';
 import { today, toUnits } from '@/lib/format';
 import type {
-  AvailableCollateralRow, AvailableFdRow, GuarantorCandidate, LoanFull, SavingsAccountWithProduct,
+  AvailableCollateralRow, AvailableFdRow, BankAccount, GuarantorCandidate, LoanFull, PayMode, SavingsAccountWithProduct,
 } from '@/lib/types';
 
 /** Sends a captured (OPEN) loan for approval — only once the loan has been *fully* appraised
@@ -148,9 +148,31 @@ export function DecideButtons({ loan, routedTaskId }: { loan: LoanFull; routedTa
   );
 }
 
-export function DisburseButton({ loan }: { loan: LoanFull }) {
+/** Cheque No./Date (Pay Mode = Cheque) or a Reference No. (Pay Mode = M-Pesa/Bank/EFT) — the
+ *  same per-Pay-Mode extras both DisburseButton and RepayButton need once a Bank/Cashbook
+ *  account is in the picture at all. */
+function PayModeExtraFields({ payMode }: { payMode: PayMode | '' }) {
+  if (payMode === 'CHEQUE') {
+    return (
+      <>
+        <Field name="chequeNo" label="Cheque No." required />
+        <Field name="chequeDate" label="Cheque date" type="date" required />
+      </>
+    );
+  }
+  if (payMode === 'MPESA' || payMode === 'BANK' || payMode === 'EFT') {
+    return <Field name="referenceNo" label="Reference No." required />;
+  }
+  return null;
+}
+
+export function DisburseButton({ loan, bankAccounts }: { loan: LoanFull; bankAccounts: BankAccount[] }) {
   const [open, setOpen] = useState(false);
+  const [payMode, setPayMode] = useState<PayMode | ''>('');
   const { cur } = useFormat();
+  // A member-savings-account target is decided when the loan itself was applied for/edited —
+  // no Payment Channel is offered here at all in that case, since no bank/cashbook is touched.
+  const isPayout = !loan.disburse_to_account_id;
 
   return (
     <>
@@ -170,20 +192,38 @@ export function DisburseButton({ loan }: { loan: LoanFull }) {
             and charges are recovered — all in one balanced journal.
           </p>
           <Field name="valueDate" label="Value date" type="date" defaultValue={today()} required />
-          <Field name="channel" label="Payment channel" type="select" options={DISBURSE_CHANNELS} />
+          {isPayout ? (
+            <>
+              <Field name="bankAccountId" label="Bank/Cashbook account" type="select" required
+                options={[
+                  { value: '', label: 'Select…' },
+                  ...bankAccounts.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}` })),
+                ]} />
+              <Field name="payMode" label="Pay mode" type="select" required
+                options={[{ value: '', label: 'Select…' }, ...PAY_MODES]}
+                onChange={(e) => setPayMode(e.target.value as PayMode)} />
+              <PayModeExtraFields payMode={payMode} />
+            </>
+          ) : null}
         </FormModal>
       ) : null}
     </>
   );
 }
 
-export function RepayButton({ loan, accounts }: {
+export function RepayButton({ loan, accounts, bankAccounts }: {
   loan: LoanFull;
   accounts: SavingsAccountWithProduct[];
+  bankAccounts: BankAccount[];
 }) {
   const [open, setOpen] = useState(false);
   const { cur } = useFormat();
   const owed = loan.principal_balance + loan.interest_balance + loan.penalty_balance;
+  const [fromSavingsAccountId, setFromSavingsAccountId] = useState('');
+  const [payMode, setPayMode] = useState<PayMode | ''>('');
+  // Debiting a member's own account never touches a bank/cashbook — Payment Channel/Pay Mode
+  // only apply to an actual external (cash/bank/mpesa/cheque) receipt.
+  const isExternal = !fromSavingsAccountId;
 
   return (
     <>
@@ -205,7 +245,6 @@ export function RepayButton({ loan, accounts }: {
           </div>
           <Field name="amount" label="Amount received" type="number" step="0.01" required
             defaultValue={toUnits(loan.installment)} />
-          <Field name="channel" label="Channel" type="select" options={REPAY_CHANNELS} />
           <Field name="fromSavingsAccountId" label="Debit a member account instead" type="select"
             options={[
               { value: '', label: 'No — cash / external receipt' },
@@ -213,7 +252,21 @@ export function RepayButton({ loan, accounts }: {
                 value: a.id,
                 label: `${a.account_no} — ${a.product_name} (${cur(a.balance)})`,
               })),
-            ]} />
+            ]}
+            onChange={(e) => setFromSavingsAccountId(e.target.value)} />
+          {isExternal ? (
+            <>
+              <Field name="bankAccountId" label="Bank/Cashbook account" type="select" required
+                options={[
+                  { value: '', label: 'Select…' },
+                  ...bankAccounts.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}` })),
+                ]} />
+              <Field name="payMode" label="Pay mode" type="select" required
+                options={[{ value: '', label: 'Select…' }, ...PAY_MODES]}
+                onChange={(e) => setPayMode(e.target.value as PayMode)} />
+              <PayModeExtraFields payMode={payMode} />
+            </>
+          ) : null}
           <Field name="valueDate" label="Value date" type="date" defaultValue={today()} />
           <Field name="description" label="Narration" defaultValue="Loan repayment" />
         </FormModal>

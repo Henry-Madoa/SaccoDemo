@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as chargesLib from '@/lib/charges';
-import type { TransactionChargeSetupDraft } from '@/lib/charges';
+import type { TransactionChargeSetupDraft, TransactionRecoveryDraft } from '@/lib/charges';
 import type {
   ActionResult, CalculatedCharge, Charge, ChargeTransactionType, FormValues, TransactionCharge,
 } from '@/lib/types';
@@ -33,6 +33,7 @@ export async function saveTransactionCharge(
   id: number | null,
   values: FormValues,
   components: TransactionChargeSetupDraft[],
+  recoveries: TransactionRecoveryDraft[] = [],
 ): Promise<ActionResult<{ id: number }>> {
   return actionResult(async () => {
     const user = await requireAction('ADMIN_CHARGES_TRANSACTION_MANAGE');
@@ -43,14 +44,14 @@ export async function saveTransactionCharge(
           description: String(values.description || ''),
           transaction_type: values.transaction_type as ChargeTransactionType,
           status,
-        }, components, user,
+        }, components, user, recoveries,
       )
       : await chargesLib.createTransactionCharge({
         code: String(values.code || ''),
         description: String(values.description || ''),
         transaction_type: values.transaction_type as ChargeTransactionType,
         status,
-      }, components, user);
+      }, components, user, recoveries);
     revalidatePath('/admin/charges');
     return result;
   });

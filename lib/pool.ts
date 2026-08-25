@@ -223,6 +223,36 @@ async function replaceDefaultAccounts(memberCategoryId: number, savingsProductId
   }
 }
 
+/**
+ * A configured Registration Fee is worthless unless it can actually be recovered —
+ * lib/entranceFeeRecovery.ts's recoverOne() posts a credit line to this account every time it
+ * sweeps a Not Paid Up member's deposit, and postJournal() rejects a non-postable/inactive
+ * target with GL_NOT_POSTABLE. That used to only surface at the next unattended recovery run,
+ * per-member, with the failure swallowed into a skipped_reason nothing displayed — checked here
+ * instead so a bad account is caught the moment it's configured, the same way a Registration Fee
+ * amount itself is required up front rather than discovered missing later.
+ */
+async function assertValidRegistrationFeeAccount(
+  fee: number | null | undefined, accountId: number | null | undefined,
+): Promise<void> {
+  if (!fee || fee <= 0) return;
+  if (!accountId) {
+    throw new AppError('A Registration Fee Account is required whenever a Registration Fee is set', 'VALIDATION');
+  }
+  const account = await one<{ code: string; is_postable: number; status: string }>(
+    'SELECT code, is_postable, status FROM gl_account WHERE id = ?', accountId,
+  );
+  if (!account) throw new AppError('Registration Fee Account not found', 'VALIDATION');
+  if (!account.is_postable) {
+    throw new AppError(
+      `GL account ${account.code} is a header account and cannot be posted to — choose a postable account`, 'VALIDATION',
+    );
+  }
+  if (account.status !== 'ACTIVE') {
+    throw new AppError(`GL account ${account.code} is not active`, 'VALIDATION');
+  }
+}
+
 export async function createMemberCategory(
   body: MemberCategoryInput,
   savingsProductIds: number[],
@@ -237,6 +267,10 @@ export async function createMemberCategory(
   if (await one('SELECT 1 FROM member_category WHERE code = ?', body.code)) {
     throw new AppError('Category code already exists', 'DUPLICATE');
   }
+  await assertValidRegistrationFeeAccount(
+    body.registration_fee != null ? Number(body.registration_fee) : null,
+    body.registration_fee_account_id != null ? Number(body.registration_fee_account_id) : null,
+  );
 
   return tx(async () => {
     const cols = MEMBER_CATEGORY_FIELDS.filter((f) => body[f] !== undefined);
@@ -257,9 +291,19 @@ export async function updateMemberCategory(
   savingsProductIds: number[],
   user: Actor,
 ): Promise<MemberCategory> {
+  const before = await one<MemberCategory>('SELECT * FROM member_category WHERE id = ?', id);
+  if (!before) throw new AppError('Category not found', 'NOT_FOUND');
   if (body.category_type && !MEMBER_CATEGORY_TYPES.some((t) => t.value === body.category_type)) {
     throw new AppError('Invalid category type', 'VALIDATION');
   }
+  // Validated against the *effective* post-update value, not just what this call happens to
+  // submit — editing only the fee (leaving a stale bad account untouched) must still be caught,
+  // and so must editing only the account while an existing fee is already set.
+  const effectiveFee = body.registration_fee !== undefined ? Number(body.registration_fee) : before.registration_fee;
+  const effectiveAccountId = body.registration_fee_account_id !== undefined
+    ? (body.registration_fee_account_id != null ? Number(body.registration_fee_account_id) : null)
+    : before.registration_fee_account_id;
+  await assertValidRegistrationFeeAccount(effectiveFee, effectiveAccountId);
 
   return tx(async () => {
     const cols = MEMBER_CATEGORY_FIELDS.filter((f) => body[f] !== undefined && f !== 'code');

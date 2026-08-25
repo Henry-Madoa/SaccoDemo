@@ -24,8 +24,22 @@ import type { Actor, JobQueueEntry, JobQueueRunStatus, JobQueueStatus, JobQueueT
 const JOB_HANDLERS: Record<JobQueueType, (user: Actor) => Promise<string>> = {
   ENTRANCE_FEE_RECOVERY: async (user) => {
     const summary = await runEntranceFeeRecovery(user);
-    return `${summary.membersRecovered} member(s) recovered, ${summary.membersActivated} activated, `
+    const base = `${summary.membersRecovered} member(s) recovered, ${summary.membersActivated} activated, `
       + `total ${(summary.totalPosted / 100).toFixed(2)} posted`;
+    // A per-member posting failure (a misconfigured GL account, say) doesn't roll back everyone
+    // else already recovered in the same run — but it must not be reported as a plain SUCCESS
+    // either, or it goes just as unnoticed as it did before this failure was even distinguished
+    // from recoverOne()'s own benign skips. Throwing (rather than returning) is what makes
+    // execute() mark this run ERROR, so it stands out in the Job Queue Entries list itself
+    // rather than only inside a message nobody is looking at.
+    const failures = summary.results.filter((r) => r.skipped_reason?.startsWith('Posting failed'));
+    if (failures.length) {
+      throw new Error(
+        `${base} — ${failures.length} posting failure(s): ${failures[0].member_no} ${failures[0].skipped_reason}`
+        + (failures.length > 1 ? ` (+${failures.length - 1} more)` : ''),
+      );
+    }
+    return base;
   },
   MEMBER_STATUS_UPDATE: async (user) => {
     const summary = await runMemberStatusUpdate(user);

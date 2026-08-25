@@ -773,6 +773,13 @@ export const listBankAccounts = (): Promise<BankAccountListRow[]> =>
      ORDER BY ba.code`,
   );
 
+/** Every enabled Bank/Cashbook account — the Payment Channel picklist for a manual external
+ *  loan disbursement/repayment (lib/loanService.ts's disburse()/repay()), or any other document
+ *  that lets its user pick which of the SACCO's own bank/cash/mobile-money accounts a posting
+ *  actually moved through. */
+export const listActiveBankAccounts = (): Promise<BankAccount[]> =>
+  all<BankAccount>("SELECT * FROM bank_account WHERE status = 'ACTIVE' ORDER BY code");
+
 export const hasAnyBankAccounts = (): Promise<boolean> => hasAnyRow('bank_account');
 
 export interface CreateBankAccountInput {

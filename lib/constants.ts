@@ -9,7 +9,8 @@
 import type {
   Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CollateralCategory, DocumentStatus,
   GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
-  LoanChargeCalculationType, LoanRecoveryMode, LoanStatus, MemberCategoryType, MemberStatus, SalaryAppraisalLineType,
+  LoanChargeCalculationType, LoanRecoveryMode, LoanStatus, MemberCategoryType, MemberStatus, PayMode, SalaryAppraisalLineType,
+  TransactionRecoveryDeductionType, TransactionRecoveryType,
   SalaryAppraisalSpecialType, SavingsAccountStatus, SavingsCategory, StandingOrderAmountType, StandingOrderClass,
   StandingOrderRunType, UserStatus,
 } from './types.ts';
@@ -35,8 +36,16 @@ export const SIGNATORY_DESIGNATIONS = [
 
 export const DEPOSIT_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK', 'CHECKOFF'];
 export const WITHDRAWAL_CHANNELS: Channel[] = ['TELLER', 'MPESA', 'BANK'];
-export const DISBURSE_CHANNELS: Channel[] = ['BANK', 'MPESA', 'TELLER'];
-export const REPAY_CHANNELS: Channel[] = ['TELLER', 'CHECKOFF', 'MPESA', 'BANK'];
+
+/** How a manual external loan disbursement/repayment was actually paid — shown alongside the
+ *  Bank/Cashbook (Payment Channel) picker, not instead of it. See lib/types.ts's PayMode. */
+export const PAY_MODES: { value: PayMode; label: string }[] = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'MPESA', label: 'M-Pesa' },
+  { value: 'BANK', label: 'Bank Transfer' },
+  { value: 'EFT', label: 'EFT' },
+  { value: 'CHEQUE', label: 'Cheque' },
+];
 
 export const SAVINGS_CATEGORIES: SavingsCategory[] = ['WITHDRAWABLE DEPOSIT', 'NON WITHDRAWABLE DEPOSIT', 'JUNIOR ACCOUNT', 'SHARE CAPITAL ACCOUNT', 'FIXED DEPOSIT ACCOUNT', 'LOAN ACCOUNT', 'INVESTMENTS ACCOUNT', 'HOLDING ACCOUNT', 'HOLIDAY ACCOUNT', 'SHARE TRADING ACCOUNT', 'BENEVOLENT ACCOUNT', 'SCHOOL FEE ACCOUNT'];
 export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE'];
@@ -187,6 +196,24 @@ export const CHARGE_CALCULATION_TYPES: { value: ChargeCalculationType; label: st
 export const CHARGE_RATE_TYPES: { value: ChargeRateType; label: string }[] = [
   { value: 'FLAT', label: 'Flat Rate' },
   { value: 'PERCENTAGE', label: 'Percentage' },
+];
+
+/** Transaction Recoveries — ported from Tab52204065, narrowed to the two recovery types this
+ *  app can act on (see lib/types.ts's TransactionRecoveryType). */
+export const TRANSACTION_RECOVERY_TYPES: { value: TransactionRecoveryType; label: string }[] = [
+  { value: 'LOAN', label: 'Loan' },
+  { value: 'INTERNAL_DEPOSIT', label: 'Internal Deposit' },
+];
+
+export const LOAN_DEDUCTION_TYPES: { value: TransactionRecoveryDeductionType; label: string }[] = [
+  { value: 'INSTALLMENT', label: 'Monthly Installment' },
+  { value: 'ARREARS', label: 'Arrears Amount' },
+  { value: 'BALANCE', label: 'Loan Balance' },
+];
+
+export const INTERNAL_DEPOSIT_DEDUCTION_TYPES: { value: TransactionRecoveryDeductionType; label: string }[] = [
+  { value: 'FULL_REMAINING', label: 'Full Remaining Amount' },
+  { value: 'BOOST_TO_MINIMUM', label: 'Boost to Minimum Balance' },
 ];
 
 /** Loan Product Charges' own Calculation Method — a flat Percentage of the loan principal, or

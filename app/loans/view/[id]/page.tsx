@@ -6,6 +6,7 @@ import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument
 import { getMemberDetail, listActiveMembers } from '@/lib/members';
 import { listActiveLoanProductsWithCharges } from '@/lib/admin';
 import { listAttachments } from '@/lib/attachments';
+import { listActiveBankAccounts } from '@/lib/gl';
 import { isConfigured } from '@/lib/cloudinary';
 import { calculateLoanProductCharges } from '@/lib/loans';
 import { listLoanProductCharges } from '@/lib/loanProductCharges';
@@ -94,6 +95,12 @@ export default async function LoanDetailPage({ params, searchParams }: {
   const repayAccounts = l.status === 'DISBURSED' && canRepay
     ? ((await getMemberDetail(l.member_id))?.accounts ?? [])
       .filter((a) => a.status === 'ACTIVE' && a.allow_withdrawal)
+    : [];
+
+  // The Bank/Cashbook picker both Disburse and Repay need whenever the money doesn't move
+  // through a member's own savings account — fetched lazily for the same reason as above.
+  const bankAccounts = (l.status === 'APPROVED' && canDisburse) || (l.status === 'DISBURSED' && canRepay)
+    ? await listActiveBankAccounts()
     : [];
 
   // Edit is offered under the same rule and the same OPEN-only window as Send for approval, so
@@ -385,8 +392,10 @@ export default async function LoanDetailPage({ params, searchParams }: {
         {l.status === 'PENDING APPROVAL' && canDecideThis ? (
           <DecideButtons loan={l} routedTaskId={routedTask?.id ?? null} />
         ) : null}
-        {l.status === 'APPROVED' && canDisburse ? <DisburseButton loan={l} /> : null}
-        {l.status === 'DISBURSED' && canRepay ? <RepayButton loan={l} accounts={repayAccounts} /> : null}
+        {l.status === 'APPROVED' && canDisburse ? <DisburseButton loan={l} bankAccounts={bankAccounts} /> : null}
+        {l.status === 'DISBURSED' && canRepay ? (
+          <RepayButton loan={l} accounts={repayAccounts} bankAccounts={bankAccounts} />
+        ) : null}
         {canAppraise && canCreate ? <RunAppraisalButton loanId={l.id} /> : null}
         <DocumentActionsMenu
           excel={{
@@ -533,7 +542,16 @@ export default async function LoanDetailPage({ params, searchParams }: {
                     </td>
                     <td>{formatDate(t.value_date)}</td>
                     <td><Pill status={t.txn_type} /></td>
-                    <td>{t.description || ''}</td>
+                    <td>
+                      {t.description || ''}
+                      {t.bank_account_code ? (
+                        <div className="tiny muted-cell">
+                          {humanise(t.pay_mode || '')} · {t.bank_account_code} — {t.bank_account_name}
+                          {t.cheque_no ? ` · Cheque ${t.cheque_no}${t.cheque_date ? ` (${formatDate(t.cheque_date)})` : ''}` : ''}
+                          {t.reference_no ? ` · Ref ${t.reference_no}` : ''}
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="num"><Money cents={t.amount} /></td>
                   </tr>
                 )) : (

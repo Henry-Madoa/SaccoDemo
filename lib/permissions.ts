@@ -205,6 +205,7 @@ export const ACTIONS = {
     page: 'CHECKOFF_BATCHES',
     tables: [
       ['checkoff_batch', 'insert'], ['checkoff_batch', 'modify'], ['checkoff_batch_line', 'insert'], ['checkoff_batch_line', 'modify'],
+      ['checkoff_calculation', 'insert'], ['checkoff_calculation', 'delete'],
       ['workflow_task', 'insert'], ['workflow_task', 'modify'],
     ],
   },
@@ -508,6 +509,7 @@ export const ACTIONS = {
       ['transaction_charge', 'insert'], ['transaction_charge', 'modify'],
       ['transaction_charge_setup', 'insert'], ['transaction_charge_setup', 'modify'], ['transaction_charge_setup', 'delete'],
       ['transaction_calc_scheme', 'insert'], ['transaction_calc_scheme', 'modify'], ['transaction_calc_scheme', 'delete'],
+      ['transaction_recovery', 'insert'], ['transaction_recovery', 'delete'],
     ],
   },
   ADMIN_POOL_CATEGORIES_MANAGE: {

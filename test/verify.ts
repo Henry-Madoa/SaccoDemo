@@ -47,6 +47,8 @@ const memberStatusUpdate = await import('../lib/memberStatusUpdate.ts');
 const memberDormancy = await import('../lib/memberDormancy.ts');
 const memberActivation = await import('../lib/memberActivation.ts');
 const standingOrdersLib = await import('../lib/standingOrders.ts');
+const employersLib = await import('../lib/employers.ts');
+const checkoffBatchesLib = await import('../lib/checkoffBatches.ts');
 
 import type {
   Actor, LoanFull, LoanProduct, LoanProductChargeDetail, LoanScheduleRow, Member, SavingsAccount, SessionUser,
@@ -622,6 +624,98 @@ await test('settling the full balance closes the loan', async () => {
 
 await test('a closed loan accepts no further repayment', async () => {
   await throws(() => loanSvc.repay({ loanId: lifecycleLoan.id, amount: 1000, user: admin }), /BAD_STATUS/);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Loan disbursement/repayment — Bank/Cashbook account and Pay Mode');
+
+const payoutBankAccount = (await one<{ id: number; gl_account_id: number; code: string }>(
+  "SELECT id, gl_account_id, code FROM bank_account WHERE code = 'BANK'",
+))!;
+
+const payoutApplied = await loanSvc.apply({
+  memberId: borrower.id, productId: normProduct.id, principal: 5000000, termMonths: 6,
+  purpose: 'Unit test — bank payout', user: admin,
+});
+await loanSvc.saveAppraisal({ loanId: payoutApplied.id, user: admin });
+await loanSvc.submit({ loanId: payoutApplied.id, user: admin });
+await loanSvc.approve({ loanId: payoutApplied.id, user: admin, approve: true, reason: 'ok' });
+
+let payoutLoan: LoanFull;
+
+await test('a loan with no member-account target posts straight to the picked Bank/Cashbook account, tagged with its Pay Mode and Cheque details', async () => {
+  const bankBalBefore = await accounting.accountBalance('1020');
+  payoutLoan = await loanSvc.disburse({
+    loanId: payoutApplied.id, bankAccountId: payoutBankAccount.id, payMode: 'CHEQUE',
+    chequeNo: 'CHQ-1001', chequeDate: today, user: admin,
+  });
+  assert.strictEqual(payoutLoan.status, 'DISBURSED');
+  // BANK's own G/L control account is 1020, an asset — crediting it (money paid out) lowers it.
+  assert.strictEqual(await accounting.accountBalance('1020'), bankBalBefore - 5000000);
+
+  const bankAcctAfter = (await one<{ balance: number }>(
+    'SELECT balance FROM bank_account WHERE id = ?', payoutBankAccount.id,
+  ))!;
+  const ledgerEntry = await one<{ amount: number }>(
+    'SELECT amount FROM bank_account_ledger_entry WHERE bank_account_id = ? ORDER BY id DESC LIMIT 1',
+    payoutBankAccount.id,
+  );
+  assert.ok(ledgerEntry, 'postJournal() should auto-populate a bank_account_ledger_entry for a posting against a bank account');
+  assert.strictEqual(ledgerEntry!.amount, -5000000, 'ledger entry should carry the same signed movement as the G/L balance change');
+  assert.ok(bankAcctAfter.balance >= 0, 'bank_account.balance should have moved too (sanity, not a hardcoded absolute)');
+
+  const txnRow = (await one<{
+    bank_account_id: number | null; pay_mode: string | null; cheque_no: string | null; cheque_date: string | null;
+  }>(
+    "SELECT bank_account_id, pay_mode, cheque_no, cheque_date FROM txn WHERE loan_id = ? AND txn_type = 'DISBURSEMENT'",
+    payoutLoan.id,
+  ))!;
+  assert.strictEqual(txnRow.bank_account_id, payoutBankAccount.id);
+  assert.strictEqual(txnRow.pay_mode, 'CHEQUE');
+  assert.strictEqual(txnRow.cheque_no, 'CHQ-1001');
+  assert.strictEqual(txnRow.cheque_date, today);
+});
+
+await test('repaying externally (no member-account source) posts to the picked Bank/Cashbook account with its Reference No.', async () => {
+  const bankBalBefore = await accounting.accountBalance('1020');
+  const r = await loanSvc.repay({
+    loanId: payoutLoan.id, amount: payoutLoan.installment, bankAccountId: payoutBankAccount.id,
+    payMode: 'MPESA', referenceNo: 'QGH7X9K2', user: admin,
+  });
+  assert.strictEqual(r.principal + r.interest + r.penalty, payoutLoan.installment);
+  // A repayment received into the bank increases its balance this time.
+  assert.strictEqual(await accounting.accountBalance('1020'), bankBalBefore + payoutLoan.installment);
+
+  const txnRow = (await one<{ bank_account_id: number | null; pay_mode: string | null; reference_no: string | null }>(
+    "SELECT bank_account_id, pay_mode, reference_no FROM txn WHERE loan_id = ? AND txn_type = 'REPAYMENT'",
+    payoutLoan.id,
+  ))!;
+  assert.strictEqual(txnRow.bank_account_id, payoutBankAccount.id);
+  assert.strictEqual(txnRow.pay_mode, 'MPESA');
+  assert.strictEqual(txnRow.reference_no, 'QGH7X9K2');
+});
+
+await test('disbursing to a member account still ignores any bank account/pay mode — no bank account is touched', async () => {
+  const targetApplied = await loanSvc.apply({
+    memberId: borrower.id, productId: normProduct.id, principal: 1000000, termMonths: 3,
+    purpose: 'Unit test — member account target unaffected by payout fields', disburseToAccountId: borrowerFosa.id, user: admin,
+  });
+  await loanSvc.saveAppraisal({ loanId: targetApplied.id, user: admin });
+  await loanSvc.submit({ loanId: targetApplied.id, user: admin });
+  await loanSvc.approve({ loanId: targetApplied.id, user: admin, approve: true, reason: 'ok' });
+
+  const bankBalBefore = await accounting.accountBalance('1020');
+  // Passing bankAccountId/payMode here must have no effect at all — this branch never looks at
+  // them, matching the UI's own "Payment Channel not even shown" behaviour for this case.
+  const l = await loanSvc.disburse({
+    loanId: targetApplied.id, bankAccountId: payoutBankAccount.id, payMode: 'CHEQUE', chequeNo: 'SHOULD-BE-IGNORED', user: admin,
+  });
+  assert.strictEqual(await accounting.accountBalance('1020'), bankBalBefore, 'the bank account must be untouched');
+  const txnRow = (await one<{ bank_account_id: number | null; pay_mode: string | null }>(
+    "SELECT bank_account_id, pay_mode FROM txn WHERE loan_id = ? AND txn_type = 'DISBURSEMENT'", l.id,
+  ))!;
+  assert.strictEqual(txnRow.bank_account_id, null);
+  assert.strictEqual(txnRow.pay_mode, null);
 });
 
 /* ------------------------------------------------------------------------ */
@@ -1369,6 +1463,221 @@ await test('disbursing a Standing-Order-recovery loan auto-creates and activates
 
   const again = await standingOrdersLib.createRecoveryStandingOrderForLoan(loan.id, admin);
   assert.strictEqual(again, null, 'a loan that already has a live recovery order must not get a second one');
+});
+
+/* ------------------------------------------------------------------------ */
+section('Checkoff & Salary Processing — CSV upload, Validate, Calculate, Transaction Recoveries');
+
+const { id: ckoEmployerId } = await employersLib.createEmployer(
+  { code: `CKOTEST${Date.now()}`, name: 'Checkoff Test Employer Ltd', status: 'ACTIVE' }, admin,
+);
+const ckoFosaProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='FOSA'"))!.id;
+const ckoHolProductId = (await one<{ id: number }>("SELECT id FROM savings_product WHERE code='HOL'"))!.id;
+
+// Member A — a CHECKOFF-mode disbursed loan (LOAN recovery leg) and a HOL account (INTERNAL_DEPOSIT leg).
+await employersLib.setMemberEmployer(borrower.id, ckoEmployerId, admin);
+await run('UPDATE member SET staff_no = ? WHERE id = ?', 'CKO-A', borrower.id);
+const ckoHolA = await savings.openAccount({ memberId: borrower.id, productId: ckoHolProductId, enforceMinOpening: false });
+const ckoLoan = await loanSvc.apply({
+  memberId: borrower.id, productId: normProduct.id, principal: 200000, termMonths: 12,
+  purpose: 'Unit test — checkoff recovery', disburseToAccountId: borrowerFosa.id, recoveryMode: 'CHECKOFF', user: admin,
+});
+await loanSvc.saveAppraisal({ loanId: ckoLoan.id, user: admin });
+await loanSvc.submit({ loanId: ckoLoan.id, user: admin });
+await loanSvc.approve({ loanId: ckoLoan.id, user: admin, approve: true, reason: 'ok' });
+const ckoLoanDisbursed = await loanSvc.disburse({ loanId: ckoLoan.id, user: admin });
+
+// Member B — no loan, but a HOL account: the LOAN leg finds nothing, so Internal Deposit sweeps
+// everything left after the charge.
+const ckoMemberB = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'ChckoffB', last_name: 'Testcase', staff_no: 'CKO-B' }, admin,
+);
+await employersLib.setMemberEmployer(ckoMemberB.id, ckoEmployerId, admin);
+const ckoFosaB = await savings.openAccount({ memberId: ckoMemberB.id, productId: ckoFosaProductId, enforceMinOpening: false });
+const ckoHolB = await savings.openAccount({ memberId: ckoMemberB.id, productId: ckoHolProductId, enforceMinOpening: false });
+
+// Member C — no loan and no HOL account: both recoveries find nothing to act on, so the whole
+// remainder falls through to a NET_AMOUNT row and is deposited to their own FOSA.
+const ckoMemberC = await membersLib.createMember(
+  { member_type: 'INDIVIDUAL', first_name: 'ChckoffC', last_name: 'Testcase', staff_no: 'CKO-C' }, admin,
+);
+await employersLib.setMemberEmployer(ckoMemberC.id, ckoEmployerId, admin);
+const ckoFosaC = await savings.openAccount({ memberId: ckoMemberC.id, productId: ckoFosaProductId, enforceMinOpening: false });
+
+const ckoStamp = Date.now();
+const ckoChargeGl = await gl.createGlAccount(
+  { code: `TESTCKOGL${ckoStamp}`, name: 'Test Checkoff Fee Income', type: 'INCOME' }, admin,
+);
+const ckoCharge = await chargesLib.createCharge(`TESTCKO${ckoStamp}`, 'Test salary processing fee', admin);
+await chargesLib.createTransactionCharge(
+  { code: `TESTCKOTC${ckoStamp}`, description: 'Test End Month Salary Charge', transaction_type: 'End Month Salary' },
+  [{
+    charge_id: ckoCharge.id, gl_account_id: ckoChargeGl.id, calculation_type: 'SCHEME', source_index: null,
+    scheme: [{ lower_limit: 0, upper_limit: null, rate_type: 'FLAT', flat_amount: 5000 }],
+  }],
+  admin,
+  [
+    { recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', priority: 1 },
+    { recovery_type: 'INTERNAL_DEPOSIT', deduction_type: 'FULL_REMAINING', savings_product_id: ckoHolProductId, priority: 2 },
+  ],
+);
+const ckoTransactionCharge = (await one<{ id: number }>(`SELECT id FROM transaction_charge WHERE code = ?`, `TESTCKOTC${ckoStamp}`))!;
+
+await test('a Transaction Charge configured outside End Month Salary silently drops any submitted recoveries', async () => {
+  const gl2 = await gl.createGlAccount({ code: `TESTCKOGL2${ckoStamp}`, name: 'Test Other Income', type: 'INCOME' }, admin);
+  const c2 = await chargesLib.createCharge(`TESTCKO2${ckoStamp}`, 'Test general fee', admin);
+  const { id } = await chargesLib.createTransactionCharge(
+    { code: `TESTCKOTC2${ckoStamp}`, description: 'Test General Charge', transaction_type: 'General' },
+    [{ charge_id: c2.id, gl_account_id: gl2.id, calculation_type: 'SCHEME', source_index: null, scheme: [{ lower_limit: 0, upper_limit: null, rate_type: 'FLAT', flat_amount: 1000 }] }],
+    admin,
+    [{ recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', priority: 1 }],
+  );
+  const detail = await chargesLib.getTransactionCharge(id);
+  assert.strictEqual(detail!.recoveries.length, 0);
+});
+
+const { no: ckoBatchNo } = await checkoffBatchesLib.createCheckoffBatch(
+  ckoEmployerId, 'SALARY', `${today.slice(0, 7)}-01`, admin, ckoTransactionCharge.id,
+);
+
+await test('a Salary batch auto-populates a line for every active member with a withdrawable deposit account', async () => {
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(ckoBatchNo);
+  const memberIds = lines.map((l) => l.member_id);
+  assert.ok(memberIds.includes(borrower.id));
+  assert.ok(memberIds.includes(ckoMemberB.id));
+  assert.ok(memberIds.includes(ckoMemberC.id));
+});
+
+const ckoCsv = [
+  'Payroll No,Name,Amount',
+  `CKO-A,Borrower Test,5000.00`,
+  `CKO-B,Chckoff B,5000.00`,
+  `CKO-C,Chckoff C,5000.00`,
+  'CKO-UNKNOWN,Nobody,1000.00',
+].join('\n');
+
+await test('a CSV upload matches by payroll no., overwrites remitted amount, and reports unmatched rows', async () => {
+  const result = await checkoffBatchesLib.applyCheckoffCsvUpload(ckoBatchNo, ckoCsv, admin);
+  assert.strictEqual(result.matchedCount, 3);
+  assert.strictEqual(result.totalUploaded, 1500000);
+  assert.strictEqual(result.unmatchedRows.length, 1);
+  assert.ok(result.unmatchedRows[0].includes('CKO-UNKNOWN'));
+
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(ckoBatchNo);
+  const lineA = lines.find((l) => l.member_id === borrower.id)!;
+  assert.strictEqual(lineA.remitted_amount, 500000);
+  assert.strictEqual(lineA.uploaded_amount, 500000);
+  assert.strictEqual(lineA.matched, true);
+});
+
+await test('Validate reports a clean tally when the card matches the upload', async () => {
+  const result = await checkoffBatchesLib.validateCheckoffBatch(ckoBatchNo, admin);
+  assert.strictEqual(result.tallyVariance, 0);
+  assert.strictEqual(result.unmatchedCount, 0);
+  assert.strictEqual(result.mismatchedLines.length, 0);
+});
+
+await test('Validate flags a line hand-edited after the CSV upload', async () => {
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(ckoBatchNo);
+  const lineA = lines.find((l) => l.member_id === borrower.id)!;
+  // recordRemittedAmount() takes cents despite its `amountSh` name — the shillings-to-cents
+  // conversion happens one layer up, in the server action.
+  await checkoffBatchesLib.recordRemittedAmount(ckoBatchNo, lineA.id, 550000, admin);
+  const result = await checkoffBatchesLib.validateCheckoffBatch(ckoBatchNo, admin);
+  assert.strictEqual(result.tallyVariance, 50000);
+  assert.strictEqual(result.mismatchedLines.length, 1);
+  assert.strictEqual(result.mismatchedLines[0].lineId, lineA.id);
+  // Put it back so the rest of this section's numbers stay predictable.
+  await checkoffBatchesLib.recordRemittedAmount(ckoBatchNo, lineA.id, 500000, admin);
+});
+
+await test('a Salary batch with a Charge Code attached cannot be sent for approval before Calculate runs', async () => {
+  await throws(() => checkoffBatchesLib.submitCheckoffBatch(ckoBatchNo, admin), /VALIDATION/);
+});
+
+await test('Calculate applies the charge, then the recoveries waterfall, in priority order', async () => {
+  const { linesCalculated } = await checkoffBatchesLib.calculateCheckoffRecoveries(ckoBatchNo, admin);
+  assert.strictEqual(linesCalculated, 3);
+
+  const owed = ckoLoanDisbursed.principal_balance + ckoLoanDisbursed.interest_balance + ckoLoanDisbursed.penalty_balance;
+  const expectedLoanRecovery = Math.min(ckoLoanDisbursed.installment, owed);
+
+  const calcs = await checkoffBatchesLib.listCheckoffCalculations(ckoBatchNo);
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(ckoBatchNo);
+  const lineA = lines.find((l) => l.member_id === borrower.id)!;
+  const lineB = lines.find((l) => l.member_id === ckoMemberB.id)!;
+  const lineC = lines.find((l) => l.member_id === ckoMemberC.id)!;
+
+  const forA = calcs.filter((c) => c.line_id === lineA.id);
+  assert.deepStrictEqual(forA.map((c) => c.entry_type), ['CHARGE', 'LOAN_RECOVERY', 'INTERNAL_DEPOSIT']);
+  assert.strictEqual(forA[0].amount, 5000);
+  assert.strictEqual(forA[1].amount, expectedLoanRecovery);
+  assert.strictEqual(forA[1].loan_id, ckoLoan.id);
+  assert.strictEqual(forA[2].amount, 500000 - 5000 - expectedLoanRecovery);
+  assert.strictEqual(forA[2].savings_account_id, ckoHolA.id);
+
+  const forB = calcs.filter((c) => c.line_id === lineB.id);
+  assert.deepStrictEqual(forB.map((c) => c.entry_type), ['CHARGE', 'INTERNAL_DEPOSIT']);
+  assert.strictEqual(forB[1].amount, 500000 - 5000);
+  assert.strictEqual(forB[1].savings_account_id, ckoHolB.id);
+
+  const forC = calcs.filter((c) => c.line_id === lineC.id);
+  assert.deepStrictEqual(forC.map((c) => c.entry_type), ['CHARGE', 'NET_AMOUNT']);
+  assert.strictEqual(forC[1].amount, 500000 - 5000);
+});
+
+await test('re-running Calculate replaces the previous breakdown rather than appending to it', async () => {
+  const before = (await checkoffBatchesLib.listCheckoffCalculations(ckoBatchNo)).length;
+  await checkoffBatchesLib.calculateCheckoffRecoveries(ckoBatchNo, admin);
+  const after = (await checkoffBatchesLib.listCheckoffCalculations(ckoBatchNo)).length;
+  assert.strictEqual(after, before);
+});
+
+await test('hand-editing a remitted amount after Calculate clears just that line\'s breakdown', async () => {
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(ckoBatchNo);
+  const lineC = lines.find((l) => l.member_id === ckoMemberC.id)!;
+  // Same value as before — this only needs to exercise the "an edit clears this line's
+  // breakdown" code path, not actually change anything the processing test below depends on.
+  await checkoffBatchesLib.recordRemittedAmount(ckoBatchNo, lineC.id, 500000, admin);
+  const calcs = await checkoffBatchesLib.listCheckoffCalculations(ckoBatchNo);
+  assert.ok(!calcs.some((c) => c.line_id === lineC.id), "line C's own rows should be gone");
+  const lineA = lines.find((l) => l.member_id === borrower.id)!;
+  assert.ok(calcs.some((c) => c.line_id === lineA.id), "line A's rows should be untouched");
+  // Recalculate so the whole batch is consistent again for processing below.
+  await checkoffBatchesLib.calculateCheckoffRecoveries(ckoBatchNo, admin);
+});
+
+await test('processing posts exactly what Calculate found', async () => {
+  const glBefore = await accounting.accountBalance(`TESTCKOGL${ckoStamp}`);
+  const loanBefore = (await one<{ principal_balance: number; interest_balance: number; penalty_balance: number }>(
+    'SELECT principal_balance, interest_balance, penalty_balance FROM loan WHERE id = ?', ckoLoan.id,
+  ))!;
+  const owedBefore = loanBefore.principal_balance + loanBefore.interest_balance + loanBefore.penalty_balance;
+  const holABefore = (await savings.getAccount(ckoHolA.id))!.balance;
+  const holBBefore = (await savings.getAccount(ckoHolB.id))!.balance;
+  const fosaCBefore = (await savings.getAccount(ckoFosaC.id))!.balance;
+
+  // No workflow is configured for CHECKOFF_BATCH in a fresh install — same bypass the Standing
+  // Orders and Member Activation sections above use to isolate approve/process from routing.
+  await run("UPDATE checkoff_batch SET status = 'Approved' WHERE no = ?", ckoBatchNo);
+  await checkoffBatchesLib.processCheckoffBatch(ckoBatchNo, admin);
+
+  const batch = (await one<{ status: string }>('SELECT status FROM checkoff_batch WHERE no = ?', ckoBatchNo))!;
+  assert.strictEqual(batch.status, 'Processed');
+
+  const totalCharge = 5000 * 3;
+  assert.strictEqual(await accounting.accountBalance(`TESTCKOGL${ckoStamp}`), glBefore + totalCharge);
+
+  const loanAfter = (await one<{ principal_balance: number; interest_balance: number; penalty_balance: number }>(
+    'SELECT principal_balance, interest_balance, penalty_balance FROM loan WHERE id = ?', ckoLoan.id,
+  ))!;
+  const owedAfter = loanAfter.principal_balance + loanAfter.interest_balance + loanAfter.penalty_balance;
+  const expectedLoanRecovery = Math.min(ckoLoanDisbursed.installment, owedBefore);
+  assert.strictEqual(owedBefore - owedAfter, expectedLoanRecovery);
+
+  assert.strictEqual((await savings.getAccount(ckoHolA.id))!.balance, holABefore + (500000 - 5000 - expectedLoanRecovery));
+  assert.strictEqual((await savings.getAccount(ckoHolB.id))!.balance, holBBefore + (500000 - 5000));
+  assert.strictEqual((await savings.getAccount(ckoFosaC.id))!.balance, fosaCBefore + (500000 - 5000));
 });
 
 /* ------------------------------------------------------------------------ */

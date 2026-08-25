@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  listCheckoffBatches, hasAnyCheckoffBatches, type CheckoffBatchView,
+  listCheckoffBatches, hasAnyCheckoffBatches, listSalaryChargeCodes, type CheckoffBatchView,
 } from '@/lib/checkoffBatches';
 import { listActiveEmployers } from '@/lib/employers';
 import { Page } from '@/components/layout/page';
@@ -33,11 +33,12 @@ export default async function CheckoffBatchesPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as CheckoffBatchView;
 
-  const [batches, empty, canCreate, canApprove, employers] = await Promise.all([
+  const [batches, empty, canCreate, canApprove, employers, salaryChargeCodes] = await Promise.all([
     listCheckoffBatches({ view: tab, search: q }),
     hasAnyCheckoffBatches(tab).then((any) => !any),
     currentCanAction('CHECKOFF_BATCHES_CREATE'), currentCanAction('CHECKOFF_BATCHES_APPROVE'),
     listActiveEmployers(),
+    listSalaryChargeCodes(),
   ]);
 
   return (
@@ -46,7 +47,7 @@ export default async function CheckoffBatchesPage({ params, searchParams }: {
       <Toolbar>
         <SearchInput placeholder="Search employer or document no.…" disabled={empty} />
         <Spacer />
-        {canCreate ? <NewCheckoffBatchButton employers={employers} /> : null}
+        {canCreate ? <NewCheckoffBatchButton employers={employers} salaryChargeCodes={salaryChargeCodes} /> : null}
       </Toolbar>
 
       <Card>

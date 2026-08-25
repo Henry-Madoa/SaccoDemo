@@ -167,9 +167,12 @@ export async function runEntranceFeeRecovery(user: Actor): Promise<EntranceFeeRe
       const outcome = await recoverOne(m, user);
       if (outcome) results.push(outcome);
     } catch (e) {
+      // Prefixed so callers (the Job Queue message, the manual screen's result popup) can tell
+      // a genuine posting failure — a misconfigured GL account, say — apart from recoverOne()'s
+      // own benign skips (nothing available, no deposit account), which need no such alarm.
       results.push({
         member_id: m.id, member_no: m.member_no, posted: 0, activated: false,
-        skipped_reason: (e as Error).message || 'Posting failed',
+        skipped_reason: `Posting failed — ${(e as Error).message || 'unknown error'}`,
       });
     }
   }

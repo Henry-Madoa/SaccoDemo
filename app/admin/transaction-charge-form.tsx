@@ -7,11 +7,32 @@ import { saveTransactionCharge } from '@/app/actions/charges';
 import {
   TariffMatrix, emptyBand, bandFromScheme, bandToDraft, schemeSummary, type SchemeBandRow,
 } from '@/components/admin/tariff-matrix';
-import type { TransactionChargeSetupDraft, TransactionCalcSchemeDraft } from '@/lib/charges';
+import type { TransactionChargeSetupDraft, TransactionCalcSchemeDraft, TransactionRecoveryDraft } from '@/lib/charges';
 import {
   CHARGE_TRANSACTION_TYPES, CHARGE_CALCULATION_TYPES, PRODUCT_STATUSES,
+  TRANSACTION_RECOVERY_TYPES, LOAN_DEDUCTION_TYPES, INTERNAL_DEPOSIT_DEDUCTION_TYPES,
 } from '@/lib/constants';
-import type { Charge, ChargeCalculationType, GlAccount, TransactionChargeWithDetail } from '@/lib/types';
+import type {
+  Charge, ChargeCalculationType, ChargeTransactionType, GlAccount, SavingsProduct,
+  TransactionChargeWithDetail, TransactionRecoveryDeductionType, TransactionRecoveryType,
+} from '@/lib/types';
+
+/** Only this transaction type actually runs a recovery waterfall (Checkoff & Salary
+ *  Processing's Calculate step) — see lib/charges.ts's RECOVERY_ELIGIBLE_TYPE. */
+const RECOVERY_ELIGIBLE_TYPE: ChargeTransactionType = 'End Month Salary';
+
+interface RecoveryRow {
+  recovery_type: TransactionRecoveryType;
+  deduction_type: TransactionRecoveryDeductionType;
+  savings_product_id: number | '';
+  priority: number;
+  description: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+const emptyRecoveryRow = (priority: number): RecoveryRow => ({
+  recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', savings_product_id: '', priority, description: '', status: 'ACTIVE',
+});
 
 interface ComponentRow {
   charge_id: number | '';
@@ -29,18 +50,25 @@ const emptyRow = (priority: number): ComponentRow => ({
   scheme: [emptyBand()],
 });
 
-export function TransactionChargeFormButton({ transactionCharge, charges, accounts, className = 'btn', children }: {
+export function TransactionChargeFormButton({
+  transactionCharge, charges, accounts, savingsProducts = [], className = 'btn', children,
+}: {
   transactionCharge?: TransactionChargeWithDetail | null;
   /** The reusable charge codes (Admin Centre → Charges → Charge Codes) this component list
    *  picks from. */
   charges: Charge[];
   /** Postable G/L accounts a component may post to. */
   accounts: GlAccount[];
+  /** Internal Deposit recoveries' account picklist — only needed for RECOVERY_ELIGIBLE_TYPE. */
+  savingsProducts?: SavingsProduct[];
   className?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const tc = transactionCharge ?? null;
+  const [transactionType, setTransactionType] = useState<ChargeTransactionType>(
+    tc?.transaction_type ?? CHARGE_TRANSACTION_TYPES[0].value,
+  );
   const [rows, setRows] = useState<ComponentRow[]>(() => {
     if (!tc) return [];
     // Resolve each PERCENT_OF_CHARGE component's source_setup_id back to this array's own
@@ -54,6 +82,11 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
       scheme: c.scheme.length ? c.scheme.map(bandFromScheme) : [emptyBand()],
     }));
   });
+  const [recoveryRows, setRecoveryRows] = useState<RecoveryRow[]>(() => (tc?.recoveries ?? []).map((r) => ({
+    recovery_type: r.recovery_type, deduction_type: r.deduction_type,
+    savings_product_id: r.savings_product_id ?? '', priority: r.priority,
+    description: r.description ?? '', status: r.status,
+  })));
   // Which component's Tariff Matrix is currently expanded — at most one at a time keeps the
   // already-tall components table from growing unmanageably.
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -78,6 +111,21 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
     scheme: r.scheme.map((b): TransactionCalcSchemeDraft => bandToDraft(b)),
   }));
 
+  const updateRecovery = (i: number, patch: Partial<RecoveryRow>) =>
+    setRecoveryRows((cur) => cur.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const removeRecovery = (i: number) => setRecoveryRows((cur) => cur.filter((_, k) => k !== i));
+
+  const toRecoveryDrafts = (): TransactionRecoveryDraft[] => recoveryRows.map((r) => ({
+    recovery_type: r.recovery_type,
+    deduction_type: r.deduction_type,
+    savings_product_id: r.recovery_type === 'INTERNAL_DEPOSIT' ? (Number(r.savings_product_id) || null) : null,
+    priority: r.priority,
+    description: r.description.trim() || null,
+    status: r.status,
+  }));
+
+  const showRecoveries = transactionType === RECOVERY_ELIGIBLE_TYPE;
+
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>{children}</button>
@@ -86,7 +134,7 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
           wide
           title={tc ? `Edit ${tc.code}` : 'Add a transaction charge'}
           onClose={() => setOpen(false)}
-          onSubmit={(values) => saveTransactionCharge(tc ? tc.id : null, values, toDrafts())}
+          onSubmit={(values) => saveTransactionCharge(tc ? tc.id : null, values, toDrafts(), toRecoveryDrafts())}
           submitLabel="Save"
           successTitle="Transaction charge saved"
         >
@@ -95,7 +143,8 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
               defaultValue={tc?.code} disabled={!!tc} uppercase />
             <Field name="description" label="Description" required defaultValue={tc?.description} />
             <Field name="transaction_type" label="Transaction type" type="select" required
-              options={CHARGE_TRANSACTION_TYPES} defaultValue={tc?.transaction_type} />
+              options={CHARGE_TRANSACTION_TYPES} defaultValue={tc?.transaction_type}
+              onChange={(e) => setTransactionType(e.target.value as ChargeTransactionType)} />
           </div>
           {tc ? (
             <Field name="status" label="Status" type="select" options={PRODUCT_STATUSES} defaultValue={tc.status} />
@@ -201,6 +250,81 @@ export function TransactionChargeFormButton({ transactionCharge, charges, accoun
               Add component
             </button>
           </div>
+
+          {showRecoveries ? (
+            <>
+              <h4 className="section-title">Transaction recoveries</h4>
+              <div className="card-sub">
+                Runs in Priority order, after charge components, against whatever remains of the
+                amount remitted for a member on a salary-processing batch. A Loan recovery pays
+                down the member's own payroll-deducted loans; an Internal Deposit recovery sweeps
+                or tops up one of their savings accounts. Used by Checkoff &amp; Salary
+                Processing's Calculate step.
+              </div>
+              <div style={{ overflowX: 'auto', marginTop: 8 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Recovery type</th><th>Deduction type</th><th>Savings product</th>
+                      <th style={{ width: 60 }}>Priority</th><th>Description</th><th style={{ width: 40 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recoveryRows.map((row, i) => (
+                      <tr key={i}>
+                        <td>
+                          <select value={row.recovery_type} aria-label="Recovery type"
+                            onChange={(e) => updateRecovery(i, {
+                              recovery_type: e.target.value as TransactionRecoveryType,
+                              deduction_type: e.target.value === 'LOAN' ? 'INSTALLMENT' : 'FULL_REMAINING',
+                              savings_product_id: '',
+                            })}>
+                            {TRANSACTION_RECOVERY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <select value={row.deduction_type} aria-label="Deduction type"
+                            onChange={(e) => updateRecovery(i, { deduction_type: e.target.value as TransactionRecoveryDeductionType })}>
+                            {(row.recovery_type === 'LOAN' ? LOAN_DEDUCTION_TYPES : INTERNAL_DEPOSIT_DEDUCTION_TYPES)
+                              .map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          {row.recovery_type === 'INTERNAL_DEPOSIT' ? (
+                            <select value={row.savings_product_id} aria-label="Savings product"
+                              onChange={(e) => updateRecovery(i, { savings_product_id: e.target.value ? Number(e.target.value) : '' })}>
+                              <option value="">Select…</option>
+                              {savingsProducts.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+                            </select>
+                          ) : <span className="tiny">—</span>}
+                        </td>
+                        <td>
+                          <input type="number" min={1} value={row.priority} aria-label="Priority" style={{ width: 56 }}
+                            onChange={(e) => updateRecovery(i, { priority: Number(e.target.value) || 1 })} />
+                        </td>
+                        <td>
+                          <input type="text" value={row.description} aria-label="Description" style={{ width: 160 }}
+                            onChange={(e) => updateRecovery(i, { description: e.target.value })} />
+                        </td>
+                        <td>
+                          <button type="button" className="btn sm ghost" onClick={() => removeRecovery(i)} aria-label="Remove recovery">×</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!recoveryRows.length ? (
+                      <tr><td colSpan={6} className="tiny">No recoveries configured — Calculate will only apply the charge components above.</td></tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <div className="inline" style={{ marginTop: 10 }}>
+                <button type="button" className="btn ghost sm"
+                  onClick={() => setRecoveryRows((cur) => [...cur, emptyRecoveryRow(cur.length + 1)])}>
+                  Add recovery
+                </button>
+              </div>
+            </>
+          ) : null}
         </FormModal>
       ) : null}
     </>

@@ -569,7 +569,7 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 .result-icon.ok { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
 .result-icon.err { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
 .result-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-.result-message { color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.result-message { color: var(--text-muted); font-size: 13px; line-height: 1.5; white-space: pre-line; }
 .confirm-actions { display: flex; gap: var(--sp); justify-content: center; margin-top: calc(var(--sp) * 2); }
 .confirm-actions .btn { flex: 1 1 0; justify-content: center; }
 

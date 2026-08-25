@@ -24,8 +24,16 @@ import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
 import type {
   Actor, Appraisal, AppraisalFactor, CalculatedLoanCharge, Cents, Channel, GuarantorRow, IsoDate,
   JournalLineInput, LoanAppraisalFactorRow, LoanAppraisalRow, LoanDetail, LoanFull, LoanListRow,
-  LoanProduct, LoanRecoveryMode, LoanScheduleRow, Member, SavingsAccount, Txn, TxnWithDocument,
+  LoanProduct, LoanRecoveryMode, LoanScheduleRow, Member, PayMode, SavingsAccount, Txn, TxnWithDocument,
 } from './types.ts';
+
+/** How CASH/MPESA/BANK/EFT/CHEQUE map onto the legacy `channel` column still used for
+ *  reporting/filtering elsewhere — the Bank/Cashbook account picked (Payment Channel) is what
+ *  actually decides the G/L posting now; this only keeps `txn.channel` populated sensibly for
+ *  a manual external disbursement/repayment. */
+const CHANNEL_FOR_PAY_MODE: Record<PayMode, Channel> = {
+  CASH: 'TELLER', MPESA: 'MPESA', BANK: 'BANK', EFT: 'BANK', CHEQUE: 'BANK',
+};
 
 const today = (): IsoDate => new Date().toISOString().slice(0, 10);
 
@@ -174,11 +182,13 @@ export async function getLoanDetail(id: number): Promise<LoanDetail | null> {
     listLoanCollateral(id),
     all<TxnWithDocument>(
       `SELECT t.*, j.reference AS document_no,
-              gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
+              gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code,
+              ba.code AS bank_account_code, ba.name AS bank_account_name
        FROM txn t
        LEFT JOIN journal j ON j.id = t.journal_id
        LEFT JOIN global_dimension_1_value gd1 ON gd1.id = j.global_dimension_1_id
        LEFT JOIN global_dimension_2_value gd2 ON gd2.id = j.global_dimension_2_id
+       LEFT JOIN bank_account ba ON ba.id = t.bank_account_id
        WHERE t.loan_id = ? ORDER BY t.id DESC`,
       id,
     ),
@@ -735,10 +745,26 @@ export interface DisburseInput {
   loanId: number;
   valueDate?: IsoDate;
   channel?: Channel;
+  /** The Bank/Cashbook account the payout actually left from — meaningful only when the loan
+   *  has no disburse_to_account_id (a manual external payout, not a credit to a member's own
+   *  savings account). app/actions/loans.ts's disburseLoan() enforces that a real user picks
+   *  one in that case; passed straight through here so internal/system callers (seed data,
+   *  tests) that have no such concept keep working unchanged. */
+  bankAccountId?: number | null;
+  payMode?: PayMode | null;
+  /** Pay Mode = CHEQUE only. */
+  chequeNo?: string | null;
+  /** Pay Mode = CHEQUE only. */
+  chequeDate?: IsoDate | null;
+  /** Pay Mode = MPESA | BANK | EFT only. */
+  referenceNo?: string | null;
   user: Actor;
 }
 
-export async function disburse({ loanId, valueDate, channel = 'BANK', user }: DisburseInput): Promise<LoanFull> {
+export async function disburse({
+  loanId, valueDate, channel = 'BANK', bankAccountId = null, payMode = null,
+  chequeNo = null, chequeDate = null, referenceNo = null, user,
+}: DisburseInput): Promise<LoanFull> {
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
   if (loan.status !== 'APPROVED') {
@@ -764,6 +790,17 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
       )
     : undefined;
 
+  // A Bank/Cashbook payout (Payment Channel) — only sought, and only ever supplied, when
+  // there's no member account target to credit instead.
+  const bankAccount = !target && bankAccountId
+    ? await one<{ id: number; gl_account_id: number }>(
+        "SELECT id, gl_account_id FROM bank_account WHERE id = ? AND status = 'ACTIVE'", bankAccountId,
+      )
+    : undefined;
+  if (!target && bankAccountId && !bankAccount) {
+    throw new PostingError('Bank/Cashbook account not found or inactive', 'ACCOUNT_NOT_FOUND');
+  }
+
   await tx(async () => {
     const lines: JournalLineInput[] = [
       { account: loan.gl_receivable_id, debit: loan.principal, credit: 0, narration: `Disbursement ${loan.loan_no}` },
@@ -772,7 +809,8 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
       lines.push({ account: target.gl_control_id, debit: 0, credit: loan.principal, narration: 'Credit to member account' });
       if (fees > 0) lines.push({ account: target.gl_control_id, debit: fees, credit: 0, narration: 'Loan charges recovered' });
     } else {
-      lines.push({ account: CHANNEL_GL[channel] || CHANNEL_GL.BANK, debit: 0, credit: loan.principal - fees, narration: 'Net paid out' });
+      const creditAccount = bankAccount ? bankAccount.gl_account_id : (CHANNEL_GL[channel] || CHANNEL_GL.BANK);
+      lines.push({ account: creditAccount, debit: 0, credit: loan.principal - fees, narration: 'Net paid out' });
     }
     // One credit line per charge, to its own configured revenue account — Loan Product
     // Charges' "Revenue account" only means something if it's actually where the money lands.
@@ -817,16 +855,25 @@ export async function disburse({ loanId, valueDate, channel = 'BANK', user }: Di
       );
     }
 
+    const effectiveChannel = bankAccount && payMode ? CHANNEL_FOR_PAY_MODE[payMode] : channel;
     await run(
       `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id, loan_id,
-         amount, running_balance, channel, description, journal_id, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         amount, running_balance, channel, bank_account_id, pay_mode, cheque_no, cheque_date, reference_no,
+         description, journal_id, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       await nextSequence('TXN'), vd, new Date().toISOString(), 'LOAN', 'DISBURSEMENT', loan.member_id, loanId,
-      loan.principal, loan.principal, channel, `Disbursement ${loan.loan_no}`, j.id, user.username,
+      loan.principal, loan.principal, effectiveChannel,
+      bankAccount ? bankAccount.id : null, bankAccount ? payMode : null,
+      bankAccount && payMode === 'CHEQUE' ? chequeNo : null,
+      bankAccount && payMode === 'CHEQUE' ? chequeDate : null,
+      bankAccount && (payMode === 'MPESA' || payMode === 'BANK' || payMode === 'EFT') ? referenceNo : null,
+      `Disbursement ${loan.loan_no}`, j.id, user.username,
     );
   });
 
-  await audit(user, 'LOAN_DISBURSE', 'loan', loanId, { amount: loan.principal, fees });
+  await audit(user, 'LOAN_DISBURSE', 'loan', loanId, {
+    amount: loan.principal, fees, bankAccountId: bankAccount?.id ?? null, payMode: bankAccount ? payMode : null,
+  });
 
   // recovery_mode = STANDING_ORDER: auto-create (and immediately activate) the recurring
   // installment collection lib/standingOrders.ts's own run engine then takes over — see
@@ -857,6 +904,17 @@ export interface RepayInput {
   valueDate?: IsoDate;
   description?: string;
   fromSavingsAccountId?: number | null;
+  /** The Bank/Cashbook account this repayment was actually received into — meaningful only
+   *  when it isn't debited from a member's own savings account. See DisburseInput's own
+   *  bankAccountId for the same enforcement/scoping rationale. */
+  bankAccountId?: number | null;
+  payMode?: PayMode | null;
+  /** Pay Mode = CHEQUE only. */
+  chequeNo?: string | null;
+  /** Pay Mode = CHEQUE only. */
+  chequeDate?: IsoDate | null;
+  /** Pay Mode = MPESA | BANK | EFT only. */
+  referenceNo?: string | null;
   user: Actor;
   idempotencyKey?: string | null;
 }
@@ -872,7 +930,8 @@ export interface RepayResult {
 
 export async function repay({
   loanId, amount, channel = 'TELLER', valueDate, description,
-  fromSavingsAccountId = null, user, idempotencyKey = null,
+  fromSavingsAccountId = null, bankAccountId = null, payMode = null,
+  chequeNo = null, chequeDate = null, referenceNo = null, user, idempotencyKey = null,
 }: RepayInput): Promise<RepayResult> {
   amount = Math.round(amount);
   if (!(amount > 0)) throw new PostingError('Repayment must be greater than zero', 'INVALID_AMOUNT');
@@ -912,6 +971,17 @@ export async function repay({
     }
   }
 
+  // A Bank/Cashbook receipt (Payment Channel) — only sought, and only ever supplied, when
+  // there's no member account source to debit instead.
+  const bankAccount = !source && bankAccountId
+    ? await one<{ id: number; gl_account_id: number }>(
+        "SELECT id, gl_account_id FROM bank_account WHERE id = ? AND status = 'ACTIVE'", bankAccountId,
+      )
+    : undefined;
+  if (!source && bankAccountId && !bankAccount) {
+    throw new PostingError('Bank/Cashbook account not found or inactive', 'ACCOUNT_NOT_FOUND');
+  }
+
   const res = await tx(async () => {
     let remaining = amount;
     const penaltyPaid = Math.min(loan.penalty_balance, remaining);
@@ -921,7 +991,10 @@ export async function repay({
     const lines: JournalLineInput[] = [
       source
         ? { account: source.gl_control_id, debit: amount, credit: 0, narration: 'Repayment from member account' }
-        : { account: CHANNEL_GL[channel] || CHANNEL_GL.TELLER, debit: amount, credit: 0, narration: 'Loan repayment received' },
+        : {
+            account: bankAccount ? bankAccount.gl_account_id : (CHANNEL_GL[channel] || CHANNEL_GL.TELLER),
+            debit: amount, credit: 0, narration: 'Loan repayment received',
+          },
     ];
     if (penaltyPaid > 0) lines.push({ account: loan.gl_penalty_income_id, debit: 0, credit: penaltyPaid, narration: 'Penalty recovered' });
     if (alloc.interest > 0) lines.push({ account: loan.gl_interest_income_id, debit: 0, credit: alloc.interest, narration: 'Interest income' });
@@ -975,12 +1048,18 @@ export async function repay({
       );
     }
 
+    const effectiveChannel = bankAccount && payMode ? CHANNEL_FOR_PAY_MODE[payMode] : channel;
     await run(
       `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id, loan_id,
-         amount, running_balance, channel, description, journal_id, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         amount, running_balance, channel, bank_account_id, pay_mode, cheque_no, cheque_date, reference_no,
+         description, journal_id, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       await nextSequence('TXN'), vd, new Date().toISOString(), 'LOAN', 'REPAYMENT', loan.member_id, loanId,
-      -amount, newPrincipal, channel,
+      -amount, newPrincipal, effectiveChannel,
+      bankAccount ? bankAccount.id : null, bankAccount ? payMode : null,
+      bankAccount && payMode === 'CHEQUE' ? chequeNo : null,
+      bankAccount && payMode === 'CHEQUE' ? chequeDate : null,
+      bankAccount && (payMode === 'MPESA' || payMode === 'BANK' || payMode === 'EFT') ? referenceNo : null,
       `Repayment: principal ${(principalApplied / 100).toFixed(2)}, interest ${(alloc.interest / 100).toFixed(2)}`,
       j.id, user.username,
     );

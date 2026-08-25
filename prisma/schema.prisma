@@ -357,6 +357,8 @@ model transaction_charge {
   standing_order             standing_order[]
   member_charging            member_charging[]
   member_exit                member_exit[]
+  transaction_recovery       transaction_recovery[]
+  checkoff_batch             checkoff_batch[]
 
   @@index([transaction_type], map: "ix_tc_type")
 }
@@ -509,6 +511,7 @@ model bank_account {
   gl_account                gl_account                  @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   bank_account_ledger_entry bank_account_ledger_entry[]
   bank_reconciliation       bank_reconciliation[]
+  txn                       txn[]
 }
 
 /// One posted entry against a bank account's G/L control account — populated automatically by
@@ -1646,6 +1649,7 @@ model savings_product {
   member_category_default_account                           member_category_default_account[]
   account_opening_request                                   account_opening_request[]
   member_fixed_deposit_type                                 member_fixed_deposit_type[]
+  transaction_recovery                                      transaction_recovery[]
 }
 
 /// A member fixed-deposit product: interest rate bounds, calc method (Flat vs Reducing Balance,
@@ -1789,13 +1793,29 @@ model txn {
   created_by         String?
   status             String           @default("POSTED")
   reversal_of        Int?
+  /// The specific Bank/Cashbook account this loan disbursement or repayment moved through —
+  /// only set for a manual external payout/receipt (Pay Mode below); null when funded from/to a
+  /// member's own savings account, where no bank account is touched at all. See
+  /// lib/loanService.ts's disburse()/repay().
+  bank_account_id    Int?
+  /// 'CASH' | 'MPESA' | 'BANK' | 'EFT' | 'CHEQUE' — how a manual external loan disbursement/
+  /// repayment was actually paid, alongside (not instead of) which bank_account received/paid it.
+  pay_mode           String?
+  /// Pay Mode = CHEQUE only.
+  cheque_no          String?
+  /// Pay Mode = CHEQUE only.
+  cheque_date        String?
+  /// Pay Mode = MPESA | BANK | EFT only — the M-Pesa code / bank transfer or EFT reference.
+  reference_no       String?
   journal            journal?         @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   loan               loan?            @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member             member?          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   txn                txn?             @relation("txnTotxn", fields: [reversal_of], references: [id], onDelete: NoAction, onUpdate: NoAction)
   other_txn          txn[]            @relation("txnTotxn")
   savings_account    savings_account? @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bank_account       bank_account?    @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([bank_account_id], map: "ix_txn_bank_account")
   @@index([value_date], map: "ix_txn_date")
   @@index([loan_id, id], map: "ix_txn_loan")
   @@index([member_id, id(sort: Desc)], map: "ix_txn_member")
@@ -2192,23 +2212,29 @@ model employer {
 /// reconciliation step), SALARY lines simply record each member's remitted net salary — see
 /// lib/checkoffBatches.ts's processCheckoffBatch() for how each type posts.
 model checkoff_batch {
-  no              String                @id
+  no                    String                 @id
   /// 'CHECKOFF' | 'SALARY'
-  batch_type      String
-  employer_id     Int
+  batch_type            String
+  employer_id           Int
   /// First-of-month, e.g. '2026-08-01' — the payroll period this batch covers.
-  period          String
-  posting_date    String?
-  description     String?
+  period                String
+  posting_date          String?
+  description           String?
   /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
-  status          String                @default("Open")
-  decision_reason String?
-  processed_at    String?
-  processed_by    String?
-  created_at      String?
-  created_by      String?
-  employer        employer              @relation(fields: [employer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  lines           checkoff_batch_line[]
+  status                String                 @default("Open")
+  decision_reason       String?
+  /// SALARY only — the 'End Month Salary' Transaction Charge whose components (charges) and
+  /// Transaction Recoveries (loan/internal-deposit waterfall) Calculate applies against each
+  /// line's remitted amount. Null means Calculate has nothing configured to run.
+  transaction_charge_id Int?
+  processed_at          String?
+  processed_by          String?
+  created_at            String?
+  created_by            String?
+  employer              employer               @relation(fields: [employer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge    transaction_charge?    @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines                 checkoff_batch_line[]
+  calculations          checkoff_calculation[]
 
   @@index([employer_id], map: "ix_cob_employer")
   @@index([status], map: "ix_cob_status")
@@ -2216,7 +2242,7 @@ model checkoff_batch {
 
 /// One member's line within a checkoff/salary batch.
 model checkoff_batch_line {
-  id              Int            @id @default(autoincrement())
+  id              Int                    @id @default(autoincrement())
   batch_no        String
   member_id       Int
   payroll_no      String?
@@ -2224,16 +2250,73 @@ model checkoff_batch_line {
   /// each capped at that loan's own outstanding balance. Always 0 for a SALARY line (this port
   /// excludes AL's Employer Payroll Details staging table, so there is nothing to compute an
   /// expected salary from — the officer records the actual remitted amount directly instead).
-  expected_amount BigInt         @default(0)
+  expected_amount BigInt                 @default(0)
   /// What the officer records as actually remitted for this member — the reconciliation input
-  /// both batch types share.
-  remitted_amount BigInt         @default(0)
+  /// both batch types share. A CSV upload that matches this line overwrites it with
+  /// uploaded_amount.
+  remitted_amount BigInt                 @default(0)
   /// remitted_amount - expected_amount (CHECKOFF only; always 0 for SALARY).
-  variance        BigInt         @default(0)
-  batch           checkoff_batch @relation(fields: [batch_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
-  member          member         @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  variance        BigInt                 @default(0)
+  /// The amount the last CSV upload carried for this member (0 if never uploaded or unmatched).
+  uploaded_amount BigInt                 @default(0)
+  /// The name column from the last CSV upload row that matched this line — kept for the officer
+  /// to eyeball against the member's own name, since matching itself is by payroll/staff no.
+  uploaded_name   String?
+  /// False when the last CSV upload had a row that could not be matched to any line by payroll
+  /// no — surfaced so "tally what is uploaded vs. what the card shows" has something to flag.
+  matched         Boolean                @default(true)
+  batch           checkoff_batch         @relation(fields: [batch_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  member          member                 @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  calculations    checkoff_calculation[]
 
   @@unique([batch_no, member_id], map: "ux_cobl_batch_member")
+}
+
+/// One priority-ordered recovery rule attached to an 'End Month Salary' Transaction Charge —
+/// ported from the AL reference's Tab52204065 "Transaction Recoveries", narrowed to the two
+/// recovery types this app can actually act on without further master data: recovering a
+/// member's own payroll-deducted loans, or sweeping/topping-up one of their savings accounts.
+/// (AL's own "Standing Order" recovery type is dropped — this app's Standing Order module
+/// already recovers on its own independent daily schedule, see lib/standingOrders.ts.)
+model transaction_recovery {
+  id                    Int                @id @default(autoincrement())
+  transaction_charge_id Int
+  /// 'LOAN' | 'INTERNAL_DEPOSIT'
+  recovery_type         String
+  /// LOAN: 'INSTALLMENT' | 'ARREARS' | 'BALANCE'. INTERNAL_DEPOSIT: 'FULL_REMAINING' |
+  /// 'BOOST_TO_MINIMUM'.
+  deduction_type        String
+  /// Required, INTERNAL_DEPOSIT only — which savings product's account to recover into.
+  savings_product_id    Int?
+  priority              Int                @default(1)
+  description           String?
+  status                String             @default("ACTIVE")
+  transaction_charge    transaction_charge @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_product       savings_product?   @relation(fields: [savings_product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([transaction_charge_id], map: "ix_trec_tc")
+}
+
+/// One line of a Calculate run's breakdown for one checkoff_batch_line — a Transaction Charge
+/// component, a Transaction Recovery deduction, or the net amount left over — kept for the
+/// officer to review before Send for approval, and for processCheckoffBatch() to post from
+/// (rather than recomputing at process time, so what was approved is exactly what posts).
+model checkoff_calculation {
+  id                 Int                 @id @default(autoincrement())
+  batch_no           String
+  line_id            Int
+  /// 'CHARGE' | 'LOAN_RECOVERY' | 'INTERNAL_DEPOSIT' | 'NET_AMOUNT'
+  entry_type         String
+  description        String
+  loan_id            Int?
+  savings_account_id Int?
+  gl_account_id      Int?
+  amount             BigInt              @default(0)
+  batch              checkoff_batch      @relation(fields: [batch_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  line               checkoff_batch_line @relation(fields: [line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([batch_no], map: "ix_cocalc_batch")
+  @@index([line_id], map: "ix_cocalc_line")
 }
 
 /// System Automation (Job Queue) — mirrors Business Central's Job Queue Entry: a recurring

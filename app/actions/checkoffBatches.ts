@@ -6,17 +6,72 @@ import { actionResult } from '@/lib/errors';
 import {
   createCheckoffBatch, refreshCheckoffBatchLines, recordRemittedAmount, submitCheckoffBatch,
   cancelCheckoffBatchApproval, approveCheckoffBatch, rejectCheckoffBatch, processCheckoffBatch,
+  setCheckoffBatchChargeCode, applyCheckoffCsvUpload, validateCheckoffBatch, calculateCheckoffRecoveries,
 } from '@/lib/checkoffBatches';
+import type { CheckoffCsvUploadResult, CheckoffValidationResult } from '@/lib/checkoffBatches';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import type { ActionResult } from '@/lib/types';
 
 export async function requestCheckoffBatch(
-  employerId: number, batchType: string, period: string,
+  employerId: number, batchType: string, period: string, transactionChargeId?: number | null,
 ): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
     const user = await requireAction('CHECKOFF_BATCHES_CREATE');
-    const result = await createCheckoffBatch(employerId, batchType as 'CHECKOFF' | 'SALARY', period, user);
+    const result = await createCheckoffBatch(
+      employerId, batchType as 'CHECKOFF' | 'SALARY', period, user, transactionChargeId,
+    );
     revalidatePath('/checkoff-batches');
+    return result;
+  });
+}
+
+export async function setCheckoffBatchChargeCodeRequest(
+  no: string, transactionChargeId: number | null,
+): Promise<ActionResult<{ updated: true }>> {
+  return actionResult(async () => {
+    const user = await requireAction('CHECKOFF_BATCHES_CREATE');
+    await setCheckoffBatchChargeCode(no, transactionChargeId, user);
+    revalidatePath(`/checkoff-batches/view/${no}`);
+    return { updated: true };
+  });
+}
+
+export interface CheckoffCsvUploadState {
+  result?: CheckoffCsvUploadResult;
+  error?: string;
+}
+
+/** Plain FormData action (not a FormModal — its readForm() drops File objects), same pattern as
+ *  app/actions/configPackages.ts's importConfigPackageAction(). */
+export async function applyCheckoffCsvUploadAction(
+  _prevState: CheckoffCsvUploadState, formData: FormData,
+): Promise<CheckoffCsvUploadState> {
+  try {
+    const user = await requireAction('CHECKOFF_BATCHES_CREATE');
+    const no = String(formData.get('no') || '');
+    const file = formData.get('file');
+    if (!(file instanceof File) || !file.size) return { error: 'Choose a CSV file to upload' };
+    const text = await file.text();
+    const result = await applyCheckoffCsvUpload(no, text, user);
+    revalidatePath(`/checkoff-batches/view/${no}`);
+    return { result };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Upload failed' };
+  }
+}
+
+export async function validateCheckoffBatchRequest(no: string): Promise<ActionResult<CheckoffValidationResult>> {
+  return actionResult(async () => {
+    const user = await requireAction('CHECKOFF_BATCHES_CREATE');
+    return validateCheckoffBatch(no, user);
+  });
+}
+
+export async function calculateCheckoffRecoveriesRequest(no: string): Promise<ActionResult<{ linesCalculated: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('CHECKOFF_BATCHES_CREATE');
+    const result = await calculateCheckoffRecoveries(no, user);
+    revalidatePath(`/checkoff-batches/view/${no}`);
     return result;
   });
 }

@@ -713,8 +713,8 @@ async function ChargesMasterTab() {
 }
 
 async function TransactionChargesTab() {
-  const [charges, accounts, list] = await Promise.all([
-    listCharges(), listPostableAccounts(), listTransactionCharges(),
+  const [charges, accounts, list, savingsProducts] = await Promise.all([
+    listCharges(), listPostableAccounts(), listTransactionCharges(), listActiveSavingsProducts(),
   ]);
   const details = await Promise.all(list.map((t) => getTransactionCharge(t.id)));
   const typeLabel = (t: string): string => CHARGE_TRANSACTION_TYPES.find((o) => o.value === t)?.label ?? t;
@@ -723,7 +723,7 @@ async function TransactionChargesTab() {
     <>
       <Toolbar>
         <Spacer />
-        <TransactionChargeFormButton charges={charges} accounts={accounts}>
+        <TransactionChargeFormButton charges={charges} accounts={accounts} savingsProducts={savingsProducts}>
           Add transaction charge
         </TransactionChargeFormButton>
       </Toolbar>
@@ -753,7 +753,8 @@ async function TransactionChargesTab() {
                     <td className="num">
                       {detail ? (
                         <TransactionChargeFormButton
-                          transactionCharge={detail} charges={charges} accounts={accounts} className="btn sm ghost"
+                          transactionCharge={detail} charges={charges} accounts={accounts}
+                          savingsProducts={savingsProducts} className="btn sm ghost"
                         >
                           Edit
                         </TransactionChargeFormButton>

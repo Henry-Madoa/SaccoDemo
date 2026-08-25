@@ -23,8 +23,14 @@ import { CHARGE_TRANSACTION_TYPES } from './constants.ts';
 import type {
   Actor, CalculatedCharge, Cents, Charge, ChargeCalculationType, ChargeRateType, ChargeTransactionType,
   IsoDate, JournalLineInput, PostedJournal, TransactionCalcScheme, TransactionCharge,
-  TransactionChargeSetupDetail, TransactionChargeWithDetail,
+  TransactionChargeSetupDetail, TransactionChargeWithDetail, TransactionRecovery, TransactionRecoveryDeductionType,
+  TransactionRecoveryType, TransactionRecoveryWithDetail,
 } from './types.ts';
+
+/** Transaction Recoveries are only meaningful attached to a salary-processing charge — the only
+ *  type this port's Checkoff & Salary Processing (lib/checkoffBatches.ts) actually runs a
+ *  recovery waterfall against. */
+const RECOVERY_ELIGIBLE_TYPE: ChargeTransactionType = 'End Month Salary';
 
 /* --------------------------------------------------------------- charge master */
 
@@ -102,11 +108,62 @@ async function schemesForSetups(setupIds: number[]): Promise<Map<number, Transac
 export async function getTransactionCharge(id: number): Promise<TransactionChargeWithDetail | null> {
   const parent = await one<TransactionCharge>('SELECT * FROM transaction_charge WHERE id = ?', id);
   if (!parent) return null;
-  const setups = await all<TransactionChargeSetupDetail>(
-    `${SELECT_SETUP_DETAIL} WHERE s.transaction_charge_id = ? ORDER BY s.priority`, id,
-  );
+  const [setups, recoveries] = await Promise.all([
+    all<TransactionChargeSetupDetail>(
+      `${SELECT_SETUP_DETAIL} WHERE s.transaction_charge_id = ? ORDER BY s.priority`, id,
+    ),
+    listTransactionRecoveries(id),
+  ]);
   const schemesBySetup = await schemesForSetups(setups.map((s) => s.id));
-  return { ...parent, components: setups.map((s) => ({ ...s, scheme: schemesBySetup.get(s.id) ?? [] })) };
+  return {
+    ...parent,
+    components: setups.map((s) => ({ ...s, scheme: schemesBySetup.get(s.id) ?? [] })),
+    recoveries,
+  };
+}
+
+/* -------------------------------------------------------- transaction recoveries */
+
+export const listTransactionRecoveries = (transactionChargeId: number): Promise<TransactionRecoveryWithDetail[]> =>
+  all<TransactionRecoveryWithDetail>(
+    `SELECT r.*, sp.code AS savings_product_code, sp.name AS savings_product_name
+     FROM transaction_recovery r
+     LEFT JOIN savings_product sp ON sp.id = r.savings_product_id
+     WHERE r.transaction_charge_id = ? ORDER BY r.priority`,
+    transactionChargeId,
+  );
+
+export interface TransactionRecoveryDraft {
+  recovery_type: TransactionRecoveryType;
+  deduction_type: TransactionRecoveryDeductionType;
+  savings_product_id?: number | null;
+  priority?: number;
+  description?: string | null;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
+/** Wholesale replace, same shape as replaceComponents() above. Silently drops every row unless
+ *  the parent charge is the one type Calculate actually runs against (RECOVERY_ELIGIBLE_TYPE) —
+ *  the same restriction the AL reference page enforces by only showing the subpage for that
+ *  type, applied here since a server action has no such visibility control of its own. */
+async function replaceTransactionRecoveries(
+  transactionChargeId: number, transactionType: ChargeTransactionType, recoveries: TransactionRecoveryDraft[],
+): Promise<void> {
+  await run('DELETE FROM transaction_recovery WHERE transaction_charge_id = ?', transactionChargeId);
+  if (transactionType !== RECOVERY_ELIGIBLE_TYPE) return;
+
+  for (const [i, r] of recoveries.entries()) {
+    if (!r.recovery_type || !r.deduction_type) continue;
+    if (r.recovery_type === 'INTERNAL_DEPOSIT' && !r.savings_product_id) continue;
+    await run(
+      `INSERT INTO transaction_recovery
+         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, priority, description, status)
+       VALUES (?,?,?,?,?,?,?)`,
+      transactionChargeId, r.recovery_type, r.deduction_type,
+      r.recovery_type === 'INTERNAL_DEPOSIT' ? r.savings_product_id : null,
+      r.priority || i + 1, r.description?.trim() || null, r.status || 'ACTIVE',
+    );
+  }
 }
 
 /** The one enabled Transaction Charge configured for a transaction type, if any — the lookup
@@ -204,6 +261,7 @@ export interface TransactionChargeInput {
 
 export async function createTransactionCharge(
   body: TransactionChargeInput, components: TransactionChargeSetupDraft[], user: Actor,
+  recoveries: TransactionRecoveryDraft[] = [],
 ): Promise<{ id: number }> {
   const code = body.code.trim().toUpperCase();
   const description = body.description.trim();
@@ -226,6 +284,7 @@ export async function createTransactionCharge(
     );
     const id = Number(info.lastInsertRowid);
     await replaceComponents(id, components);
+    await replaceTransactionRecoveries(id, body.transaction_type, recoveries);
     await audit(user, 'TRANSACTION_CHARGE_CREATE', 'transaction_charge', id, { code, transaction_type: body.transaction_type });
     return { id };
   });
@@ -234,6 +293,7 @@ export async function createTransactionCharge(
 export async function updateTransactionCharge(
   id: number, body: Pick<TransactionChargeInput, 'description' | 'status' | 'transaction_type'>,
   components: TransactionChargeSetupDraft[], user: Actor,
+  recoveries: TransactionRecoveryDraft[] = [],
 ): Promise<{ id: number }> {
   return tx(async () => {
     const before = await one<TransactionCharge>('SELECT * FROM transaction_charge WHERE id = ?', id);
@@ -252,6 +312,7 @@ export async function updateTransactionCharge(
       description, body.transaction_type, body.status || 'ACTIVE', id,
     );
     await replaceComponents(id, components);
+    await replaceTransactionRecoveries(id, body.transaction_type, recoveries);
     await audit(user, 'TRANSACTION_CHARGE_UPDATE', 'transaction_charge', id, { code: before.code });
     return { id };
   });

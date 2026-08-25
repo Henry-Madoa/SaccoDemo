@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
@@ -10,12 +10,14 @@ import { useFormat } from '@/components/ui/format-provider';
 import {
   requestCheckoffBatch, refreshCheckoffBatchLinesRequest, recordRemittedAmountRequest,
   submitCheckoffBatchRequest, cancelCheckoffBatchApprovalRequest, approveCheckoffBatchRequest,
-  rejectCheckoffBatchRequest, processCheckoffBatchRequest,
+  rejectCheckoffBatchRequest, processCheckoffBatchRequest, applyCheckoffCsvUploadAction,
+  validateCheckoffBatchRequest, calculateCheckoffRecoveriesRequest, setCheckoffBatchChargeCodeRequest,
+  type CheckoffCsvUploadState,
 } from '@/app/actions/checkoffBatches';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { BATCH_TYPES } from '@/lib/constants';
 import { toUnits } from '@/lib/format';
-import type { CheckoffBatchLineWithDetails, Employer } from '@/lib/types';
+import type { CheckoffBatchLineWithDetails, Employer, TransactionCharge } from '@/lib/types';
 
 export function SubmitButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
@@ -179,14 +181,20 @@ export function RemittedAmountField({ no, line, isCheckoff }: {
   );
 }
 
-function NewBatchForm({ employers, onClose }: { employers: Employer[]; onClose: () => void }) {
+function NewBatchForm({ employers, salaryChargeCodes, onClose }: {
+  employers: Employer[]; salaryChargeCodes: TransactionCharge[]; onClose: () => void;
+}) {
+  const [batchType, setBatchType] = useState<'CHECKOFF' | 'SALARY'>('CHECKOFF');
   return (
     <FormModal
       title="New checkoff/salary batch"
       onClose={onClose}
       onSubmit={(values) => {
         const period = String(values.period || '');
-        return requestCheckoffBatch(Number(values.employerId), String(values.batchType), period ? `${period}-01` : '');
+        return requestCheckoffBatch(
+          Number(values.employerId), String(values.batchType), period ? `${period}-01` : '',
+          values.transactionChargeId ? Number(values.transactionChargeId) : null,
+        );
       }}
       submitLabel="Open batch"
       successTitle="Batch opened"
@@ -198,23 +206,141 @@ function NewBatchForm({ employers, onClose }: { employers: Employer[]; onClose: 
           {employers.map((e) => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}
         </select>
       </div>
-      <Field name="batchType" label="Batch type" type="select" required options={BATCH_TYPES} defaultValue="CHECKOFF" />
+      <Field name="batchType" label="Batch type" type="select" required options={BATCH_TYPES}
+        defaultValue="CHECKOFF" onChange={(e) => setBatchType(e.target.value as 'CHECKOFF' | 'SALARY')} />
       <div className="field">
         <label htmlFor="f_period">Period <span className="req">*</span></label>
         <input id="f_period" name="period" type="month" required />
       </div>
+      {batchType === 'SALARY' ? (
+        <div className="field">
+          <label htmlFor="f_transactionChargeId">Charge code</label>
+          <select id="f_transactionChargeId" name="transactionChargeId" defaultValue="">
+            <option value="">None — no charges or recoveries applied</option>
+            {salaryChargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
+          </select>
+          <div className="tiny">Drives Calculate's charge and recovery waterfall. Can be set or changed later while the batch is open.</div>
+        </div>
+      ) : null}
     </FormModal>
   );
 }
 
-export function NewCheckoffBatchButton({ employers }: { employers: Employer[] }) {
+export function NewCheckoffBatchButton({ employers, salaryChargeCodes = [] }: {
+  employers: Employer[]; salaryChargeCodes?: TransactionCharge[];
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className="btn" disabled={!employers.length} onClick={() => setOpen(true)}>
         New batch
       </button>
-      {open ? <NewBatchForm employers={employers} onClose={() => setOpen(false)} /> : null}
+      {open ? <NewBatchForm employers={employers} salaryChargeCodes={salaryChargeCodes} onClose={() => setOpen(false)} /> : null}
     </>
+  );
+}
+
+/** SALARY only — set or change the batch's Charge Code while it's Open. */
+export function ChargeCodeField({ no, transactionChargeId, salaryChargeCodes }: {
+  no: string; transactionChargeId: number | null; salaryChargeCodes: TransactionCharge[];
+}) {
+  const router = useRouter();
+  const showResult = useResultDialog();
+  const [value, setValue] = useState(transactionChargeId ? String(transactionChargeId) : '');
+  const [busy, setBusy] = useState(false);
+
+  const save = async (next: string) => {
+    setValue(next);
+    setBusy(true);
+    try {
+      const res = await setCheckoffBatchChargeCodeRequest(no, next ? Number(next) : null);
+      if (!res.ok) { showResult('Could not save', res.error, 'err'); return; }
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <select value={value} disabled={busy} aria-label="Charge code" onChange={(e) => save(e.target.value)}>
+      <option value="">None — no charges or recoveries applied</option>
+      {salaryChargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
+    </select>
+  );
+}
+
+/** Plain form + useActionState (not FormModal — its readForm() drops File objects). Applied
+ *  rows overwrite that line's remitted amount directly, matched by payroll/staff no. */
+export function CheckoffCsvUploadForm({ no }: { no: string }) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState<CheckoffCsvUploadState, FormData>(
+    applyCheckoffCsvUploadAction, {},
+  );
+
+  useEffect(() => {
+    if (state.result) router.refresh();
+  }, [state.result, router]);
+
+  return (
+    <form action={formAction} className="inline" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <input type="hidden" name="no" value={no} />
+      <input type="file" name="file" accept=".csv,text/csv" required aria-label="Checkoff CSV file" />
+      <button type="submit" className="btn sm ghost" disabled={pending}>{pending ? 'Uploading…' : 'Upload CSV'}</button>
+      {state.error ? <span className="tiny neg">{state.error}</span> : null}
+      {state.result ? (
+        <span className="tiny">
+          Matched {state.result.matchedCount} line{state.result.matchedCount === 1 ? '' : 's'}
+          {state.result.unmatchedRows.length
+            ? `; ${state.result.unmatchedRows.length} row(s) could not be matched: ${state.result.unmatchedRows.slice(0, 5).join(', ')}${state.result.unmatchedRows.length > 5 ? '…' : ''}`
+            : ''}
+        </span>
+      ) : null}
+    </form>
+  );
+}
+
+export function ValidateBatchButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
+  const showResult = useResultDialog();
+  const { cur } = useFormat();
+  const [busy, setBusy] = useState(false);
+
+  const onClick = async () => {
+    setBusy(true);
+    try {
+      const res = await validateCheckoffBatchRequest(no);
+      if (!res.ok) { showResult('Could not validate', res.error, 'err'); return; }
+      const r = res.data;
+      const lines = [
+        `Uploaded ${cur(r.totalUploaded)} vs. on card ${cur(r.totalRemitted)}${r.tallyVariance ? ` (${r.tallyVariance > 0 ? '+' : ''}${cur(r.tallyVariance)})` : ' — matched'}`,
+        r.unmatchedCount ? `${r.unmatchedCount} line(s) never matched a CSV row` : null,
+        r.mismatchedLines.length ? `${r.mismatchedLines.length} line(s) edited after upload: ${r.mismatchedLines.slice(0, 5).map((m) => m.memberName).join(', ')}${r.mismatchedLines.length > 5 ? '…' : ''}` : null,
+      ].filter(Boolean).join('\n');
+      showResult('Validation complete', lines || 'Everything reconciles — nothing to flag.', 'ok');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button type="button" className={className} disabled={busy} onClick={onClick}>
+      {busy ? 'Validating…' : 'Validate'}
+    </button>
+  );
+}
+
+export function CalculateBatchButton({ no, className = 'btn sm ghost' }: { no: string; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => calculateCheckoffRecoveriesRequest(no), {
+        confirm: {
+          title: 'Calculate charges and recoveries?',
+          message: 'Re-applies the batch’s Charge Code components and Transaction Recoveries against every line’s remitted amount, replacing any previous Calculate breakdown.',
+          confirmLabel: 'Calculate',
+        },
+        successTitle: (d) => `Calculated ${d.linesCalculated} line${d.linesCalculated === 1 ? '' : 's'}`,
+      })}>
+      {busy ? 'Calculating…' : 'Calculate'}
+    </button>
   );
 }

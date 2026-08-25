@@ -1004,6 +1004,31 @@ export interface TransactionCharge {
 
 export interface TransactionChargeWithDetail extends TransactionCharge {
   components: TransactionChargeSetupDetail[];
+  recoveries: TransactionRecovery[];
+}
+
+export type TransactionRecoveryType = 'LOAN' | 'INTERNAL_DEPOSIT';
+/** LOAN: recover from the member's own recovery_mode='CHECKOFF' disbursed loans.
+ *  INTERNAL_DEPOSIT: recover into one of the member's own savings accounts. */
+export type TransactionRecoveryDeductionType = 'INSTALLMENT' | 'ARREARS' | 'BALANCE' | 'FULL_REMAINING' | 'BOOST_TO_MINIMUM';
+
+/** One priority-ordered recovery rule attached to an 'End Month Salary' Transaction Charge —
+ *  Business Central's "Transaction Recoveries". See lib/checkoffBatches.ts's
+ *  calculateCheckoffRecoveries(). */
+export interface TransactionRecovery {
+  id: number;
+  transaction_charge_id: number;
+  recovery_type: TransactionRecoveryType;
+  deduction_type: TransactionRecoveryDeductionType;
+  savings_product_id: number | null;
+  priority: number;
+  description: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface TransactionRecoveryWithDetail extends TransactionRecovery {
+  savings_product_code: string | null;
+  savings_product_name: string | null;
 }
 
 /** One resolved charge component amount, ready to post or to show as a fee preview. */
@@ -1294,6 +1319,11 @@ export interface DormancyAgingRow {
 export type SavingsCategory = 'WITHDRAWABLE DEPOSIT' | 'NON WITHDRAWABLE DEPOSIT' | 'JUNIOR ACCOUNT' | 'SHARE CAPITAL ACCOUNT' | 'FIXED DEPOSIT ACCOUNT' | 'LOAN ACCOUNT' | 'INVESTMENTS ACCOUNT' | 'HOLDING ACCOUNT' | 'HOLIDAY ACCOUNT' | 'SHARE TRADING ACCOUNT' | 'BENEVOLENT ACCOUNT' | 'SCHOOL FEE ACCOUNT';
 export type SavingsAccountStatus = 'ACTIVE' | 'DORMANT' | 'FROZEN' | 'CLOSED' | 'INACTIVE';
 export type Channel = 'TELLER' | 'MPESA' | 'BANK' | 'CHECKOFF' | 'SYSTEM';
+
+/** How a manual external loan disbursement/repayment was actually paid — alongside, not
+ *  instead of, which bank_account (Payment Channel) received or paid it out. See
+ *  lib/loanService.ts's disburse()/repay(). */
+export type PayMode = 'CASH' | 'MPESA' | 'BANK' | 'EFT' | 'CHEQUE';
 
 export interface SavingsProduct {
   id: number;
@@ -2152,6 +2182,8 @@ export interface CheckoffBatch {
   description: string | null;
   status: DocumentStatus;
   decision_reason: string | null;
+  /** SALARY only — the 'End Month Salary' Transaction Charge Calculate applies. */
+  transaction_charge_id: number | null;
   processed_at: IsoDateTime | null;
   processed_by: string | null;
   created_at: IsoDateTime | null;
@@ -2161,11 +2193,15 @@ export interface CheckoffBatch {
 export interface CheckoffBatchWithDetails extends CheckoffBatch {
   employer_code: string;
   employer_name: string;
+  transaction_charge_code: string | null;
   /** Live-computed from the lines. */
   total_expected: Cents;
   total_remitted: Cents;
   total_variance: Cents;
+  total_uploaded: Cents;
+  unmatched_count: number;
   line_count: number;
+  calculated: boolean;
 }
 
 /** One member's line within a checkoff/salary batch. */
@@ -2177,12 +2213,31 @@ export interface CheckoffBatchLine {
   expected_amount: Cents;
   remitted_amount: Cents;
   variance: Cents;
+  uploaded_amount: Cents;
+  uploaded_name: string | null;
+  matched: boolean;
 }
 
 export interface CheckoffBatchLineWithDetails extends CheckoffBatchLine {
   member_no: string;
   member_first_name: string;
   member_last_name: string;
+}
+
+export type CheckoffCalculationEntryType = 'CHARGE' | 'LOAN_RECOVERY' | 'INTERNAL_DEPOSIT' | 'NET_AMOUNT';
+
+/** One line of a Calculate run's breakdown for one checkoff_batch_line. See
+ *  lib/checkoffBatches.ts's calculateCheckoffRecoveries()/processCheckoffBatch(). */
+export interface CheckoffCalculation {
+  id: number;
+  batch_no: string;
+  line_id: number;
+  entry_type: CheckoffCalculationEntryType;
+  description: string;
+  loan_id: number | null;
+  savings_account_id: number | null;
+  gl_account_id: number | null;
+  amount: Cents;
 }
 
 /** Admin-managed master data for a term-deposit product — interest rate bounds, calc method, the
@@ -2362,6 +2417,17 @@ export interface Txn {
   created_by: string | null;
   status: 'POSTED' | 'REVERSED';
   reversal_of: number | null;
+  /** The specific Bank/Cashbook account a loan disbursement/repayment moved through — only set
+   *  for a manual external payout/receipt; null when funded from/to a member's own savings
+   *  account (no bank account touched). */
+  bank_account_id: number | null;
+  pay_mode: PayMode | null;
+  /** Pay Mode = CHEQUE only. */
+  cheque_no: string | null;
+  /** Pay Mode = CHEQUE only. */
+  cheque_date: IsoDate | null;
+  /** Pay Mode = MPESA | BANK | EFT only. */
+  reference_no: string | null;
 }
 
 export interface TxnWithMember extends Txn {
@@ -2378,6 +2444,8 @@ export interface TxnWithDocument extends Txn {
   document_no: string | null;
   global_dimension_1_code: string | null;
   global_dimension_2_code: string | null;
+  bank_account_code: string | null;
+  bank_account_name: string | null;
 }
 
 /** A txn row shown as a Vendor (savings) or Customer (loan) Ledger Entry — Business Central
