@@ -10,8 +10,9 @@ import { formatDateTime } from '@/lib/format';
 import { STANDING_ORDER_CLASSES, STANDING_ORDER_AMOUNT_TYPES, STANDING_ORDER_RUN_TYPES } from '@/lib/constants';
 import { Page } from '@/components/layout/page';
 import {
-  Card, CardHead, DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer,
+  DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
@@ -94,47 +95,48 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
         <DocumentActionsMenu />
       </Toolbar>
 
-      <Card>
-        <CardHead title="Order details" sub="What this order does" />
-        <DefinitionList items={[
-          ['Order no.', <span className="mono" key="no">{order.no}</span>],
-          ['Member', <>{order.member_first_name} {order.member_last_name} <span className="mono">({order.member_no})</span></>],
-          ['Source account', <><span className="mono">{order.account_no}</span> — available {' '}
-            <Money cents={Math.max(order.account_balance - order.account_hold_amount - order.account_min_balance, 0)} /></>],
-          ['Type', label(STANDING_ORDER_CLASSES, order.standing_order_class)],
-          order.standing_order_class === 'INTERNAL'
-            ? ['Destination', <>{order.destination_first_name} {order.destination_last_name} <span className="mono">({order.destination_member_no})</span> — {order.destination_account_no}</>]
-            : ['Loan to repay', <span className="mono" key="loan">{order.destination_loan_no}</span>],
-          ['Posting description', order.posting_description || '—'],
-          ['Amount type', label(STANDING_ORDER_AMOUNT_TYPES, order.amount_type)],
-          order.amount_type === 'FIXED' ? ['Amount', <Money cents={order.amount} key="amount" />] : null,
-          order.amount_type === 'AMOUNT_BASED' ? ['Amount limit', <Money cents={order.amount_limit} key="limit" />] : null,
-          order.amount_type === 'FIXED' ? ['Run', label(STANDING_ORDER_RUN_TYPES, order.run_type)] : null,
-          order.amount_type === 'FIXED' && order.run_type === 'SPECIFIC_DAY' ? ['Day of month', String(order.run_from_day ?? '—')] : null,
-          ['Start date', order.start_date],
-          ['End date', order.till_further_notice ? 'Till further notice' : (order.end_date ?? '—')],
-          order.transaction_charge_id ? ['Charge code', `${order.transaction_charge_code} — ${order.transaction_charge_description}`] : null,
-          ['Last run', order.last_run_date ?? 'Never'],
-          order.freezed ? ['Frozen until', order.freeze_end_date ?? '—'] : null,
-          ['Status', <Pill status={order.status} key="status" />],
-          order.decision_reason ? ['Decision reason', order.decision_reason] : null,
-        ]} />
-      </Card>
+      <div className="grid g2">
+        <CollapsibleCard title="Order details" sub="What this order does">
+          <DefinitionList items={[
+            ['Order no.', <span className="mono" key="no">{order.no}</span>],
+            ['Member', <>{order.member_first_name} {order.member_last_name} <span className="mono">({order.member_no})</span></>],
+            ['Source account', <><span className="mono">{order.account_no}</span> — available {' '}
+              <Money cents={Math.max(order.account_balance - order.account_hold_amount - order.account_min_balance, 0)} /></>],
+            ['Type', label(STANDING_ORDER_CLASSES, order.standing_order_class)],
+            order.standing_order_class === 'INTERNAL'
+              ? ['Destination', <>{order.destination_first_name} {order.destination_last_name} <span className="mono">({order.destination_member_no})</span> — {order.destination_account_no}</>]
+              : order.standing_order_class === 'EXTERNAL'
+                ? ['Pay through', <span className="mono" key="bank">{order.destination_bank_account_code} — {order.destination_bank_account_name}</span>]
+                : ['Loan to repay', <span className="mono" key="loan">{order.destination_loan_no}</span>],
+            ['Posting description', order.posting_description || '—'],
+            ['Amount type', label(STANDING_ORDER_AMOUNT_TYPES, order.amount_type)],
+            order.amount_type === 'FIXED' ? ['Amount', <Money cents={order.amount} key="amount" />] : null,
+            order.amount_type === 'AMOUNT_BASED' ? ['Amount limit', <Money cents={order.amount_limit} key="limit" />] : null,
+            order.amount_type === 'FIXED' ? ['Run', label(STANDING_ORDER_RUN_TYPES, order.run_type)] : null,
+            order.amount_type === 'FIXED' && order.run_type === 'SPECIFIC_DAY' ? ['Day of month', String(order.run_from_day ?? '—')] : null,
+            ['Start date', order.start_date],
+            ['End date', order.till_further_notice ? 'Till further notice' : (order.end_date ?? '—')],
+            order.transaction_charge_id ? ['Charge code', `${order.transaction_charge_code} — ${order.transaction_charge_description}`] : null,
+            ['Last run', order.last_run_date ?? 'Never'],
+            order.freezed ? ['Frozen until', order.freeze_end_date ?? '—'] : null,
+            ['Status', <Pill status={order.status} key="status" />],
+            order.decision_reason ? ['Decision reason', order.decision_reason] : null,
+          ]} />
+        </CollapsibleCard>
 
-      <Card>
-        <CardHead title="Document trail" sub="Who requested this order, and when" />
-        <DefinitionList items={[
-          ['Created by', order.created_by || '—'],
-          ['Created on', formatDateTime(order.created_at)],
-          ['Live', live
-            ? <Pill tone="ok" key="live">YES — running on its own schedule</Pill>
-            : <Pill tone={order.terminated ? '' : 'warn'} key="live">{order.terminated ? 'TERMINATED' : 'NOT YET'}</Pill>],
-        ]} />
-      </Card>
+        <CollapsibleCard title="Document trail" sub="Who requested this order, and when">
+          <DefinitionList items={[
+            ['Created by', order.created_by || '—'],
+            ['Created on', formatDateTime(order.created_at)],
+            ['Live', live
+              ? <Pill tone="ok" key="live">YES — running on its own schedule</Pill>
+              : <Pill tone={order.terminated ? '' : 'warn'} key="live">{order.terminated ? 'TERMINATED' : 'NOT YET'}</Pill>],
+          ]} />
+        </CollapsibleCard>
+      </div>
 
       {order.status === 'Approved' ? (
-        <Card>
-          <CardHead title="Run history" sub={`${history.length} posting${history.length === 1 ? '' : 's'} so far`} />
+        <CollapsibleCard title="Run history" sub={`${history.length} posting${history.length === 1 ? '' : 's'} so far`}>
           {history.length ? (
             <TableWrap>
               <thead><tr><th>Date</th><th>Journal</th><th>Description</th><th className="num">Amount</th></tr></thead>
@@ -150,14 +152,13 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
               </tbody>
             </TableWrap>
           ) : <EmptyState icon="🕓" title="Nothing has posted yet" />}
-        </Card>
+        </CollapsibleCard>
       ) : null}
 
-      <Card>
-        <CardHead
-          title="Approval details"
-          sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
-        />
+      <CollapsibleCard
+        title="Approval details"
+        sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+      >
         {tasks.length ? (
           <TableWrap>
             <thead>
@@ -188,7 +189,7 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
-      </Card>
+      </CollapsibleCard>
       </Page>
     </>
   );

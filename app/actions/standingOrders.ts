@@ -11,8 +11,9 @@ import {
 } from '@/lib/standingOrders';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import { listTransactionChargesByType, previewTransactionChargeById } from '@/lib/charges';
+import { listActiveBankAccounts } from '@/lib/gl';
 import type {
-  ActionResult, CalculatedCharge, FormValues, StandingOrderAmountType, StandingOrderClass,
+  ActionResult, BankAccount, CalculatedCharge, FormValues, StandingOrderAmountType, StandingOrderClass,
   StandingOrderRunSummary, StandingOrderRunType, StandingOrderWithDimensions, TransactionCharge,
 } from '@/lib/types';
 
@@ -25,6 +26,7 @@ const toInput = (values: FormValues): StandingOrderInput => ({
   amountLimit: values.amountLimit ? Math.round(Number(values.amountLimit) * 100) : 0,
   destinationMemberId: values.destinationMemberId ? Number(values.destinationMemberId) : null,
   destinationAccountId: values.destinationAccountId ? Number(values.destinationAccountId) : null,
+  destinationBankAccountId: values.destinationBankAccountId ? Number(values.destinationBankAccountId) : null,
   destinationLoanId: values.destinationLoanId ? Number(values.destinationLoanId) : null,
   postingDescription: String(values.postingDescription || ''),
   runType: (values.runType || 'DAILY') as StandingOrderRunType,
@@ -168,6 +170,15 @@ export async function loansForStandingOrderDestination(memberId: number) {
   return actionResult(async () => {
     await requireAction('STANDING_ORDERS_CREATE');
     return eligibleDestinationLoansForMember(memberId);
+  });
+}
+
+/** Every enabled Bank/Cashbook account — the destination picklist for an EXTERNAL standing
+ *  order, the same Payment Channel pool lib/loanService.ts's disburse() already offers. */
+export async function bankAccountsForStandingOrderDestination(): Promise<ActionResult<BankAccount[]>> {
+  return actionResult(async () => {
+    await requireAction('STANDING_ORDERS_CREATE');
+    return listActiveBankAccounts();
   });
 }
 

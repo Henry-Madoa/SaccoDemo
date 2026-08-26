@@ -11,16 +11,18 @@ import { saveOrgLogo } from '@/app/actions/media';
 import { FilePicker } from '@/components/ui/uploader';
 import { SOCIETY_TYPES, MONTH_NAMES } from '@/lib/constants';
 import { formatDateTime, initials } from '@/lib/format';
-import type { Organisation } from '@/lib/types';
+import type { Organisation, TransactionCharge } from '@/lib/types';
 
 export interface CompanyFormProps {
   org: Organisation;
+  /** The 'General' Transaction Charge pool — same list Member Exit's Charge Code picks from. */
+  charges: TransactionCharge[];
   /** Resolved server-side: a Cloudinary delivery URL, or a legacy data URL. */
   logoSrc: string | null;
   mediaEnabled: boolean;
 }
 
-export function CompanyForm({ org, logoSrc, mediaEnabled }: CompanyFormProps) {
+export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   const toast = useToast();
@@ -173,6 +175,10 @@ export function CompanyForm({ org, logoSrc, mediaEnabled }: CompanyFormProps) {
                 defaultValue={org.dormancy_days ?? 90}
                 hint="No money in a member's Non-Withdrawable Deposit account for this many days flips them Active → Dormant (Admin Centre → System Automation)" />
             </div>
+            <Field name="instant_withdrawal_charge_id" label="Instant withdrawal charge" type="select"
+              defaultValue={org.instant_withdrawal_charge_id}
+              options={[{ value: null, label: 'No charge' }, ...charges.map((c) => ({ value: c.id, label: `${c.code} — ${c.description}` }))]}
+              hint="Auto-applied on Member Exit when Instant Withdrawal is checked" />
           </Card>
         </div>
 

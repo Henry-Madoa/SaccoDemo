@@ -1409,7 +1409,7 @@ if (soLoan) {
 
     const { no } = await standingOrdersLib.createStandingOrder(
       {
-        memberId: soLoan.member_id, accountId: source.id, standingOrderClass: 'LOAN_REPAYMENT', amountType: 'SWEEP',
+        memberId: soLoan.member_id, accountId: source.id, standingOrderClass: 'LOAN', amountType: 'SWEEP',
         destinationLoanId: soLoan.id, postingDescription: 'Loan repayment STO', startDate: soStartDate, tillFurtherNotice: true,
       },
       admin,
@@ -1457,12 +1457,40 @@ await test('disbursing a Standing-Order-recovery loan auto-creates and activates
   assert.ok(sto, 'a recovery standing order should have been auto-created');
   assert.strictEqual(sto!.status, 'Approved');
   assert.strictEqual(sto!.running, true);
-  assert.strictEqual(sto!.standing_order_class, 'LOAN_REPAYMENT');
+  assert.strictEqual(sto!.standing_order_class, 'LOAN');
   assert.strictEqual(sto!.amount, disbursed.installment);
   assert.strictEqual(sto!.account_id, borrowerFosa.id);
 
   const again = await standingOrdersLib.createRecoveryStandingOrderForLoan(loan.id, admin);
   assert.strictEqual(again, null, 'a loan that already has a live recovery order must not get a second one');
+});
+
+/* An EXTERNAL order — pays out through one of the SACCO's own Bank/Cashbook accounts rather
+ * than to another member's account or a loan, the same Payment Channel concept the loan
+ * disbursement tests above exercise for a bank payout. */
+await test('an EXTERNAL standing order pays out through the picked Bank/Cashbook account', async () => {
+  const soMemberExt = await membersLib.createMember(
+    { member_type: 'INDIVIDUAL', first_name: 'StandingExt', last_name: 'Testcase' }, admin,
+  );
+  const soFosaExt = await savings.openAccount({ memberId: soMemberExt.id, productId: soFosaProductId, enforceMinOpening: false });
+  await savings.deposit({ accountId: soFosaExt.id, amount: 500000, user: admin, description: 'test funding' });
+
+  const { no } = await standingOrdersLib.createStandingOrder({
+    memberId: soMemberExt.id, accountId: soFosaExt.id, standingOrderClass: 'EXTERNAL', amountType: 'FIXED',
+    amount: 200000, destinationBankAccountId: payoutBankAccount.id, postingDescription: 'Test external payout',
+    startDate: soStartDate, tillFurtherNotice: true,
+  }, admin);
+  await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", no);
+
+  const bankBalBefore = await accounting.accountBalance('1020');
+  const summary = await standingOrdersLib.runStandingOrders(admin, soStartDate);
+  const r = summary.results.find((x) => x.no === no);
+  assert.ok(r && r.action === 'POSTED');
+  assert.strictEqual(r!.posted, 200000);
+  assert.strictEqual((await savings.getAccount(soFosaExt.id))!.balance, 300000);
+  // BANK's own G/L control account is an asset — paying out through it lowers its balance,
+  // same direction the loan disbursement bank-payout tests assert.
+  assert.strictEqual(await accounting.accountBalance('1020'), bankBalBefore - 200000);
 });
 
 /* ------------------------------------------------------------------------ */
@@ -1878,6 +1906,68 @@ await test('processing the batch pays the standing order\'s own destination acco
   await run("UPDATE checkoff_batch SET status = 'Approved' WHERE no = ?", stoRecoveryBatchNo);
   await checkoffBatchesLib.processCheckoffBatch(stoRecoveryBatchNo, admin);
   assert.strictEqual((await savings.getAccount(stoDestFosa.id))!.balance, destBefore + 150000);
+});
+
+await test('a second STANDING_ORDER recovery pinned to a different class gets its own priority', async () => {
+  // A second salary_based standing order for the same member and tag, EXTERNAL class this time —
+  // proves the recovery config's own standing_order_class filter (not just sto_type) decides
+  // which order(s) a given recovery row matches, letting each class carry its own priority.
+  const { no: extSto } = await standingOrdersLib.createStandingOrder({
+    memberId: stoSourceMember.id, accountId: stoSourceFosa.id, standingOrderClass: 'EXTERNAL', amountType: 'FIXED',
+    amount: 80000, destinationBankAccountId: payoutBankAccount.id, postingDescription: 'Test dues (external)',
+    startDate: today, tillFurtherNotice: true, salaryBased: true, stoType: stoRecoveryTag,
+  }, admin);
+  await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", extSto);
+
+  const detail = (await chargesLib.getTransactionCharge(ckoTransactionCharge.id))!;
+  await chargesLib.updateTransactionCharge(
+    ckoTransactionCharge.id,
+    { description: detail.description, status: 'ACTIVE', transaction_type: 'End Month Salary' },
+    detail.components.map((c) => ({
+      charge_id: c.charge_id, gl_account_id: c.gl_account_id, calculation_type: c.calculation_type,
+      source_index: null, priority: c.priority, status: c.status,
+      scheme: c.scheme.map((s) => ({
+        lower_limit: s.lower_limit, upper_limit: s.upper_limit, rate_type: s.rate_type, flat_amount: s.flat_amount,
+        percentage_rate: s.percentage_rate, upper_charge_limit: s.upper_charge_limit, lower_charge_limit: s.lower_charge_limit,
+      })),
+    })),
+    admin,
+    [
+      ...detail.recoveries.filter((r) => r.recovery_type !== 'STANDING_ORDER').map((r) => ({
+        recovery_type: r.recovery_type, deduction_type: r.deduction_type, savings_product_id: r.savings_product_id,
+        sto_type: r.sto_type, priority: r.priority, description: r.description, status: r.status,
+      })),
+      {
+        recovery_type: 'STANDING_ORDER' as const, sto_type: stoRecoveryTag, standing_order_class: 'INTERNAL' as const,
+        priority: 5, description: 'Test dues (internal)',
+      },
+      {
+        recovery_type: 'STANDING_ORDER' as const, sto_type: stoRecoveryTag, standing_order_class: 'EXTERNAL' as const,
+        priority: 6, description: 'Test dues (external)',
+      },
+    ],
+  );
+
+  const { no: batchNo } = await checkoffBatchesLib.createCheckoffBatch(
+    ckoEmployerId, 'SALARY', addMonths(editPeriod, 5), admin, ckoTransactionCharge.id,
+  );
+  const lines = await checkoffBatchesLib.listCheckoffBatchLines(batchNo);
+  const line = lines.find((l) => l.member_id === stoSourceMember.id)!;
+  await checkoffBatchesLib.recordRemittedAmount(batchNo, line.id, 500000, admin);
+  await checkoffBatchesLib.calculateCheckoffRecoveries(batchNo, admin);
+
+  const calcs = await checkoffBatchesLib.listCheckoffCalculations(batchNo);
+  const forLine = calcs.filter((c) => c.line_id === line.id && c.entry_type === 'STANDING_ORDER');
+  assert.strictEqual(forLine.length, 2, 'both the INTERNAL and EXTERNAL salary_based orders should have been recovered, each by its own class-pinned row');
+  assert.ok(forLine.some((c) => c.standing_order_no === recoverySto && c.amount === 150000));
+  assert.ok(forLine.some((c) => c.standing_order_no === extSto && c.amount === 80000));
+
+  const bankBalBefore = await accounting.accountBalance('1020');
+  await run("UPDATE checkoff_batch SET status = 'Approved' WHERE no = ?", batchNo);
+  await checkoffBatchesLib.processCheckoffBatch(batchNo, admin);
+  // Paid out externally through BANK (an asset) — same direction as the standalone EXTERNAL
+  // standing order test above.
+  assert.strictEqual(await accounting.accountBalance('1020'), bankBalBefore - 80000);
 });
 
 /* ------------------------------------------------------------------------ */

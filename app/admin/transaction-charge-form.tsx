@@ -10,11 +10,11 @@ import {
 } from '@/components/admin/tariff-matrix';
 import type { TransactionChargeSetupDraft, TransactionCalcSchemeDraft, TransactionRecoveryDraft } from '@/lib/charges';
 import {
-  CHARGE_TRANSACTION_TYPES, CHARGE_CALCULATION_TYPES, PRODUCT_STATUSES,
+  CHARGE_TRANSACTION_TYPES, CHARGE_CALCULATION_TYPES, PRODUCT_STATUSES, STANDING_ORDER_CLASSES,
   TRANSACTION_RECOVERY_TYPES, LOAN_DEDUCTION_TYPES, INTERNAL_DEPOSIT_DEDUCTION_TYPES,
 } from '@/lib/constants';
 import type {
-  Charge, ChargeCalculationType, ChargeTransactionType, GlAccount, SavingsProduct,
+  Charge, ChargeCalculationType, ChargeTransactionType, GlAccount, SavingsProduct, StandingOrderClass,
   TransactionChargeWithDetail, TransactionRecoveryDeductionType, TransactionRecoveryType,
 } from '@/lib/types';
 
@@ -27,13 +27,15 @@ interface RecoveryRow {
   deduction_type: TransactionRecoveryDeductionType | '';
   savings_product_id: number | '';
   sto_type: string;
+  /** '' = any class. */
+  standing_order_class: StandingOrderClass | '';
   priority: number;
   description: string;
   status: 'ACTIVE' | 'INACTIVE';
 }
 
 const emptyRecoveryRow = (priority: number): RecoveryRow => ({
-  recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', savings_product_id: '', sto_type: '',
+  recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', savings_product_id: '', sto_type: '', standing_order_class: '',
   priority, description: '', status: 'ACTIVE',
 });
 
@@ -87,7 +89,8 @@ export function TransactionChargeFormButton({
   });
   const [recoveryRows, setRecoveryRows] = useState<RecoveryRow[]>(() => (tc?.recoveries ?? []).map((r) => ({
     recovery_type: r.recovery_type, deduction_type: r.deduction_type ?? '',
-    savings_product_id: r.savings_product_id ?? '', sto_type: r.sto_type ?? '', priority: r.priority,
+    savings_product_id: r.savings_product_id ?? '', sto_type: r.sto_type ?? '',
+    standing_order_class: r.standing_order_class ?? '', priority: r.priority,
     description: r.description ?? '', status: r.status,
   })));
   const [stoTypes, setStoTypes] = useState<string[]>([]);
@@ -127,6 +130,7 @@ export function TransactionChargeFormButton({
     deduction_type: r.recovery_type === 'STANDING_ORDER' ? null : (r.deduction_type || null),
     savings_product_id: r.recovery_type === 'INTERNAL_DEPOSIT' ? (Number(r.savings_product_id) || null) : null,
     sto_type: r.recovery_type === 'STANDING_ORDER' ? (r.sto_type.trim() || null) : null,
+    standing_order_class: r.recovery_type === 'STANDING_ORDER' ? (r.standing_order_class || null) : null,
     priority: r.priority,
     description: r.description.trim() || null,
     status: r.status,
@@ -267,9 +271,11 @@ export function TransactionChargeFormButton({
                 amount remitted for a member on a salary-processing batch. A Loan recovery pays
                 down the member's own payroll-deducted loans; a Standing Order recovery pays a
                 member's own salary-based standing order(s) tagged with the given type (see
-                Standing Orders — Salary based); an Internal Deposit recovery sweeps or tops up
-                one of their savings accounts. Used by Checkoff &amp; Salary Processing's
-                Calculate step.
+                Standing Orders — Salary based) — leave its class as "Any class" to match every
+                one of that type regardless of class, or pin it to Internal/External/Loan and add
+                a separate row per class to give each its own priority; an Internal Deposit
+                recovery sweeps or tops up one of their savings accounts. Used by Checkoff &amp;
+                Salary Processing's Calculate step.
               </div>
               <div style={{ overflowX: 'auto', marginTop: 8 }}>
                 <table>
@@ -297,14 +303,19 @@ export function TransactionChargeFormButton({
                         </td>
                         <td>
                           {row.recovery_type === 'STANDING_ORDER' ? (
-                            <>
+                            <div className="inline" style={{ gap: 6 }}>
                               <input type="text" list="sto-type-options" value={row.sto_type} aria-label="Standing order type"
-                                placeholder="Standing order type" style={{ width: 150 }}
+                                placeholder="Standing order type" style={{ width: 130 }}
                                 onChange={(e) => updateRecovery(i, { sto_type: e.target.value })} />
                               <datalist id="sto-type-options">
                                 {stoTypes.map((t) => <option key={t} value={t} />)}
                               </datalist>
-                            </>
+                              <select value={row.standing_order_class} aria-label="Standing order class"
+                                onChange={(e) => updateRecovery(i, { standing_order_class: e.target.value as StandingOrderClass | '' })}>
+                                <option value="">Any class</option>
+                                {STANDING_ORDER_CLASSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                              </select>
+                            </div>
                           ) : (
                             <div className="inline" style={{ gap: 6 }}>
                               <select value={row.deduction_type} aria-label="Deduction type"

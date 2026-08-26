@@ -11,13 +11,14 @@
  * features this schema/domain has no infrastructure for:
  *   - standing_order_class is INTERNAL (to any of the destination member's own accounts, via a
  *     single self-balancing journal — the same "Acc. Transfer" shape lib/memberExits.ts already
- *     uses for its own account-to-account moves) or LOAN_REPAYMENT (through
- *     lib/loanService.ts's own repay(), which already allocates interest-then-principal
- *     oldest-first and already accepts a `fromSavingsAccountId` to debit in the same posting —
- *     AL's separate Loan-Principal/Loan-Interest/Loan Principal+Interest classes collapse into
- *     this one, since a bespoke principal-only or interest-only posting exists nowhere else in
- *     this app). AL's External (EFT to an outside bank) is dropped — no external bank/branch
- *     master data exists here.
+ *     uses for its own account-to-account moves), EXTERNAL (to one of the SACCO's own
+ *     Bank/Cashbook accounts — AL's own EFT-to-an-outside-bank, narrowed to the same Payment
+ *     Channel concept lib/loanService.ts's disburse() already uses for a loan's own bank payout,
+ *     dropping AL's separate EFT recipient sub-fields), or LOAN (through lib/loanService.ts's
+ *     own repay(), which already allocates interest-then-principal oldest-first and already
+ *     accepts a `fromSavingsAccountId` to debit in the same posting — AL's separate
+ *     Loan-Principal/Loan-Interest/Loan Principal+Interest classes collapse into this one, since
+ *     a bespoke principal-only or interest-only posting exists nowhere else in this app).
  *   - "Salary Based" is dropped — lib/checkoffBatches.ts's own header already excludes Standing
  *     Orders from that module for lack of an Employer Payroll Details staging table to
  *     prioritise a deduction against.
@@ -60,6 +61,7 @@ const SELECT_ORDER = `
          sp.min_balance AS account_min_balance,
          dm.member_no AS destination_member_no, dm.first_name AS destination_first_name, dm.last_name AS destination_last_name,
          da.account_no AS destination_account_no, dl.loan_no AS destination_loan_no,
+         dba.code AS destination_bank_account_code, dba.name AS destination_bank_account_name,
          tc.code AS transaction_charge_code, tc.description AS transaction_charge_description
   FROM standing_order s
   JOIN member m ON m.id = s.member_id
@@ -68,6 +70,7 @@ const SELECT_ORDER = `
   LEFT JOIN member dm ON dm.id = s.destination_member_id
   LEFT JOIN savings_account da ON da.id = s.destination_account_id
   LEFT JOIN loan dl ON dl.id = s.destination_loan_id
+  LEFT JOIN bank_account dba ON dba.id = s.destination_bank_account_id
   LEFT JOIN transaction_charge tc ON tc.id = s.transaction_charge_id`;
 
 export const STANDING_ORDER_FILTER_FIELDS: FilterFieldDef[] = [
@@ -158,7 +161,7 @@ export const eligibleDestinationAccountsForMember = (memberId: number) => all<{
   memberId,
 );
 
-/** Every disbursed, still-owing loan a member holds — for a LOAN_REPAYMENT order's own picker. */
+/** Every disbursed, still-owing loan a member holds — for a LOAN order's own picker. */
 export const eligibleDestinationLoansForMember = (memberId: number) => all<{
   id: number; loan_no: string; outstanding_balance: Cents;
 }>(
@@ -177,6 +180,8 @@ export interface StandingOrderInput {
   amountLimit?: number;
   destinationMemberId?: number | null;
   destinationAccountId?: number | null;
+  /** EXTERNAL only — one of the SACCO's own Bank/Cashbook accounts. */
+  destinationBankAccountId?: number | null;
   destinationLoanId?: number | null;
   postingDescription: string;
   runType?: 'SPECIFIC_DAY' | 'END_MONTH' | 'DAILY';
@@ -202,7 +207,11 @@ function assertMandatoryFields(input: StandingOrderInput): void {
     if (!input.destinationMemberId || !input.destinationAccountId) {
       throw new AppError('A destination member and account are required for a transfer', 'VALIDATION');
     }
-  } else if (input.standingOrderClass === 'LOAN_REPAYMENT') {
+  } else if (input.standingOrderClass === 'EXTERNAL') {
+    if (!input.destinationBankAccountId) {
+      throw new AppError('A destination Bank/Cashbook account is required for an external payout', 'VALIDATION');
+    }
+  } else if (input.standingOrderClass === 'LOAN') {
     if (!input.destinationLoanId) throw new AppError('A destination loan is required for a loan repayment', 'VALIDATION');
   }
   if (input.amountType === 'FIXED' && !(input.amount && input.amount > 0)) {
@@ -253,15 +262,16 @@ export async function createStandingOrder(input: StandingOrderInput, user: Actor
   await run(
     `INSERT INTO standing_order
        (no, member_id, account_id, standing_order_class, amount_type, amount, amount_limit,
-        destination_member_id, destination_account_id, destination_loan_id, posting_description,
-        run_type, run_from_day, start_date, till_further_notice, period_months, end_date,
+        destination_member_id, destination_account_id, destination_bank_account_id, destination_loan_id,
+        posting_description, run_type, run_from_day, start_date, till_further_notice, period_months, end_date,
         transaction_charge_id, salary_based, sto_type, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     no, input.memberId, input.accountId, input.standingOrderClass, input.amountType,
     Math.round(input.amount || 0), Math.round(input.amountLimit || 0),
     input.standingOrderClass === 'INTERNAL' ? input.destinationMemberId : null,
     input.standingOrderClass === 'INTERNAL' ? input.destinationAccountId : null,
-    input.standingOrderClass === 'LOAN_REPAYMENT' ? input.destinationLoanId : null,
+    input.standingOrderClass === 'EXTERNAL' ? input.destinationBankAccountId : null,
+    input.standingOrderClass === 'LOAN' ? input.destinationLoanId : null,
     input.postingDescription.trim(), input.runType || 'DAILY', input.runFromDay || null,
     input.startDate, !!input.tillFurtherNotice, input.tillFurtherNotice ? null : input.periodMonths, endDate,
     input.transactionChargeId || null, !!input.salaryBased, input.salaryBased ? (input.stoType?.trim() || null) : null,
@@ -283,15 +293,16 @@ export async function updateStandingOrder(no: string, input: StandingOrderInput,
   await run(
     `UPDATE standing_order
      SET member_id=?, account_id=?, standing_order_class=?, amount_type=?, amount=?, amount_limit=?,
-         destination_member_id=?, destination_account_id=?, destination_loan_id=?, posting_description=?,
-         run_type=?, run_from_day=?, start_date=?, till_further_notice=?, period_months=?, end_date=?,
-         transaction_charge_id=?, salary_based=?, sto_type=?
+         destination_member_id=?, destination_account_id=?, destination_bank_account_id=?, destination_loan_id=?,
+         posting_description=?, run_type=?, run_from_day=?, start_date=?, till_further_notice=?, period_months=?,
+         end_date=?, transaction_charge_id=?, salary_based=?, sto_type=?
      WHERE no=?`,
     input.memberId, input.accountId, input.standingOrderClass, input.amountType,
     Math.round(input.amount || 0), Math.round(input.amountLimit || 0),
     input.standingOrderClass === 'INTERNAL' ? input.destinationMemberId : null,
     input.standingOrderClass === 'INTERNAL' ? input.destinationAccountId : null,
-    input.standingOrderClass === 'LOAN_REPAYMENT' ? input.destinationLoanId : null,
+    input.standingOrderClass === 'EXTERNAL' ? input.destinationBankAccountId : null,
+    input.standingOrderClass === 'LOAN' ? input.destinationLoanId : null,
     input.postingDescription.trim(), input.runType || 'DAILY', input.runFromDay || null,
     input.startDate, !!input.tillFurtherNotice, input.tillFurtherNotice ? null : input.periodMonths, endDate,
     input.transactionChargeId || null, !!input.salaryBased, input.salaryBased ? (input.stoType?.trim() || null) : null,
@@ -314,7 +325,7 @@ export async function updateStandingOrder(no: string, input: StandingOrderInput,
  *
  * The order runs FIXED, for the loan's own installment amount, on the day of the month its first
  * (or next) instalment falls due, till further notice — runStandingOrders()'s own per-run check
- * (`processOne()` above) already auto-terminates a LOAN_REPAYMENT order the moment its
+ * (`processOne()` above) already auto-terminates a LOAN order the moment its
  * destination loan's balance reaches zero or it leaves DISBURSED status, so this never needs its
  * own end date. Idempotent: a loan that already has a live order against it (e.g. disburse() were
  * ever retried) is left alone rather than given a second one. Returns null — logged by the
@@ -354,7 +365,7 @@ export async function createRecoveryStandingOrderForLoan(loanId: number, user: A
 
   const { no } = await createStandingOrder(
     {
-      memberId: loan.member_id, accountId: source.id, standingOrderClass: 'LOAN_REPAYMENT',
+      memberId: loan.member_id, accountId: source.id, standingOrderClass: 'LOAN',
       amountType: 'FIXED', amount: loan.installment, destinationLoanId: loanId,
       postingDescription: `Loan repayment — ${loan.loan_no}`, runType: 'SPECIFIC_DAY', runFromDay,
       startDate, tillFurtherNotice: true,
@@ -500,7 +511,7 @@ async function processOne(no: string, dateStr: IsoDate, user: Actor): Promise<St
     }
 
     let destinationLoan: { status: string; principal_balance: Cents; interest_balance: Cents; penalty_balance: Cents } | undefined;
-    if (o.standing_order_class === 'LOAN_REPAYMENT') {
+    if (o.standing_order_class === 'LOAN') {
       destinationLoan = await one(
         'SELECT status, principal_balance, interest_balance, penalty_balance FROM loan WHERE id = ?', o.destination_loan_id,
       );
@@ -537,7 +548,7 @@ async function processOne(no: string, dateStr: IsoDate, user: Actor): Promise<St
     else if (o.amount_type === 'AMOUNT_BASED') {
       postingAmount = (account.balance - account.hold_amount - account.min_balance) >= o.amount_limit ? available : 0;
     }
-    if (destinationLoan && o.standing_order_class === 'LOAN_REPAYMENT') {
+    if (destinationLoan && o.standing_order_class === 'LOAN') {
       postingAmount = Math.min(postingAmount, destinationLoan.principal_balance + destinationLoan.interest_balance + destinationLoan.penalty_balance);
     }
     if (postingAmount <= 0) return null;
@@ -580,6 +591,35 @@ async function processOne(no: string, dateStr: IsoDate, user: Actor): Promise<St
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           await nextSequence('TXN'), dateStr, new Date().toISOString(), 'SAVINGS', 'DEPOSIT', o.destination_member_id,
           o.destination_account_id, postingAmount, newDestBal, 'SYSTEM', description, j.id, user.username,
+        );
+      } else if (o.standing_order_class === 'EXTERNAL') {
+        await assertMemberNotDormant(o.member_id, 'a standing order');
+        const bankAccount = await one<{ gl_account_id: number; status: string }>(
+          "SELECT gl_account_id, status FROM bank_account WHERE id = ?", o.destination_bank_account_id,
+        );
+        if (!bankAccount || bankAccount.status !== 'ACTIVE') {
+          return { no, action: 'NONE', posted: 0, charged: 0, note: 'Destination Bank/Cashbook account is not active' };
+        }
+        // Same shape as the INTERNAL branch above, but the destination is one of the SACCO's own
+        // bank accounts rather than another member's — postJournal() auto-populates the bank's
+        // own reconciliation ledger for the credit line, so there's no destination-side savings
+        // account/txn pair to write here.
+        const j = await postJournal({
+          valueDate: dateStr, module: 'SAVINGS', eventType: 'STANDING_ORDER', description, reference: no,
+          memberId: o.member_id, user,
+          lines: [
+            { account: o.account_gl_control_id, debit: postingAmount, credit: 0 },
+            { account: bankAccount.gl_account_id, debit: 0, credit: postingAmount },
+          ],
+        });
+        const newSourceBal = account.balance - postingAmount;
+        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBal, dateStr, o.account_id);
+        await run(
+          `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
+             savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          await nextSequence('TXN'), dateStr, new Date().toISOString(), 'SAVINGS', 'WITHDRAWAL', o.member_id,
+          o.account_id, -postingAmount, newSourceBal, 'SYSTEM', description, j.id, user.username,
         );
       } else {
         await repay({

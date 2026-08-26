@@ -242,6 +242,10 @@ export interface SaveMemberExitInput {
   payoutMethod?: 'FOSA' | 'BANK_TRANSFER';
   reason?: string | null;
   transactionChargeId?: number | null;
+  /** AL's "Instant" field (Tab52204055) — when set, the Instant Withdrawal Charge configured in
+   *  Admin Setup (organisation.instant_withdrawal_charge_id) replaces whatever Charge Code was
+   *  picked, same as the UI auto-populating it. */
+  isInstant?: boolean;
 }
 
 /** Retargeting an Open exit to a different member (AL's "Member No" field, editable while
@@ -267,7 +271,16 @@ export async function saveMemberExit(no: string, input: SaveMemberExitInput, use
   if (input.exitType !== undefined) cols.exit_type = input.exitType;
   if (input.payoutMethod !== undefined) cols.payout_method = input.payoutMethod;
   if (input.reason !== undefined) cols.reason = input.reason || null;
-  if (input.transactionChargeId !== undefined) cols.transaction_charge_id = input.transactionChargeId || null;
+  if (input.isInstant !== undefined) cols.is_instant = !!input.isInstant;
+  if (input.isInstant) {
+    const org = await getOrg();
+    if (!org?.instant_withdrawal_charge_id) {
+      throw new AppError('Instant Withdrawal Charge has not been configured — set it in Admin Setup first', 'VALIDATION');
+    }
+    cols.transaction_charge_id = org.instant_withdrawal_charge_id;
+  } else if (input.transactionChargeId !== undefined) {
+    cols.transaction_charge_id = input.transactionChargeId || null;
+  }
 
   const keys = Object.keys(cols);
   if (keys.length) {
@@ -372,7 +385,10 @@ export async function processMemberExit(no: string, user: Actor): Promise<{ memb
     const req = await one<MemberExitWithDetails>(`${SELECT_EXIT} WHERE e.no = ?`, no);
     if (!req) throw new AppError('Member exit not found', 'NOT_FOUND');
     if (req.status !== 'Approved') throw new AppError('Only an approved member exit can be processed', 'VALIDATION');
-    if (!req.maturity_date || today() < req.maturity_date) {
+    // An Instant Withdrawal skips the notice-period wait entirely — mirrors AL's
+    // MemberWithdrawalNotifications() (Cod52204007.MemberManagement.al:2426), which excludes
+    // Instant records from the "mature for posting" reminder in the first place.
+    if (!req.is_instant && (!req.maturity_date || today() < req.maturity_date)) {
       throw new AppError(`You cannot process this before ${req.maturity_date}, its maturity date`, 'NOT_MATURED');
     }
 

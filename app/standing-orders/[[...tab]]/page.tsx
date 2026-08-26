@@ -90,9 +90,13 @@ export default async function StandingOrdersPage({ params, searchParams }: {
                   </td>
                   <td>{STANDING_ORDER_CLASSES.find((c) => c.value === o.standing_order_class)?.label ?? o.standing_order_class}</td>
                   <td>
-                    {o.standing_order_class === 'INTERNAL'
-                      ? <>{o.destination_account_no}<div className="tiny muted-cell">{o.destination_first_name} {o.destination_last_name}</div></>
-                      : <span className="mono">{o.destination_loan_no}</span>}
+                    {o.standing_order_class === 'INTERNAL' ? (
+                      <>{o.destination_account_no}<div className="tiny muted-cell">{o.destination_first_name} {o.destination_last_name}</div></>
+                    ) : o.standing_order_class === 'EXTERNAL' ? (
+                      <span className="mono">{o.destination_bank_account_code}</span>
+                    ) : (
+                      <span className="mono">{o.destination_loan_no}</span>
+                    )}
                   </td>
                   <td className="num">{o.amount_type === 'FIXED' ? <Money cents={o.amount} /> : o.amount_type === 'AMOUNT_BASED' ? <Money cents={o.amount_limit} /> : '—'}</td>
                   <td>

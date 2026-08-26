@@ -20,7 +20,7 @@ import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { listConfigPackages, listConfigPackageTables } from '@/lib/configPackages';
 import { listPostableAccounts } from '@/lib/gl';
-import { listCharges, listTransactionCharges, getTransactionCharge } from '@/lib/charges';
+import { listCharges, listTransactionCharges, getTransactionCharge, listTransactionChargesByType } from '@/lib/charges';
 import { listLoanProductCharges } from '@/lib/loanProductCharges';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
@@ -245,12 +245,17 @@ export default async function AdminPage({ params, searchParams }: {
 }
 
 async function CompanyTab() {
-  const org = (await getOrg())!;
+  const [orgOrUndefined, charges] = await Promise.all([
+    getOrg(),
+    listTransactionChargesByType('General'),
+  ]);
+  const org = orgOrUndefined!;
   // The delivery URL is built server-side so the browser never needs the
   // Cloudinary cloud name, and legacy data-URL logos still resolve.
   return (
     <CompanyForm
       org={org}
+      charges={charges}
       logoSrc={imageSrc(org.logo, { width: 128, height: 128, crop: 'fit' })}
       mediaEnabled={isConfigured()}
     />

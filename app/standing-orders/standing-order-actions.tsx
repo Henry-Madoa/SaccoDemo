@@ -13,7 +13,8 @@ import {
   approveStandingOrderRequest, rejectStandingOrderRequest, terminateStandingOrderRequest,
   freezeStandingOrderRequest, unfreezeStandingOrderRequest, runStandingOrdersNow,
   accountsForStandingOrderSource, accountsForStandingOrderDestination, loansForStandingOrderDestination,
-  standingOrderChargeCodes, previewStandingOrderChargeAmount, listStandingOrderStoTypes,
+  bankAccountsForStandingOrderDestination, standingOrderChargeCodes, previewStandingOrderChargeAmount,
+  listStandingOrderStoTypes,
 } from '@/app/actions/standingOrders';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { STANDING_ORDER_CLASSES, STANDING_ORDER_AMOUNT_TYPES, STANDING_ORDER_RUN_TYPES } from '@/lib/constants';
@@ -188,6 +189,7 @@ export function RunNowButton({ disabled }: { disabled?: boolean }) {
 type EligibleMember = Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>;
 type SourceAccount = { id: number; account_no: string; product_name: string; balance: number; hold_amount: number; min_balance: number };
 type DestAccount = { id: number; account_no: string; product_name: string };
+type DestBankAccount = { id: number; code: string; name: string };
 type DestLoan = { id: number; loan_no: string; outstanding_balance: number };
 
 /**
@@ -212,6 +214,8 @@ function StandingOrderFields({
   const [destinationMemberId, setDestinationMemberId] = useState(String(initial?.destination_member_id ?? ''));
   const [destAccounts, setDestAccounts] = useState<DestAccount[]>([]);
   const [destinationAccountId, setDestinationAccountId] = useState(String(initial?.destination_account_id ?? ''));
+  const [destBankAccounts, setDestBankAccounts] = useState<DestBankAccount[]>([]);
+  const [destinationBankAccountId, setDestinationBankAccountId] = useState(String(initial?.destination_bank_account_id ?? ''));
   const [destLoans, setDestLoans] = useState<DestLoan[]>([]);
   const [destinationLoanId, setDestinationLoanId] = useState(String(initial?.destination_loan_id ?? ''));
 
@@ -253,12 +257,17 @@ function StandingOrderFields({
 
   useEffect(() => {
     let cancelled = false;
-    if (standingOrderClass !== 'LOAN_REPAYMENT' || !memberId) { setDestLoans([]); return; }
+    if (standingOrderClass !== 'LOAN' || !memberId) { setDestLoans([]); return; }
     loansForStandingOrderDestination(Number(memberId)).then((res) => {
       if (!cancelled && res.ok) setDestLoans(res.data);
     });
     return () => { cancelled = true; };
   }, [standingOrderClass, memberId]);
+
+  useEffect(() => {
+    if (standingOrderClass !== 'EXTERNAL') { setDestBankAccounts([]); return; }
+    bankAccountsForStandingOrderDestination().then((res) => { if (res.ok) setDestBankAccounts(res.data); });
+  }, [standingOrderClass]);
 
   useEffect(() => {
     standingOrderChargeCodes().then((res) => { if (res.ok) setChargeCodes(res.data); });
@@ -310,6 +319,16 @@ function StandingOrderFields({
               {destAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
             </select>
           </div>
+        </div>
+      ) : standingOrderClass === 'EXTERNAL' ? (
+        <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+          <label htmlFor="f_destinationBankAccountId">Pay through (Bank/Cashbook) <span className="req">*</span></label>
+          <select id="f_destinationBankAccountId" name="destinationBankAccountId" required value={destinationBankAccountId}
+            onChange={(e) => setDestinationBankAccountId(e.target.value)}>
+            <option value="">Select account…</option>
+            {destBankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+          </select>
+          <div className="hint">The posting description below carries the payment reference — this port has no separate EFT recipient fields.</div>
         </div>
       ) : (
         <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>

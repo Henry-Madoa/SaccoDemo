@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
@@ -162,16 +162,21 @@ export function RefreshLinesButton({ no, className = 'btn sm ghost' }: { no: str
 
 /** Exit type / payout method / reason / Charge Code — shared by the New form and Edit, with a
  *  live fee preview once a Charge Code is picked, same shape Account Activation's
- *  ChargeDebitFields uses. */
-function ExitFields({ exitType, setExitType, defaults }: {
+ *  ChargeDebitFields uses. Checking Instant Withdrawal auto-populates the Charge Code from the
+ *  admin-configured instantWithdrawalChargeId (Admin Setup → Membership) and locks the picker,
+ *  same as AL's precedent fields on General Ledger Setup. */
+function ExitFields({ exitType, setExitType, defaults, instantWithdrawalChargeId }: {
   exitType: string;
   setExitType: (v: string) => void;
   defaults?: Partial<MemberExitWithDetails>;
+  instantWithdrawalChargeId?: number | null;
 }) {
   const { cur } = useFormat();
   const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
   const [chargeId, setChargeId] = useState(String(defaults?.transaction_charge_id ?? ''));
   const [feeAmount, setFeeAmount] = useState<number | null>(null);
+  const [isInstant, setIsInstant] = useState(!!defaults?.is_instant);
+  const priorChargeId = useRef(chargeId);
 
   useEffect(() => {
     listMemberExitChargeCodes().then((res) => { if (res.ok) setChargeCodes(res.data); });
@@ -185,6 +190,16 @@ function ExitFields({ exitType, setExitType, defaults }: {
     });
     return () => { cancelled = true; };
   }, [chargeId, defaults?.net_amount]);
+
+  const toggleInstant = (checked: boolean) => {
+    setIsInstant(checked);
+    if (checked) {
+      priorChargeId.current = chargeId;
+      setChargeId(String(instantWithdrawalChargeId ?? ''));
+    } else {
+      setChargeId(priorChargeId.current);
+    }
+  };
 
   return (
     <>
@@ -203,9 +218,19 @@ function ExitFields({ exitType, setExitType, defaults }: {
         </div>
       </div>
       <Field name="reason" label="Reason" type="textarea" required defaultValue={defaults?.reason ?? ''} />
+      <div className="checkline">
+        <input type="checkbox" name="isInstant" id="f_isInstant" value="1" checked={isInstant}
+          disabled={!instantWithdrawalChargeId} onChange={(e) => toggleInstant(e.target.checked)} />
+        <label htmlFor="f_isInstant">Instant withdrawal</label>
+      </div>
+      {!instantWithdrawalChargeId ? (
+        <div className="hint">Set an Instant Withdrawal Charge in Admin Setup → Membership to enable this</div>
+      ) : isInstant ? (
+        <div className="hint">Skips the exit notice period and charges the configured Instant Withdrawal fee</div>
+      ) : null}
       <div className="field">
         <label htmlFor="f_transactionChargeId">Charge code</label>
-        <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId}
+        <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId} disabled={isInstant}
           onChange={(e) => setChargeId(e.target.value)}>
           <option value="">No charge</option>
           {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
@@ -264,8 +289,8 @@ export function NewMemberExitButton({ members, presetMemberId }: {
   );
 }
 
-export function EditButton({ exit, members, className = 'btn sm ghost' }: {
-  exit: MemberExitWithDetails; members: EligibleExitMemberRow[]; className?: string;
+export function EditButton({ exit, members, instantWithdrawalChargeId, className = 'btn sm ghost' }: {
+  exit: MemberExitWithDetails; members: EligibleExitMemberRow[]; instantWithdrawalChargeId?: number | null; className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [exitType, setExitType] = useState<string>(exit.exit_type);
@@ -283,7 +308,7 @@ export function EditButton({ exit, members, className = 'btn sm ghost' }: {
           successTitle="Member exit updated"
         >
           <MemberSelect id="f_memberIdEdit" name="memberId" members={members} value={memberId} onChange={setMemberId} required />
-          <ExitFields exitType={exitType} setExitType={setExitType} defaults={exit} />
+          <ExitFields exitType={exitType} setExitType={setExitType} defaults={exit} instantWithdrawalChargeId={instantWithdrawalChargeId} />
         </FormModal>
       ) : null}
     </>

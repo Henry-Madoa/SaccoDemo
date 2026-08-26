@@ -22,7 +22,7 @@ import { calculateChargeFromScheme } from './loans.ts';
 import { CHARGE_TRANSACTION_TYPES } from './constants.ts';
 import type {
   Actor, CalculatedCharge, Cents, Charge, ChargeCalculationType, ChargeRateType, ChargeTransactionType,
-  IsoDate, JournalLineInput, PostedJournal, TransactionCalcScheme, TransactionCharge,
+  IsoDate, JournalLineInput, PostedJournal, StandingOrderClass, TransactionCalcScheme, TransactionCharge,
   TransactionChargeSetupDetail, TransactionChargeWithDetail, TransactionRecovery, TransactionRecoveryDeductionType,
   TransactionRecoveryType, TransactionRecoveryWithDetail,
 } from './types.ts';
@@ -140,6 +140,10 @@ export interface TransactionRecoveryDraft {
   savings_product_id?: number | null;
   /** Required for STANDING_ORDER; unused otherwise. */
   sto_type?: string | null;
+  /** STANDING_ORDER only — null matches any class of the member's own sto_type-tagged standing
+   *  orders; set to narrow this row to just one (INTERNAL | EXTERNAL | LOAN), the mechanism for
+   *  giving each class its own priority (one recovery row per class). */
+  standing_order_class?: StandingOrderClass | null;
   priority?: number;
   description?: string | null;
   status?: 'ACTIVE' | 'INACTIVE';
@@ -162,12 +166,14 @@ async function replaceTransactionRecoveries(
     if (r.recovery_type !== 'STANDING_ORDER' && !r.deduction_type) continue;
     await run(
       `INSERT INTO transaction_recovery
-         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, sto_type, priority, description, status)
-       VALUES (?,?,?,?,?,?,?,?)`,
+         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, sto_type, standing_order_class,
+          priority, description, status)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       transactionChargeId, r.recovery_type,
       r.recovery_type === 'STANDING_ORDER' ? null : r.deduction_type,
       r.recovery_type === 'INTERNAL_DEPOSIT' ? r.savings_product_id : null,
       r.recovery_type === 'STANDING_ORDER' ? r.sto_type!.trim() : null,
+      r.recovery_type === 'STANDING_ORDER' ? (r.standing_order_class || null) : null,
       r.priority || i + 1, r.description?.trim() || null, r.status || 'ACTIVE',
     );
   }

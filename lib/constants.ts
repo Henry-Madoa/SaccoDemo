@@ -90,7 +90,8 @@ export const JOB_QUEUE_STATUSES: JobQueueStatus[] = ['READY', 'ON HOLD'];
  *  AL's fuller STO Types enum collapses into. */
 export const STANDING_ORDER_CLASSES: { value: StandingOrderClass; label: string }[] = [
   { value: 'INTERNAL', label: 'Transfer to an account' },
-  { value: 'LOAN_REPAYMENT', label: 'Loan repayment' },
+  { value: 'EXTERNAL', label: 'Pay to an external bank account' },
+  { value: 'LOAN', label: 'Loan repayment' },
 ];
 export const STANDING_ORDER_AMOUNT_TYPES: { value: StandingOrderAmountType; label: string }[] = [
   { value: 'FIXED', label: 'Fixed amount' },

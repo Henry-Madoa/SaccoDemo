@@ -43,6 +43,7 @@ import {
   one, all, run, tx, nextSequence, audit, hasAnyRow,
 } from './db.ts';
 import { AppError } from './errors.ts';
+import { postJournal } from './accounting.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { repay } from './loanService.ts';
 import { deposit, CHANNEL_GL } from './savings.ts';
@@ -538,12 +539,19 @@ export async function calculateCheckoffRecoveries(no: string, user: Actor): Prom
           // branch specifically). The fee itself is re-derived at process time from the stored
           // amount rather than stored here, the same "recompute deterministically" treatment the
           // batch's own CHARGE components already get.
+          // standing_order_class narrows this to one class of the member's own sto_type-tagged
+          // orders when set — how "priority per class" works: configure one STANDING_ORDER
+          // recovery row per class, each with its own priority, rather than a single row that
+          // can't tell them apart.
           const orders = await all<{ no: string; amount_type: string; amount: number; transaction_charge_id: number | null }>(
             `SELECT no, amount_type, amount, transaction_charge_id FROM standing_order
              WHERE member_id = ? AND sto_type = ? AND salary_based = true AND running = true AND terminated = false
                AND (end_date IS NULL OR end_date >= ?)
+               ${rec.standing_order_class ? 'AND standing_order_class = ?' : ''}
              ORDER BY no ASC`,
-            line.member_id, rec.sto_type, today(),
+            ...(rec.standing_order_class
+              ? [line.member_id, rec.sto_type, today(), rec.standing_order_class]
+              : [line.member_id, rec.sto_type, today()]),
           );
           for (const sto of orders) {
             if (remaining <= 0) break;
@@ -818,9 +826,11 @@ export async function processCheckoffBatch(no: string, user: Actor): Promise<{ e
           // gross salary, exactly like every other Checkoff recovery type.
           const sto = await one<{
             standing_order_class: string; destination_account_id: number | null; destination_loan_id: number | null;
-            transaction_charge_id: number | null;
+            destination_bank_account_id: number | null; transaction_charge_id: number | null;
           }>(
-            'SELECT standing_order_class, destination_account_id, destination_loan_id, transaction_charge_id FROM standing_order WHERE no = ?',
+            `SELECT standing_order_class, destination_account_id, destination_loan_id, destination_bank_account_id,
+                    transaction_charge_id
+             FROM standing_order WHERE no = ?`,
             calc.standing_order_no,
           );
           if (sto) {
@@ -837,11 +847,29 @@ export async function processCheckoffBatch(no: string, user: Actor): Promise<{ e
                 accountId: sto.destination_account_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
                 description: `STO ${calc.standing_order_no} — Salary processing ${no}`, user,
               });
-            } else if (sto.standing_order_class === 'LOAN_REPAYMENT' && sto.destination_loan_id) {
+            } else if (sto.standing_order_class === 'LOAN' && sto.destination_loan_id) {
               await repay({
                 loanId: sto.destination_loan_id, amount: calc.amount, channel: 'CHECKOFF', valueDate: vd,
                 description: `STO ${calc.standing_order_no} — Salary processing ${no}`, user,
               });
+            } else if (sto.standing_order_class === 'EXTERNAL' && sto.destination_bank_account_id) {
+              // No source savings account to debit here either — same CHECKOFF-clearing-funded
+              // shape as every other Checkoff recovery type; postJournal() auto-populates the
+              // bank account's own reconciliation ledger for the credit line.
+              const bankAccount = await one<{ gl_account_id: number }>(
+                'SELECT gl_account_id FROM bank_account WHERE id = ?', sto.destination_bank_account_id,
+              );
+              if (bankAccount) {
+                await postJournal({
+                  valueDate: vd, module: 'CHECKOFF', eventType: 'STANDING_ORDER',
+                  description: `STO ${calc.standing_order_no} — Salary processing ${no}`, reference: calc.standing_order_no,
+                  memberId: line.member_id, user,
+                  lines: [
+                    { account: CHANNEL_GL.CHECKOFF, debit: calc.amount, credit: 0 },
+                    { account: bankAccount.gl_account_id, debit: 0, credit: calc.amount },
+                  ],
+                });
+              }
             }
           }
         } else if (calc.entry_type === 'NET_AMOUNT') {

@@ -61,6 +61,8 @@ export interface Organisation {
    *  member's own Non-Withdrawable Deposit account: no money in it for this many days flips
    *  Active -> Dormant. See lib/memberStatusUpdate.ts. Defaults to 90. */
   dormancy_days: number;
+  /** The Transaction Charge auto-applied when a Member Exit is marked Instant Withdrawal. */
+  instant_withdrawal_charge_id: number | null;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -685,7 +687,7 @@ export interface MemberActivationRequestWithDimensions extends MemberActivationR
 }
 
 /** See lib/standingOrders.ts's file header for what AL's fuller STO Types enum collapses into. */
-export type StandingOrderClass = 'INTERNAL' | 'LOAN_REPAYMENT';
+export type StandingOrderClass = 'INTERNAL' | 'EXTERNAL' | 'LOAN';
 export type StandingOrderAmountType = 'FIXED' | 'SWEEP' | 'AMOUNT_BASED';
 /** Meaningful only for amount_type = FIXED — see the standing_order model's own doc comment. */
 export type StandingOrderRunType = 'SPECIFIC_DAY' | 'END_MONTH' | 'DAILY';
@@ -700,6 +702,8 @@ export interface StandingOrder {
   amount_limit: Cents;
   destination_member_id: number | null;
   destination_account_id: number | null;
+  /** EXTERNAL only — the SACCO's own Bank/Cashbook account the payout is made through. */
+  destination_bank_account_id: number | null;
   destination_loan_id: number | null;
   posting_description: string | null;
   run_type: StandingOrderRunType;
@@ -738,6 +742,8 @@ export interface StandingOrderWithDimensions extends StandingOrder {
   destination_first_name: string | null;
   destination_last_name: string | null;
   destination_account_no: string | null;
+  destination_bank_account_code: string | null;
+  destination_bank_account_name: string | null;
   destination_loan_no: string | null;
   transaction_charge_code: string | null;
   transaction_charge_description: string | null;
@@ -1032,6 +1038,9 @@ export interface TransactionRecovery {
   /** Required, STANDING_ORDER only — matched against a member's own salary_based standing
    *  order(s) carrying the same tag (StandingOrder.sto_type). */
   sto_type: string | null;
+  /** STANDING_ORDER only — null matches any class; set to narrow this recovery to just one
+   *  class, letting several rows for the same sto_type each carry their own priority. */
+  standing_order_class: StandingOrderClass | null;
   priority: number;
   description: string | null;
   status: 'ACTIVE' | 'INACTIVE';
@@ -2095,6 +2104,9 @@ export interface MemberExit {
   payout_method: 'FOSA' | 'BANK_TRANSFER';
   reason: string | null;
   transaction_charge_id: number | null;
+  /** AL's "Instant" field — auto-populates transaction_charge_id from
+   *  organisation.instant_withdrawal_charge_id and lets processing skip the maturity wait. */
+  is_instant: boolean;
   exit_date: IsoDate | null;
   maturity_date: IsoDate | null;
   net_amount: Cents;

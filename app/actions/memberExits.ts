@@ -41,6 +41,7 @@ function normalise(values: FormValues): SaveMemberExitInput {
   if (values.transactionChargeId !== undefined) {
     body.transactionChargeId = values.transactionChargeId ? Number(values.transactionChargeId) : null;
   }
+  if (values.isInstant !== undefined) body.isInstant = !!Number(values.isInstant);
   return body;
 }
 

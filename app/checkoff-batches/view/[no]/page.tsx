@@ -12,8 +12,9 @@ import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
-  Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
+  DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
@@ -110,11 +111,10 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
       </Toolbar>
 
       {canEditLines ? (
-        <Card>
-          <CardHead title="CSV upload"
-            sub={`${searchTypeLabel}, Name, Amount — matched rows overwrite that line's remitted amount`} />
+        <CollapsibleCard title="CSV upload"
+          sub={`${searchTypeLabel}, Name, Amount — matched rows overwrite that line's remitted amount`}>
           <CheckoffCsvUploadForm no={batch.no} />
-        </Card>
+        </CollapsibleCard>
       ) : null}
 
       <div className="grid g4 stack-2">
@@ -131,85 +131,43 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
         )}
       </div>
 
-      <div className="grid split-side-sm">
-        <div>
-          <Card>
-            <CardHead title="Batch details" />
-            <DefinitionList items={[
-              ['No.', <span className="mono" key="no">{batch.no}</span>],
-              ['Employer', <>{batch.employer_name} <span className="mono">({batch.employer_code})</span></>],
-              ['Type', humanise(batch.batch_type)],
-              ['Period', formatDate(batch.period)],
-              ['Posting date', batch.posting_date ? formatDate(batch.posting_date) : '—'],
-              ['Search type', searchTypeLabel],
-              isSalary ? ['Charge code', batch.transaction_charge_code || '—'] : null,
-              isSalary ? ['Calculated', batch.calculated
-                ? <Pill tone="ok" key="calc">YES</Pill>
-                : <Pill tone="warn" key="calc">NOT YET</Pill>] : null,
-              batch.decision_reason ? ['Decision reason', batch.decision_reason] : null,
-            ]} />
-          </Card>
+      <div className="grid g2">
+        <CollapsibleCard title="Batch details">
+          <DefinitionList items={[
+            ['No.', <span className="mono" key="no">{batch.no}</span>],
+            ['Employer', <>{batch.employer_name} <span className="mono">({batch.employer_code})</span></>],
+            ['Type', humanise(batch.batch_type)],
+            ['Period', formatDate(batch.period)],
+            ['Posting date', batch.posting_date ? formatDate(batch.posting_date) : '—'],
+            ['Search type', searchTypeLabel],
+            isSalary ? ['Charge code', batch.transaction_charge_code || '—'] : null,
+            isSalary ? ['Calculated', batch.calculated
+              ? <Pill tone="ok" key="calc">YES</Pill>
+              : <Pill tone="warn" key="calc">NOT YET</Pill>] : null,
+            batch.decision_reason ? ['Decision reason', batch.decision_reason] : null,
+          ]} />
+        </CollapsibleCard>
 
-          <Card>
-            <CardHead title="Document trail" sub="Who requested and processed this batch, and when" />
-            <DefinitionList items={[
-              ['Created by', batch.created_by || '—'],
-              ['Created on', formatDateTime(batch.created_at)],
-              ['Processed', processed
-                ? <Pill tone="ok" key="processed">YES — postings complete</Pill>
-                : <Pill tone="warn" key="processed">NOT YET</Pill>],
-              processed ? ['Processed by', batch.processed_by || '—'] : null,
-              processed ? ['Processed on', formatDateTime(batch.processed_at)] : null,
-            ]} />
-          </Card>
+        <CollapsibleCard title="Document trail" sub="Who requested and processed this batch, and when">
+          <DefinitionList items={[
+            ['Created by', batch.created_by || '—'],
+            ['Created on', formatDateTime(batch.created_at)],
+            ['Processed', processed
+              ? <Pill tone="ok" key="processed">YES — postings complete</Pill>
+              : <Pill tone="warn" key="processed">NOT YET</Pill>],
+            processed ? ['Processed by', batch.processed_by || '—'] : null,
+            processed ? ['Processed on', formatDateTime(batch.processed_at)] : null,
+          ]} />
+        </CollapsibleCard>
+      </div>
 
-          <Card>
-            <CardHead
-              title="Approval details"
-              sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
-            />
-            {tasks.length ? (
-              <TableWrap>
-                <thead>
-                  <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
-                </thead>
-                <tbody>
-                  {tasks.flatMap((t) => [
-                    ...t.level_decisions.map((ld, i) => (
-                      <tr key={`${t.id}-level-${i}`} className="muted">
-                        <td>—</td>
-                        <td>—</td>
-                        <td className="muted-cell">
-                          Level {ld.sequence}: {ld.decided_by}
-                          {ld.comment ? ` — "${ld.comment}"` : ''}
-                        </td>
-                        <td>{formatDateTime(ld.decided_at)}</td>
-                        <td><Pill tone="ok">CLEARED</Pill></td>
-                      </tr>
-                    )),
-                    <tr key={t.id}>
-                      <td>{t.requested_by || '—'}</td>
-                      <td>{formatDateTime(t.requested_at)}</td>
-                      <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
-                      <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
-                      <td><Pill status={t.status} /></td>
-                    </tr>,
-                  ])}
-                </tbody>
-              </TableWrap>
-            ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
-          </Card>
-        </div>
-
-        <div>
-          <Card>
-            <CardHead
-              title="Lines"
-              sub={canEditLines
-                ? 'Record what each member actually remitted this period'
-                : 'Snapshotted when this batch was opened or last refreshed'}
-            />
-            {lines.length ? (
+      <CollapsibleCard
+        title="Lines"
+        sub={canEditLines
+          ? 'Record what each member actually remitted this period'
+          : 'Snapshotted when this batch was opened or last refreshed'}
+      >
+        {lines.length ? (
               <TableWrap>
                 <thead>
                   <tr>
@@ -279,9 +237,43 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="🧾" title="No lines" sub={canEditLines ? 'Refresh lines to populate from the employer’s current members.' : undefined} />}
-          </Card>
-        </div>
-      </div>
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="Approval details"
+        sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+      >
+        {tasks.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
+            </thead>
+            <tbody>
+              {tasks.flatMap((t) => [
+                ...t.level_decisions.map((ld, i) => (
+                  <tr key={`${t.id}-level-${i}`} className="muted">
+                    <td>—</td>
+                    <td>—</td>
+                    <td className="muted-cell">
+                      Level {ld.sequence}: {ld.decided_by}
+                      {ld.comment ? ` — "${ld.comment}"` : ''}
+                    </td>
+                    <td>{formatDateTime(ld.decided_at)}</td>
+                    <td><Pill tone="ok">CLEARED</Pill></td>
+                  </tr>
+                )),
+                <tr key={t.id}>
+                  <td>{t.requested_by || '—'}</td>
+                  <td>{formatDateTime(t.requested_at)}</td>
+                  <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
+                  <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
+                  <td><Pill status={t.status} /></td>
+                </tr>,
+              ])}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
+      </CollapsibleCard>
       </Page>
     </>
   );

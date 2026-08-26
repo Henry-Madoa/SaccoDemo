@@ -359,6 +359,7 @@ model transaction_charge {
   member_exit                member_exit[]
   transaction_recovery       transaction_recovery[]
   checkoff_batch             checkoff_batch[]
+  organisation               organisation[]
 
   @@index([transaction_type], map: "ix_tc_type")
 }
@@ -512,6 +513,7 @@ model bank_account {
   bank_account_ledger_entry bank_account_ledger_entry[]
   bank_reconciliation       bank_reconciliation[]
   txn                       txn[]
+  standing_order            standing_order[]
 }
 
 /// One posted entry against a bank account's G/L control account — populated automatically by
@@ -1336,6 +1338,11 @@ model organisation {
   /// member's own Non-Withdrawable Deposit account: no money in it for this many days flips
   /// Active -> Dormant. See lib/memberStatusUpdate.ts.
   dormancy_days              Int?    @default(90)
+  /// The Transaction Charge auto-applied when a Member Exit is marked Instant Withdrawal —
+  /// mirrors AL's General Ledger Setup precedent of Code[20] fields pointing at Transaction
+  /// Charges for global default fees (Loan Repayment/Balance Inquiry/Mini & Full Statement).
+  instant_withdrawal_charge_id Int?
+  instant_withdrawal_charge  transaction_charge? @relation(fields: [instant_withdrawal_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updated_at                 String?
   updated_by                 String?
 }
@@ -1539,7 +1546,7 @@ model standing_order {
   no                     String              @id
   member_id              Int
   account_id             Int
-  /// INTERNAL | LOAN_REPAYMENT — see the model doc above for what AL's fuller STO Types enum
+  /// INTERNAL | EXTERNAL | LOAN — see the model doc above for what AL's fuller STO Types enum
   /// collapses into.
   standing_order_class   String
   /// FIXED | SWEEP | AMOUNT_BASED
@@ -1552,7 +1559,12 @@ model standing_order {
   /// INTERNAL only.
   destination_member_id  Int?
   destination_account_id Int?
-  /// LOAN_REPAYMENT only.
+  /// EXTERNAL only — one of the SACCO's own Bank/Cashbook accounts (bank_account) the payout is
+  /// made through, the same Payment Channel concept lib/loanService.ts's disburse() already uses
+  /// for a loan's own bank payout. AL's own EFT recipient sub-fields (Account Name/Bank
+  /// Name/Branch/Swift Code) are dropped — posting_description carries the payment reference.
+  destination_bank_account_id Int?
+  /// LOAN only.
   destination_loan_id    Int?
   posting_description    String?
   /// SPECIFIC_DAY | END_MONTH | DAILY — meaningful only for amount_type = FIXED.
@@ -1604,6 +1616,7 @@ model standing_order {
   savings_account        savings_account     @relation("sto_source_account", fields: [account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   destination_account    savings_account?    @relation("sto_destination_account", fields: [destination_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   destination_loan       loan?               @relation(fields: [destination_loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_bank_account bank_account?     @relation(fields: [destination_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   transaction_charge     transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   checkoff_calculation   checkoff_calculation[]
 
@@ -2155,6 +2168,11 @@ model member_exit {
   /// AL's "Charge Code" — optional, posted via lib/charges.ts's postTransactionCharges() at
   /// processing time.
   transaction_charge_id Int?
+  /// AL's "Instant" field (Tab52204055) — checking it auto-populates transaction_charge_id
+  /// from organisation.instant_withdrawal_charge_id and, per AL's own
+  /// MemberWithdrawalNotifications() filter (which excludes Instant records from the
+  /// mature-for-posting reminder), also lets processMemberExit() skip the maturity wait.
+  is_instant            Boolean            @default(false)
   exit_date             String?
   /// exit_date + organisation.member_exit_notice_days — processMemberExit() refuses to run
   /// before this date, same as AL's own maturity check.
@@ -2313,6 +2331,12 @@ model transaction_recovery {
   /// Required, STANDING_ORDER only — matched against a member's own salary_based standing
   /// order(s) carrying the same sto_type tag. See standing_order.sto_type's own doc comment.
   sto_type              String?
+  /// STANDING_ORDER only — optionally narrows this recovery to just one class (INTERNAL |
+  /// EXTERNAL | LOAN) of the member's own sto_type-tagged standing orders; null matches any
+  /// class. Configuring multiple STANDING_ORDER recoveries for the same sto_type, each pinned to
+  /// a different class with its own priority, is how "priority per class" is achieved — there is
+  /// no separate per-class priority field, since Transaction Recoveries already orders by row.
+  standing_order_class  String?
   priority              Int                @default(1)
   description           String?
   status                String             @default("ACTIVE")

@@ -8,8 +8,9 @@ import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument
 import { formatDate, formatDateTime, humanise, today } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
-  Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
+  DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
@@ -95,62 +96,91 @@ export default async function FixedDepositDetailPage({ params, searchParams }: {
           foot={fd.linked_loan_balance ? 'Must be cleared before maturity/termination' : 'Free to mature/terminate'} />
       </div>
 
-      <div className="grid split-side-sm">
-        <div>
-          <Card>
-            <CardHead title="Fixed deposit details" />
-            <DefinitionList items={[
-              ['No.', <span className="mono" key="no">{fd.no}</span>],
-              ['Member', <Link href={`/members/${fd.member_id}`} key="m">{fd.member_first_name} {fd.member_last_name} <span className="mono">({fd.member_no})</span></Link>],
-              ['Type', `${fd.fd_type_code} — ${fd.fd_type_description}`],
-              ['Rate', `${fd.rate}%`],
-              ['Maturity instructions', humanise(fd.maturity_instructions)],
-              ['Source account', <span className="mono" key="src">{fd.source_account_no}</span>],
-              ['Start date', formatDate(fd.start_date)],
-              ['Term', `${fd.term_months} month${fd.term_months === 1 ? '' : 's'}`],
-              ['End date', formatDate(fd.end_date)],
-              fd.rolled_from_no ? ['Rolled over from', <Link href={`/fixed-deposits/view/${fd.rolled_from_no}`} key="rf">{fd.rolled_from_no}</Link>] : null,
-              fd.rolled_to_no ? ['Rolled over to', <Link href={`/fixed-deposits/view/${fd.rolled_to_no}`} key="rt">{fd.rolled_to_no}</Link>] : null,
-              fd.decision_reason ? ['Decision reason', fd.decision_reason] : null,
-            ]} />
-          </Card>
+      <div className="grid g2">
+        <CollapsibleCard title="Fixed deposit details">
+          <DefinitionList items={[
+            ['No.', <span className="mono" key="no">{fd.no}</span>],
+            ['Member', <Link href={`/members/${fd.member_id}`} key="m">{fd.member_first_name} {fd.member_last_name} <span className="mono">({fd.member_no})</span></Link>],
+            ['Type', `${fd.fd_type_code} — ${fd.fd_type_description}`],
+            ['Rate', `${fd.rate}%`],
+            ['Maturity instructions', humanise(fd.maturity_instructions)],
+            ['Source account', <span className="mono" key="src">{fd.source_account_no}</span>],
+            ['Start date', formatDate(fd.start_date)],
+            ['Term', `${fd.term_months} month${fd.term_months === 1 ? '' : 's'}`],
+            ['End date', formatDate(fd.end_date)],
+            fd.rolled_from_no ? ['Rolled over from', <Link href={`/fixed-deposits/view/${fd.rolled_from_no}`} key="rf">{fd.rolled_from_no}</Link>] : null,
+            fd.rolled_to_no ? ['Rolled over to', <Link href={`/fixed-deposits/view/${fd.rolled_to_no}`} key="rt">{fd.rolled_to_no}</Link>] : null,
+            fd.decision_reason ? ['Decision reason', fd.decision_reason] : null,
+          ]} />
+        </CollapsibleCard>
 
-          <Card>
-            <CardHead title="Document trail" />
-            <DefinitionList items={[
-              ['Created by', fd.created_by || '—'],
-              ['Created on', formatDateTime(fd.created_at)],
-              ['Activated by', fd.activated_by || '—'],
-              ['Activated on', fd.activated_at ? formatDateTime(fd.activated_at) : '—'],
-              fd.processed_at ? ['Settled on', formatDateTime(fd.processed_at)] : null,
-              fd.processed_by ? ['Settled by', fd.processed_by] : null,
-            ]} />
-          </Card>
-        </div>
-
-        <div>
-          <Card>
-            <CardHead title="Interest schedule" sub="One line per month over the term" />
-            {schedule.length ? (
-              <TableWrap>
-                <thead>
-                  <tr><th>Posting date</th><th>Description</th><th className="num">Amount</th><th>Posted</th></tr>
-                </thead>
-                <tbody>
-                  {schedule.map((s) => (
-                    <tr key={s.id}>
-                      <td>{formatDate(s.posting_date)}</td>
-                      <td>{s.description}</td>
-                      <td className="num"><Money cents={s.amount} decimals={0} /></td>
-                      <td>{s.transferred ? <Pill tone="ok">Posted</Pill> : <Pill tone="warn">Pending</Pill>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableWrap>
-            ) : <EmptyState icon="📅" title="No schedule yet" sub="Generated automatically when this fixed deposit is activated" />}
-          </Card>
-        </div>
+        <CollapsibleCard title="Document trail">
+          <DefinitionList items={[
+            ['Created by', fd.created_by || '—'],
+            ['Created on', formatDateTime(fd.created_at)],
+            ['Activated by', fd.activated_by || '—'],
+            ['Activated on', fd.activated_at ? formatDateTime(fd.activated_at) : '—'],
+            fd.processed_at ? ['Settled on', formatDateTime(fd.processed_at)] : null,
+            fd.processed_by ? ['Settled by', fd.processed_by] : null,
+          ]} />
+        </CollapsibleCard>
       </div>
+
+      <CollapsibleCard title="Interest schedule" sub="One line per month over the term">
+        {schedule.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Posting date</th><th>Description</th><th className="num">Amount</th><th>Posted</th></tr>
+            </thead>
+            <tbody>
+              {schedule.map((s) => (
+                <tr key={s.id}>
+                  <td>{formatDate(s.posting_date)}</td>
+                  <td>{s.description}</td>
+                  <td className="num"><Money cents={s.amount} decimals={0} /></td>
+                  <td>{s.transferred ? <Pill tone="ok">Posted</Pill> : <Pill tone="warn">Pending</Pill>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="📅" title="No schedule yet" sub="Generated automatically when this fixed deposit is activated" />}
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="Approval details"
+        sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}
+      >
+        {tasks.length ? (
+          <TableWrap>
+            <thead>
+              <tr><th>Sent by</th><th>Sent date</th><th>Approver</th><th>Approved on</th><th /></tr>
+            </thead>
+            <tbody>
+              {tasks.flatMap((t) => [
+                ...t.level_decisions.map((ld, i) => (
+                  <tr key={`${t.id}-level-${i}`} className="muted">
+                    <td>—</td>
+                    <td>—</td>
+                    <td className="muted-cell">
+                      Level {ld.sequence}: {ld.decided_by}
+                      {ld.comment ? ` — "${ld.comment}"` : ''}
+                    </td>
+                    <td>{formatDateTime(ld.decided_at)}</td>
+                    <td><Pill tone="ok">CLEARED</Pill></td>
+                  </tr>
+                )),
+                <tr key={t.id}>
+                  <td>{t.requested_by || '—'}</td>
+                  <td>{formatDateTime(t.requested_at)}</td>
+                  <td className="muted-cell">{t.decided_by || t.pending_with || '—'}</td>
+                  <td>{t.decided_at ? formatDateTime(t.decided_at) : '—'}</td>
+                  <td><Pill status={t.status} /></td>
+                </tr>,
+              ])}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="🕓" title="Not yet sent for approval" />}
+      </CollapsibleCard>
       </Page>
     </>
   );
