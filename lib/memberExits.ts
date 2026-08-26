@@ -34,6 +34,9 @@ import { postJournal } from './accounting.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { today } from './format.ts';
 import { resolvePostingDate } from './postingDates.ts';
+import { EXIT_TYPES } from './constants.ts';
+import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
+import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, EligibleExitMemberRow, MemberExit, MemberExitLineWithDetails, MemberExitWithDetails,
 } from './types.ts';
@@ -57,20 +60,47 @@ const SELECT_EXIT = `
   JOIN member m ON m.id = e.member_id
   LEFT JOIN transaction_charge tc ON tc.id = e.transaction_charge_id`;
 
+export const MEMBER_EXIT_FILTER_FIELDS: FilterFieldDef[] = [
+  { key: 'no', label: 'No.', type: 'text', column: 'e.no' },
+  { key: 'member_id', label: 'Member', type: 'select', column: 'm.id' },
+  { key: 'exit_type', label: 'Exit type', type: 'select', column: 'e.exit_type', options: EXIT_TYPES },
+  { key: 'reason', label: 'Reason', type: 'text', column: 'e.reason' },
+  { key: 'decision_reason', label: 'Decision Reason', type: 'text', column: 'e.decision_reason' },
+  { key: 'created_by', label: 'Created By', type: 'text', column: 'e.created_by' },
+  { key: 'created_at', label: 'Created', type: 'date', column: 'e.created_at', datetime: true },
+  { key: 'processed_by', label: 'Processed By', type: 'text', column: 'e.processed_by' },
+  { key: 'processed_at', label: 'Processed', type: 'date', column: 'e.processed_at', datetime: true },
+];
+
+const MEMBER_EXIT_SORT_COLUMNS: Record<string, string> = {
+  no: 'e.no',
+  member: 'm.first_name',
+  exit_type: 'e.exit_type',
+  net_amount: 'e.net_amount',
+  status: 'e.status',
+};
+
 export interface ListMemberExitOptions {
   view?: MemberExitView;
   search?: string;
+  filters?: FilterCondition[];
+  sort?: SortState | null;
 }
 
 export const listMemberExits = (
-  { view, search = '' }: ListMemberExitOptions = {},
-): Promise<MemberExitWithDetails[]> => all<MemberExitWithDetails>(
-  `${SELECT_EXIT}
-   WHERE (e.no LIKE @like OR m.member_no LIKE @like OR m.first_name LIKE @like OR m.last_name LIKE @like)
-     ${view ? `AND ${VIEW_CLAUSE[view]}` : ''}
-   ORDER BY e.no DESC`,
-  { like: `%${String(search).trim()}%` },
-);
+  { view, search = '', filters = [], sort = null }: ListMemberExitOptions = {},
+): Promise<MemberExitWithDetails[]> => {
+  const { clause, params } = buildFilterClause(MEMBER_EXIT_FILTER_FIELDS, filters);
+  const orderBy = buildOrderClause(MEMBER_EXIT_SORT_COLUMNS, sort, 'e.no DESC');
+  return all<MemberExitWithDetails>(
+    `${SELECT_EXIT}
+     WHERE (e.no LIKE @like OR m.member_no LIKE @like OR m.first_name LIKE @like OR m.last_name LIKE @like)
+       ${view ? `AND ${VIEW_CLAUSE[view]}` : ''}
+       ${clause}
+     ${orderBy}`,
+    { like: `%${String(search).trim()}%`, ...params },
+  );
+};
 
 export const getMemberExit = (no: string): Promise<MemberExitWithDetails | undefined> =>
   one<MemberExitWithDetails>(`${SELECT_EXIT} WHERE e.no = ?`, no);
@@ -88,6 +118,17 @@ export async function getAdjacentMemberExitNos(
   ]);
   return { prevNo: prev?.no ?? null, nextNo: next?.no ?? null };
 }
+
+/** Every member who appears on at least one exit document, regardless of their current status —
+ *  the Member filter field's picklist. lib/members.ts's own listActiveMembers() would silently
+ *  exclude every Processed exit's member (WITHDRAWN/DECEASED by definition, never ACTIVE again
+ *  the way a reactivated Dormant/Withdrawn member is), which would make a processed exit
+ *  impossible to find by member through the filter at all. */
+export const listMembersInExitHistory = (): Promise<EligibleExitMemberRow[]> => all<EligibleExitMemberRow>(
+  `SELECT DISTINCT m.id, m.member_no, m.first_name, m.last_name
+   FROM member m JOIN member_exit e ON e.member_id = m.id
+   ORDER BY m.member_no`,
+);
 
 /** Members eligible to open a new exit against, or to retarget an existing Open one to: ACTIVE,
  *  with no other exit document already open/in-progress. `excludeExitNo` lets an Open document's

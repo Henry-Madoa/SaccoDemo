@@ -1,4 +1,6 @@
 import { listMemberExits, type MemberExitView } from '@/lib/memberExits';
+import { parseFilters } from '@/lib/listFilters';
+import { parseSort } from '@/lib/listSort';
 import { buildWorkbookBuffer, excelExportResponse, type ExcelColumn } from '@/lib/excel';
 import { humanise } from '@/lib/format';
 import type { MemberExitWithDetails } from '@/lib/types';
@@ -10,9 +12,11 @@ export async function GET(request: Request): Promise<Response> {
   const q = searchParams.get('q') ?? '';
   const viewParam = searchParams.get('view');
   const view = VIEWS.includes(viewParam as MemberExitView) ? (viewParam as MemberExitView) : undefined;
+  const filters = parseFilters(searchParams.get('filters'));
+  const sort = parseSort(searchParams.get('sort'));
 
   return excelExportResponse('MEMBER_EXITS_READ', async () => {
-    const rows = await listMemberExits({ view, search: q });
+    const rows = await listMemberExits({ view, search: q, filters, sort });
     const columns: ExcelColumn<MemberExitWithDetails>[] = [
       { header: 'No.', key: 'no', value: (r) => r.no },
       { header: 'Member', key: 'member', value: (r) => `${r.member_first_name} ${r.member_last_name}`.trim() },

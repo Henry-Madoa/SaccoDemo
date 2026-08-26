@@ -2,13 +2,18 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import {
-  listMemberExits, hasAnyMemberExits, eligibleMembersForExit, type MemberExitView,
+  listMemberExits, hasAnyMemberExits, eligibleMembersForExit, listMembersInExitHistory,
+  MEMBER_EXIT_FILTER_FIELDS, type MemberExitView,
 } from '@/lib/memberExits';
+import { parseFilters } from '@/lib/listFilters';
+import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
 import {
   Card, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
 } from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
+import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
+import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { ExportButton } from '@/components/ui/export-button';
 import { humanise } from '@/lib/format';
@@ -25,30 +30,38 @@ const TABS: TabDefinition[] = [
 
 export default async function MemberExitsPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string; new?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string; new?: string }>;
 }) {
   const user = await requireAction('MEMBER_EXITS_READ');
   const { tab: segments } = await params;
-  const { q = '', new: presetMemberId } = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw, new: presetMemberId } = await searchParams;
+  const filters = parseFilters(filtersRaw);
+  const sort = parseSort(sortRaw);
 
   const requested = segments?.[0];
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as MemberExitView;
 
-  const [exits, empty, canCreate, canApprove, members] = await Promise.all([
-    listMemberExits({ view: tab, search: q }),
+  const [exits, empty, canCreate, canApprove, members, filterMembers] = await Promise.all([
+    listMemberExits({ view: tab, search: q, filters, sort }),
     hasAnyMemberExits(tab).then((any) => !any),
     currentCanAction('MEMBER_EXITS_CREATE'), currentCanAction('MEMBER_EXITS_APPROVE'),
     eligibleMembersForExit(),
+    listMembersInExitHistory(),
   ]);
+  const fields = MEMBER_EXIT_FILTER_FIELDS.map((f) => (
+    f.key === 'member_id' ? { ...f, options: filterMembers.map((m) => ({ value: m.id, label: `${m.member_no} — ${m.first_name} ${m.last_name}` })) }
+      : f
+  ));
 
   return (
     <Page title="Member Exit" crumb="Terminating a membership — settle assets and liabilities, pay out the balance, close the accounts" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/member-exits/${k}`} />
       <Toolbar>
         <SearchInput placeholder="Search member name, no. or document no.…" disabled={empty} />
+        <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
-        <ExportButton href="/api/export/member-exits" params={{ q, view: tab }} disabled={!exits.length} />
+        <ExportButton href="/api/export/member-exits" params={{ q, view: tab, filters: filtersRaw, sort: sortRaw }} disabled={!exits.length} />
         {canCreate ? <NewMemberExitButton members={members} presetMemberId={presetMemberId ?? null} /> : null}
       </Toolbar>
 
@@ -57,8 +70,11 @@ export default async function MemberExitsPage({ params, searchParams }: {
           <TableWrap>
             <thead>
               <tr>
-                <th>No.</th><th>Member</th><th>Exit type</th>
-                <th className="num">Net amount</th><th>Status</th><th className="num" />
+                <th><SortLink sortKey="no">No.</SortLink></th>
+                <th><SortLink sortKey="member">Member</SortLink></th>
+                <th><SortLink sortKey="exit_type">Exit type</SortLink></th>
+                <th className="num"><SortLink sortKey="net_amount">Net amount</SortLink></th>
+                <th><SortLink sortKey="status">Status</SortLink></th><th className="num" />
               </tr>
             </thead>
             <tbody>
