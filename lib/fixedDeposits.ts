@@ -35,8 +35,9 @@ import { postJournal } from './accounting.ts';
 import { addMonths } from './loans.ts';
 import { getFdLinkedBalance } from './loanFdSecurity.ts';
 import { today } from './format.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import type {
-  Actor, MemberFixedDeposit, MemberFixedDepositSchedule, MemberFixedDepositType, MemberFixedDepositWithDetails,
+  Actor, IsoDate, MemberFixedDeposit, MemberFixedDepositSchedule, MemberFixedDepositType, MemberFixedDepositWithDetails,
 } from './types.ts';
 
 export type FixedDepositView = 'open' | 'pending' | 'approved' | 'active' | 'matured' | 'terminated';
@@ -144,17 +145,18 @@ async function openFdAccount(memberId: number, productId: number): Promise<numbe
   return Number(info.lastInsertRowid);
 }
 
-async function closeAccount(accountId: number): Promise<void> {
-  await run("UPDATE savings_account SET status = 'CLOSED', last_activity = ? WHERE id = ?", today(), accountId);
+async function closeAccount(accountId: number, valueDate: IsoDate): Promise<void> {
+  await run("UPDATE savings_account SET status = 'CLOSED', last_activity = ? WHERE id = ?", valueDate, accountId);
 }
 
 async function insertTxn(
-  memberId: number, accountId: number, amount: number, runningBalance: number, txnType: string, description: string, journalId: number, user: Actor,
+  memberId: number, accountId: number, amount: number, runningBalance: number, txnType: string, description: string,
+  journalId: number, user: Actor, valueDate: IsoDate,
 ): Promise<void> {
   await run(
     `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id, savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', txnType, memberId,
+    await nextSequence('TXN'), valueDate, new Date().toISOString(), 'SAVINGS', txnType, memberId,
     accountId, amount, runningBalance, 'INTERNAL', description, journalId, user.username,
   );
 }
@@ -283,14 +285,15 @@ export async function activateFixedDeposit(no: string, user: Actor): Promise<voi
     const fdType = await one<MemberFixedDepositType>('SELECT * FROM member_fixed_deposit_type WHERE id = ?', req.fd_type_id);
     if (!fdType) throw new AppError('Fixed deposit type not found', 'NOT_FOUND');
 
+    const vd = await resolvePostingDate(user);
     await savings.withdraw({
       accountId: req.source_account_id, amount: req.amount, channel: 'SYSTEM',
-      valueDate: today(), description: `Fixed deposit ${no} activation`, user,
+      valueDate: vd, description: `Fixed deposit ${no} activation`, user,
     });
     const fdAccountId = await openFdAccount(req.member_id, fdType.linked_product_id);
     await savings.deposit({
       accountId: fdAccountId, amount: req.amount, channel: 'SYSTEM',
-      valueDate: today(), description: `Fixed deposit ${no} activation`, user,
+      valueDate: vd, description: `Fixed deposit ${no} activation`, user,
     });
     await populateSchedule(no, req.rate, req.amount, req.start_date, req.end_date, fdType.interest_calc_type);
 
@@ -322,7 +325,7 @@ export async function accrueFixedDepositInterest(no: string, user: Actor): Promi
     const total = due.reduce((s, r) => s + r.amount, 0);
     if (total > 0) {
       await postJournal({
-        valueDate: today(), module: 'FIXED_DEPOSIT', eventType: 'INTEREST_ACCRUAL',
+        valueDate: await resolvePostingDate(user), module: 'FIXED_DEPOSIT', eventType: 'INTEREST_ACCRUAL',
         description: `Fixed deposit ${no} — interest accrual`, reference: no, memberId: req.member_id, user,
         lines: [
           { account: fdType.interest_expense_gl_id, debit: total, credit: 0, narration: 'Fixed deposit interest accrual' },
@@ -378,11 +381,12 @@ export async function matureFixedDeposit(no: string, user: Actor): Promise<void>
     const totalInterest = scheduleTotal?.total ?? 0;
     const wht = fdType.withholding_tax_rate > 0 ? Math.round((totalInterest * fdType.withholding_tax_rate) / 100) : 0;
     const netInterest = totalInterest - wht;
+    const vd = await resolvePostingDate(user);
 
     let fdBalance = fdAccount.balance;
     if (totalInterest > 0) {
       const j = await postJournal({
-        valueDate: today(), module: 'FIXED_DEPOSIT', eventType: 'INTEREST_MATURITY',
+        valueDate: vd, module: 'FIXED_DEPOSIT', eventType: 'INTEREST_MATURITY',
         description: `Fixed deposit ${no} — interest at maturity`, reference: no, memberId: req.member_id, user,
         lines: [
           { account: fdType.interest_payable_gl_id, debit: totalInterest, credit: 0, narration: 'Fixed deposit interest at maturity' },
@@ -391,25 +395,25 @@ export async function matureFixedDeposit(no: string, user: Actor): Promise<void>
         ],
       });
       fdBalance += netInterest;
-      await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', fdBalance, today(), fdAccount.id);
-      await insertTxn(req.member_id, fdAccount.id, netInterest, fdBalance, 'INTEREST', `Fixed deposit ${no} — interest at maturity`, j.id, user);
+      await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', fdBalance, vd, fdAccount.id);
+      await insertTxn(req.member_id, fdAccount.id, netInterest, fdBalance, 'INTEREST', `Fixed deposit ${no} — interest at maturity`, j.id, user, vd);
     }
 
     if (req.maturity_instructions === 'LIQUIDATE') {
       const j = await postJournal({
-        valueDate: today(), module: 'FIXED_DEPOSIT', eventType: 'FINAL_PAYOUT',
+        valueDate: vd, module: 'FIXED_DEPOSIT', eventType: 'FINAL_PAYOUT',
         description: `Fixed deposit ${no} — maturity payout`, reference: no, memberId: req.member_id, user,
         lines: [
           { account: fdAccount.gl_control_id, debit: fdBalance, credit: 0, narration: 'Fixed deposit maturity payout' },
           { account: source.gl_control_id, debit: 0, credit: fdBalance, narration: 'Fixed deposit maturity payout' },
         ],
       });
-      await run('UPDATE savings_account SET balance = 0, last_activity = ? WHERE id = ?', today(), fdAccount.id);
-      await insertTxn(req.member_id, fdAccount.id, -fdBalance, 0, 'TRANSFER', `Fixed deposit ${no} — maturity payout`, j.id, user);
+      await run('UPDATE savings_account SET balance = 0, last_activity = ? WHERE id = ?', vd, fdAccount.id);
+      await insertTxn(req.member_id, fdAccount.id, -fdBalance, 0, 'TRANSFER', `Fixed deposit ${no} — maturity payout`, j.id, user, vd);
       const newSourceBalance = source.balance + fdBalance;
-      await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBalance, today(), source.id);
-      await insertTxn(req.member_id, source.id, fdBalance, newSourceBalance, 'TRANSFER', `Fixed deposit ${no} — maturity payout`, j.id, user);
-      await closeAccount(fdAccount.id);
+      await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBalance, vd, source.id);
+      await insertTxn(req.member_id, source.id, fdBalance, newSourceBalance, 'TRANSFER', `Fixed deposit ${no} — maturity payout`, j.id, user, vd);
+      await closeAccount(fdAccount.id, vd);
       await run("UPDATE member_fixed_deposit SET status = 'Matured', processed_at = ?, processed_by = ? WHERE no = ?", new Date().toISOString(), user.username, no);
     } else {
       const payout = req.maturity_instructions === 'ROLLOVER_PRINCIPAL' ? netInterest : 0;
@@ -417,7 +421,7 @@ export async function matureFixedDeposit(no: string, user: Actor): Promise<void>
 
       if (payout > 0) {
         const j = await postJournal({
-          valueDate: today(), module: 'FIXED_DEPOSIT', eventType: 'INTEREST_PAYOUT',
+          valueDate: vd, module: 'FIXED_DEPOSIT', eventType: 'INTEREST_PAYOUT',
           description: `Fixed deposit ${no} — interest payout on roll-over`, reference: no, memberId: req.member_id, user,
           lines: [
             { account: fdAccount.gl_control_id, debit: payout, credit: 0, narration: 'Fixed deposit roll-over interest payout' },
@@ -425,11 +429,11 @@ export async function matureFixedDeposit(no: string, user: Actor): Promise<void>
           ],
         });
         fdBalance -= payout;
-        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', fdBalance, today(), fdAccount.id);
-        await insertTxn(req.member_id, fdAccount.id, -payout, fdBalance, 'TRANSFER', `Fixed deposit ${no} — roll-over interest payout`, j.id, user);
+        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', fdBalance, vd, fdAccount.id);
+        await insertTxn(req.member_id, fdAccount.id, -payout, fdBalance, 'TRANSFER', `Fixed deposit ${no} — roll-over interest payout`, j.id, user, vd);
         const newSourceBalance = source.balance + payout;
-        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBalance, today(), source.id);
-        await insertTxn(req.member_id, source.id, payout, newSourceBalance, 'TRANSFER', `Fixed deposit ${no} — roll-over interest payout`, j.id, user);
+        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBalance, vd, source.id);
+        await insertTxn(req.member_id, source.id, payout, newSourceBalance, 'TRANSFER', `Fixed deposit ${no} — roll-over interest payout`, j.id, user, vd);
       }
 
       const newNo = await nextSequence('FIXED_DEPOSIT');
@@ -441,18 +445,18 @@ export async function matureFixedDeposit(no: string, user: Actor): Promise<void>
       // transfer nets to zero on the control account itself — a pure sub-ledger reallocation,
       // still posted as a real (self-balancing) journal for the audit trail.
       const j2 = await postJournal({
-        valueDate: today(), module: 'FIXED_DEPOSIT', eventType: 'ROLLOVER_TRANSFER',
+        valueDate: vd, module: 'FIXED_DEPOSIT', eventType: 'ROLLOVER_TRANSFER',
         description: `Fixed deposit ${no} — roll over to ${newNo}`, reference: no, memberId: req.member_id, user,
         lines: [
           { account: fdAccount.gl_control_id, debit: fdBalance, credit: 0, narration: 'Fixed deposit roll-over transfer' },
           { account: fdAccount.gl_control_id, debit: 0, credit: fdBalance, narration: 'Fixed deposit roll-over transfer' },
         ],
       });
-      await run('UPDATE savings_account SET balance = 0, last_activity = ? WHERE id = ?', today(), fdAccount.id);
-      await insertTxn(req.member_id, fdAccount.id, -fdBalance, 0, 'TRANSFER', `Fixed deposit ${no} — roll over to ${newNo}`, j2.id, user);
-      await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', fdBalance, today(), newFdAccountId);
-      await insertTxn(req.member_id, newFdAccountId, fdBalance, fdBalance, 'TRANSFER', `Fixed deposit ${no} — roll over from ${no}`, j2.id, user);
-      await closeAccount(fdAccount.id);
+      await run('UPDATE savings_account SET balance = 0, last_activity = ? WHERE id = ?', vd, fdAccount.id);
+      await insertTxn(req.member_id, fdAccount.id, -fdBalance, 0, 'TRANSFER', `Fixed deposit ${no} — roll over to ${newNo}`, j2.id, user, vd);
+      await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', fdBalance, vd, newFdAccountId);
+      await insertTxn(req.member_id, newFdAccountId, fdBalance, fdBalance, 'TRANSFER', `Fixed deposit ${no} — roll over from ${no}`, j2.id, user, vd);
+      await closeAccount(fdAccount.id, vd);
 
       await run(
         `INSERT INTO member_fixed_deposit
@@ -495,20 +499,21 @@ export async function terminateFixedDeposit(no: string, user: Actor): Promise<vo
     );
     if (!source) throw new AppError('Source account not found', 'NOT_FOUND');
 
+    const vd = await resolvePostingDate(user);
     const j = await postJournal({
-      valueDate: today(), module: 'FIXED_DEPOSIT', eventType: 'TERMINATION',
+      valueDate: vd, module: 'FIXED_DEPOSIT', eventType: 'TERMINATION',
       description: `Fixed deposit ${no} — early termination`, reference: no, memberId: req.member_id, user,
       lines: [
         { account: fdAccount.gl_control_id, debit: fdAccount.balance, credit: 0, narration: 'Fixed deposit early termination' },
         { account: source.gl_control_id, debit: 0, credit: fdAccount.balance, narration: 'Fixed deposit early termination' },
       ],
     });
-    await run('UPDATE savings_account SET balance = 0, last_activity = ? WHERE id = ?', today(), fdAccount.id);
-    await insertTxn(req.member_id, fdAccount.id, -fdAccount.balance, 0, 'TRANSFER', `Fixed deposit ${no} — early termination`, j.id, user);
+    await run('UPDATE savings_account SET balance = 0, last_activity = ? WHERE id = ?', vd, fdAccount.id);
+    await insertTxn(req.member_id, fdAccount.id, -fdAccount.balance, 0, 'TRANSFER', `Fixed deposit ${no} — early termination`, j.id, user, vd);
     const newSourceBalance = source.balance + fdAccount.balance;
-    await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBalance, today(), source.id);
-    await insertTxn(req.member_id, source.id, fdAccount.balance, newSourceBalance, 'TRANSFER', `Fixed deposit ${no} — early termination`, j.id, user);
-    await closeAccount(fdAccount.id);
+    await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newSourceBalance, vd, source.id);
+    await insertTxn(req.member_id, source.id, fdAccount.balance, newSourceBalance, 'TRANSFER', `Fixed deposit ${no} — early termination`, j.id, user, vd);
+    await closeAccount(fdAccount.id, vd);
 
     await run("UPDATE member_fixed_deposit SET status = 'Terminated', processed_at = ?, processed_by = ? WHERE no = ?", new Date().toISOString(), user.username, no);
     await audit(user, 'FIXED_DEPOSIT_TERMINATE', 'member_fixed_deposit', no, {});

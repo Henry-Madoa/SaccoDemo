@@ -13,6 +13,7 @@ import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { postTransactionCharges, previewTransactionChargeById } from './charges.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { getJournal, type JournalDetail } from './gl.ts';
@@ -429,9 +430,10 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
       );
       if (!debitAccount) throw new AppError('Debit account not found', 'NOT_FOUND');
 
+      const vd = await resolvePostingDate(user);
       const charged = await postTransactionCharges({
         transactionChargeId: req.transaction_charge_id, baseAmount: 0, debitAccountCode: debitAccount.gl_control_id,
-        valueDate: today(), module: 'SAVINGS', eventType: 'ACCOUNT_ACTIVATION',
+        valueDate: vd, module: 'SAVINGS', eventType: 'ACCOUNT_ACTIVATION',
         memberId: account.member_id, description: `Reactivation fee — ${debitAccount.account_no}`,
         reference: no, user,
       });
@@ -441,13 +443,13 @@ export async function processAccountActivationRequest(no: string, user: Actor): 
         const newBalance = debitAccount.balance - total;
         await run(
           'UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?',
-          newBalance, today(), req.debit_account_id,
+          newBalance, vd, req.debit_account_id,
         );
         await run(
           `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
              savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', 'FEE', account.member_id,
+          await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'FEE', account.member_id,
           req.debit_account_id, -total, newBalance, 'SYSTEM', `Reactivation fee — ${debitAccount.account_no}`,
           charged.journal.id, user.username,
         );

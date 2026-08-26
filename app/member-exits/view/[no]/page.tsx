@@ -6,6 +6,8 @@ import {
 } from '@/lib/memberExits';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { getOrg } from '@/lib/org';
+import { previewTransactionChargeById } from '@/lib/charges';
+import { ChargesBreakdownButton } from '@/components/ui/charges-breakdown';
 import { formatDate, formatDateTime, humanise } from '@/lib/format';
 import { Page } from '@/components/layout/page';
 import {
@@ -59,6 +61,15 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
   const pendingWith = tasks.find((t) => t.status === 'PENDING')?.pending_with;
   const canEditFields = isOpen && canEditThis;
 
+  // Same base amount processMemberExit() itself charges against — a live estimate pre-processing,
+  // the actually-posted total (charge_amount) once processed, matching loan.fees_charged's own
+  // totalOverride precedent so a later configuration change can't retroactively misstate what a
+  // completed exit really charged.
+  const computedCharges = exit.transaction_charge_id
+    ? await previewTransactionChargeById(exit.transaction_charge_id, Math.max(0, exit.total_assets + exit.liabilities))
+    : [];
+  const chargeAmount = processed ? exit.charge_amount : computedCharges.reduce((sum, c) => sum + c.amount, 0);
+
   return (
     <>
       <CardNav
@@ -105,7 +116,8 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
         <Stat label="Guarantees"
           value={<span className={exit.guarantees ? 'neg' : undefined}><Money cents={exit.guarantees} decimals={0} /></span>}
           foot={exit.guarantees ? 'Must be cleared before approval' : 'Clear to proceed'} />
-        <Stat label="Net amount" value={<Money cents={exit.net_amount} decimals={0} />} />
+        <Stat label="Net amount" value={<Money cents={exit.net_amount - chargeAmount} decimals={0} />}
+          foot={chargeAmount ? 'After the exit charge' : undefined} />
       </div>
 
       <div className="grid g2">
@@ -116,6 +128,10 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
             ['Exit type', humanise(exit.exit_type)],
             ['Payout method', humanise(exit.payout_method)],
             ['Charge code', exit.transaction_charge_code ? `${exit.transaction_charge_code} — ${exit.transaction_charge_description}` : '—'],
+            exit.transaction_charge_id ? ['Charge amount',
+              <ChargesBreakdownButton key="chgamt" charges={computedCharges}
+                totalOverride={processed ? exit.charge_amount : undefined}
+                label={processed ? 'Charges recovered' : 'Estimated charges'} />] : null,
             exit.is_instant ? ['Instant withdrawal', <Pill tone="warn" key="instant">YES — skips notice period</Pill>] : null,
             ['Exit date', exit.exit_date ? formatDate(exit.exit_date) : '—'],
             ['Maturity date', exit.is_instant ? 'N/A — instant' : exit.maturity_date ? formatDate(exit.maturity_date) : '—'],

@@ -12,6 +12,7 @@
 import { one, all, run, nextSequence } from './db.ts';
 import { PostingError } from './errors.ts';
 import { canReverseJournal } from './workflow.ts';
+import { assertPostingDateAllowed, resolvePostingDate } from './postingDates.ts';
 import type {
   AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal,
   JournalLine, PostJournalOptions, PostedJournal, TrialBalanceRow,
@@ -71,6 +72,10 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
   }
 
   await assertPeriodOpen(valueDate);
+  // A null or system-actor user (interest accrual, entrance fee recovery, standing orders, ...)
+  // is never subject to a per-user posting-date restriction — assertPostingDateAllowed() itself
+  // skips those, the same way canReverseJournal()'s own check above is skipped for a null one.
+  await assertPostingDateAllowed(valueDate, user);
 
   // Business-Central-style default dimensions: an explicit header value always
   // wins; anything left unset is filled from the member the journal is for, so
@@ -197,7 +202,7 @@ export async function reverseJournal(
   const lines = await all<JournalLine>('SELECT * FROM journal_line WHERE journal_id = ? ORDER BY line_no', journalId);
 
   const rev = await postJournal({
-    valueDate: valueDate || new Date().toISOString().slice(0, 10),
+    valueDate: valueDate || await resolvePostingDate(user),
     module: original.source_module,
     eventType: 'REVERSAL',
     description: `Reversal of ${original.journal_no} — ${reason || 'no reason given'}`,

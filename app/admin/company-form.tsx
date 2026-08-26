@@ -183,6 +183,22 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
               placeholder="Search charge code or description…" emptyText="No matching charges"
               hint="Auto-applied on Member Exit when Instant Withdrawal is checked" />
           </Card>
+
+          <Card>
+            <h3>Posting Dates</h3>
+            <div className="card-sub">
+              The company-wide window a posting's own value date must fall within (Business
+              Central's own General Ledger Setup) — blank means unrestricted. A user's own
+              Posting Setup, if configured (Admin Centre → Workflow Management → User Setup),
+              overrides this for that one user.
+            </div>
+            <div className="grid g2">
+              <Field name="allow_posting_from" label="Allow posting from" type="date"
+                defaultValue={org.allow_posting_from ?? ''} />
+              <Field name="allow_posting_to" label="Allow posting to" type="date"
+                defaultValue={org.allow_posting_to ?? ''} />
+            </div>
+          </Card>
         </div>
 
         <div>

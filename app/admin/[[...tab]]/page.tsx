@@ -1056,10 +1056,10 @@ async function ApprovalUserSetupTab() {
 
   return (
     <Card>
-      <CardHead title="User setup" sub="Who approves each user's requests, their substitute, and fallback approval administrators" />
+      <CardHead title="User setup" sub="Who approves each user's requests, their substitute, fallback approval administrators, and per-user posting-date overrides" />
       <TableWrap>
         <thead>
-          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th className="num" /></tr>
+          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th>Posting window</th><th className="num" /></tr>
         </thead>
         <tbody>
           {rows.map((r) => (
@@ -1069,6 +1069,11 @@ async function ApprovalUserSetupTab() {
               <td>{r.substitute_name || '—'}</td>
               <td>{r.is_approval_administrator ? <Pill tone="info">YES</Pill> : '—'}</td>
               <td>{r.can_reverse_journal ? <Pill tone="info">YES</Pill> : '—'}</td>
+              <td className="tiny">
+                {r.allow_posting_from || r.allow_posting_to
+                  ? `${r.allow_posting_from ?? '…'}${r.allow_posting_from_time ? ` ${r.allow_posting_from_time}` : ''} – ${r.allow_posting_to ?? '…'}${r.allow_posting_to_time ? ` ${r.allow_posting_to_time}` : ''}`
+                  : 'Company default'}
+              </td>
               <td className="num">
                 <ApprovalUserSetupFormButton row={r} users={rows} className="btn sm ghost">Edit</ApprovalUserSetupFormButton>
               </td>

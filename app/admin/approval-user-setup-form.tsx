@@ -45,6 +45,25 @@ export function ApprovalUserSetupFormButton({ row, users, className = 'btn', chi
           <Field name="can_reverse_journal" label="Can Reverse Journal"
             type="checkbox" defaultValue={row.can_reverse_journal}
             hint="Required to reverse any posted transaction — GL journal, savings, and so on — on top of that module's own reversal permission" />
+
+          <h4 className="section-title">Posting setup</h4>
+          <div className="card-sub">
+            This user's own Allow Posting window — blank leaves the company-wide Posting Dates
+            (Admin Centre → Company Information) in force for them. The two time fields only
+            refine the boundary dates themselves: on the From date they must post at/after that
+            time, on the To date at/before it — any date strictly between the two is never
+            time-restricted.
+          </div>
+          <div className="grid g2">
+            <Field name="allow_posting_from" label="Allow posting from" type="date"
+              defaultValue={row.allow_posting_from ?? ''} />
+            <Field name="allow_posting_to" label="Allow posting to" type="date"
+              defaultValue={row.allow_posting_to ?? ''} />
+            <Field name="allow_posting_from_time" label="From time" type="time"
+              defaultValue={row.allow_posting_from_time ?? ''} />
+            <Field name="allow_posting_to_time" label="To time" type="time"
+              defaultValue={row.allow_posting_to_time ?? ''} />
+          </div>
         </FormModal>
       ) : null}
     </>

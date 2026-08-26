@@ -26,6 +26,13 @@ model app_user {
   status                     String                       @default("ACTIVE")
   last_login_at              String?
   created_at                 String?
+  /// BC-style "Work Date" (My Settings) — the date this user's own new documents suggest instead
+  /// of the real system date, self-service via the My Settings page (lib/postingDates.ts's
+  /// getWorkDate()). Must fall within this user's own effective Allow Posting range
+  /// (approval_user_setup's own dates, falling back to organisation's) — validated on save, not
+  /// enforced again on every read, so an admin narrowing the range after the fact doesn't need to
+  /// silently invalidate an already-saved Work Date; the next save re-validates it.
+  work_date                  String?
   role                       role                         @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   session                    session[]
   approval_user_setup        approval_user_setup?
@@ -118,8 +125,10 @@ model workflow_user_group_member {
   @@unique([group_id, user_id], map: "ux_group_member")
 }
 
-/// BC-style "User Setup": who approves this user's requests, their substitute, and
-/// whether they're a fallback "approval administrator" when no approver resolves.
+/// BC-style "User Setup": who approves this user's requests, their substitute, whether they're a
+/// fallback "approval administrator" when no approver resolves, and (allow_posting_* below) this
+/// user's own override of organisation.allow_posting_from/to — blank falls back to the org's
+/// global range, exactly as BC's own User Setup falls back to General Ledger Setup.
 model approval_user_setup {
   id                        Int      @id @default(autoincrement())
   user_id                   Int      @unique
@@ -127,6 +136,17 @@ model approval_user_setup {
   substitute_id             Int?
   is_approval_administrator Int      @default(0)
   can_reverse_journal       Int      @default(0)
+  /// This user's own Allow Posting From/To dates — null leaves the corresponding organisation
+  /// column in force for this user. See lib/postingDates.ts's getEffectivePostingRange().
+  allow_posting_from        String?
+  allow_posting_to          String?
+  /// Time-of-day refinement on the two boundary dates only (BC has no stock equivalent — this
+  /// port's own addition): a posting dated exactly allow_posting_from must be at/after this time
+  /// of day (real wall-clock, not the posting date's own — dates carry no time in this schema);
+  /// dated exactly allow_posting_to, at/before it. Dates strictly between the two boundaries are
+  /// never time-restricted. Null on either side leaves that boundary's whole day unrestricted.
+  allow_posting_from_time   String?
+  allow_posting_to_time     String?
   user                      app_user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([is_approval_administrator], map: "ix_approval_admin")
@@ -354,6 +374,7 @@ model transaction_charge {
   transaction_charge_setup   transaction_charge_setup[]
   account_activation_request account_activation_request[]
   member_activation_request  member_activation_request[]
+  member_readmission_request member_readmission_request[]
   standing_order             standing_order[]
   member_charging            member_charging[]
   member_exit                member_exit[]
@@ -464,6 +485,7 @@ model journal {
   member_charging                               member_charging[]
   account_activation_request                    account_activation_request[]
   member_activation_request                     member_activation_request[]
+  member_readmission_request                    member_readmission_request[]
   bank_account_ledger_entry                     bank_account_ledger_entry[]
 
   @@index([value_date], map: "ix_journal_date")
@@ -1283,6 +1305,7 @@ model member {
   checkoff_batch_line               checkoff_batch_line[]
   member_fixed_deposit              member_fixed_deposit[]
   member_activation_request         member_activation_request[]
+  member_readmission_request        member_readmission_request[]
   standing_order                    standing_order[]                    @relation("sto_owner")
   standing_order_destination        standing_order[]                    @relation("sto_destination")
 
@@ -1342,6 +1365,12 @@ model organisation {
   /// mirrors AL's General Ledger Setup precedent of Code[20] fields pointing at Transaction
   /// Charges for global default fees (Loan Repayment/Balance Inquiry/Mini & Full Statement).
   instant_withdrawal_charge_id Int?
+  /// BC's General Ledger Setup "Allow Posting From"/"Allow Posting To" — the company-wide
+  /// default range a posting's own value date must fall within, enforced centrally in
+  /// accounting.ts's postJournal() (lib/postingDates.ts). Null = unrestricted. A user's own
+  /// approval_user_setup.allow_posting_from/to, if set, overrides this for that one user.
+  allow_posting_from         String?
+  allow_posting_to           String?
   instant_withdrawal_charge  transaction_charge? @relation(fields: [instant_withdrawal_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updated_at                 String?
   updated_by                 String?
@@ -1407,6 +1436,7 @@ model savings_account {
   account_activation_request       account_activation_request[]   @relation("aar_activated_account")
   account_activation_request_debit account_activation_request[]   @relation("aar_debit_account")
   member_activation_request_debit  member_activation_request[]
+  member_readmission_request_debit member_readmission_request[]
   standing_order                   standing_order[]                @relation("sto_source_account")
   standing_order_destination       standing_order[]                @relation("sto_destination_account")
   member_charging                  member_charging[]
@@ -1513,6 +1543,40 @@ model member_activation_request {
 
   @@index([member_id], map: "ix_mar_member")
   @@index([status], map: "ix_mar_status")
+}
+
+/// Member Re-admission — a maker-checker request to rejoin a member who previously exited
+/// (member.status = WITHDRAWN). Deceased members are terminal and never eligible — see
+/// lib/memberReadmission.ts. Same shape as member_activation_request, one step further: besides
+/// flipping the member back to Active, processing also reopens/re-provisions the member's
+/// Member Category default savings accounts, since Member Exit closed them.
+model member_readmission_request {
+  no                     String              @id
+  member_id              Int
+  reason                 String?
+  /// AL's "Pay From Account Type": CASH | MEMBER_ACCOUNT.
+  pay_from_account_type  String              @default("MEMBER_ACCOUNT")
+  /// Only meaningful (and required) when paying by CASH.
+  payment_reference      String?
+  transaction_charge_id  Int?
+  /// Only meaningful (and required) when pay_from_account_type = MEMBER_ACCOUNT.
+  debit_account_id       Int?
+  /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
+  status                 String              @default("Open")
+  decision_reason        String?
+  created_at             String?
+  created_by             String?
+  processed_at           String?
+  processed_by           String?
+  /// Set when the optional re-admission fee posts.
+  journal_id             Int?
+  member                 member              @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  debit_account          savings_account?    @relation(fields: [debit_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge     transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal                journal?            @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_mrr_member")
+  @@index([status], map: "ix_mrr_status")
 }
 
 /// Standing Order — ported from the AL reference's "Standing Order" card (Pag52204124 /
@@ -2172,6 +2236,11 @@ model member_exit {
   /// Snapshotted by populateLines()/refreshMemberExitLines() — total_assets (excl. share
   /// capital) + liabilities. Guarantees deliberately excluded, same as AL's own Net Amount.
   net_amount            BigInt             @default(0)
+  /// The exit charge actually posted at processing time (loan.fees_charged's own precedent) —
+  /// kept separately from net_amount rather than netted into it there, since net_amount also
+  /// gates the "liabilities exceed assets" solvency check before a charge is even known. Zero
+  /// until processed; the UI computes a live estimate before then.
+  charge_amount         BigInt             @default(0)
   /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
   status                String             @default("Open")
   decision_reason       String?

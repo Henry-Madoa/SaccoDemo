@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, getCurrentUser } from '@/lib/session';
+import { getWorkDate } from '@/lib/postingDates';
 import Link from 'next/link';
 import {
   getTrialBalance, listJournals, hasAnyJournals, listGlAccounts, hasAnyGlAccounts, listPeriods, hasAnyPeriods,
@@ -12,7 +13,7 @@ import {
 import { GL_ACCOUNT_STRUCTURE_TYPES } from '@/lib/constants';
 import { listActiveDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
-import { formatDate } from '@/lib/format';
+import { formatDate, today } from '@/lib/format';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { Page } from '@/components/layout/page';
@@ -162,13 +163,14 @@ async function TrialBalanceTab({ filtersRaw, asOf, from }: { filtersRaw?: string
 async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, empty, canCreate, canReverse, postableAccounts, gd1Values, gd2Values, { caption1, caption2 }] =
+  const [rows, empty, canCreate, canReverse, postableAccounts, gd1Values, gd2Values, { caption1, caption2 }, workDate] =
     await Promise.all([
       listJournals({ search, filters, sort }),
       hasAnyJournals().then((any) => !any),
       currentCanAction('GL_JOURNAL_CREATE'), currentCanAction('GL_JOURNAL_REVERSE'),
       listPostableAccounts(),
       listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
+      getCurrentUser().then((u) => (u ? getWorkDate(u.id) : today())),
     ]);
   const journalFields = JOURNAL_FILTER_FIELDS.map((f) => (
     f.key === 'global_dimension_1_id' ? { ...f, label: caption1, options: gd1Values.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })) }
@@ -190,6 +192,7 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
             globalDimension2Values={gd2Values}
             caption1={caption1}
             caption2={caption2}
+            workDate={workDate}
           />
         ) : null}
       </Toolbar>

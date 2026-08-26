@@ -25,6 +25,7 @@ import {
 } from './db.ts';
 import { postTransactionCharges, previewTransactionCharges } from './charges.ts';
 import { today } from './format.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import { getOrg } from './org.ts';
 import type {
   Actor, Cents, MemberStatusUpdateAction, MemberStatusUpdateCandidate, MemberStatusUpdateResult,
@@ -148,20 +149,21 @@ async function processOne(m: CandidateMember, dormancyDays: number, user: Actor)
     let charged = 0;
     if ((reactivationCharge ?? 0) > 0) {
       const description = `Reactivation charge — ${account!.account_no}`;
+      const vd = await resolvePostingDate(user);
       const posted = await postTransactionCharges({
         transactionType: 'Member Reactivation', baseAmount: 0, debitAccountCode: account!.gl_control_id,
-        valueDate: today(), module: 'SAVINGS', eventType: 'MEMBER_REACTIVATION', memberId: m.id,
+        valueDate: vd, module: 'SAVINGS', eventType: 'MEMBER_REACTIVATION', memberId: m.id,
         description, user,
       });
       if (posted) {
         charged = posted.charges.reduce((sum, c) => sum + c.amount, 0);
         const newBalance = account!.balance - charged;
-        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newBalance, today(), account!.id);
+        await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newBalance, vd, account!.id);
         await run(
           `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
              savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', 'FEE',
+          await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'FEE',
           m.id, account!.id, -charged, newBalance, 'SYSTEM', description, posted.journal.id, user.username,
         );
       }

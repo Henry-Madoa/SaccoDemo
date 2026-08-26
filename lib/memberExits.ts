@@ -33,6 +33,7 @@ import { postTransactionCharges } from './charges.ts';
 import { postJournal } from './accounting.ts';
 import { CHANNEL_GL } from './savings.ts';
 import { today } from './format.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import type {
   Actor, EligibleExitMemberRow, MemberExit, MemberExitLineWithDetails, MemberExitWithDetails,
 } from './types.ts';
@@ -412,7 +413,9 @@ export async function processMemberExit(no: string, user: Actor): Promise<{ memb
     );
     if (!withdrawable) throw new AppError('This member has no active withdrawable deposit account to settle into', 'VALIDATION');
 
-    const vd = today();
+    // Posting Date follows the acting user's own Work Date — every posting below re-validates it
+    // against their effective Allow Posting range via postJournal() itself.
+    const vd = await resolvePostingDate(user);
     let withdrawableBalance = withdrawable.balance;
 
     const lines = await all<{
@@ -501,6 +504,7 @@ export async function processMemberExit(no: string, user: Actor): Promise<{ memb
           await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'FEE', req.member_id,
           withdrawable.id, -total, withdrawableBalance, 'TELLER', `Member exit ${no} charge`, posted.journal.id, user.username,
         );
+        await run('UPDATE member_exit SET charge_amount = ? WHERE no = ?', total, no);
       }
     }
 
@@ -540,7 +544,10 @@ export async function processMemberExit(no: string, user: Actor): Promise<{ memb
     );
     await run("UPDATE savings_account SET status = 'CLOSED' WHERE id = ?", withdrawable.id);
 
-    await run("UPDATE member SET status = 'WITHDRAWN' WHERE id = ?", req.member_id);
+    await run(
+      "UPDATE member SET status = ? WHERE id = ?",
+      req.exit_type === 'DECEASED' ? 'DECEASED' : 'WITHDRAWN', req.member_id,
+    );
 
     await run(
       "UPDATE member_exit SET status = 'Processed', processed_at = ?, processed_by = ? WHERE no = ?",

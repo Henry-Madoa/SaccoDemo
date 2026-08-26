@@ -99,6 +99,25 @@ export async function previewMemberActivationChargeAmount(
   });
 }
 
+/** Same 'General' Charge Code pool as Member Activation's own picker — a Member Re-admission's
+ *  fee is the same kind of manual, freely-chosen ad-hoc charge. */
+export async function listMemberReadmissionChargeCodes(): Promise<ActionResult<TransactionCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('MEMBER_READMISSIONS_CREATE');
+    return chargesLib.listTransactionChargesByType('General');
+  });
+}
+
+/** Same preview, gated by MEMBER_READMISSIONS_CREATE instead — see previewTransactionChargeAmount(). */
+export async function previewMemberReadmissionChargeAmount(
+  transactionChargeId: number, baseAmount = 0,
+): Promise<ActionResult<CalculatedCharge[]>> {
+  return actionResult(async () => {
+    await requireAction('MEMBER_READMISSIONS_CREATE');
+    return chargesLib.previewTransactionChargeById(transactionChargeId, baseAmount);
+  });
+}
+
 /** The Charge Code picklist for Member Exit — same 'General' reuse as Account Activation's
  *  reactivation fee (AL's own Charge Code field on Member Withdrawal has no type restriction
  *  either — it's a free Transaction Charges lookup). */

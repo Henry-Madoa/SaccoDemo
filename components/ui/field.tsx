@@ -2,7 +2,7 @@
 
 import type { FormValues } from '@/lib/types';
 
-export type FieldType = 'text' | 'password' | 'number' | 'date' | 'email' | 'select' | 'textarea' | 'checkbox';
+export type FieldType = 'text' | 'password' | 'number' | 'date' | 'time' | 'email' | 'select' | 'textarea' | 'checkbox';
 
 export type SelectOption = string | { value: string | number | null; label: string };
 

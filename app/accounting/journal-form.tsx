@@ -7,7 +7,7 @@ import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { createJournal, type JournalLineDraft } from '@/app/actions/gl';
-import { today, toCents } from '@/lib/format';
+import { toCents } from '@/lib/format';
 import type { DimensionValue, GlAccount } from '@/lib/types';
 
 const emptyLine = (): JournalLineDraft =>
@@ -19,10 +19,13 @@ export interface NewJournalButtonProps {
   globalDimension2Values: DimensionValue[];
   caption1: string;
   caption2: string;
+  /** The signed-in user's own Work Date (My Settings) — suggested here instead of the real
+   *  system date, the same way Business Central's own Work Date drives a new journal's date. */
+  workDate: string;
 }
 
 export function NewJournalButton({
-  accounts, globalDimension1Values, globalDimension2Values, caption1, caption2,
+  accounts, globalDimension1Values, globalDimension2Values, caption1, caption2, workDate,
 }: NewJournalButtonProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -35,6 +38,7 @@ export function NewJournalButton({
           globalDimension2Values={globalDimension2Values}
           caption1={caption1}
           caption2={caption2}
+          workDate={workDate}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -43,7 +47,7 @@ export function NewJournalButton({
 }
 
 function JournalForm({
-  accounts, globalDimension1Values, globalDimension2Values, caption1, caption2, onClose,
+  accounts, globalDimension1Values, globalDimension2Values, caption1, caption2, workDate, onClose,
 }: NewJournalButtonProps & { onClose: () => void }) {
   const { cur } = useFormat();
   const [lines, setLines] = useState<JournalLineDraft[]>([emptyLine(), emptyLine()]);
@@ -72,7 +76,7 @@ function JournalForm({
       resultStyle="popup"
     >
       <div className="grid g2">
-        <Field name="valueDate" label="Value date" type="date" defaultValue={today()} required />
+        <Field name="valueDate" label="Value date" type="date" defaultValue={workDate} required />
         <Field name="description" label="Description" required />
       </div>
 

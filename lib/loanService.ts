@@ -8,6 +8,7 @@ import {
 } from './db.ts';
 import { postJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import {
   buildSchedule, allocateRepayment, repaymentStartDate, daysBetween, classify, calculateLoanProductCharges, addMonths,
 } from './loans.ts';
@@ -772,7 +773,7 @@ export async function disburse({
   }
   await assertMemberNotDormant(loan.member_id, 'disbursement');
   const product = (await one<LoanProduct>('SELECT * FROM loan_product WHERE id = ?', loan.product_id))!;
-  const vd = valueDate || today();
+  const vd = valueDate || await resolvePostingDate(user);
   const firstDue = repaymentStartDate(vd, product.repayment_cutoff_date);
   const sched = buildSchedule(loan.principal, loan.interest_rate, loan.term_months, loan.interest_method, firstDue);
 
@@ -950,7 +951,7 @@ export async function repay({
     );
   }
 
-  const vd = valueDate || today();
+  const vd = valueDate || await resolvePostingDate(user);
   const schedule = await all<LoanScheduleRow>(
     'SELECT * FROM loan_schedule WHERE loan_id = ? ORDER BY installment_no', loanId,
   );

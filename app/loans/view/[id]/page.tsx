@@ -35,7 +35,7 @@ import {
 import { EditLoanButton } from '../../application-form';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 import { AppraisalCard, AppraisalHistoryTable, AppraisalMeta, toAppraisal } from '@/components/loans/appraisal-card';
-import { ChargesBreakdownButton } from '@/components/loans/charges-breakdown';
+import { ChargesBreakdownButton } from '@/components/ui/charges-breakdown';
 import { SalaryAppraisalCard } from '@/components/loans/salary-appraisal-card';
 
 export default async function LoanDetailPage({ params, searchParams }: {

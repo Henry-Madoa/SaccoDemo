@@ -615,6 +615,18 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       else await svc.rejectMemberExit(task.entity_id, reason, decidedBy);
       break;
     }
+    case 'MEMBER_ACTIVATION': {
+      const svc = await import('./memberActivation.ts');
+      if (approved) await svc.approveMemberActivationRequest(task.entity_id, decidedBy);
+      else await svc.rejectMemberActivationRequest(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'MEMBER_READMISSION': {
+      const svc = await import('./memberReadmission.ts');
+      if (approved) await svc.approveMemberReadmissionRequest(task.entity_id, decidedBy);
+      else await svc.rejectMemberReadmissionRequest(task.entity_id, reason, decidedBy);
+      break;
+    }
     case 'CHECKOFF_BATCH': {
       const svc = await import('./checkoffBatches.ts');
       if (approved) await svc.approveCheckoffBatch(task.entity_id, decidedBy);
@@ -1219,7 +1231,9 @@ export const listApprovalUserSetup = (): Promise<ApprovalUserSetupRow[]> =>
             s.approver_id, a.full_name AS approver_name,
             s.substitute_id, sub.full_name AS substitute_name,
             COALESCE(s.is_approval_administrator, 0) AS is_approval_administrator,
-            COALESCE(s.can_reverse_journal, 0) AS can_reverse_journal
+            COALESCE(s.can_reverse_journal, 0) AS can_reverse_journal,
+            s.allow_posting_from, s.allow_posting_to,
+            s.allow_posting_from_time, s.allow_posting_to_time
      FROM app_user u
      LEFT JOIN approval_user_setup s ON s.user_id = u.id
      LEFT JOIN app_user a ON a.id = s.approver_id
@@ -1232,21 +1246,36 @@ export interface ApprovalUserSetupInput {
   substitute_id?: number | null;
   is_approval_administrator?: number;
   can_reverse_journal?: number;
+  allow_posting_from?: string | null;
+  allow_posting_to?: string | null;
+  allow_posting_from_time?: string | null;
+  allow_posting_to_time?: string | null;
 }
 
 export async function saveApprovalUserSetup(
   userId: number, body: ApprovalUserSetupInput, user: Actor,
 ): Promise<void> {
+  if (body.allow_posting_from && body.allow_posting_to && body.allow_posting_from > body.allow_posting_to) {
+    throw new AppError('Allow Posting From cannot be after Allow Posting To', 'VALIDATION');
+  }
   await run(
-    `INSERT INTO approval_user_setup (user_id, approver_id, substitute_id, is_approval_administrator, can_reverse_journal)
-     VALUES (?,?,?,?,?)
+    `INSERT INTO approval_user_setup
+       (user_id, approver_id, substitute_id, is_approval_administrator, can_reverse_journal,
+        allow_posting_from, allow_posting_to, allow_posting_from_time, allow_posting_to_time)
+     VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT (user_id) DO UPDATE SET
        approver_id = EXCLUDED.approver_id,
        substitute_id = EXCLUDED.substitute_id,
        is_approval_administrator = EXCLUDED.is_approval_administrator,
-       can_reverse_journal = EXCLUDED.can_reverse_journal`,
+       can_reverse_journal = EXCLUDED.can_reverse_journal,
+       allow_posting_from = EXCLUDED.allow_posting_from,
+       allow_posting_to = EXCLUDED.allow_posting_to,
+       allow_posting_from_time = EXCLUDED.allow_posting_from_time,
+       allow_posting_to_time = EXCLUDED.allow_posting_to_time`,
     userId, body.approver_id || null, body.substitute_id || null,
     body.is_approval_administrator ? 1 : 0, body.can_reverse_journal ? 1 : 0,
+    body.allow_posting_from || null, body.allow_posting_to || null,
+    body.allow_posting_from_time || null, body.allow_posting_to_time || null,
   );
   await audit(user, 'APPROVAL_USER_SETUP_SAVE', 'approval_user_setup', userId, body);
 }

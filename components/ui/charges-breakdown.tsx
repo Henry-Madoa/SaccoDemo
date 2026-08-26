@@ -1,25 +1,35 @@
 'use client';
 
 import { useState } from 'react';
-import { Modal } from '@/components/ui/modal';
-import { TableWrap, EmptyState } from '@/components/ui/primitives';
-import { Money } from '@/components/ui/money';
-import type { CalculatedLoanCharge } from '@/lib/types';
+import { Modal } from './modal';
+import { TableWrap, EmptyState } from './primitives';
+import { Money } from './money';
+
+/** The common shape of one itemised, resolved charge line — satisfied by both
+ *  lib/types.ts's CalculatedLoanCharge (Loan Product Charges) and CalculatedCharge (every other
+ *  Transaction Charge consumer, e.g. Member Exit), so this one button works for both. */
+export interface ChargeBreakdownLine {
+  chargeCode: string;
+  chargeDescription: string;
+  glAccountCode: string;
+  amount: number;
+  prorated?: boolean;
+}
 
 /**
- * A loan's charge total, shown as a click target — the Loan Card's Facility details "Estimated
- * charges" / "Charges recovered" figure. Clicking it opens the itemised Loan Product Charges
- * breakdown (lib/loans.ts's calculateLoanProductCharges) computed for this loan: which charge, how much,
- * and which revenue account it posts (or posted) to — the same list disburse() itself credits
- * line by line, so what's shown here is exactly what happens financially, not just a total.
+ * A charge total, shown as a click target — the Loan Card's Facility details "Estimated
+ * charges"/"Charges recovered" figure, and the Member Exit card's "Charge amount", among others.
+ * Clicking it opens the itemised breakdown: which charge, how much, and which revenue account it
+ * posts (or posted) to — the same list the document's own posting logic credits line by line, so
+ * what's shown here is exactly what happens financially, not just a total.
  */
 export function ChargesBreakdownButton({ charges, label, totalOverride }: {
-  charges: CalculatedLoanCharge[];
-  /** "Estimated charges" pre-disbursement, "Charges recovered" once posted. */
+  charges: ChargeBreakdownLine[];
+  /** e.g. "Estimated charges" pre-processing, "Charges recovered" once posted. */
   label: string;
-  /** The actually-posted total for an already-disbursed loan, shown as the click target instead
-   *  of resumming `charges` — a re-computation from the product's current configuration can
-   *  drift from what was posted at the time if that configuration has changed since. */
+  /** The actually-posted total for an already-processed document, shown as the click target
+   *  instead of resumming `charges` — a re-computation from the charge's current configuration
+   *  can drift from what was posted at the time if that configuration has changed since. */
   totalOverride?: number;
 }) {
   const [open, setOpen] = useState(false);

@@ -48,6 +48,7 @@ import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, start
 import { repay } from './loanService.ts';
 import { deposit, CHANNEL_GL } from './savings.ts';
 import { today } from './format.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import { parseCsv } from './csv.ts';
 import * as chargesLib from './charges.ts';
 import type {
@@ -188,7 +189,8 @@ export async function createCheckoffBatch(
       `INSERT INTO checkoff_batch
          (no, batch_type, employer_id, period, posting_date, search_type, transaction_charge_id, created_at, created_by)
        VALUES (?,?,?,?,?,?,?,?,?)`,
-      no, batchType, employerId, period, today(), searchType, chargeId, new Date().toISOString(), user.username,
+      no, batchType, employerId, period, await resolvePostingDate(user), searchType, chargeId,
+      new Date().toISOString(), user.username,
     );
     await populateLines(no, employerId, batchType);
   });
@@ -751,7 +753,7 @@ export async function processCheckoffBatch(no: string, user: Actor): Promise<{ e
     if (!req) throw new AppError('Checkoff batch not found', 'NOT_FOUND');
     if (req.status !== 'Approved') throw new AppError('Only an approved batch can be processed', 'VALIDATION');
 
-    const vd = req.posting_date || today();
+    const vd = req.posting_date || await resolvePostingDate(user);
     const lines = await all<{ id: number; member_id: number; remitted_amount: number }>(
       'SELECT id, member_id, remitted_amount FROM checkoff_batch_line WHERE batch_no = ?', no,
     );

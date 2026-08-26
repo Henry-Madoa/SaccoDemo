@@ -8,6 +8,7 @@ import {
 import { postJournal, reverseJournal } from './accounting.ts';
 import { PostingError } from './errors.ts';
 import { assertMemberNotDormant } from './memberDormancy.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { SAVINGS_ACCOUNT_STATUSES, SAVINGS_CATEGORIES } from './constants.ts';
@@ -232,7 +233,9 @@ export async function deposit({
   if (acct.status === 'FROZEN') throw new PostingError('Account is frozen — posting prohibited', 'ACCOUNT_FROZEN');
   if (acct.status === 'INACTIVE') throw new PostingError('Account is inactive — posting prohibited', 'ACCOUNT_INACTIVE');
 
-  const vd = valueDate || today();
+  // An explicit valueDate (a form that lets an officer backdate/pick one) always wins; otherwise
+  // this follows the acting user's own Work Date, same as every other posting in the system.
+  const vd = valueDate || await resolvePostingDate(user);
   const res = await tx<PostingResult>(async () => {
     if (idempotencyKey) {
       const dup = await one<Txn>('SELECT * FROM txn WHERE txn_ref = ?', idempotencyKey);
@@ -298,7 +301,7 @@ export async function withdraw({
     );
   }
 
-  const vd = valueDate || today();
+  const vd = valueDate || await resolvePostingDate(user);
   const res = await tx<PostingResult>(async () => {
     const lines: JournalLineInput[] = [
       { account: acct.gl_control_id, debit: amount, credit: 0, narration: 'Member withdrawal' },
@@ -350,9 +353,14 @@ export async function reverseTxn(
   if (!t) throw new PostingError('Transaction not found', 'NOT_FOUND');
   if (t.status === 'REVERSED') throw new PostingError('Transaction already reversed', 'ALREADY_REVERSED');
   if (!reason) throw new PostingError('A reversal reason is required', 'REASON_REQUIRED');
+  const account = await getAccount(t.savings_account_id!);
+  if (!account) throw new PostingError('Savings account not found', 'ACCOUNT_NOT_FOUND');
+  if (account.status === 'CLOSED') throw new PostingError('Account is closed — reversal prohibited', 'ACCOUNT_CLOSED');
+  if (account.status === 'INACTIVE') throw new PostingError('Account is inactive — reversal prohibited', 'ACCOUNT_INACTIVE');
 
+  const vd = await resolvePostingDate(user);
   const res = await tx(async () => {
-    const rev = await reverseJournal(t.journal_id!, user, reason);
+    const rev = await reverseJournal(t.journal_id!, user, reason, vd);
     const acct = (await getAccount(t.savings_account_id!))!;
     const newBal = acct.balance - t.amount;
     await run('UPDATE savings_account SET balance = ?, version = version + 1 WHERE id = ?', newBal, acct.id);
@@ -361,7 +369,7 @@ export async function reverseTxn(
       `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
          savings_account_id, amount, running_balance, channel, description, journal_id, created_by, reversal_of)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', 'REVERSAL', t.member_id,
+      await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'REVERSAL', t.member_id,
       t.savings_account_id, -t.amount, newBal, t.channel, `Reversal of ${t.txn_ref}: ${reason}`, rev.id,
       user ? user.username : 'system', txnId,
     );

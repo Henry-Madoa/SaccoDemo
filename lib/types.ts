@@ -63,6 +63,10 @@ export interface Organisation {
   dormancy_days: number;
   /** The Transaction Charge auto-applied when a Member Exit is marked Instant Withdrawal. */
   instant_withdrawal_charge_id: number | null;
+  /** BC's General Ledger Setup "Allow Posting From"/"Allow Posting To" — see
+   *  lib/postingDates.ts. Null = unrestricted. */
+  allow_posting_from: IsoDate | null;
+  allow_posting_to: IsoDate | null;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -182,6 +186,9 @@ export interface AppUser {
   status: UserStatus;
   last_login_at: IsoDateTime | null;
   created_at: IsoDateTime | null;
+  /** BC's "Work Date" (My Settings) — this user's own suggested default date, in place of the
+   *  real system date, for new documents. Null = use today(). See lib/postingDates.ts. */
+  work_date: IsoDate | null;
 }
 
 /** A role's lines, folded into direct lookups for canTable()/canPage(). */
@@ -683,6 +690,39 @@ export interface MemberActivationRequestWithDimensions extends MemberActivationR
   debit_account_min_balance: Cents | null;
   /** Computed live off the charge configuration (not stored) — see
    *  lib/memberActivation.ts's withChargeAmount(). Null when no charge is selected. */
+  charge_amount: Cents | null;
+}
+
+export interface MemberReadmissionRequest {
+  no: string;
+  member_id: number;
+  reason: string | null;
+  pay_from_account_type: PayFromAccountType;
+  payment_reference: string | null;
+  transaction_charge_id: number | null;
+  debit_account_id: number | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+  journal_id: number | null;
+}
+
+export interface MemberReadmissionRequestWithDimensions extends MemberReadmissionRequest {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  member_status: MemberStatus;
+  transaction_charge_code: string | null;
+  transaction_charge_description: string | null;
+  debit_account_no: string | null;
+  debit_account_balance: Cents | null;
+  debit_account_hold_amount: Cents | null;
+  debit_account_min_balance: Cents | null;
+  /** Computed live off the charge configuration (not stored) — see
+   *  lib/memberReadmission.ts's withChargeAmount(). Null when no charge is selected. */
   charge_amount: Cents | null;
 }
 
@@ -2105,6 +2145,8 @@ export interface MemberExit {
   exit_date: IsoDate | null;
   maturity_date: IsoDate | null;
   net_amount: Cents;
+  /** The exit charge actually posted at processing time — 0 until processed. */
+  charge_amount: Cents;
   status: DocumentStatus;
   decision_reason: string | null;
   processed_at: IsoDateTime | null;
@@ -2489,8 +2531,8 @@ export interface SubledgerEntryRow extends TxnWithMember {
 
 export type WorkflowDocumentType =
   | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
-  | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE' | 'GUARANTOR_CHANGE'
-  | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER';
+  | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'MEMBER_READMISSION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE'
+  | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -2648,6 +2690,12 @@ export interface ApprovalUserSetup {
   substitute_id: number | null;
   is_approval_administrator: Flag;
   can_reverse_journal: Flag;
+  /** This user's own Allow Posting From/To override — null falls back to the organisation's. */
+  allow_posting_from: IsoDate | null;
+  allow_posting_to: IsoDate | null;
+  /** Time-of-day refinement on the two boundary dates only — see the schema's own doc comment. */
+  allow_posting_from_time: string | null;
+  allow_posting_to_time: string | null;
 }
 
 /** One row of the Approval User Setup grid — the user plus their configured setup, if any. */
@@ -2661,6 +2709,10 @@ export interface ApprovalUserSetupRow {
   substitute_name: string | null;
   is_approval_administrator: Flag;
   can_reverse_journal: Flag;
+  allow_posting_from: IsoDate | null;
+  allow_posting_to: IsoDate | null;
+  allow_posting_from_time: string | null;
+  allow_posting_to_time: string | null;
 }
 
 export interface WorkflowTask {

@@ -29,14 +29,13 @@ import { AppError } from './errors.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { getTransactionCharge, calculateTransactionCharges, postTransactionCharges } from './charges.ts';
 import { assertMemberNotDormant } from './memberDormancy.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { getJournal, type JournalDetail } from './gl.ts';
 import type {
   Actor, Cents, ChargeTransactionType, MemberChargingWithDimensions, SavingsAccountForDebit,
 } from './types.ts';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 export type MemberChargingView = 'open' | 'posted';
 
@@ -339,9 +338,13 @@ export async function postMemberCharging(no: string, user: Actor): Promise<{ jou
     );
     if (!sourceAccount) throw new AppError('Source account not found', 'NOT_FOUND');
 
+    // Posting Date follows the acting user's own Work Date (My Settings) — postJournal() itself
+    // then re-validates it against their effective Allow Posting range. created_at below is a
+    // separate, real-time audit timestamp of when this row was actually inserted, untouched.
+    const vd = await resolvePostingDate(user);
     const posted = await postTransactionCharges({
       transactionChargeId: req.transaction_charge_id, baseAmount: pagesBaseAmount(req.no_of_pages),
-      debitAccountCode: sourceAccount.gl_control_id, valueDate: today(), module: 'SAVINGS', eventType: 'MEMBER_CHARGE',
+      debitAccountCode: sourceAccount.gl_control_id, valueDate: vd, module: 'SAVINGS', eventType: 'MEMBER_CHARGE',
       memberId: req.member_id, description: req.description || `Member charge — ${sourceAccount.account_no}`,
       reference: no, user, idempotencyKey: `MEMBER_CHARGING-${no}`,
     });
@@ -353,13 +356,13 @@ export async function postMemberCharging(no: string, user: Actor): Promise<{ jou
     const newBalance = sourceAccount.balance - total;
     await run(
       'UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?',
-      newBalance, today(), req.source_account_id,
+      newBalance, vd, req.source_account_id,
     );
     await run(
       `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
          savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', 'FEE', req.member_id,
+      await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'FEE', req.member_id,
       req.source_account_id, -total, newBalance, 'TELLER', req.description || `Member charge — ${sourceAccount.account_no}`,
       posted.journal.id, user.username,
     );

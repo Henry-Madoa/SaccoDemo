@@ -37,6 +37,7 @@ export const NAV: NavGroup[] = [
       { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
       { path: '/member-exits', label: 'Member Exit', icon: '🚪', page: 'MEMBER_EXITS' },
       { path: '/member-activations', label: 'Member Activation', icon: '🔓', page: 'MEMBER_ACTIVATIONS' },
+    { path: '/member-readmissions', label: 'Member Re-admission', icon: '↩', page: 'MEMBER_READMISSIONS' },
       ],
   },
   {

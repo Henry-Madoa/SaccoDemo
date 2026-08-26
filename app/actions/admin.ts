@@ -25,6 +25,8 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
       member_exit_notice_days: Number(values.member_exit_notice_days) || 30,
       dormancy_days: Number(values.dormancy_days) || 90,
       instant_withdrawal_charge_id: values.instant_withdrawal_charge_id ? Number(values.instant_withdrawal_charge_id) : null,
+      allow_posting_from: String(values.allow_posting_from || '').trim() || null,
+      allow_posting_to: String(values.allow_posting_to || '').trim() || null,
     }, user);
     // The society's name, logo and currency appear in the shell on every page.
     revalidatePath('/', 'layout');

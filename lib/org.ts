@@ -13,6 +13,7 @@ const ORG_FIELDS = [
   'currency_symbol', 'locale', 'timezone', 'date_format', 'fy_start_month', 'fy_start_day', 'statement_footer',
   'global_dimension_1_caption', 'global_dimension_2_caption', 'guarantor_multiplier', 'self_guarantor_multiplier',
   'member_exit_notice_days', 'dormancy_days', 'instant_withdrawal_charge_id',
+  'allow_posting_from', 'allow_posting_to',
 ] as const satisfies readonly (keyof Organisation)[];
 
 export type OrgField = (typeof ORG_FIELDS)[number];
@@ -73,6 +74,9 @@ export async function updateOrg(body: OrgUpdate, user: Actor): Promise<Organisat
   }
   if (body.logo && String(body.logo).length > 2_000_000) {
     throw new AppError('Logo must be under 1.5 MB', 'LOGO_TOO_LARGE');
+  }
+  if (body.allow_posting_from && body.allow_posting_to && body.allow_posting_from > body.allow_posting_to) {
+    throw new AppError('Allow Posting From cannot be after Allow Posting To', 'VALIDATION');
   }
   const before = (await getOrg())!;
   const cols = ORG_FIELDS.filter((f) => body[f] !== undefined);

@@ -102,6 +102,10 @@ export async function saveApprovalUserSetupRow(
       substitute_id: Number(values.substitute_id) || null,
       is_approval_administrator: Number(values.is_approval_administrator) ? 1 : 0,
       can_reverse_journal: Number(values.can_reverse_journal) ? 1 : 0,
+      allow_posting_from: String(values.allow_posting_from || '').trim() || null,
+      allow_posting_to: String(values.allow_posting_to || '').trim() || null,
+      allow_posting_from_time: String(values.allow_posting_from_time || '').trim() || null,
+      allow_posting_to_time: String(values.allow_posting_to_time || '').trim() || null,
     }, user);
     revalidatePath('/admin/workflows');
     return { updated: true };

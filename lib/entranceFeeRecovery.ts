@@ -18,6 +18,7 @@ import {
 } from './db.ts';
 import { postJournal } from './accounting.ts';
 import { today } from './format.ts';
+import { resolvePostingDate } from './postingDates.ts';
 import type {
   Actor, Cents, EntranceFeeRecoveryCandidate, EntranceFeeRecoveryResult, EntranceFeeRecoveryRunSummary,
 } from './types.ts';
@@ -125,8 +126,9 @@ async function recoverOne(m: CandidateMember, user: Actor): Promise<EntranceFeeR
     }
 
     const description = `Entrance Fee Recovery — ${m.member_no}`;
+    const vd = await resolvePostingDate(user);
     const j = await postJournal({
-      valueDate: today(), module: 'SAVINGS', eventType: 'ENTRANCE_FEE_RECOVERY', description,
+      valueDate: vd, module: 'SAVINGS', eventType: 'ENTRANCE_FEE_RECOVERY', description,
       memberId: m.id, user,
       lines: [
         { account: account.gl_control_id, debit: amount, credit: 0 },
@@ -134,12 +136,12 @@ async function recoverOne(m: CandidateMember, user: Actor): Promise<EntranceFeeR
       ],
     });
     const newBalance = account.balance - amount;
-    await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newBalance, today(), account.id);
+    await run('UPDATE savings_account SET balance = ?, last_activity = ? WHERE id = ?', newBalance, vd, account.id);
     await run(
       `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id,
          savings_account_id, amount, running_balance, channel, description, journal_id, created_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      await nextSequence('TXN'), today(), new Date().toISOString(), 'SAVINGS', 'FEE', m.id,
+      await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'FEE', m.id,
       account.id, -amount, newBalance, 'SYSTEM', description, j.id, user.username,
     );
 

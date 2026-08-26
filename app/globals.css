@@ -292,8 +292,15 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 /* overflow:hidden is what actually clips content while collapsed/collapsing — but left on once
    fully open, a `1fr` track sized even a hair short of a table's true height (sub-pixel rounding,
    content that grows after the initial paint) would silently keep clipping the excess forever.
-   `.settled` (see components/ui/collapsible-card.tsx) lifts it the moment a card finishes opening. */
-.collapsible-body-inner { overflow: hidden; min-height: 0; }
+   `.settled` (see components/ui/collapsible-card.tsx) lifts it the moment a card finishes opening.
+   `min-width: 0` has to stay regardless of that overflow flip: a grid item's automatic minimum
+   size is only suppressed to 0 while its own `overflow` is non-visible — the instant `.settled`
+   sets `overflow: visible` back, that suppression lifts too, and the item (and the card/page
+   around it) would size itself to a wide table's min-content width instead of letting
+   .table-wrap's own overflow-x:auto scroll it. Narrow (phone-width) viewports are where a
+   several-column table's min-content width actually exceeds the screen, so that's where a card
+   forced wide this way visibly spills into/over whatever sits next to or below it. */
+.collapsible-body-inner { overflow: hidden; min-height: 0; min-width: 0; }
 .collapsible-body-inner.settled { overflow: visible; }
 
 .grid { display: grid; gap: calc(var(--sp) * 2); }
@@ -400,7 +407,7 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight
   list-style: none; margin: 4px 0 0; padding: 0; display: grid;
   grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 12px; font-size: 11.5px; color: var(--text-muted);
 }
-input[type=text], input[type=password], input[type=number], input[type=date], input[type=email], select, textarea {
+input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=email], select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); outline: none;
 }

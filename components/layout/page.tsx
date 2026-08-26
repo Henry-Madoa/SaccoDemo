@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { initials } from '@/lib/format';
 import { SignOutButton } from './sign-out-button';
 import { NavToggle } from './nav-toggle';
@@ -32,6 +33,9 @@ export function Page({ title, crumb, user, children }: PageProps) {
         <div className="spacer" />
         <div className="usermenu">
           <NotificationBell />
+          <Link href="/my-settings" className="theme-toggle" aria-label="My Settings" title="My Settings">
+            <span aria-hidden="true">⚙️</span>
+          </Link>
           <ThemeToggle />
           {/* Name and role are the first thing to go when width runs out —
               the avatar still identifies who is signed in. */}

@@ -64,6 +64,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ACCOUNT_DEACTIVATION', label: 'Account Deactivation', route: '/account-deactivations' },
   { code: 'ACCOUNT_ACTIVATION', label: 'Account Activation', route: '/account-activations' },
   { code: 'MEMBER_ACTIVATIONS', label: 'Member Activation', route: '/member-activations' },
+  { code: 'MEMBER_READMISSIONS', label: 'Member Re-admission', route: '/member-readmissions' },
   { code: 'STANDING_ORDERS', label: 'Standing Orders', route: '/standing-orders' },
   { code: 'MEMBER_CHARGING', label: 'Member Charging', route: '/member-chargings' },
   { code: 'ENTRANCE_FEE_RECOVERY', label: 'Entrance Fee Recovery', route: '/entrance-fee-recovery' },
@@ -298,6 +299,25 @@ export const ACTIONS = {
     page: 'MEMBER_ACTIVATIONS',
     tables: [
       ['member_activation_request', 'modify'], ['member', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Member Re-admission — lets a Withdrawn (never Deceased) member rejoin: flips their status
+  // back to Active and re-provisions their Member Category's default savings accounts (reopening
+  // a still-present CLOSED one, or opening a new one), then — when a re-admission fee is
+  // configured — posts it the same CASH/member-account way MEMBER_ACTIVATIONS_APPROVE does.
+  // APPROVE additionally needs savings_account insert, since re-provisioning may open brand new
+  // accounts rather than only toggling status.
+  MEMBER_READMISSIONS_READ: { page: 'MEMBER_READMISSIONS', tables: [['member_readmission_request', 'read']] },
+  MEMBER_READMISSIONS_CREATE: {
+    page: 'MEMBER_READMISSIONS',
+    tables: [['member_readmission_request', 'insert'], ['member_readmission_request', 'modify'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  MEMBER_READMISSIONS_APPROVE: {
+    page: 'MEMBER_READMISSIONS',
+    tables: [
+      ['member_readmission_request', 'modify'], ['member', 'modify'], ['savings_account', 'insert'], ['savings_account', 'modify'],
       ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
     ],
   },
