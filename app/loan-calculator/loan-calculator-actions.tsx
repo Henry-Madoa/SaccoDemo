@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardHead, TableWrap } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { useRunAction } from '@/components/ui/run-action';
@@ -112,16 +113,11 @@ function NewCalculationForm({ members, products, presetMemberId, onClose }: NewC
         <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
           onChange={setMemberId} required />
 
-        <div className="field">
-          <label htmlFor="f_productId">Loan product <span className="req">*</span></label>
-          <select id="f_productId" name="productId" required value={productId}
-            onChange={(e) => setProductId(e.target.value)}>
-            <option value="">Select…</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name} ({p.interest_rate}% {p.interest_method.toLowerCase()})</option>
-            ))}
-          </select>
-        </div>
+        <SearchableSelect id="f_productId" name="productId" label="Loan product" required
+          items={products} getValue={(p) => String(p.id)}
+          getLabel={(p) => `${p.name} (${p.interest_rate}% ${p.interest_method.toLowerCase()})`}
+          value={productId} onChange={setProductId}
+          placeholder="Search loan product…" emptyText="No matching products" />
 
         <div className="field">
           <label htmlFor="f_principal">Principal amount <span className="req">*</span></label>

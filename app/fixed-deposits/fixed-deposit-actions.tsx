@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useRunAction } from '@/components/ui/run-action';
 import {
   requestFixedDeposit, submitFixedDepositRequest, cancelFixedDepositApprovalRequest,
@@ -198,18 +199,13 @@ function NewFixedDepositForm({ members, onClose }: {
       <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId} onChange={setMemberId} required />
 
       <div className="grid g2">
-        <div className="field">
-          <label htmlFor="f_fdTypeId">Fixed deposit type <span className="req">*</span></label>
-          <select id="f_fdTypeId" name="fdTypeId" required value={fdTypeId}
-            onChange={(e) => {
-              setFdTypeId(e.target.value);
-              const t = types.find((x) => String(x.id) === e.target.value);
-              if (t) setRate(String(t.max_interest_rate));
-            }}>
-            <option value="">— Select a type —</option>
-            {types.map((t) => <option key={t.id} value={t.id}>{t.code} — {t.description}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_fdTypeId" name="fdTypeId" label="Fixed deposit type" required
+          items={types} getValue={(t) => String(t.id)} getLabel={(t) => `${t.code} — ${t.description}`}
+          value={fdTypeId} onChange={(v) => {
+            setFdTypeId(v);
+            const t = types.find((x) => String(x.id) === v);
+            if (t) setRate(String(t.max_interest_rate));
+          }} placeholder="Search fixed deposit type…" emptyText="No matching types" />
         <div className="field">
           <label htmlFor="f_rate">Interest rate (%) <span className="req">*</span></label>
           <input id="f_rate" name="rate" type="number" step="0.01" required value={rate} disabled={!fdType}

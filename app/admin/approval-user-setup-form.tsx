@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveApprovalUserSetupRow } from '@/app/actions/workflows';
 import type { ApprovalUserSetupRow } from '@/lib/types';
 
@@ -14,6 +15,8 @@ export function ApprovalUserSetupFormButton({ row, users, className = 'btn', chi
 }) {
   const [open, setOpen] = useState(false);
   const others = users.filter((u) => u.user_id !== row.user_id);
+  const [approverId, setApproverId] = useState(String(row.approver_id ?? ''));
+  const [substituteId, setSubstituteId] = useState(String(row.substitute_id ?? ''));
 
   return (
     <>
@@ -27,12 +30,14 @@ export function ApprovalUserSetupFormButton({ row, users, className = 'btn', chi
           successTitle="Approval setup saved"
         >
           <div className="grid g2">
-            <Field name="approver_id" label="Approver" type="select" defaultValue={row.approver_id}
+            <SearchableSelect name="approver_id" label="Approver"
               hint="Resolved for this user's requests when a workflow step is set to &quot;Requester's approver&quot;"
-              options={[{ value: '', label: 'None' }, ...others.map((u) => ({ value: u.user_id, label: u.full_name }))]} />
-            <Field name="substitute_id" label="Substitute" type="select" defaultValue={row.substitute_id}
+              items={others} getValue={(u) => String(u.user_id)} getLabel={(u) => u.full_name}
+              value={approverId} onChange={setApproverId} placeholder="Search user…" emptyText="No matching users" />
+            <SearchableSelect name="substitute_id" label="Substitute"
               hint="Also eligible to act on anything routed to this user"
-              options={[{ value: '', label: 'None' }, ...others.map((u) => ({ value: u.user_id, label: u.full_name }))]} />
+              items={others} getValue={(u) => String(u.user_id)} getLabel={(u) => u.full_name}
+              value={substituteId} onChange={setSubstituteId} placeholder="Search user…" emptyText="No matching users" />
           </div>
           <Field name="is_approval_administrator" label="Approval Administrator"
             type="checkbox" defaultValue={row.is_approval_administrator}

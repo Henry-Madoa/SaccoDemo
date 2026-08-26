@@ -6,6 +6,7 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Modal } from '@/components/ui/modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { TableWrap } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { useFormat } from '@/components/ui/format-provider';
@@ -320,29 +321,19 @@ export function ReplacementsModal({ no, line, disabled }: {
                   <MemberSelect id={`f_replacement_${line.id}`} name="replacementMemberId" label="Member"
                     members={memberCandidates} value={code} onChange={setCode} />
                 ) : type === 'COLLATERAL' ? (
-                  <div className="field">
-                    <label htmlFor={`f_replacementCollateral_${line.id}`}>Collateral</label>
-                    <select id={`f_replacementCollateral_${line.id}`} value={code} onChange={(e) => setCode(e.target.value)}>
-                      <option value="">— Select —</option>
-                      {collateralCandidates.map((c) => (
-                        <option key={c.no} value={c.no}>
-                          {c.no} — {c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left {cur(c.collateral_balance)})
-                        </option>
-                      ))}
-                    </select>
+                  <div>
+                    <SearchableSelect id={`f_replacementCollateral_${line.id}`} name="replacementCollateralNo" label="Collateral"
+                      items={collateralCandidates} getValue={(c) => c.no}
+                      getLabel={(c) => `${c.no} — ${c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left ${cur(c.collateral_balance)})`}
+                      value={code} onChange={setCode} placeholder="Search collateral…" emptyText="No matching collateral" />
                     {!collateralCandidates.length ? <div className="hint">The borrower has no registered collateral with cover left.</div> : null}
                   </div>
                 ) : (
-                  <div className="field">
-                    <label htmlFor={`f_replacementFd_${line.id}`}>Fixed deposit</label>
-                    <select id={`f_replacementFd_${line.id}`} value={code} onChange={(e) => setCode(e.target.value)}>
-                      <option value="">— Select —</option>
-                      {fdCandidates.map((f) => (
-                        <option key={f.no} value={f.no}>
-                          {f.no} — {f.fd_type_description} (cover left {cur(f.available)})
-                        </option>
-                      ))}
-                    </select>
+                  <div>
+                    <SearchableSelect id={`f_replacementFd_${line.id}`} name="replacementFdNo" label="Fixed deposit"
+                      items={fdCandidates} getValue={(f) => f.no}
+                      getLabel={(f) => `${f.no} — ${f.fd_type_description} (cover left ${cur(f.available)})`}
+                      value={code} onChange={setCode} placeholder="Search fixed deposit…" emptyText="No matching fixed deposits" />
                     {!fdCandidates.length ? <div className="hint">The borrower has no approved or active fixed deposit with cover left.</div> : null}
                   </div>
                 )}
@@ -373,6 +364,7 @@ function NewChangeForm({ loans, presetLoanId, onClose }: {
   loans: ChangeableLoanRow[]; presetLoanId?: string | null; onClose: () => void;
 }) {
   const { cur } = useFormat();
+  const [loanId, setLoanId] = useState(presetLoanId ?? '');
   return (
     <FormModal
       title="New guarantor change"
@@ -382,17 +374,10 @@ function NewChangeForm({ loans, presetLoanId, onClose }: {
       successTitle="Guarantor change opened"
       successDetail={(d) => `${d.no} saved — release or substitute guarantors, then send it for approval`}
     >
-      <div className="field">
-        <label htmlFor="f_loanId">Loan <span className="req">*</span></label>
-        <select id="f_loanId" name="loanId" required defaultValue={presetLoanId ?? String(loans[0]?.id ?? '')}>
-          {loans.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.loan_no} — {l.member_no} {l.first_name} {l.last_name}
-              {' '}({l.guarantor_count} guarantor{l.guarantor_count === 1 ? '' : 's'}, outstanding {cur(l.outstanding_balance)})
-            </option>
-          ))}
-        </select>
-      </div>
+      <SearchableSelect id="f_loanId" name="loanId" label="Loan" required
+        items={loans} getValue={(l) => String(l.id)}
+        getLabel={(l) => `${l.loan_no} — ${l.member_no} ${l.first_name} ${l.last_name} (${l.guarantor_count} guarantor${l.guarantor_count === 1 ? '' : 's'}, outstanding ${cur(l.outstanding_balance)})`}
+        value={loanId} onChange={setLoanId} placeholder="Search loan…" emptyText="No matching loans" />
     </FormModal>
   );
 }

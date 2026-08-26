@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/primitives';
 import { Field, readForm } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { saveOrganisation } from '@/app/actions/admin';
@@ -35,6 +36,7 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
   useEffect(() => setPreview(logoSrc), [logoSrc]);
   const [name, setName] = useState(org.name ?? '');
   const [shortName, setShortName] = useState(org.short_name ?? '');
+  const [instantWithdrawalChargeId, setInstantWithdrawalChargeId] = useState(String(org.instant_withdrawal_charge_id ?? ''));
 
   const previewName = shortName || name || 'SACCO';
 
@@ -175,9 +177,10 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
                 defaultValue={org.dormancy_days ?? 90}
                 hint="No money in a member's Non-Withdrawable Deposit account for this many days flips them Active → Dormant (Admin Centre → System Automation)" />
             </div>
-            <Field name="instant_withdrawal_charge_id" label="Instant withdrawal charge" type="select"
-              defaultValue={org.instant_withdrawal_charge_id}
-              options={[{ value: null, label: 'No charge' }, ...charges.map((c) => ({ value: c.id, label: `${c.code} — ${c.description}` }))]}
+            <SearchableSelect name="instant_withdrawal_charge_id" label="Instant withdrawal charge"
+              items={charges} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+              value={instantWithdrawalChargeId} onChange={setInstantWithdrawalChargeId}
+              placeholder="Search charge code or description…" emptyText="No matching charges"
               hint="Auto-applied on Member Exit when Instant Withdrawal is checked" />
           </Card>
         </div>

@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountSelect } from '@/components/ui/gl-account-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { createJournal, type JournalLineDraft } from '@/app/actions/gl';
 import { today, toCents } from '@/lib/format';
@@ -90,35 +92,24 @@ function JournalForm({
           {lines.map((line, i) => (
             <tr key={i}>
               <td>
-                <select value={line.account} aria-label="Account"
-                  onChange={(e) => update(i, { account: e.target.value })}>
-                  <option value="">Select account…</option>
-                  {accounts.map((a) => (
-                    <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
+                <GlAccountSelect name={`journalLineAccount${i}`} ariaLabel="Account" valueField="code"
+                  accounts={accounts} value={line.account} onChange={(v) => update(i, { account: v })} />
               </td>
               <td>
                 <input type="text" placeholder="Narration" value={line.narration} aria-label="Narration"
                   onChange={(e) => update(i, { narration: e.target.value })} />
               </td>
               <td>
-                <select value={line.globalDimension1Id} aria-label={caption1}
-                  onChange={(e) => update(i, { globalDimension1Id: e.target.value ? Number(e.target.value) : '' })}>
-                  <option value="">—</option>
-                  {globalDimension1Values.map((v) => (
-                    <option key={v.id} value={v.id}>{v.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect name={`journalLineDim1_${i}`} ariaLabel={caption1}
+                  items={globalDimension1Values} getValue={(v) => String(v.id)} getLabel={(v) => v.name}
+                  value={String(line.globalDimension1Id || '')}
+                  onChange={(v) => update(i, { globalDimension1Id: v ? Number(v) : '' })} />
               </td>
               <td>
-                <select value={line.globalDimension2Id} aria-label={caption2}
-                  onChange={(e) => update(i, { globalDimension2Id: e.target.value ? Number(e.target.value) : '' })}>
-                  <option value="">—</option>
-                  {globalDimension2Values.map((v) => (
-                    <option key={v.id} value={v.id}>{v.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect name={`journalLineDim2_${i}`} ariaLabel={caption2}
+                  items={globalDimension2Values} getValue={(v) => String(v.id)} getLabel={(v) => v.name}
+                  value={String(line.globalDimension2Id || '')}
+                  onChange={(v) => update(i, { globalDimension2Id: v ? Number(v) : '' })} />
               </td>
               <td>
                 <input type="number" step="0.01" min="0" className="num" value={line.debit} aria-label="Debit"

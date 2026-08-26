@@ -531,27 +531,29 @@ export async function calculateCheckoffRecoveries(no: string, user: Actor): Prom
           }
         } else if (rec.recovery_type === 'STANDING_ORDER') {
           // Ported from CalculateRecoveries' own "Standing Order" branch: finds the member's own
-          // live, salary_based standing order(s) tagged with this recovery's sto_type, computes
-          // each one's own amount (Fixed: its configured amount; Sweep: whatever's left of this
-          // line), and — unlike Loan/Internal Deposit, which always partial-cap to whatever's
-          // available — only recovers it at all if there's enough left to cover BOTH the order's
-          // own amount AND its own Charge Code's fee (AL's own all-or-nothing guard for this
-          // branch specifically). The fee itself is re-derived at process time from the stored
-          // amount rather than stored here, the same "recompute deterministically" treatment the
+          // live, salary_based standing order(s) — matched directly by class, since the order
+          // itself already carries every instruction (amount, destination, charge) a recovery
+          // needs, with no separate type tag to duplicate that — computes each one's own amount
+          // (Fixed: its configured amount; Sweep: whatever's left of this line), and — unlike
+          // Loan/Internal Deposit, which always partial-cap to whatever's available — only
+          // recovers it at all if there's enough left to cover BOTH the order's own amount AND
+          // its own Charge Code's fee (AL's own all-or-nothing guard for this branch
+          // specifically). The fee itself is re-derived at process time from the stored amount
+          // rather than stored here, the same "recompute deterministically" treatment the
           // batch's own CHARGE components already get.
-          // standing_order_class narrows this to one class of the member's own sto_type-tagged
-          // orders when set — how "priority per class" works: configure one STANDING_ORDER
-          // recovery row per class, each with its own priority, rather than a single row that
-          // can't tell them apart.
+          // standing_order_class narrows this to one class of the member's own salary_based
+          // orders when set (null matches any class) — how "priority per class" works: configure
+          // one STANDING_ORDER recovery row per class, each with its own priority, rather than a
+          // single row that can't tell them apart.
           const orders = await all<{ no: string; amount_type: string; amount: number; transaction_charge_id: number | null }>(
             `SELECT no, amount_type, amount, transaction_charge_id FROM standing_order
-             WHERE member_id = ? AND sto_type = ? AND salary_based = true AND running = true AND terminated = false
+             WHERE member_id = ? AND salary_based = true AND running = true AND terminated = false
                AND (end_date IS NULL OR end_date >= ?)
                ${rec.standing_order_class ? 'AND standing_order_class = ?' : ''}
              ORDER BY no ASC`,
             ...(rec.standing_order_class
-              ? [line.member_id, rec.sto_type, today(), rec.standing_order_class]
-              : [line.member_id, rec.sto_type, today()]),
+              ? [line.member_id, today(), rec.standing_order_class]
+              : [line.member_id, today()]),
           );
           for (const sto of orders) {
             if (remaining <= 0) break;
@@ -566,7 +568,7 @@ export async function calculateCheckoffRecoveries(no: string, user: Actor): Prom
             await run(
               `INSERT INTO checkoff_calculation (batch_no, line_id, entry_type, description, standing_order_no, amount)
                VALUES (?,?,?,?,?,?)`,
-              no, line.id, 'STANDING_ORDER', rec.description || `Standing order — ${rec.sto_type}`, sto.no, stoAmount,
+              no, line.id, 'STANDING_ORDER', rec.description || `Standing order — ${sto.no}`, sto.no, stoAmount,
             );
             remaining -= (stoAmount + stoCharge);
           }

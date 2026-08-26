@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountSelect } from '@/components/ui/gl-account-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Pill, Spacer } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { saveMemberCategory } from '@/app/actions/pool';
@@ -12,10 +14,6 @@ import { humanise, toUnits } from '@/lib/format';
 import type {
   GlAccount, MemberCategoryDefaultAccountRow, MemberCategoryWithUsage, SavingsProduct,
 } from '@/lib/types';
-
-/** GL accounts as <select> options, same shape used by the product forms. */
-const accountOptions = (accounts: GlAccount[]) =>
-  accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
 
 interface DefaultAccountRow {
   savings_product_id: number | '';
@@ -34,6 +32,7 @@ export function MemberCategoryFormButton({ category, defaultAccounts, accounts, 
 }) {
   const [open, setOpen] = useState(false);
   const c = category ?? null;
+  const [regFeeAccountId, setRegFeeAccountId] = useState(String(c?.registration_fee_account_id ?? ''));
   // A brand-new category starts with no default accounts — only editing an
   // existing one seeds rows, and only the ones it actually has.
   const [rows, setRows] = useState<DefaultAccountRow[]>(() =>
@@ -75,8 +74,8 @@ export function MemberCategoryFormButton({ category, defaultAccounts, accounts, 
               options={MEMBER_CATEGORY_TYPES.map((t) => ({ value: t.value, label: t.label }))} />
             <Field name="registration_fee_sh" label="Registration fee" type="number" step="0.01"
               defaultValue={c ? toUnits(c.registration_fee) : 0} />
-            <Field name="registration_fee_account_id" label="Registration fee GL account" type="select"
-              defaultValue={c?.registration_fee_account_id} options={accountOptions(accounts)} />
+            <GlAccountSelect name="registration_fee_account_id" label="Registration fee GL account"
+              accounts={accounts} value={regFeeAccountId} onChange={setRegFeeAccountId} />
             {c ? (
               <Field name="status" label="Status" type="select" defaultValue={c?.status}
                 options={MEMBER_CATEGORY_STATUSES} />
@@ -95,13 +94,10 @@ export function MemberCategoryFormButton({ category, defaultAccounts, accounts, 
               {rows.map((row, i) => (
                 <tr key={i}>
                   <td>
-                    <select value={row.savings_product_id} aria-label="Savings product"
-                      onChange={(e) => update(i, e.target.value ? Number(e.target.value) : '')}>
-                      <option value="">Select product…</option>
-                      {savingsProducts.map((p) => (
-                        <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
-                      ))}
-                    </select>
+                    <SearchableSelect name={`categoryDefaultAccountProduct${i}`} ariaLabel="Savings product"
+                      items={savingsProducts} getValue={(p) => String(p.id)} getLabel={(p) => `${p.code} — ${p.name}`}
+                      value={String(row.savings_product_id || '')}
+                      onChange={(v) => update(i, v ? Number(v) : '')} />
                   </td>
                   <td>
                     <input type="text" value={row.description} disabled aria-label="Default account name" />

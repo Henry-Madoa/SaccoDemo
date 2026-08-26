@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { setMemberEmployerRequest } from '@/app/actions/employers';
 import type { Employer } from '@/lib/types';
 
@@ -15,6 +16,7 @@ export function SetEmployerButton({ memberId, currentEmployerId, employers, clas
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [employerId, setEmployerId] = useState(currentEmployerId ? String(currentEmployerId) : '');
 
   return (
     <>
@@ -31,13 +33,9 @@ export function SetEmployerButton({ memberId, currentEmployerId, employers, clas
           submitLabel="Save"
           successTitle="Employer updated"
         >
-          <div className="field">
-            <label htmlFor="f_employerId">Employer</label>
-            <select id="f_employerId" name="employerId" defaultValue={currentEmployerId ? String(currentEmployerId) : ''}>
-              <option value="">— None —</option>
-              {employers.map((e) => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}
-            </select>
-          </div>
+          <SearchableSelect name="employerId" label="Employer"
+            items={employers} getValue={(e) => String(e.id)} getLabel={(e) => `${e.code} — ${e.name}`}
+            value={employerId} onChange={setEmployerId} placeholder="— None —" emptyText="No matching employers" />
         </FormModal>
       ) : null}
     </>

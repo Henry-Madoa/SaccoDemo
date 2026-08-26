@@ -3,6 +3,8 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountSelect } from '@/components/ui/gl-account-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   TariffMatrix, emptyBand, bandFromScheme, bandToDraft, schemeSummary, type SchemeBandRow,
 } from '@/components/admin/tariff-matrix';
@@ -16,10 +18,6 @@ import type {
   Charge, GlAccount, LoanChargeCalculationType, LoanProductChargeDetail, LoanProductWithUsage,
   SavingsProductWithUsage,
 } from '@/lib/types';
-
-/** GL accounts as <select> options — every product must map to a postable account. */
-const accountOptions = (accounts: GlAccount[]) =>
-  accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }));
 
 /** One Loan Product Charges row — a Charge Code, a Revenue account, a Calculation Method
  *  (Percentage or Calculate from Scheme), whether it prorates by term, and posting priority. */
@@ -47,6 +45,9 @@ export function SavingsProductButton({ product, accounts, className = 'btn', chi
 }) {
   const [open, setOpen] = useState(false);
   const p = product ?? null;
+  const [glControlId, setGlControlId] = useState(String(p?.gl_control_id ?? ''));
+  const [glInterestExpId, setGlInterestExpId] = useState(String(p?.gl_interest_exp_id ?? ''));
+  const [glFeeIncomeId, setGlFeeIncomeId] = useState(String(p?.gl_fee_income_id ?? ''));
 
   return (
     <>
@@ -85,12 +86,12 @@ export function SavingsProductButton({ product, accounts, className = 'btn', chi
           <Field name="is_business_account" label="Business account — collects business details when opened" type="checkbox"
             defaultValue={p ? p.is_business_account : 0} />
           <div className="grid g3">
-            <Field name="gl_control_id" label="GL control account" type="select" required
-              defaultValue={p?.gl_control_id} options={accountOptions(accounts)} />
-            <Field name="gl_interest_exp_id" label="Interest expense account" type="select"
-              defaultValue={p?.gl_interest_exp_id} options={accountOptions(accounts)} />
-            <Field name="gl_fee_income_id" label="Fee income account" type="select"
-              defaultValue={p?.gl_fee_income_id} options={accountOptions(accounts)} />
+            <GlAccountSelect name="gl_control_id" label="GL control account" required
+              accounts={accounts} value={glControlId} onChange={setGlControlId} />
+            <GlAccountSelect name="gl_interest_exp_id" label="Interest expense account"
+              accounts={accounts} value={glInterestExpId} onChange={setGlInterestExpId} />
+            <GlAccountSelect name="gl_fee_income_id" label="Fee income account"
+              accounts={accounts} value={glFeeIncomeId} onChange={setGlFeeIncomeId} />
           </div>
         </FormModal>
       ) : null}
@@ -111,6 +112,9 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
   const [open, setOpen] = useState(false);
   const p = product ?? null;
   const [salaryBased, setSalaryBased] = useState(!!Number(p?.salary_based ?? 0));
+  const [glReceivableId, setGlReceivableId] = useState(String(p?.gl_receivable_id ?? ''));
+  const [glInterestIncomeId, setGlInterestIncomeId] = useState(String(p?.gl_interest_income_id ?? ''));
+  const [glPenaltyIncomeId, setGlPenaltyIncomeId] = useState(String(p?.gl_penalty_income_id ?? ''));
   const [chargeRows, setChargeRows] = useState<LoanChargeRow[]>(() => (chargeLines ?? []).map((l) => ({
     charge_id: l.charge_id, gl_account_id: l.gl_account_id, calculation_type: l.calculation_type,
     percentage_rate_sh: String(l.percentage_rate), prorate: l.prorate, priority: l.priority, status: l.status,
@@ -223,18 +227,15 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
                   <Fragment key={i}>
                     <tr>
                       <td>
-                        <select value={row.charge_id} aria-label="Charge"
-                          onChange={(e) => updateCharge(i, { charge_id: e.target.value ? Number(e.target.value) : '' })}>
-                          <option value="">Select…</option>
-                          {charges.map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-                        </select>
+                        <SearchableSelect name={`loanChargeCode${i}`} ariaLabel="Charge"
+                          items={charges} getValue={(c) => String(c.id)} getLabel={(c) => c.code}
+                          value={String(row.charge_id || '')}
+                          onChange={(v) => updateCharge(i, { charge_id: v ? Number(v) : '' })} />
                       </td>
                       <td>
-                        <select value={row.gl_account_id} aria-label="Revenue account"
-                          onChange={(e) => updateCharge(i, { gl_account_id: e.target.value ? Number(e.target.value) : '' })}>
-                          <option value="">Select…</option>
-                          {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                        </select>
+                        <GlAccountSelect name={`loanChargeGlAccount${i}`} ariaLabel="Revenue account"
+                          accounts={accounts} value={String(row.gl_account_id || '')}
+                          onChange={(v) => updateCharge(i, { gl_account_id: v ? Number(v) : '' })} />
                       </td>
                       <td>
                         <select value={row.calculation_type} aria-label="Calculation method"
@@ -303,12 +304,12 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
           </div>
 
           <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*2)' }}>
-            <Field name="gl_receivable_id" label="Loan receivable account" type="select" required
-              defaultValue={p?.gl_receivable_id} options={accountOptions(accounts)} />
-            <Field name="gl_interest_income_id" label="Interest income account" type="select"
-              defaultValue={p?.gl_interest_income_id} options={accountOptions(accounts)} />
-            <Field name="gl_penalty_income_id" label="Penalty income account" type="select"
-              defaultValue={p?.gl_penalty_income_id} options={accountOptions(accounts)} />
+            <GlAccountSelect name="gl_receivable_id" label="Loan receivable account" required
+              accounts={accounts} value={glReceivableId} onChange={setGlReceivableId} />
+            <GlAccountSelect name="gl_interest_income_id" label="Interest income account"
+              accounts={accounts} value={glInterestIncomeId} onChange={setGlInterestIncomeId} />
+            <GlAccountSelect name="gl_penalty_income_id" label="Penalty income account"
+              accounts={accounts} value={glPenaltyIncomeId} onChange={setGlPenaltyIncomeId} />
           </div>
         </FormModal>
       ) : null}

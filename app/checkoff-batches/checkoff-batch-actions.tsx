@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useRunAction } from '@/components/ui/run-action';
 import { useFormat } from '@/components/ui/format-provider';
@@ -185,6 +186,8 @@ function NewBatchForm({ employers, salaryChargeCodes, onClose }: {
   employers: Employer[]; salaryChargeCodes: TransactionCharge[]; onClose: () => void;
 }) {
   const [batchType, setBatchType] = useState<'CHECKOFF' | 'SALARY'>('CHECKOFF');
+  const [employerId, setEmployerId] = useState('');
+  const [transactionChargeId, setTransactionChargeId] = useState('');
   return (
     <FormModal
       title="New checkoff/salary batch"
@@ -201,12 +204,9 @@ function NewBatchForm({ employers, salaryChargeCodes, onClose }: {
       successTitle="Batch opened"
       successDetail={(d) => `${d.no} saved — record what each member remitted, then send it for approval`}
     >
-      <div className="field">
-        <label htmlFor="f_employerId">Employer <span className="req">*</span></label>
-        <select id="f_employerId" name="employerId" required defaultValue={String(employers[0]?.id ?? '')}>
-          {employers.map((e) => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}
-        </select>
-      </div>
+      <SearchableSelect id="f_employerId" name="employerId" label="Employer" required
+        items={employers} getValue={(e) => String(e.id)} getLabel={(e) => `${e.code} — ${e.name}`}
+        value={employerId} onChange={setEmployerId} placeholder="Search employer…" emptyText="No matching employers" />
       <Field name="batchType" label="Batch type" type="select" required options={BATCH_TYPES}
         defaultValue="CHECKOFF" onChange={(e) => setBatchType(e.target.value as 'CHECKOFF' | 'SALARY')} />
       <div className="field">
@@ -216,12 +216,11 @@ function NewBatchForm({ employers, salaryChargeCodes, onClose }: {
       <Field name="searchType" label="Search type" type="select" required options={CHECKOFF_SEARCH_TYPES}
         defaultValue="PAYROLL_NO" hint="Which column of the uploaded CSV identifies each member." />
       {batchType === 'SALARY' ? (
-        <div className="field">
-          <label htmlFor="f_transactionChargeId">Charge code</label>
-          <select id="f_transactionChargeId" name="transactionChargeId" defaultValue="">
-            <option value="">None — no charges or recoveries applied</option>
-            {salaryChargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-          </select>
+        <div>
+          <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Charge code"
+            items={salaryChargeCodes} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+            value={transactionChargeId} onChange={setTransactionChargeId}
+            placeholder="None — no charges or recoveries applied" emptyText="No matching charges" />
           <div className="tiny">Drives Calculate's charge and recovery waterfall. Can be set or changed later while the batch is open.</div>
         </div>
       ) : null}
@@ -252,6 +251,8 @@ export function EditCheckoffBatchButton({ batch, employers, salaryChargeCodes, c
 }) {
   const [open, setOpen] = useState(false);
   const isSalary = batch.batch_type === 'SALARY';
+  const [employerId, setEmployerId] = useState(String(batch.employer_id));
+  const [transactionChargeId, setTransactionChargeId] = useState(String(batch.transaction_charge_id ?? ''));
 
   return (
     <>
@@ -264,12 +265,9 @@ export function EditCheckoffBatchButton({ batch, employers, salaryChargeCodes, c
           submitLabel="Save"
           successTitle="Batch updated"
         >
-          <div className="field">
-            <label htmlFor="f_employerId">Employer <span className="req">*</span></label>
-            <select id="f_employerId" name="employerId" required defaultValue={String(batch.employer_id)}>
-              {employers.map((e) => <option key={e.id} value={e.id}>{e.code} — {e.name}</option>)}
-            </select>
-          </div>
+          <SearchableSelect id="f_employerId" name="employerId" label="Employer" required
+            items={employers} getValue={(e) => String(e.id)} getLabel={(e) => `${e.code} — ${e.name}`}
+            value={employerId} onChange={setEmployerId} placeholder="Search employer…" emptyText="No matching employers" />
           <div className="field">
             <label htmlFor="f_period">Period <span className="req">*</span></label>
             <input id="f_period" name="period" type="month" required defaultValue={batch.period.slice(0, 7)} />
@@ -279,13 +277,10 @@ export function EditCheckoffBatchButton({ batch, employers, salaryChargeCodes, c
           <Field name="searchType" label="Search type" type="select" required options={CHECKOFF_SEARCH_TYPES}
             defaultValue={batch.search_type} hint="Which column of the uploaded CSV identifies each member." />
           {isSalary ? (
-            <div className="field">
-              <label htmlFor="f_transactionChargeId">Charge code</label>
-              <select id="f_transactionChargeId" name="transactionChargeId" defaultValue={String(batch.transaction_charge_id ?? '')}>
-                <option value="">None — no charges or recoveries applied</option>
-                {salaryChargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-              </select>
-            </div>
+            <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Charge code"
+              items={salaryChargeCodes} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+              value={transactionChargeId} onChange={setTransactionChargeId}
+              placeholder="None — no charges or recoveries applied" emptyText="No matching charges" />
           ) : null}
         </FormModal>
       ) : null}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveWorkflow, getWorkflowConditionFields } from '@/app/actions/workflows';
 import { CONDITION_OPERATORS, APPROVER_TYPES } from '@/lib/workflowConstants';
 import type { DocumentFieldDef, DocumentFieldRelation } from '@/lib/workflowConstants';
@@ -144,12 +145,11 @@ export function WorkflowFormButton({
         >
           <div className="grid g3">
             <Field name="name" label="Workflow name" defaultValue={w?.name} required maxLength={80} />
-            <Field name="document_type" label="Document type" type="select" required
-              defaultValue={documentType}
-              options={documentTypes.map((t) => ({
-                value: t.documentType, label: t.wired ? t.label : `${t.label} (not yet enforced)`,
-              }))}
-              onChange={(e) => setDocumentType(e.target.value)} />
+            <SearchableSelect name="document_type" label="Document type" required
+              items={documentTypes} getValue={(t) => t.documentType}
+              getLabel={(t) => (t.wired ? t.label : `${t.label} (not yet enforced)`)}
+              value={documentType} onChange={setDocumentType}
+              placeholder="Search document type…" emptyText="No matching document types" />
           </div>
           {w ? (
             <Field name="enabled" label="Enabled" type="checkbox" defaultValue={w.enabled} />
@@ -193,13 +193,11 @@ export function WorkflowFormButton({
                     </td>
                     <td>
                       {options ? (
-                        <select value={row.value} aria-label="Value"
-                          onChange={(e) => updateCondition(i, { value: e.target.value })}>
-                          <option value="">Select…</option>
-                          {options.map((o) => (
-                            <option key={o.id} value={o.id}>{relation ? relationLabel(relation, o) : ''}</option>
-                          ))}
-                        </select>
+                        <SearchableSelect<{ id: number; code?: string; name?: string; description?: string }>
+                          name={`conditionValue${i}`} ariaLabel="Value"
+                          items={options} getValue={(o) => String(o.id)}
+                          getLabel={(o) => (relation ? relationLabel(relation, o) : '')}
+                          value={row.value} onChange={(v) => updateCondition(i, { value: v })} />
                       ) : (
                         <input type="text" value={row.value} aria-label="Value"
                           onChange={(e) => updateCondition(i, { value: e.target.value })} />
@@ -208,13 +206,11 @@ export function WorkflowFormButton({
                     <td>
                       {row.operator === 'BETWEEN' ? (
                         options ? (
-                          <select value={row.value2} aria-label="Value 2"
-                            onChange={(e) => updateCondition(i, { value2: e.target.value })}>
-                            <option value="">Select…</option>
-                            {options.map((o) => (
-                              <option key={o.id} value={o.id}>{relation ? relationLabel(relation, o) : ''}</option>
-                            ))}
-                          </select>
+                          <SearchableSelect<{ id: number; code?: string; name?: string; description?: string }>
+                            name={`conditionValue2_${i}`} ariaLabel="Value 2"
+                            items={options} getValue={(o) => String(o.id)}
+                            getLabel={(o) => (relation ? relationLabel(relation, o) : '')}
+                            value={row.value2} onChange={(v) => updateCondition(i, { value2: v })} />
                         ) : (
                           <input type="text" value={row.value2} aria-label="Value 2"
                             onChange={(e) => updateCondition(i, { value2: e.target.value })} />
@@ -259,17 +255,17 @@ export function WorkflowFormButton({
                   </td>
                   <td>
                     {row.approver_type === 'USER' ? (
-                      <select value={row.approver_user_id} aria-label="User"
-                        onChange={(e) => updateStep(i, { approver_user_id: e.target.value ? Number(e.target.value) : '' })}>
-                        <option value="">Select user…</option>
-                        {users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-                      </select>
+                      <SearchableSelect name={`stepApproverUser${i}`} ariaLabel="User"
+                        items={users} getValue={(u) => String(u.id)} getLabel={(u) => u.full_name}
+                        value={String(row.approver_user_id || '')}
+                        onChange={(v) => updateStep(i, { approver_user_id: v ? Number(v) : '' })}
+                        placeholder="Search user…" emptyText="No matching users" />
                     ) : row.approver_type === 'USER_GROUP' ? (
-                      <select value={row.approver_group_id} aria-label="Group"
-                        onChange={(e) => updateStep(i, { approver_group_id: e.target.value ? Number(e.target.value) : '' })}>
-                        <option value="">Select group…</option>
-                        {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                      </select>
+                      <SearchableSelect name={`stepApproverGroup${i}`} ariaLabel="Group"
+                        items={groups} getValue={(g) => String(g.id)} getLabel={(g) => g.name}
+                        value={String(row.approver_group_id || '')}
+                        onChange={(v) => updateStep(i, { approver_group_id: v ? Number(v) : '' })}
+                        placeholder="Search group…" emptyText="No matching groups" />
                     ) : (
                       <span className="tiny">Resolved from User Setup at request time</span>
                     )}

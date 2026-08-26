@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveConfigPackage, getConfigPackageColumns } from '@/app/actions/configPackages';
 import type { ConfigPackageColumn, ConfigPackageTableOption, ConfigPackageWithFields } from '@/lib/types';
 
@@ -102,13 +103,9 @@ export function ConfigPackageFormButton({ pkg, tables, className = 'btn', childr
                 <div className="mono" style={{ padding: '6px 0' }}>{pkg.table_name}</div>
               </div>
             ) : (
-              <div className="field">
-                <label>Table<span className="req"> *</span></label>
-                <select name="table_name" value={tableName} required onChange={(e) => pickTable(e.target.value)}>
-                  <option value="">Select a table…</option>
-                  {tables.map((t) => <option key={t.table_name} value={t.table_name}>{t.label} ({t.table_name})</option>)}
-                </select>
-              </div>
+              <SearchableSelect name="table_name" label="Table" required
+                items={tables} getValue={(t) => t.table_name} getLabel={(t) => `${t.label} (${t.table_name})`}
+                value={tableName} onChange={pickTable} placeholder="Search table…" emptyText="No matching tables" />
             )}
           </div>
 

@@ -714,11 +714,8 @@ export interface StandingOrder {
   end_date: IsoDate | null;
   transaction_charge_id: number | null;
   /** Excludes this order from runStandingOrders()'s own daily sweep — it only ever recovers
-   *  through Checkoff & Salary Processing's Calculate step. See sto_type. */
+   *  through Checkoff & Salary Processing's Calculate step, matched by standing_order_class. */
   salary_based: boolean;
-  /** Required for a salary_based order to be found by a Transaction Recovery's own
-   *  STANDING_ORDER recovery type — see lib/types.ts's TransactionRecovery.sto_type. */
-  sto_type: string | null;
   status: DocumentStatus;
   decision_reason: string | null;
   running: boolean;
@@ -1035,11 +1032,9 @@ export interface TransactionRecovery {
   recovery_type: TransactionRecoveryType;
   deduction_type: TransactionRecoveryDeductionType | null;
   savings_product_id: number | null;
-  /** Required, STANDING_ORDER only — matched against a member's own salary_based standing
-   *  order(s) carrying the same tag (StandingOrder.sto_type). */
-  sto_type: string | null;
-  /** STANDING_ORDER only — null matches any class; set to narrow this recovery to just one
-   *  class, letting several rows for the same sto_type each carry their own priority. */
+  /** STANDING_ORDER only — matches a member's own salary_based, running standing order(s)
+   *  directly by class; null matches any class. Several rows, each pinned to a different class,
+   *  is how "priority per class" is achieved. */
   standing_order_class: StandingOrderClass | null;
   priority: number;
   description: string | null;

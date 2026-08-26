@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -14,7 +15,6 @@ import {
   freezeStandingOrderRequest, unfreezeStandingOrderRequest, runStandingOrdersNow,
   accountsForStandingOrderSource, accountsForStandingOrderDestination, loansForStandingOrderDestination,
   bankAccountsForStandingOrderDestination, standingOrderChargeCodes, previewStandingOrderChargeAmount,
-  listStandingOrderStoTypes,
 } from '@/app/actions/standingOrders';
 import { delegateMyTask } from '@/app/actions/workflows';
 import { STANDING_ORDER_CLASSES, STANDING_ORDER_AMOUNT_TYPES, STANDING_ORDER_RUN_TYPES } from '@/lib/constants';
@@ -223,24 +223,16 @@ function StandingOrderFields({
   const [runType, setRunType] = useState<StandingOrderRunType>(initial?.run_type ?? 'SPECIFIC_DAY');
   const [tillFurtherNotice, setTillFurtherNotice] = useState(!!initial?.till_further_notice);
   const [salaryBased, setSalaryBased] = useState(!!initial?.salary_based);
-  const [stoTypes, setStoTypes] = useState<string[]>([]);
 
   const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
   const [chargeId, setChargeId] = useState(String(initial?.transaction_charge_id ?? ''));
   const [feeAmount, setFeeAmount] = useState<number | null>(null);
 
   useEffect(() => {
-    listStandingOrderStoTypes().then((res) => { if (res.ok) setStoTypes(res.data); });
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     if (!memberId) { setSourceAccounts([]); return; }
     accountsForStandingOrderSource(Number(memberId)).then((res) => {
-      if (cancelled) return;
-      const list = res.ok ? res.data : [];
-      setSourceAccounts(list);
-      if (!initial) setAccountId(String(list[0]?.id ?? ''));
+      if (!cancelled) setSourceAccounts(res.ok ? res.data : []);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,14 +282,12 @@ function StandingOrderFields({
       <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
         onChange={(id) => { setMemberId(id); setAccountId(''); }} required disabled={!!initial} />
 
-      <div className="field">
-        <label htmlFor="f_accountId">Source account <span className="req">*</span></label>
-        <select id="f_accountId" name="accountId" required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          {sourceAccounts.length ? null : <option value="">No eligible account for this member</option>}
-          {sourceAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
-        </select>
-        {sourceAccount ? <div className="hint">Available balance: {cur(Math.max(available ?? 0, 0))}</div> : null}
-      </div>
+      <SearchableSelect id="f_accountId" name="accountId" label="Source account" required
+        items={sourceAccounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+        value={accountId} onChange={setAccountId}
+        placeholder={sourceAccounts.length ? 'Search account…' : 'No eligible account for this member'}
+        emptyText="No matching accounts"
+        hint={sourceAccount ? `Available balance: ${cur(Math.max(available ?? 0, 0))}` : undefined} />
 
       <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
         <label htmlFor="f_standingOrderClass">What should this do <span className="req">*</span></label>
@@ -311,34 +301,27 @@ function StandingOrderFields({
         <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
           <MemberSelect id="f_destinationMemberId" name="destinationMemberId" label="Destination member" members={members}
             value={destinationMemberId} onChange={(id) => { setDestinationMemberId(id); setDestinationAccountId(''); }} required />
-          <div className="field">
-            <label htmlFor="f_destinationAccountId">Destination account <span className="req">*</span></label>
-            <select id="f_destinationAccountId" name="destinationAccountId" required value={destinationAccountId}
-              disabled={!destinationMemberId} onChange={(e) => setDestinationAccountId(e.target.value)}>
-              <option value="">Select account…</option>
-              {destAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
-            </select>
-          </div>
+          <SearchableSelect id="f_destinationAccountId" name="destinationAccountId" label="Destination account" required
+            disabled={!destinationMemberId} items={destAccounts} getValue={(a) => String(a.id)}
+            getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+            value={destinationAccountId} onChange={setDestinationAccountId}
+            placeholder="Search account…" emptyText="No matching accounts" />
         </div>
       ) : standingOrderClass === 'EXTERNAL' ? (
-        <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-          <label htmlFor="f_destinationBankAccountId">Pay through (Bank/Cashbook) <span className="req">*</span></label>
-          <select id="f_destinationBankAccountId" name="destinationBankAccountId" required value={destinationBankAccountId}
-            onChange={(e) => setDestinationBankAccountId(e.target.value)}>
-            <option value="">Select account…</option>
-            {destBankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-          </select>
-          <div className="hint">The posting description below carries the payment reference — this port has no separate EFT recipient fields.</div>
-        </div>
+        <SearchableSelect id="f_destinationBankAccountId" name="destinationBankAccountId"
+          label="Pay through (Bank/Cashbook)" required
+          items={destBankAccounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.code} — ${a.name}`}
+          value={destinationBankAccountId} onChange={setDestinationBankAccountId}
+          placeholder="Search bank/cashbook account…" emptyText="No matching accounts"
+          hint="The posting description below carries the payment reference — this port has no separate EFT recipient fields."
+          style={{ marginTop: 'calc(var(--sp)*1.5)' }} />
       ) : (
-        <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-          <label htmlFor="f_destinationLoanId">Loan to repay <span className="req">*</span></label>
-          <select id="f_destinationLoanId" name="destinationLoanId" required value={destinationLoanId}
-            disabled={!memberId} onChange={(e) => setDestinationLoanId(e.target.value)}>
-            {destLoans.length ? null : <option value="">No disbursed loan for this member</option>}
-            {destLoans.map((l) => <option key={l.id} value={l.id}>{l.loan_no} — outstanding {cur(l.outstanding_balance)}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_destinationLoanId" name="destinationLoanId" label="Loan to repay" required
+          disabled={!memberId} items={destLoans} getValue={(l) => String(l.id)}
+          getLabel={(l) => `${l.loan_no} — outstanding ${cur(l.outstanding_balance)}`}
+          value={destinationLoanId} onChange={setDestinationLoanId}
+          placeholder={destLoans.length ? 'Search loan…' : 'No disbursed loan for this member'}
+          emptyText="No matching loans" style={{ marginTop: 'calc(var(--sp)*1.5)' }} />
       )}
 
       <Field name="postingDescription" label="Posting description" required defaultValue={initial?.posting_description ?? ''} />
@@ -361,20 +344,10 @@ function StandingOrderFields({
           hint="Once the source account's available balance reaches this, the whole balance sweeps" />
       ) : null}
 
-      <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+      <div style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
         <Field name="salaryBased" label="Salary based" type="checkbox" defaultValue={salaryBased ? 1 : 0}
-          hint="Recovered only through Checkoff & Salary Processing's Calculate step — never by the ordinary daily run."
+          hint="Recovered only through Checkoff & Salary Processing's Calculate step, matched by class — never by the ordinary daily run."
           onChange={(e) => setSalaryBased((e.target as HTMLInputElement).checked)} />
-        {salaryBased ? (
-          <div className="field">
-            <label htmlFor="f_stoType">Standing order type <span className="req">*</span></label>
-            <input id="f_stoType" name="stoType" list="sto-types" required defaultValue={initial?.sto_type ?? ''} />
-            <datalist id="sto-types">
-              {stoTypes.map((t) => <option key={t} value={t} />)}
-            </datalist>
-            <div className="hint">Matched against a Transaction Recovery's own Standing Order type on the salary charge.</div>
-          </div>
-        ) : null}
       </div>
 
       {amountType === 'FIXED' && !salaryBased ? (
@@ -404,13 +377,9 @@ function StandingOrderFields({
       ) : null}
 
       <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-        <div className="field">
-          <label htmlFor="f_transactionChargeId">Charge code</label>
-          <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId} onChange={(e) => setChargeId(e.target.value)}>
-            <option value="">No charge</option>
-            {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Charge code"
+          items={chargeCodes} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+          value={chargeId} onChange={setChargeId} placeholder="No charge" emptyText="No matching charges" />
         {chargeId ? (
           <div className="note" style={{ alignSelf: 'end', paddingBottom: 8 }}>
             Charge amount: <b>{feeAmount != null ? cur(feeAmount) : '…'}</b> (deducted from the source account on top of each posting)

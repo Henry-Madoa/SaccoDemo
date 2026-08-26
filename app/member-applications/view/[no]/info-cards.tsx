@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardHead, DefinitionList, Pill } from '@/components/ui/primitives';
 import { Field, readForm } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useToast } from '@/components/ui/toast';
 import { useBeforeNext, useContinueEditing, useGoNext } from '@/components/ui/client-tabs';
 import { saveMemberApplication } from '@/app/actions/memberApplications';
@@ -80,12 +81,21 @@ export function GeneralInfoCard({
   globalDimension1Values, globalDimension2Values, caption1, caption2, canEdit,
 }: GeneralInfoCardProps) {
   const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no);
+  const [memberCategoryId, setMemberCategoryId] = useState(String(a.member_category_id ?? ''));
+  const [dim1Id, setDim1Id] = useState(String(a.global_dimension_1_id ?? ''));
+  const [dim2Id, setDim2Id] = useState(String(a.global_dimension_2_id ?? ''));
 
   return (
     <Card>
       <CardHead title="General information" sub="Workflow status and routing">
         {canEdit && !editing ? (
-          <button type="button" className="btn sm ghost" onClick={() => setEditing(true)}>Edit</button>
+          <button type="button" className="btn sm ghost"
+            onClick={() => {
+              setMemberCategoryId(String(a.member_category_id ?? ''));
+              setDim1Id(String(a.global_dimension_1_id ?? ''));
+              setDim2Id(String(a.global_dimension_2_id ?? ''));
+              setEditing(true);
+            }}>Edit</button>
         ) : null}
       </CardHead>
 
@@ -106,21 +116,18 @@ export function GeneralInfoCard({
         <>
           <form ref={formRef} onSubmit={(e) => e.preventDefault()}>
             <div className="grid g3">
-              <Field name="member_category_id" label="Member category" type="select" defaultValue={a.member_category_id} required
-                options={[
-                  { value: '', label: 'Select category…' },
-                  ...memberCategories.map((c) => ({ value: c.id, label: c.description })),
-                ]} />
-              <Field name="global_dimension_1_id" label={caption1} type="select" defaultValue={a.global_dimension_1_id} required
-                options={[
-                  { value: '', label: `Select ${caption1.toLowerCase()}…` },
-                  ...globalDimension1Values.map((v) => ({ value: v.id, label: v.name })),
-                ]} />
-              <Field name="global_dimension_2_id" label={caption2} type="select" defaultValue={a.global_dimension_2_id} required
-                options={[
-                  { value: '', label: `Select ${caption2.toLowerCase()}…` },
-                  ...globalDimension2Values.map((v) => ({ value: v.id, label: v.name })),
-                ]} />
+              <SearchableSelect name="member_category_id" label="Member category" required
+                items={memberCategories} getValue={(c) => String(c.id)} getLabel={(c) => c.description}
+                value={memberCategoryId} onChange={setMemberCategoryId}
+                placeholder="Search category…" emptyText="No matching categories" />
+              <SearchableSelect name="global_dimension_1_id" label={caption1} required
+                items={globalDimension1Values} getValue={(v) => String(v.id)} getLabel={(v) => v.name}
+                value={dim1Id} onChange={setDim1Id}
+                placeholder={`Search ${caption1.toLowerCase()}…`} emptyText="No matches" />
+              <SearchableSelect name="global_dimension_2_id" label={caption2} required
+                items={globalDimension2Values} getValue={(v) => String(v.id)} getLabel={(v) => v.name}
+                value={dim2Id} onChange={setDim2Id}
+                placeholder={`Search ${caption2.toLowerCase()}…`} emptyText="No matches" />
             </div>
             <Field name="kyc_verified" label="KYC documents verified" type="checkbox" defaultValue={a.kyc_verified} />
           </form>
@@ -249,13 +256,19 @@ export function ContactInfoCard({
   application: a, counties, subCounties, isIndividual, canEdit, startEditing = false,
 }: ContactInfoCardProps) {
   const { formRef, editing, setEditing, busy, error, goNext } = useInlineEdit(a.no, canEdit && startEditing);
-  const [countyId, setCountyId] = useState<number | ''>(a.county_id ?? '');
+  const [countyId, setCountyId] = useState(String(a.county_id ?? ''));
+  const [subCountyId, setSubCountyId] = useState(String(a.sub_county_id ?? ''));
 
   return (
     <Card>
       <CardHead title="Contact &amp; addresses" sub="How to reach the applicant">
         {canEdit && !editing ? (
-          <button type="button" className="btn sm ghost" onClick={() => setEditing(true)}>Edit</button>
+          <button type="button" className="btn sm ghost"
+            onClick={() => {
+              setCountyId(String(a.county_id ?? ''));
+              setSubCountyId(String(a.sub_county_id ?? ''));
+              setEditing(true);
+            }}>Edit</button>
         ) : null}
       </CardHead>
 
@@ -289,14 +302,16 @@ export function ContactInfoCard({
                 <Field name="postal_address" label="Postal address" defaultValue={a.postal_address} />
               ) : null}
               <Field name="physical_address" label="Physical address" defaultValue={a.physical_address} />
-              <Field name="county_id" label="County" type="select" defaultValue={a.county_id}
-                options={[{ value: '', label: 'Select county…' }, ...counties.map((c) => ({ value: c.id, label: c.name }))]}
-                onChange={(e) => setCountyId(e.target.value ? Number(e.target.value) : '')} />
-              <Field key={countyId} name="sub_county_id" label="Sub-county" type="select" defaultValue={a.sub_county_id}
-                options={[
-                  { value: '', label: countyId ? 'Select sub-county…' : 'Select a county first' },
-                  ...subCounties.filter((s) => s.county_id === countyId).map((s) => ({ value: s.id, label: s.name })),
-                ]} />
+              <SearchableSelect name="county_id" label="County"
+                items={counties} getValue={(c) => String(c.id)} getLabel={(c) => c.name}
+                value={countyId} onChange={(v) => { setCountyId(v); setSubCountyId(''); }}
+                placeholder="Search county…" emptyText="No matching counties" />
+              <SearchableSelect name="sub_county_id" label="Sub-county" disabled={!countyId}
+                items={subCounties.filter((s) => String(s.county_id) === countyId)}
+                getValue={(s) => String(s.id)} getLabel={(s) => s.name}
+                value={subCountyId} onChange={setSubCountyId}
+                placeholder={countyId ? 'Search sub-county…' : 'Select a county first'}
+                emptyText="No matching sub-counties" />
             </div>
           </form>
           <EditActions busy={busy} error={error} onCancel={() => setEditing(false)} onSave={goNext} />

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -228,14 +229,10 @@ function ExitFields({ exitType, setExitType, defaults, instantWithdrawalChargeId
       ) : isInstant ? (
         <div className="hint">Skips the exit notice period and charges the configured Instant Withdrawal fee</div>
       ) : null}
-      <div className="field">
-        <label htmlFor="f_transactionChargeId">Charge code</label>
-        <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId} disabled={isInstant}
-          onChange={(e) => setChargeId(e.target.value)}>
-          <option value="">No charge</option>
-          {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-        </select>
-      </div>
+      <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Charge code"
+        disabled={isInstant} items={chargeCodes} getValue={(c) => String(c.id)}
+        getLabel={(c) => `${c.code} — ${c.description}`} value={chargeId} onChange={setChargeId}
+        placeholder="No charge" emptyText="No matching charges" />
       {chargeId && feeAmount != null ? (
         <div className="note" style={{ marginTop: 8 }}>Charge amount: <b>{cur(feeAmount)}</b></div>
       ) : null}

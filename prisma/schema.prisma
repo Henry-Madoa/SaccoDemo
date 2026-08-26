@@ -1524,16 +1524,15 @@ model member_activation_request {
 ///
 /// Narrowed from AL's fuller scope, matching how every other module in this port trims AL
 /// features this schema/domain has no infrastructure for:
-///   - standing_order_class is INTERNAL (to any of the destination member's own accounts) or
-///     LOAN_REPAYMENT (through lib/loanService.ts's own repay(), which already allocates
+///   - standing_order_class is INTERNAL (to any of the destination member's own accounts),
+///     EXTERNAL (an EFT-style payout through one of the SACCO's own bank/cashbook accounts), or
+///     LOAN (through lib/loanService.ts's own repay(), which already allocates
 ///     interest-then-principal oldest-first — AL's separate Loan-Principal/Loan-Interest/Loan
 ///     Principal+Interest classes are collapsed into this one, since a bespoke principal-only or
-///     interest-only posting exists nowhere else in this app). AL's External (EFT to an outside
-///     bank) is dropped entirely — this schema has no external bank/branch master data.
-///   - "Salary Based" (a priority-ordered deduction integrated with payroll processing) is
-///     dropped — lib/checkoffBatches.ts's own header already declares Standing Orders excluded
-///     from that module for the same reason: no Employer Payroll Details staging table exists
-///     here to prioritise against.
+///     interest-only posting exists nowhere else in this app). AL's own "Standing Order Types"
+///     master (Tab52204075) — a free-text tag layered on top of this same class — is dropped
+///     entirely: the class already identifies which of a member's orders a Transaction
+///     Recovery should sweep, so a second tag would only ever duplicate it.
 ///   - AL's Period DateFormula is simplified to a plain month count (period_months), the same
 ///     kind of simplification organisation.member_exit_notice_days already applies elsewhere.
 ///   - run_type/run_from_day only matter for amount_type = FIXED (AL's own report only gates
@@ -1583,17 +1582,10 @@ model standing_order {
   /// "Salary Based" flag (Tab52204076 field 22) and Rep52204021's `if "Salary Based" then Skip`.
   /// A Salary Based order has no day-of-month schedule of its own (AL enforces this by blocking
   /// "Run From Day" once Salary Based is set); it only ever recovers through Checkoff & Salary
-  /// Processing's own Calculate step, matched to a Transaction Recovery by sto_type — see
-  /// lib/checkoffBatches.ts's calculateCheckoffRecoveries(). Without this exclusion the same
+  /// Processing's own Calculate step, matched to a Transaction Recovery by standing_order_class —
+  /// see lib/checkoffBatches.ts's calculateCheckoffRecoveries(). Without this exclusion the same
   /// order would be swept twice: once here, once by the ordinary daily job.
   salary_based           Boolean             @default(false)
-  /// Free-text tag a Salary Based order carries so a Transaction Recovery's own STANDING_ORDER
-  /// recovery type (lib/types.ts's TransactionRecovery.sto_type) can find it for a given member
-  /// — this port's narrowed stand-in for AL's own "Standing Order Types" master (Tab52204075),
-  /// whose only other fields (its own Charge Code, "Standing Order Class") already exist
-  /// directly on this row (transaction_charge_id, standing_order_class), so a full separate
-  /// table/admin screen would only ever hold this one tag.
-  sto_type               String?
   /// "Document Status" — the approval workflow state. Captioned "Status" in the UI.
   status                 String              @default("Open")
   decision_reason        String?
@@ -2312,11 +2304,10 @@ model checkoff_batch_line {
 }
 
 /// One priority-ordered recovery rule attached to an 'End Month Salary' Transaction Charge —
-/// ported from the AL reference's Tab52204065 "Transaction Recoveries", narrowed to the two
+/// ported from the AL reference's Tab52204065 "Transaction Recoveries", narrowed to the three
 /// recovery types this app can actually act on without further master data: recovering a
-/// member's own payroll-deducted loans, or sweeping/topping-up one of their savings accounts.
-/// (AL's own "Standing Order" recovery type is dropped — this app's Standing Order module
-/// already recovers on its own independent daily schedule, see lib/standingOrders.ts.)
+/// member's own payroll-deducted loans, sweeping/topping-up one of their savings accounts, or
+/// recovering their own salary_based Standing Order(s) directly (see standing_order.salary_based).
 model transaction_recovery {
   id                    Int                @id @default(autoincrement())
   transaction_charge_id Int
@@ -2328,14 +2319,13 @@ model transaction_recovery {
   deduction_type        String?
   /// Required, INTERNAL_DEPOSIT only — which savings product's account to recover into.
   savings_product_id    Int?
-  /// Required, STANDING_ORDER only — matched against a member's own salary_based standing
-  /// order(s) carrying the same sto_type tag. See standing_order.sto_type's own doc comment.
-  sto_type              String?
-  /// STANDING_ORDER only — optionally narrows this recovery to just one class (INTERNAL |
-  /// EXTERNAL | LOAN) of the member's own sto_type-tagged standing orders; null matches any
-  /// class. Configuring multiple STANDING_ORDER recoveries for the same sto_type, each pinned to
-  /// a different class with its own priority, is how "priority per class" is achieved — there is
-  /// no separate per-class priority field, since Transaction Recoveries already orders by row.
+  /// STANDING_ORDER only — matches a member's own salary_based, running standing order(s)
+  /// directly by class (INTERNAL | EXTERNAL | LOAN); null matches any class. The standing order
+  /// itself already carries every other instruction (amount, destination, charge) needed to
+  /// recover it, so no separate type tag is kept here — configuring multiple STANDING_ORDER
+  /// recoveries, each pinned to a different class with its own priority, is how "priority per
+  /// class" is achieved — there is no separate per-class priority field, since Transaction
+  /// Recoveries already orders by row.
   standing_order_class  String?
   priority              Int                @default(1)
   description           String?

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveUser } from '@/app/actions/admin';
 import { USER_STATUSES } from '@/lib/constants';
 import { PASSWORD_RULES } from '@/lib/password';
@@ -18,6 +19,7 @@ export function UserFormButton({ user, roles, className = 'btn', children }: {
   const u = user ?? null;
   const [username, setUsername] = useState(u?.username ?? '');
   const [password, setPassword] = useState('');
+  const [roleId, setRoleId] = useState(String(u?.role_id ?? ''));
 
   return (
     <>
@@ -36,8 +38,9 @@ export function UserFormButton({ user, roles, className = 'btn', children }: {
               onChange={(e) => setUsername(e.target.value)} />
             <Field name="email" label="Email" type="email" defaultValue={u?.email} />
             <Field name="phone" label="Phone" defaultValue={u?.phone} />
-            <Field name="role_id" label="Role" type="select" required defaultValue={u?.role_id}
-              options={roles.map((r) => ({ value: r.id, label: r.name }))} />
+            <SearchableSelect name="role_id" label="Role" required
+              items={roles} getValue={(r) => String(r.id)} getLabel={(r) => r.name}
+              value={roleId} onChange={setRoleId} placeholder="Search role…" emptyText="No matching roles" />
             <Field name="password" type="password" required={!u}
               label={u ? 'Reset password (leave blank to keep)' : 'Password'}
               onChange={(e) => setPassword(e.target.value)} />

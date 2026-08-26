@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field, readForm } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useToast } from '@/components/ui/toast';
 import { Card, CardHead, TableWrap } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
@@ -54,6 +55,7 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
   const [principal, setPrincipal] = useState(loan ? toUnits(loan.principal) : '');
   const [termMonths, setTermMonths] = useState(loan ? String(loan.term_months) : '24');
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
+  const [disburseToAccountId, setDisburseToAccountId] = useState(String(loan?.disburse_to_account_id ?? ''));
   const [appraisal, setAppraisal] = useState<Appraisal | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -124,16 +126,11 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
         <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
           onChange={setMemberId} required />
 
-        <div className="field">
-          <label htmlFor="f_productId">Loan product <span className="req">*</span></label>
-          <select id="f_productId" name="productId" required value={productId}
-            onChange={(e) => setProductId(e.target.value)}>
-            <option value="">— Select a product first —</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name} ({p.interest_rate}% {p.interest_method.toLowerCase()})</option>
-            ))}
-          </select>
-        </div>
+        <SearchableSelect id="f_productId" name="productId" label="Loan product" required
+          items={products} getValue={(p) => String(p.id)}
+          getLabel={(p) => `${p.name} (${p.interest_rate}% ${p.interest_method.toLowerCase()})`}
+          value={productId} onChange={setProductId}
+          placeholder="Search loan product…" emptyText="No matching products" />
 
         <div className="field">
           <label htmlFor="f_principal">Amount applied for <span className="req">*</span></label>
@@ -154,15 +151,12 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
         </div>
         <Field name="purpose" label="Purpose" placeholder="e.g. Business expansion" defaultValue={loan?.purpose ?? ''} />
         {/* Keyed on the loaded account count: accounts arrive async (fetched once memberId is
-            known), and an uncontrolled select only applies defaultValue at mount — remounting
-            once real options exist is what lets Edit's saved disbursement account come back
-            pre-selected instead of silently falling back to "Pay out through the bank". */}
-        <Field key={accounts.length} name="disburseToAccountId" label="Disburse to" type="select"
-          defaultValue={loan?.disburse_to_account_id ?? ''}
-          options={[
-            { value: '', label: 'Pay out through the bank' },
-            ...accounts.map((a) => ({ value: a.id, label: `${a.account_no} — ${a.product_name}` })),
-          ]} />
+            known) — remounting once real options exist is what lets Edit's saved disbursement
+            account resolve to its label instead of showing blank until then. */}
+        <SearchableSelect key={accounts.length} name="disburseToAccountId" label="Disburse to"
+          items={accounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+          value={disburseToAccountId} onChange={setDisburseToAccountId}
+          placeholder="Pay out through the bank" emptyText="No matching accounts" />
         <Field name="recoveryMode" label="Recovery mode" type="select" options={RECOVERY_MODES}
           defaultValue={loan?.recovery_mode ?? 'DIRECT'}
           hint="Checkoff is recovered via Checkoff & Salary Processing batches; Standing Order auto-creates a recurring order for the member's own installment the moment this loan is disbursed" />

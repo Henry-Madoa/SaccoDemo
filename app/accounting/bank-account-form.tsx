@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import { createBankAccount, updateBankAccount } from '@/app/actions/gl';
 import { PRODUCT_STATUSES } from '@/lib/constants';
 import type { BankAccountListRow, GlAccount } from '@/lib/types';
@@ -15,10 +16,11 @@ export function BankAccountFormButton({ bankAccount, postableAccounts, className
 }) {
   const [open, setOpen] = useState(false);
   const b = bankAccount ?? null;
+  const [glAccountId, setGlAccountId] = useState('');
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>{children}</button>
+      <button type="button" className={className} onClick={() => { setGlAccountId(''); setOpen(true); }}>{children}</button>
       {open ? (
         <FormModal
           title={b ? `Edit ${b.code} — ${b.name}` : 'Add a bank account'}
@@ -32,9 +34,9 @@ export function BankAccountFormButton({ bankAccount, postableAccounts, className
           {b ? (
             <Field name="gl_account_id" label="G/L control account" defaultValue={`${b.gl_account_code} — ${b.gl_account_name}`} disabled />
           ) : (
-            <Field
-              name="gl_account_id" label="G/L control account" type="select" required
-              options={postableAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` }))}
+            <GlAccountSelect
+              name="gl_account_id" label="G/L control account" required
+              accounts={postableAccounts} value={glAccountId} onChange={setGlAccountId}
               hint="Gets flagged no-direct-posting — only Savings/Loans/Bank Reconciliation can post to it afterwards"
             />
           )}

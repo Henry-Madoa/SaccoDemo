@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -162,7 +164,7 @@ const PAY_FROM_OPTIONS: { value: PayFromAccountType; label: string }[] = [
  */
 function ChargeFields({
   memberId, chargeId, setChargeId, payFromAccountType, setPayFromAccountType,
-  debitAccountId, setDebitAccountId, autoSelectFirst,
+  debitAccountId, setDebitAccountId,
 }: {
   memberId: string;
   chargeId: string;
@@ -171,7 +173,6 @@ function ChargeFields({
   setPayFromAccountType: (v: PayFromAccountType) => void;
   debitAccountId: string;
   setDebitAccountId: (v: string) => void;
-  autoSelectFirst?: boolean;
 }) {
   const { cur } = useFormat();
   const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
@@ -180,11 +181,8 @@ function ChargeFields({
 
   useEffect(() => {
     listMemberActivationChargeCodes().then((res) => {
-      if (!res.ok) return;
-      setChargeCodes(res.data);
-      if (autoSelectFirst) setChargeId(chargeId || String(res.data[0]?.id ?? ''));
+      if (res.ok) setChargeCodes(res.data);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -212,14 +210,9 @@ function ChargeFields({
   return (
     <>
       <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-        <div className="field">
-          <label htmlFor="f_transactionChargeId">Reactivation charge</label>
-          <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId}
-            onChange={(e) => setChargeId(e.target.value)}>
-            <option value="">No charge</option>
-            {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Reactivation charge"
+          items={chargeCodes} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+          value={chargeId} onChange={setChargeId} placeholder="No charge" emptyText="No matching charges" />
         <div className="field">
           <label htmlFor="f_payFromAccountType">Pay from</label>
           <select id="f_payFromAccountType" name="payFromAccountType" value={payFromAccountType}
@@ -231,14 +224,11 @@ function ChargeFields({
       </div>
 
       {chargeId && payFromAccountType === 'MEMBER_ACCOUNT' ? (
-        <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-          <label htmlFor="f_debitAccountId">Debit account <span className="req">*</span></label>
-          <select id="f_debitAccountId" name="debitAccountId" required value={debitAccountId}
-            onChange={(e) => setDebitAccountId(e.target.value)}>
-            <option value="">Select account…</option>
-            {debitAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_debitAccountId" name="debitAccountId" label="Debit account" required
+          items={debitAccounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+          value={debitAccountId} onChange={setDebitAccountId}
+          placeholder="Search account…" emptyText="No matching accounts"
+          style={{ marginTop: 'calc(var(--sp)*1.5)' }} />
       ) : null}
 
       {chargeId && payFromAccountType === 'CASH' ? (
@@ -291,23 +281,16 @@ function NewRequestForm({ presetMemberId, onClose }: NewRequestFormProps) {
       successTitle="Request captured"
       successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
     >
-      <div className="field">
-        <label htmlFor="f_memberId">Member <span className="req">*</span></label>
-        <select id="f_memberId" name="memberId" required value={memberId}
-          onChange={(e) => { setMemberId(e.target.value); setDebitAccountId(''); }}>
-          {members.length ? null : <option value="">No Dormant members available</option>}
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
-          ))}
-        </select>
-      </div>
+      <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
+        onChange={(id) => { setMemberId(id); setDebitAccountId(''); }} required
+        placeholder={members.length ? 'Search member no. or name…' : 'No Dormant members available'} />
 
       <Field name="reason" label="Reason" type="textarea" required />
 
       <ChargeFields
         memberId={memberId} chargeId={chargeId} setChargeId={setChargeId}
         payFromAccountType={payFromAccountType} setPayFromAccountType={setPayFromAccountType}
-        debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId} autoSelectFirst
+        debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId}
       />
     </FormModal>
   );

@@ -7,7 +7,7 @@ import {
   createStandingOrder, updateStandingOrder, submitStandingOrder, cancelStandingOrderApproval,
   approveStandingOrder, rejectStandingOrder, terminateStandingOrder, freezeStandingOrder, unfreezeStandingOrder,
   runStandingOrders, eligibleSourceAccountsForMember, eligibleDestinationAccountsForMember,
-  eligibleDestinationLoansForMember, listDistinctStoTypes, type StandingOrderInput,
+  eligibleDestinationLoansForMember, type StandingOrderInput,
 } from '@/lib/standingOrders';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import { listTransactionChargesByType, previewTransactionChargeById } from '@/lib/charges';
@@ -36,7 +36,6 @@ const toInput = (values: FormValues): StandingOrderInput => ({
   periodMonths: values.periodMonths ? Number(values.periodMonths) : null,
   transactionChargeId: values.transactionChargeId ? Number(values.transactionChargeId) : null,
   salaryBased: !!Number(values.salaryBased || 0),
-  stoType: values.stoType ? String(values.stoType) : null,
 });
 
 export async function requestStandingOrder(values: FormValues): Promise<ActionResult<{ no: string }>> {
@@ -194,18 +193,5 @@ export async function previewStandingOrderChargeAmount(transactionChargeId: numb
   return actionResult(async () => {
     await requireAction('STANDING_ORDERS_CREATE');
     return previewTransactionChargeById(transactionChargeId, 0);
-  });
-}
-
-/** Autocomplete source for a salary-based order's own "Standing order type" tag — every
- *  distinct tag already in use, so an officer can match an existing one instead of retyping
- *  (and risking a typo that would silently exclude it from a Transaction Recovery's own match).
- *  Used from both the Standing Order form and the Transaction Charges admin form (configuring a
- *  STANDING_ORDER recovery's own tag), which don't share a single permission — just a signed-in
- *  user, since this exposes nothing beyond a handful of free-text tags. */
-export async function listStandingOrderStoTypes(): Promise<ActionResult<string[]>> {
-  return actionResult(async () => {
-    await requireUser();
-    return listDistinctStoTypes();
   });
 }

@@ -95,8 +95,8 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
         <DocumentActionsMenu />
       </Toolbar>
 
-      <div className="grid g2">
-        <CollapsibleCard title="Order details" sub="What this order does">
+      <CollapsibleCard title="Order details" sub="What this order does">
+        <div className="grid g2">
           <DefinitionList items={[
             ['Order no.', <span className="mono" key="no">{order.no}</span>],
             ['Member', <>{order.member_first_name} {order.member_last_name} <span className="mono">({order.member_no})</span></>],
@@ -109,6 +109,9 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
                 ? ['Pay through', <span className="mono" key="bank">{order.destination_bank_account_code} — {order.destination_bank_account_name}</span>]
                 : ['Loan to repay', <span className="mono" key="loan">{order.destination_loan_no}</span>],
             ['Posting description', order.posting_description || '—'],
+          ]} />
+
+          <DefinitionList items={[
             ['Amount type', label(STANDING_ORDER_AMOUNT_TYPES, order.amount_type)],
             order.amount_type === 'FIXED' ? ['Amount', <Money cents={order.amount} key="amount" />] : null,
             order.amount_type === 'AMOUNT_BASED' ? ['Amount limit', <Money cents={order.amount_limit} key="limit" />] : null,
@@ -122,18 +125,18 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
             ['Status', <Pill status={order.status} key="status" />],
             order.decision_reason ? ['Decision reason', order.decision_reason] : null,
           ]} />
-        </CollapsibleCard>
+        </div>
+      </CollapsibleCard>
 
-        <CollapsibleCard title="Document trail" sub="Who requested this order, and when">
-          <DefinitionList items={[
-            ['Created by', order.created_by || '—'],
-            ['Created on', formatDateTime(order.created_at)],
-            ['Live', live
-              ? <Pill tone="ok" key="live">YES — running on its own schedule</Pill>
-              : <Pill tone={order.terminated ? '' : 'warn'} key="live">{order.terminated ? 'TERMINATED' : 'NOT YET'}</Pill>],
-          ]} />
-        </CollapsibleCard>
-      </div>
+      <CollapsibleCard title="Document trail" sub="Who requested this order, and when">
+        <DefinitionList items={[
+          ['Created by', order.created_by || '—'],
+          ['Created on', formatDateTime(order.created_at)],
+          ['Live', live
+            ? <Pill tone="ok" key="live">YES — running on its own schedule</Pill>
+            : <Pill tone={order.terminated ? '' : 'warn'} key="live">{order.terminated ? 'TERMINATED' : 'NOT YET'}</Pill>],
+        ]} />
+      </CollapsibleCard>
 
       {order.status === 'Approved' ? (
         <CollapsibleCard title="Run history" sub={`${history.length} posting${history.length === 1 ? '' : 's'} so far`}>

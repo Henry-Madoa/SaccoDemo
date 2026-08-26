@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -77,11 +78,11 @@ export function PostButton({ no, amount = null, className = 'btn sm' }: {
  * Source Account + Charge Code + (conditionally) No Of Pages, with a live fee/available-balance
  * preview — shared by the New Document form and the Edit button for an Open document. Source
  * Account is Table 52204206's "resolved" withdrawable deposit account: since a member can hold
- * more than one, this presents whichever the member has as a picklist (auto-selecting the
- * first) rather than guessing.
+ * more than one, this presents whichever the member has as a searchable picklist rather than
+ * guessing.
  */
 function ChargeFields({
-  memberId, sourceAccountId, setSourceAccountId, chargeId, setChargeId, noOfPages, setNoOfPages, autoSelectFirst,
+  memberId, sourceAccountId, setSourceAccountId, chargeId, setChargeId, noOfPages, setNoOfPages,
 }: {
   memberId: string;
   sourceAccountId: string;
@@ -90,10 +91,6 @@ function ChargeFields({
   setChargeId: (v: string) => void;
   noOfPages: string;
   setNoOfPages: (v: string) => void;
-  /** New documents default to the first configured Charge Code / withdrawable account so a fee
-   *  preview is visible immediately; editing an existing document must never override what was
-   *  already (possibly deliberately) chosen. */
-  autoSelectFirst?: boolean;
 }) {
   const { cur } = useFormat();
   const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
@@ -103,12 +100,8 @@ function ChargeFields({
   // Charge Codes don't depend on the member — fetched once.
   useEffect(() => {
     memberChargingChargeCodes().then((res) => {
-      if (!res.ok) return;
-      setChargeCodes(res.data);
-      if (autoSelectFirst) setChargeId(chargeId || String(res.data[0]?.id ?? ''));
+      if (res.ok) setChargeCodes(res.data);
     });
-    // Only ever runs once per mount — chargeId/setChargeId are read at that moment on purpose.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The member's withdrawable accounts — refetched whenever the member changes.
@@ -116,13 +109,9 @@ function ChargeFields({
     let cancelled = false;
     if (!memberId) { setSourceAccounts([]); return; }
     accountsForMemberCharging(Number(memberId)).then((res) => {
-      if (cancelled) return;
-      const list = res.ok ? res.data : [];
-      setSourceAccounts(list);
-      if (autoSelectFirst) setSourceAccountId(String(list[0]?.id ?? ''));
+      if (!cancelled) setSourceAccounts(res.ok ? res.data : []);
     });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId]);
 
   // GetChargesAmount(Charge Code, No Of Pages) — recalculated on either input changing.
@@ -144,24 +133,17 @@ function ChargeFields({
 
   return (
     <>
-      <div className="field" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-        <label htmlFor="f_sourceAccountId">Source account <span className="req">*</span></label>
-        <select id="f_sourceAccountId" name="sourceAccountId" required value={sourceAccountId}
-          disabled={!memberId} onChange={(e) => setSourceAccountId(e.target.value)}>
-          {sourceAccounts.length ? null : <option value="">No withdrawable account for this member</option>}
-          {sourceAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
-        </select>
-      </div>
+      <SearchableSelect id="f_sourceAccountId" name="sourceAccountId" label="Source account" required
+        disabled={!memberId} items={sourceAccounts} getValue={(a) => String(a.id)}
+        getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+        value={sourceAccountId} onChange={setSourceAccountId}
+        placeholder={sourceAccounts.length ? 'Search account…' : 'No withdrawable account for this member'}
+        emptyText="No matching accounts" style={{ marginTop: 'calc(var(--sp)*1.5)' }} />
 
       <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-        <div className="field">
-          <label htmlFor="f_transactionChargeId">Charge code <span className="req">*</span></label>
-          <select id="f_transactionChargeId" name="transactionChargeId" required value={chargeId}
-            onChange={(e) => setChargeId(e.target.value)}>
-            <option value="">Select…</option>
-            {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Charge code" required
+          items={chargeCodes} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+          value={chargeId} onChange={setChargeId} placeholder="Search charge…" emptyText="No matching charges" />
         {isStatementCharge ? (
           <div className="field">
             <label htmlFor="f_noOfPages">No. of pages <span className="req">*</span></label>
@@ -214,7 +196,6 @@ function NewDocumentForm({ members, presetMemberId, onClose }: NewDocumentFormPr
       <ChargeFields
         memberId={memberId} sourceAccountId={sourceAccountId} setSourceAccountId={setSourceAccountId}
         chargeId={chargeId} setChargeId={setChargeId} noOfPages={noOfPages} setNoOfPages={setNoOfPages}
-        autoSelectFirst
       />
 
       <Field name="description" label="Description" type="textarea" required />

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -170,6 +171,8 @@ function CollateralFields({ defaults, category, setCategory, counties }: {
   counties: CountyOption[];
 }) {
   const [types, setTypes] = useState<CollateralType[]>([]);
+  const [collateralTypeId, setCollateralTypeId] = useState(String(defaults?.collateral_type_id ?? ''));
+  const [countyId, setCountyId] = useState(String(defaults?.county_id ?? ''));
 
   useEffect(() => {
     if (!category) { setTypes([]); return; }
@@ -193,24 +196,22 @@ function CollateralFields({ defaults, category, setCategory, counties }: {
         <div className="field">
           <label htmlFor="f_category">Category <span className="req">*</span></label>
           <select id="f_category" name="category" required value={category}
-            onChange={(e) => setCategory(e.target.value)}>
+            onChange={(e) => { setCategory(e.target.value); setCollateralTypeId(''); }}>
             {COLLATERAL_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
-        <div className="field">
-          <label htmlFor="f_collateralTypeId">Collateral Type <span className="req">*</span></label>
-          <select id="f_collateralTypeId" name="collateralTypeId" required
-            defaultValue={defaults?.collateral_type_id ?? ''}>
-            {candidateTypes.map((t) => <option key={t.id} value={t.id}>{t.code}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_collateralTypeId" name="collateralTypeId" label="Collateral Type" required
+          items={candidateTypes} getValue={(t) => String(t.id)} getLabel={(t) => t.code}
+          value={collateralTypeId} onChange={setCollateralTypeId}
+          placeholder="Search collateral type…" emptyText="No matching types" />
         <Field name="collateralValueSh" label="Collateral value (market/appraised)" type="number" step="0.01" required
           defaultValue={defaults?.collateral_value !== undefined ? toUnits(defaults.collateral_value) : ''} />
         <Field name="serialRegNo" label="Serial / Registration No." required
           defaultValue={defaults?.serial_reg_no ?? ''}
           hint="Vehicle registration or title deed number — must be unique unless multi-linked" />
-        <Field name="countyId" label="County" type="select" defaultValue={defaults?.county_id ?? ''}
-          options={[{ value: '', label: '—' }, ...counties.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect name="countyId" label="County"
+          items={counties} getValue={(c) => String(c.id)} getLabel={(c) => c.name}
+          value={countyId} onChange={setCountyId} placeholder="Search county…" emptyText="No matching counties" />
         <Field name="ownerName" label="Owner name" defaultValue={defaults?.owner_name ?? ''}
           hint="May differ from the member — see Joint Ownership" />
         <Field name="ownerIdNo" label="Owner ID no." defaultValue={defaults?.owner_id_no ?? ''} />

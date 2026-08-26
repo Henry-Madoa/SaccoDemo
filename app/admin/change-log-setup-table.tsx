@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   saveChangeLogSetup, addChangeLogSetupTable, removeChangeLogSetupTable,
 } from '@/app/actions/changeLog';
@@ -99,15 +100,13 @@ export function ChangeLogSetupTable({ setup, available }: {
         </tbody>
       </table>
       <div className="inline" style={{ marginTop: 8 }}>
-        <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Table to add"
-          style={{ flex: 1 }} disabled={!available.length}>
-          <option value="">
-            {available.length ? 'Select a table…' : 'Every table in the database is already tracked'}
-          </option>
-          {available.map((t) => (
-            <option key={t.table_name} value={t.table_name}>{t.table_caption} ({t.table_name})</option>
-          ))}
-        </select>
+        <div style={{ flex: 1 }}>
+          <SearchableSelect name="pickedTable" ariaLabel="Table to add" disabled={!available.length}
+            items={available} getValue={(t) => t.table_name} getLabel={(t) => `${t.table_caption} (${t.table_name})`}
+            value={picked} onChange={setPicked}
+            placeholder={available.length ? 'Search table…' : 'Every table in the database is already tracked'}
+            emptyText="No matching tables" />
+        </div>
         <button type="button" className="btn sm" disabled={!picked || busy === '__add'} onClick={add}>
           Add table
         </button>

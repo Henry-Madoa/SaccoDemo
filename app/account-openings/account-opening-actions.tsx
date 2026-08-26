@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -192,16 +193,11 @@ export function EditButton({ request, members, className = 'btn sm ghost', junio
           <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
             onChange={(id) => { setMemberId(id); setProductId(''); }} required />
 
-          <div className="field">
-            <label htmlFor="f_productId">Product <span className="req">*</span></label>
-            <select id="f_productId" name="productId" required value={productId}
-              onChange={(e) => setProductId(e.target.value)}>
-              {candidates.length ? null : <option value="">No eligible products for this member</option>}
-              {candidates.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-              ))}
-            </select>
-          </div>
+          <SearchableSelect id="f_productId" name="productId" label="Product" required
+            items={candidates} getValue={(p) => String(p.id)} getLabel={(p) => `${p.name} (${p.code})`}
+            value={productId} onChange={setProductId}
+            placeholder={candidates.length ? 'Search product…' : 'No eligible products for this member'}
+            emptyText="No matching products" />
           <Field name="notes" label="Notes" type="textarea" defaultValue={request.notes ?? ''} />
 
           {product?.is_business_account ? <BusinessFields defaults={request} /> : null}
@@ -276,9 +272,7 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
     if (!memberId) { setProducts([]); return; }
     eligibleProductsForMember(Number(memberId)).then((res) => {
       if (cancelled) return;
-      const list = res.ok ? res.data : [];
-      setProducts(list);
-      setProductId(String(list[0]?.id ?? ''));
+      setProducts(res.ok ? res.data : []);
     });
     return () => { cancelled = true; };
   }, [memberId]);
@@ -295,18 +289,13 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
       successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
     >
       <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
-        onChange={setMemberId} required />
+        onChange={(id) => { setMemberId(id); setProductId(''); }} required />
 
-      <div className="field">
-        <label htmlFor="f_productId">Product <span className="req">*</span></label>
-        <select id="f_productId" name="productId" required value={productId}
-          onChange={(e) => setProductId(e.target.value)}>
-          {products.length ? null : <option value="">No eligible products for this member</option>}
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-          ))}
-        </select>
-      </div>
+      <SearchableSelect id="f_productId" name="productId" label="Product" required
+        items={products} getValue={(p) => String(p.id)} getLabel={(p) => `${p.name} (${p.code})`}
+        value={productId} onChange={setProductId}
+        placeholder={products.length ? 'Search product…' : 'No eligible products for this member'}
+        emptyText="No matching products" />
 
       <Field name="notes" label="Notes" type="textarea" />
 

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -186,6 +187,7 @@ interface NewReleaseFormProps {
 }
 
 function NewReleaseForm({ collateral, presetCollateralNo, onClose }: NewReleaseFormProps) {
+  const [collateralNo, setCollateralNo] = useState(presetCollateralNo ?? '');
   return (
     <FormModal
       wide
@@ -196,12 +198,10 @@ function NewReleaseForm({ collateral, presetCollateralNo, onClose }: NewReleaseF
       successTitle="Release captured"
       successDetail={(d) => `${d.no} saved — send it for approval once the loan balance it secures is cleared`}
     >
-      <div className="field">
-        <label htmlFor="f_collateralNo">Collateral <span className="req">*</span></label>
-        <select id="f_collateralNo" name="collateralNo" required defaultValue={presetCollateralNo ?? collateral[0]?.no ?? ''}>
-          {collateral.map((c) => <option key={c.no} value={c.no}>{collateralLabel(c)}</option>)}
-        </select>
-      </div>
+      <SearchableSelect id="f_collateralNo" name="collateralNo" label="Collateral" required
+        items={collateral} getValue={(c) => c.no} getLabel={collateralLabel}
+        value={collateralNo} onChange={setCollateralNo}
+        placeholder="Search collateral…" emptyText="No matching collateral" />
       <CollectorFields />
     </FormModal>
   );
@@ -267,13 +267,10 @@ export function EditButton({ release, collateral, className = 'btn sm ghost' }: 
           submitLabel="Save changes"
           successTitle="Release updated"
         >
-          <div className="field">
-            <label htmlFor="f_collateralNo">Collateral <span className="req">*</span></label>
-            <select id="f_collateralNo" name="collateralNo" required value={collateralNo}
-              onChange={(e) => setCollateralNo(e.target.value)}>
-              {candidates.map((c) => <option key={c.no} value={c.no}>{collateralLabel(c)}</option>)}
-            </select>
-          </div>
+          <SearchableSelect id="f_collateralNo" name="collateralNo" label="Collateral" required
+            items={candidates} getValue={(c) => c.no} getLabel={collateralLabel}
+            value={collateralNo} onChange={setCollateralNo}
+            placeholder="Search collateral…" emptyText="No matching collateral" />
           <CollectorFields defaults={release} />
         </FormModal>
       ) : null}

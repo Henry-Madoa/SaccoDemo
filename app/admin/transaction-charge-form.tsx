@@ -1,10 +1,11 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountSelect } from '@/components/ui/gl-account-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveTransactionCharge } from '@/app/actions/charges';
-import { listStandingOrderStoTypes } from '@/app/actions/standingOrders';
 import {
   TariffMatrix, emptyBand, bandFromScheme, bandToDraft, schemeSummary, type SchemeBandRow,
 } from '@/components/admin/tariff-matrix';
@@ -26,7 +27,6 @@ interface RecoveryRow {
   recovery_type: TransactionRecoveryType;
   deduction_type: TransactionRecoveryDeductionType | '';
   savings_product_id: number | '';
-  sto_type: string;
   /** '' = any class. */
   standing_order_class: StandingOrderClass | '';
   priority: number;
@@ -35,7 +35,7 @@ interface RecoveryRow {
 }
 
 const emptyRecoveryRow = (priority: number): RecoveryRow => ({
-  recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', savings_product_id: '', sto_type: '', standing_order_class: '',
+  recovery_type: 'LOAN', deduction_type: 'INSTALLMENT', savings_product_id: '', standing_order_class: '',
   priority, description: '', status: 'ACTIVE',
 });
 
@@ -89,14 +89,10 @@ export function TransactionChargeFormButton({
   });
   const [recoveryRows, setRecoveryRows] = useState<RecoveryRow[]>(() => (tc?.recoveries ?? []).map((r) => ({
     recovery_type: r.recovery_type, deduction_type: r.deduction_type ?? '',
-    savings_product_id: r.savings_product_id ?? '', sto_type: r.sto_type ?? '',
+    savings_product_id: r.savings_product_id ?? '',
     standing_order_class: r.standing_order_class ?? '', priority: r.priority,
     description: r.description ?? '', status: r.status,
   })));
-  const [stoTypes, setStoTypes] = useState<string[]>([]);
-  useEffect(() => {
-    listStandingOrderStoTypes().then((res) => { if (res.ok) setStoTypes(res.data); });
-  }, []);
   // Which component's Tariff Matrix is currently expanded — at most one at a time keeps the
   // already-tall components table from growing unmanageably.
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -129,7 +125,6 @@ export function TransactionChargeFormButton({
     recovery_type: r.recovery_type,
     deduction_type: r.recovery_type === 'STANDING_ORDER' ? null : (r.deduction_type || null),
     savings_product_id: r.recovery_type === 'INTERNAL_DEPOSIT' ? (Number(r.savings_product_id) || null) : null,
-    sto_type: r.recovery_type === 'STANDING_ORDER' ? (r.sto_type.trim() || null) : null,
     standing_order_class: r.recovery_type === 'STANDING_ORDER' ? (r.standing_order_class || null) : null,
     priority: r.priority,
     description: r.description.trim() || null,
@@ -181,18 +176,15 @@ export function TransactionChargeFormButton({
                   <Fragment key={i}>
                     <tr>
                       <td>
-                        <select value={row.charge_id} aria-label="Charge"
-                          onChange={(e) => update(i, { charge_id: e.target.value ? Number(e.target.value) : '' })}>
-                          <option value="">Select…</option>
-                          {charges.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-                        </select>
+                        <SearchableSelect name={`chargeComponentCharge${i}`} ariaLabel="Charge"
+                          items={charges} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+                          value={String(row.charge_id || '')}
+                          onChange={(v) => update(i, { charge_id: v ? Number(v) : '' })} />
                       </td>
                       <td>
-                        <select value={row.gl_account_id} aria-label="Post to account"
-                          onChange={(e) => update(i, { gl_account_id: e.target.value ? Number(e.target.value) : '' })}>
-                          <option value="">Select…</option>
-                          {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                        </select>
+                        <GlAccountSelect name={`chargeComponentGlAccount${i}`} ariaLabel="Post to account"
+                          accounts={accounts} value={String(row.gl_account_id || '')}
+                          onChange={(v) => update(i, { gl_account_id: v ? Number(v) : '' })} />
                       </td>
                       <td>
                         <select value={row.calculation_type} aria-label="Calculation type"
@@ -270,12 +262,12 @@ export function TransactionChargeFormButton({
                 Runs in Priority order, after charge components, against whatever remains of the
                 amount remitted for a member on a salary-processing batch. A Loan recovery pays
                 down the member's own payroll-deducted loans; a Standing Order recovery pays a
-                member's own salary-based standing order(s) tagged with the given type (see
-                Standing Orders — Salary based) — leave its class as "Any class" to match every
-                one of that type regardless of class, or pin it to Internal/External/Loan and add
-                a separate row per class to give each its own priority; an Internal Deposit
-                recovery sweeps or tops up one of their savings accounts. Used by Checkoff &amp;
-                Salary Processing's Calculate step.
+                member's own salary-based standing order(s) directly (see Standing Orders — Salary
+                based) — leave its class as "Any class" to match every one of the member's
+                salary-based orders, or pin it to Internal/External/Loan and add a separate row
+                per class to give each its own priority; an Internal Deposit recovery sweeps or
+                tops up one of their savings accounts. Used by Checkoff &amp; Salary Processing's
+                Calculate step.
               </div>
               <div style={{ overflowX: 'auto', marginTop: 8 }}>
                 <table>
@@ -295,7 +287,7 @@ export function TransactionChargeFormButton({
                               updateRecovery(i, {
                                 recovery_type: nextType,
                                 deduction_type: nextType === 'LOAN' ? 'INSTALLMENT' : nextType === 'INTERNAL_DEPOSIT' ? 'FULL_REMAINING' : '',
-                                savings_product_id: '', sto_type: '',
+                                savings_product_id: '',
                               });
                             }}>
                             {TRANSACTION_RECOVERY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -303,19 +295,11 @@ export function TransactionChargeFormButton({
                         </td>
                         <td>
                           {row.recovery_type === 'STANDING_ORDER' ? (
-                            <div className="inline" style={{ gap: 6 }}>
-                              <input type="text" list="sto-type-options" value={row.sto_type} aria-label="Standing order type"
-                                placeholder="Standing order type" style={{ width: 130 }}
-                                onChange={(e) => updateRecovery(i, { sto_type: e.target.value })} />
-                              <datalist id="sto-type-options">
-                                {stoTypes.map((t) => <option key={t} value={t} />)}
-                              </datalist>
-                              <select value={row.standing_order_class} aria-label="Standing order class"
-                                onChange={(e) => updateRecovery(i, { standing_order_class: e.target.value as StandingOrderClass | '' })}>
-                                <option value="">Any class</option>
-                                {STANDING_ORDER_CLASSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                              </select>
-                            </div>
+                            <select value={row.standing_order_class} aria-label="Standing order class"
+                              onChange={(e) => updateRecovery(i, { standing_order_class: e.target.value as StandingOrderClass | '' })}>
+                              <option value="">Any class</option>
+                              {STANDING_ORDER_CLASSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                            </select>
                           ) : (
                             <div className="inline" style={{ gap: 6 }}>
                               <select value={row.deduction_type} aria-label="Deduction type"
@@ -324,11 +308,10 @@ export function TransactionChargeFormButton({
                                   .map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                               </select>
                               {row.recovery_type === 'INTERNAL_DEPOSIT' ? (
-                                <select value={row.savings_product_id} aria-label="Savings product"
-                                  onChange={(e) => updateRecovery(i, { savings_product_id: e.target.value ? Number(e.target.value) : '' })}>
-                                  <option value="">Select product…</option>
-                                  {savingsProducts.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
-                                </select>
+                                <SearchableSelect name={`recoverySavingsProduct${i}`} ariaLabel="Savings product"
+                                  items={savingsProducts} getValue={(p) => String(p.id)} getLabel={(p) => `${p.code} — ${p.name}`}
+                                  value={String(row.savings_product_id || '')}
+                                  onChange={(v) => updateRecovery(i, { savings_product_id: v ? Number(v) : '' })} />
                               ) : null}
                             </div>
                           )}

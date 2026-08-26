@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useFormat } from '@/components/ui/format-provider';
 import { useResultDialog } from '@/components/ui/result-dialog';
@@ -169,6 +170,7 @@ function PayModeExtraFields({ payMode }: { payMode: PayMode | '' }) {
 export function DisburseButton({ loan, bankAccounts }: { loan: LoanFull; bankAccounts: BankAccount[] }) {
   const [open, setOpen] = useState(false);
   const [payMode, setPayMode] = useState<PayMode | ''>('');
+  const [bankAccountId, setBankAccountId] = useState('');
   const { cur } = useFormat();
   // A member-savings-account target is decided when the loan itself was applied for/edited —
   // no Payment Channel is offered here at all in that case, since no bank/cashbook is touched.
@@ -194,11 +196,10 @@ export function DisburseButton({ loan, bankAccounts }: { loan: LoanFull; bankAcc
           <Field name="valueDate" label="Value date" type="date" defaultValue={today()} required />
           {isPayout ? (
             <>
-              <Field name="bankAccountId" label="Bank/Cashbook account" type="select" required
-                options={[
-                  { value: '', label: 'Select…' },
-                  ...bankAccounts.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}` })),
-                ]} />
+              <SearchableSelect name="bankAccountId" label="Bank/Cashbook account" required
+                items={bankAccounts} getValue={(b) => String(b.id)} getLabel={(b) => `${b.code} — ${b.name}`}
+                value={bankAccountId} onChange={setBankAccountId}
+                placeholder="Search bank/cashbook account…" emptyText="No matching accounts" />
               <Field name="payMode" label="Pay mode" type="select" required
                 options={[{ value: '', label: 'Select…' }, ...PAY_MODES]}
                 onChange={(e) => setPayMode(e.target.value as PayMode)} />
@@ -221,6 +222,7 @@ export function RepayButton({ loan, accounts, bankAccounts }: {
   const owed = loan.principal_balance + loan.interest_balance + loan.penalty_balance;
   const [fromSavingsAccountId, setFromSavingsAccountId] = useState('');
   const [payMode, setPayMode] = useState<PayMode | ''>('');
+  const [repayBankAccountId, setRepayBankAccountId] = useState('');
   // Debiting a member's own account never touches a bank/cashbook — Payment Channel/Pay Mode
   // only apply to an actual external (cash/bank/mpesa/cheque) receipt.
   const isExternal = !fromSavingsAccountId;
@@ -245,22 +247,17 @@ export function RepayButton({ loan, accounts, bankAccounts }: {
           </div>
           <Field name="amount" label="Amount received" type="number" step="0.01" required
             defaultValue={toUnits(loan.installment)} />
-          <Field name="fromSavingsAccountId" label="Debit a member account instead" type="select"
-            options={[
-              { value: '', label: 'No — cash / external receipt' },
-              ...accounts.map((a) => ({
-                value: a.id,
-                label: `${a.account_no} — ${a.product_name} (${cur(a.balance)})`,
-              })),
-            ]}
-            onChange={(e) => setFromSavingsAccountId(e.target.value)} />
+          <SearchableSelect name="fromSavingsAccountId" label="Debit a member account instead"
+            items={accounts} getValue={(a) => String(a.id)}
+            getLabel={(a) => `${a.account_no} — ${a.product_name} (${cur(a.balance)})`}
+            value={fromSavingsAccountId} onChange={setFromSavingsAccountId}
+            placeholder="No — cash / external receipt" emptyText="No matching accounts" />
           {isExternal ? (
             <>
-              <Field name="bankAccountId" label="Bank/Cashbook account" type="select" required
-                options={[
-                  { value: '', label: 'Select…' },
-                  ...bankAccounts.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}` })),
-                ]} />
+              <SearchableSelect name="bankAccountId" label="Bank/Cashbook account" required
+                items={bankAccounts} getValue={(b) => String(b.id)} getLabel={(b) => `${b.code} — ${b.name}`}
+                value={repayBankAccountId} onChange={setRepayBankAccountId}
+                placeholder="Search bank/cashbook account…" emptyText="No matching accounts" />
               <Field name="payMode" label="Pay mode" type="select" required
                 options={[{ value: '', label: 'Select…' }, ...PAY_MODES]}
                 onChange={(e) => setPayMode(e.target.value as PayMode)} />
@@ -291,7 +288,6 @@ export function AttachCollateralButton({ loanId, memberId, className = 'btn sm g
     availableCollateralForMember(memberId).then((res) => {
       if (cancelled || !res.ok) return;
       setAvailable(res.data);
-      setCollateralNo(res.data[0]?.no ?? '');
     });
     return () => { cancelled = true; };
   }, [open, memberId]);
@@ -311,17 +307,11 @@ export function AttachCollateralButton({ loanId, memberId, className = 'btn sm g
         >
           {available.length ? (
             <>
-              <div className="field">
-                <label htmlFor="f_collateralNo">Collateral <span className="req">*</span></label>
-                <select id="f_collateralNo" name="collateralNo" required value={collateralNo}
-                  onChange={(e) => setCollateralNo(e.target.value)}>
-                  {available.map((c) => (
-                    <option key={c.no} value={c.no}>
-                      {c.no} — {c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left {cur(c.collateral_balance)})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SearchableSelect name="collateralNo" label="Collateral" required
+                items={available} getValue={(c) => c.no}
+                getLabel={(c) => `${c.no} — ${c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left ${cur(c.collateral_balance)})`}
+                value={collateralNo} onChange={setCollateralNo}
+                placeholder="Search collateral…" emptyText="No matching collateral" />
               <Field name="guaranteeSh" label="Cover to draw from this item" type="number" step="0.01" required
                 defaultValue={chosen ? toUnits(chosen.collateral_balance) : ''}
                 hint={chosen ? `Up to ${cur(chosen.collateral_balance)} still available` : undefined} />
@@ -381,7 +371,6 @@ export function AttachFdSecurityButton({ loanId, memberId, className = 'btn sm g
     availableFdForMember(memberId).then((res) => {
       if (cancelled || !res.ok) return;
       setAvailable(res.data);
-      setFdNo(res.data[0]?.no ?? '');
     });
     return () => { cancelled = true; };
   }, [open, memberId]);
@@ -401,16 +390,11 @@ export function AttachFdSecurityButton({ loanId, memberId, className = 'btn sm g
         >
           {available.length ? (
             <>
-              <div className="field">
-                <label htmlFor="f_fdNo">Fixed deposit <span className="req">*</span></label>
-                <select id="f_fdNo" name="fdNo" required value={fdNo} onChange={(e) => setFdNo(e.target.value)}>
-                  {available.map((f) => (
-                    <option key={f.no} value={f.no}>
-                      {f.no} — {f.fd_type_description} (cover left {cur(f.available)})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SearchableSelect name="fdNo" label="Fixed deposit" required
+                items={available} getValue={(f) => f.no}
+                getLabel={(f) => `${f.no} — ${f.fd_type_description} (cover left ${cur(f.available)})`}
+                value={fdNo} onChange={setFdNo}
+                placeholder="Search fixed deposit…" emptyText="No matching fixed deposits" />
               <Field name="guaranteeSh" label="Cover to draw from this fixed deposit" type="number" step="0.01" required
                 defaultValue={chosen ? toUnits(chosen.available) : ''}
                 hint={chosen ? `Up to ${cur(chosen.available)} still available` : undefined} />

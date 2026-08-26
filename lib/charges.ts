@@ -79,7 +79,11 @@ export const listTransactionCharges = (): Promise<TransactionCharge[]> =>
 export const listActiveTransactionCharges = (): Promise<TransactionCharge[]> =>
   all<TransactionCharge>("SELECT * FROM transaction_charge WHERE status = 'ACTIVE' ORDER BY code");
 
-/** Every enabled Transaction Charge configured for one type — the Charge Code picklist for a
+/** Code is a Transaction Charge's only unique identifier — Transaction Type is deliberately not
+ *  part of any key, so several charges (e.g. a standard vs. a waived Account Reactivation fee)
+ *  can share the same type, exactly like Account Activation's own picker already assumes.
+ *
+ *  Every enabled Transaction Charge configured for one type — the Charge Code picklist for a
  *  document that lets its user choose which applies (e.g. Account Activation), as opposed to
  *  getTransactionChargeByType()'s single auto-resolved pick. */
 export const listTransactionChargesByType = (transactionType: ChargeTransactionType): Promise<TransactionCharge[]> =>
@@ -138,9 +142,7 @@ export interface TransactionRecoveryDraft {
   /** Required for LOAN/INTERNAL_DEPOSIT; unused for STANDING_ORDER. */
   deduction_type?: TransactionRecoveryDeductionType | null;
   savings_product_id?: number | null;
-  /** Required for STANDING_ORDER; unused otherwise. */
-  sto_type?: string | null;
-  /** STANDING_ORDER only — null matches any class of the member's own sto_type-tagged standing
+  /** STANDING_ORDER only — null matches any class of the member's own salary_based standing
    *  orders; set to narrow this row to just one (INTERNAL | EXTERNAL | LOAN), the mechanism for
    *  giving each class its own priority (one recovery row per class). */
   standing_order_class?: StandingOrderClass | null;
@@ -162,17 +164,15 @@ async function replaceTransactionRecoveries(
   for (const [i, r] of recoveries.entries()) {
     if (!r.recovery_type) continue;
     if (r.recovery_type === 'INTERNAL_DEPOSIT' && !r.savings_product_id) continue;
-    if (r.recovery_type === 'STANDING_ORDER' && !r.sto_type?.trim()) continue;
     if (r.recovery_type !== 'STANDING_ORDER' && !r.deduction_type) continue;
     await run(
       `INSERT INTO transaction_recovery
-         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, sto_type, standing_order_class,
+         (transaction_charge_id, recovery_type, deduction_type, savings_product_id, standing_order_class,
           priority, description, status)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?)`,
       transactionChargeId, r.recovery_type,
       r.recovery_type === 'STANDING_ORDER' ? null : r.deduction_type,
       r.recovery_type === 'INTERNAL_DEPOSIT' ? r.savings_product_id : null,
-      r.recovery_type === 'STANDING_ORDER' ? r.sto_type!.trim() : null,
       r.recovery_type === 'STANDING_ORDER' ? (r.standing_order_class || null) : null,
       r.priority || i + 1, r.description?.trim() || null, r.status || 'ACTIVE',
     );
@@ -181,11 +181,15 @@ async function replaceTransactionRecoveries(
 
 /** The one enabled Transaction Charge configured for a transaction type, if any — the lookup
  *  postTransactionCharges() and every "how much would this cost" preview resolve off. */
+/** Used only by flows with no Charge Code field of their own to let a user pick between several
+ *  (currently just Member Reactivation) — if more than one Transaction Charge is ACTIVE for the
+ *  type, the lowest code wins, deterministically, rather than an arbitrary row order. Every other
+ *  consumer resolves a specific id instead (see listTransactionChargesByType()'s own picklist). */
 export async function getTransactionChargeByType(
   transactionType: ChargeTransactionType,
 ): Promise<TransactionChargeWithDetail | null> {
   const row = await one<{ id: number }>(
-    "SELECT id FROM transaction_charge WHERE transaction_type = ? AND status = 'ACTIVE'", transactionType,
+    "SELECT id FROM transaction_charge WHERE transaction_type = ? AND status = 'ACTIVE' ORDER BY code LIMIT 1", transactionType,
   );
   return row ? getTransactionCharge(row.id) : null;
 }
@@ -288,9 +292,6 @@ export async function createTransactionCharge(
     if (await one('SELECT 1 FROM transaction_charge WHERE code = ?', code)) {
       throw new AppError('Transaction charge code already exists', 'DUPLICATE');
     }
-    if (await one('SELECT 1 FROM transaction_charge WHERE transaction_type = ?', body.transaction_type)) {
-      throw new AppError('A transaction charge is already configured for this transaction type', 'DUPLICATE');
-    }
     const info = await run(
       'INSERT INTO transaction_charge (code, description, transaction_type, status) VALUES (?,?,?,?)',
       code, description, body.transaction_type, body.status || 'ACTIVE',
@@ -315,10 +316,6 @@ export async function updateTransactionCharge(
     if (!description) throw new AppError('Description is required', 'VALIDATION');
     if (!body.transaction_type || !CHARGE_TRANSACTION_TYPES.some((t) => t.value === body.transaction_type)) {
       throw new AppError('Invalid transaction type', 'VALIDATION');
-    }
-    if (body.transaction_type !== before.transaction_type
-      && await one('SELECT 1 FROM transaction_charge WHERE transaction_type = ? AND id != ?', body.transaction_type, id)) {
-      throw new AppError('A transaction charge is already configured for this transaction type', 'DUPLICATE');
     }
     await run(
       'UPDATE transaction_charge SET description = ?, transaction_type = ?, status = ? WHERE id = ?',

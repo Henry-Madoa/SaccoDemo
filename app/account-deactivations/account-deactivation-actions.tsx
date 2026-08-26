@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -164,7 +165,7 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
       if (cancelled) return;
       const list = res.ok ? res.data : [];
       setAccounts(list);
-      if (!list.some((a) => String(a.id) === accountId)) setAccountId(String(list[0]?.id ?? ''));
+      if (!list.some((a) => String(a.id) === accountId)) setAccountId('');
     });
     return () => { cancelled = true; };
     // Only memberId should re-trigger this — accountId is read, not depended on.
@@ -187,16 +188,11 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
           <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
             onChange={setMemberId} required />
 
-          <div className="field">
-            <label htmlFor="f_accountId">Account <span className="req">*</span></label>
-            <select id="f_accountId" name="accountId" required value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.length ? null : <option value="">No eligible accounts for this member</option>}
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>
-              ))}
-            </select>
-          </div>
+          <SearchableSelect id="f_accountId" name="accountId" label="Account" required
+            items={accounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+            value={accountId} onChange={setAccountId}
+            placeholder={accounts.length ? 'Search account…' : 'No eligible accounts for this member'}
+            emptyText="No matching accounts" />
 
           <Field name="reason" label="Reason" type="textarea" required defaultValue={request.reason ?? ''} />
 
@@ -230,9 +226,7 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
     if (!memberId) { setAccounts([]); return; }
     eligibleAccountsForDeactivation(Number(memberId)).then((res) => {
       if (cancelled) return;
-      const list = res.ok ? res.data : [];
-      setAccounts(list);
-      setAccountId(String(list[0]?.id ?? ''));
+      setAccounts(res.ok ? res.data : []);
     });
     return () => { cancelled = true; };
   }, [memberId]);
@@ -249,18 +243,13 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
       successDetail={(d) => `${d.no} saved — send it for approval when you're ready`}
     >
       <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
-        onChange={setMemberId} required />
+        onChange={(id) => { setMemberId(id); setAccountId(''); }} required />
 
-      <div className="field">
-        <label htmlFor="f_accountId">Account <span className="req">*</span></label>
-        <select id="f_accountId" name="accountId" required value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}>
-          {accounts.length ? null : <option value="">No eligible accounts for this member</option>}
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>
-          ))}
-        </select>
-      </div>
+      <SearchableSelect id="f_accountId" name="accountId" label="Account" required
+        items={accounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+        value={accountId} onChange={setAccountId}
+        placeholder={accounts.length ? 'Search account…' : 'No eligible accounts for this member'}
+        emptyText="No matching accounts" />
 
       <Field name="reason" label="Reason" type="textarea" required />
 

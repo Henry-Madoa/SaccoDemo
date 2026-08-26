@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveWorkflowUserGroup } from '@/app/actions/workflows';
 import { PRODUCT_STATUSES } from '@/lib/constants';
 import type { UserListRow, WorkflowUserGroupMemberRow, WorkflowUserGroupWithUsage } from '@/lib/types';
-
-const DROPDOWN_LIMIT = 25;
 
 /** One past the highest sequence already in use — where a newly added member naturally slots in. */
 const suggestSequence = (members: Map<number, number>): number =>
@@ -26,26 +25,19 @@ export function WorkflowUserGroupFormButton({ group, members, users, className =
     new Map((members || []).map((m) => [m.user_id, m.sequence])));
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
 
-  const [query, setQuery] = useState('');
-  const [pickedUserId, setPickedUserId] = useState<number | ''>('');
+  const [pickedUserId, setPickedUserId] = useState('');
   const [pickedSequence, setPickedSequence] = useState(() => suggestSequence(selected));
 
   // Re-suggest the next sequence whenever the member list actually changes (add/remove) —
   // left alone while the admin is just typing a value in, so their override sticks.
   useEffect(() => setPickedSequence(suggestSequence(selected)), [selected]);
 
-  const availableUsers = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const pool = users.filter((u) => !selected.has(u.id)
-      && (!q || u.full_name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)));
-    return pool.slice().sort((a, b) => a.full_name.localeCompare(b.full_name)).slice(0, DROPDOWN_LIMIT);
-  }, [users, query, selected]);
-  const truncated = availableUsers.length === DROPDOWN_LIMIT;
+  const availableUsers = useMemo(() => users.filter((u) => !selected.has(u.id))
+    .slice().sort((a, b) => a.full_name.localeCompare(b.full_name)), [users, selected]);
 
   const addMember = () => {
     if (!pickedUserId) return;
-    setSelected((cur) => new Map(cur).set(pickedUserId, pickedSequence || 1));
-    setQuery('');
+    setSelected((cur) => new Map(cur).set(Number(pickedUserId), pickedSequence || 1));
     setPickedUserId('');
   };
   const removeMember = (id: number) =>
@@ -88,23 +80,13 @@ export function WorkflowUserGroupFormButton({ group, members, users, className =
             Lower sequences approve before higher ones.
           </div>
 
-          <input
-            type="text"
-            placeholder="Search to narrow the dropdown by name or username…"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setPickedUserId(''); }}
-            style={{ marginTop: 8 }}
-          />
           <div className="inline" style={{ marginTop: 8 }}>
-            <select
-              value={pickedUserId} aria-label="User to add" style={{ flex: 1 }}
-              onChange={(e) => setPickedUserId(e.target.value ? Number(e.target.value) : '')}
-            >
-              <option value="">Select user…</option>
-              {availableUsers.map((u) => (
-                <option key={u.id} value={u.id}>{u.full_name} ({u.username})</option>
-              ))}
-            </select>
+            <div style={{ flex: 1 }}>
+              <SearchableSelect name="pickedUserId" ariaLabel="User to add"
+                items={availableUsers} getValue={(u) => String(u.id)} getLabel={(u) => `${u.full_name} (${u.username})`}
+                value={pickedUserId} onChange={setPickedUserId}
+                placeholder="Search user by name or username…" emptyText="No matching users" />
+            </div>
             <input
               type="number" min={1} value={pickedSequence} aria-label="Sequence for new member"
               style={{ width: 64 }}
@@ -112,11 +94,6 @@ export function WorkflowUserGroupFormButton({ group, members, users, className =
             />
             <button type="button" className="btn sm" disabled={!pickedUserId} onClick={addMember}>Add member</button>
           </div>
-          {truncated ? (
-            <div className="tiny" style={{ marginTop: 4 }}>
-              Showing the first {DROPDOWN_LIMIT} matches — search to narrow it down further.
-            </div>
-          ) : null}
 
           <table style={{ marginTop: 10 }}>
             <thead>

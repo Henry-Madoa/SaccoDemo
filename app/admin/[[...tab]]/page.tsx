@@ -735,7 +735,7 @@ async function TransactionChargesTab() {
       <Card>
         <CardHead
           title="Transaction charges"
-          sub="One configured charge per transaction type — its components run in priority order when that transaction fires"
+          sub="Code is the unique identifier — several charges can share a transaction type (e.g. a standard vs. a waived fee); each one's components run in priority order when it applies"
         />
         {list.length ? (
           <TableWrap>

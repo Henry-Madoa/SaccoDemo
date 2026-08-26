@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -156,16 +157,12 @@ export function ProcessButton({ no, feeAmount = null, className = 'btn sm' }: {
  * the New Request form and the Edit button for an Open request, since both let the same two
  * fields be set and both need the same "would this even be affordable" feedback.
  */
-function ChargeDebitFields({ memberId, chargeId, setChargeId, debitAccountId, setDebitAccountId, autoSelectFirst }: {
+function ChargeDebitFields({ memberId, chargeId, setChargeId, debitAccountId, setDebitAccountId }: {
   memberId: string;
   chargeId: string;
   setChargeId: (v: string) => void;
   debitAccountId: string;
   setDebitAccountId: (v: string) => void;
-  /** New requests default to the first configured Charge Code so the fee is applied unless
-   *  someone actively clears it; editing an existing request must never override what was
-   *  already (possibly deliberately) chosen or left blank. */
-  autoSelectFirst?: boolean;
 }) {
   const { cur } = useFormat();
   const [chargeCodes, setChargeCodes] = useState<TransactionCharge[]>([]);
@@ -175,12 +172,8 @@ function ChargeDebitFields({ memberId, chargeId, setChargeId, debitAccountId, se
   // Charge Codes configured for ACCOUNT_ACTIVATION don't depend on the member — fetched once.
   useEffect(() => {
     listAccountActivationChargeCodes().then((res) => {
-      if (!res.ok) return;
-      setChargeCodes(res.data);
-      if (autoSelectFirst) setChargeId(chargeId || String(res.data[0]?.id ?? ''));
+      if (res.ok) setChargeCodes(res.data);
     });
-    // Only ever runs once per mount — chargeId/setChargeId are read at that moment on purpose.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The debit account picklist is every account the member holds, any status.
@@ -210,24 +203,14 @@ function ChargeDebitFields({ memberId, chargeId, setChargeId, debitAccountId, se
   return (
     <>
       <div className="grid g2" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-        <div className="field">
-          <label htmlFor="f_transactionChargeId">Charge code</label>
-          <select id="f_transactionChargeId" name="transactionChargeId" value={chargeId}
-            onChange={(e) => setChargeId(e.target.value)}>
-            <option value="">No charge</option>
-            {chargeCodes.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.description}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="f_debitAccountId">
-            Debit account{chargeId ? <span className="req"> *</span> : null}
-          </label>
-          <select id="f_debitAccountId" name="debitAccountId" required={!!chargeId} value={debitAccountId}
-            disabled={!chargeId} onChange={(e) => setDebitAccountId(e.target.value)}>
-            <option value="">Select account…</option>
-            {debitAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>)}
-          </select>
-        </div>
+        <SearchableSelect id="f_transactionChargeId" name="transactionChargeId" label="Charge code"
+          items={chargeCodes} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+          value={chargeId} onChange={setChargeId} placeholder="No charge" emptyText="No matching charges" />
+        <SearchableSelect id="f_debitAccountId" name="debitAccountId"
+          label="Debit account" required={!!chargeId} disabled={!chargeId}
+          items={debitAccounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+          value={debitAccountId} onChange={setDebitAccountId}
+          placeholder="Search account…" emptyText="No matching accounts" />
       </div>
 
       {chargeId ? (
@@ -268,10 +251,9 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
     if (!memberId) { setAccounts([]); return; }
     eligibleAccountsForActivation(Number(memberId)).then((res) => {
       if (cancelled) return;
-      const list = res.ok ? res.data : [];
-      setAccounts(list);
-      setAccountId(String(list[0]?.id ?? ''));
+      setAccounts(res.ok ? res.data : []);
     });
+    setAccountId('');
     setDebitAccountId('');
     return () => { cancelled = true; };
   }, [memberId]);
@@ -290,16 +272,11 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
       <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
         onChange={setMemberId} required />
 
-      <div className="field">
-        <label htmlFor="f_accountId">Account <span className="req">*</span></label>
-        <select id="f_accountId" name="accountId" required value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}>
-          {accounts.length ? null : <option value="">No inactive accounts for this member</option>}
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>
-          ))}
-        </select>
-      </div>
+      <SearchableSelect id="f_accountId" name="accountId" label="Account" required
+        items={accounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+        value={accountId} onChange={setAccountId}
+        placeholder={accounts.length ? 'Search account…' : 'No inactive accounts for this member'}
+        emptyText="No matching accounts" />
 
       <Field name="reason" label="Reason" type="textarea" required />
 
@@ -312,7 +289,7 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
 
       <ChargeDebitFields
         memberId={memberId} chargeId={chargeId} setChargeId={setChargeId}
-        debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId} autoSelectFirst
+        debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId}
       />
     </FormModal>
   );
@@ -346,8 +323,8 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
       const list = res.ok ? res.data : [];
       setAccounts(list);
       // Keep the current account selected if it's still eligible for whichever member is now
-      // selected; otherwise fall back to the first eligible one, same as a fresh application.
-      if (!list.some((a) => String(a.id) === accountId)) setAccountId(String(list[0]?.id ?? ''));
+      // selected; otherwise clear it rather than guessing a replacement.
+      if (!list.some((a) => String(a.id) === accountId)) setAccountId('');
     });
     return () => { cancelled = true; };
     // Only memberId should re-trigger this — accountId is read, not depended on.
@@ -368,16 +345,11 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
           <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
             onChange={(id) => { setMemberId(id); setDebitAccountId(''); }} required />
 
-          <div className="field">
-            <label htmlFor="f_accountId">Account <span className="req">*</span></label>
-            <select id="f_accountId" name="accountId" required value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.length ? null : <option value="">No inactive accounts for this member</option>}
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.account_no} — {a.product_name}</option>
-              ))}
-            </select>
-          </div>
+          <SearchableSelect id="f_accountId" name="accountId" label="Account" required
+            items={accounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
+            value={accountId} onChange={setAccountId}
+            placeholder={accounts.length ? 'Search account…' : 'No inactive accounts for this member'}
+            emptyText="No matching accounts" />
 
           <Field name="reason" label="Reason" type="textarea" required defaultValue={request.reason ?? ''} />
           <ChargeDebitFields

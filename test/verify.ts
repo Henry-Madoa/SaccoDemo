@@ -1827,7 +1827,6 @@ await test('a row that does not resolve under the batch\'s own Search Type is re
 /* ------------------------------------------------------------------------ */
 section('Transaction Recoveries — Standing Order recovery type');
 
-const stoRecoveryTag = `DUES${ckoStamp}`;
 const stoSourceMember = await membersLib.createMember(
   { member_type: 'INDIVIDUAL', first_name: 'StoRecovery', last_name: 'Source' }, admin,
 );
@@ -1846,7 +1845,7 @@ const { no: recoverySto } = await standingOrdersLib.createStandingOrder({
   memberId: stoSourceMember.id, accountId: stoSourceFosa.id, standingOrderClass: 'INTERNAL', amountType: 'FIXED',
   amount: 150000, destinationMemberId: stoDestMember.id, destinationAccountId: stoDestFosa.id,
   postingDescription: 'Test dues', startDate: today, tillFurtherNotice: true,
-  salaryBased: true, stoType: stoRecoveryTag,
+  salaryBased: true,
 }, admin);
 await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", recoverySto);
 
@@ -1875,9 +1874,9 @@ await chargesLib.updateTransactionCharge(
   [
     ...priorDetail.recoveries.map((r) => ({
       recovery_type: r.recovery_type, deduction_type: r.deduction_type, savings_product_id: r.savings_product_id,
-      sto_type: r.sto_type, priority: r.priority, description: r.description, status: r.status,
+      priority: r.priority, description: r.description, status: r.status,
     })),
-    { recovery_type: 'STANDING_ORDER' as const, sto_type: stoRecoveryTag, priority: 5, description: 'Test dues recovery' },
+    { recovery_type: 'STANDING_ORDER' as const, priority: 5, description: 'Test dues recovery' },
   ],
 );
 
@@ -1909,13 +1908,13 @@ await test('processing the batch pays the standing order\'s own destination acco
 });
 
 await test('a second STANDING_ORDER recovery pinned to a different class gets its own priority', async () => {
-  // A second salary_based standing order for the same member and tag, EXTERNAL class this time —
-  // proves the recovery config's own standing_order_class filter (not just sto_type) decides
-  // which order(s) a given recovery row matches, letting each class carry its own priority.
+  // A second salary_based standing order for the same member, EXTERNAL class this time — proves
+  // the recovery config's own standing_order_class filter decides which order(s) a given
+  // recovery row matches, letting each class carry its own priority.
   const { no: extSto } = await standingOrdersLib.createStandingOrder({
     memberId: stoSourceMember.id, accountId: stoSourceFosa.id, standingOrderClass: 'EXTERNAL', amountType: 'FIXED',
     amount: 80000, destinationBankAccountId: payoutBankAccount.id, postingDescription: 'Test dues (external)',
-    startDate: today, tillFurtherNotice: true, salaryBased: true, stoType: stoRecoveryTag,
+    startDate: today, tillFurtherNotice: true, salaryBased: true,
   }, admin);
   await run("UPDATE standing_order SET status = 'Approved', running = true WHERE no = ?", extSto);
 
@@ -1935,14 +1934,14 @@ await test('a second STANDING_ORDER recovery pinned to a different class gets it
     [
       ...detail.recoveries.filter((r) => r.recovery_type !== 'STANDING_ORDER').map((r) => ({
         recovery_type: r.recovery_type, deduction_type: r.deduction_type, savings_product_id: r.savings_product_id,
-        sto_type: r.sto_type, priority: r.priority, description: r.description, status: r.status,
+        priority: r.priority, description: r.description, status: r.status,
       })),
       {
-        recovery_type: 'STANDING_ORDER' as const, sto_type: stoRecoveryTag, standing_order_class: 'INTERNAL' as const,
+        recovery_type: 'STANDING_ORDER' as const, standing_order_class: 'INTERNAL' as const,
         priority: 5, description: 'Test dues (internal)',
       },
       {
-        recovery_type: 'STANDING_ORDER' as const, sto_type: stoRecoveryTag, standing_order_class: 'EXTERNAL' as const,
+        recovery_type: 'STANDING_ORDER' as const, standing_order_class: 'EXTERNAL' as const,
         priority: 6, description: 'Test dues (external)',
       },
     ],

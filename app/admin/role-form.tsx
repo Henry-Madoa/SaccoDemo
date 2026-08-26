@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Modal } from '@/components/ui/modal';
 import { Field } from '@/components/ui/field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Pill, EmptyState, TableWrap } from '@/components/ui/primitives';
 import { saveRole, listPermissionTablesAction } from '@/app/actions/admin';
 import type { PermissionSetLine, PermissionTableOption, RoleWithUsage } from '@/lib/types';
@@ -97,10 +98,13 @@ function RoleEditModal({ role, pages, onClose }: {
           <option value="TABLE">Table</option>
           <option value="PAGE">Page</option>
         </select>
-        <select value={picked} aria-label="Object to add" style={{ flex: 1 }} onChange={(e) => setPicked(e.target.value)}>
-          <option value="">{pickType === 'TABLE' && !tables.length ? 'Loading tables…' : 'Select an object…'}</option>
-          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        <div style={{ flex: 1 }}>
+          <SearchableSelect name="pickedObject" ariaLabel="Object to add"
+            items={options} getValue={(o) => o.value} getLabel={(o) => o.label}
+            value={picked} onChange={setPicked}
+            placeholder={pickType === 'TABLE' && !tables.length ? 'Loading tables…' : 'Search objects…'}
+            emptyText="No matching objects" />
+        </div>
         <button type="button" className="btn sm" disabled={!picked} onClick={addLine}>Add line</button>
       </div>
 
