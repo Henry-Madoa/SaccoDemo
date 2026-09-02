@@ -13,58 +13,73 @@ import {
   postTellerTransactionRequest, deleteTellerTransactionRequest, resendTellerSlip, accountsForTellerTransaction,
 } from '@/app/actions/tellerTransactions';
 import { delegateMyTask } from '@/app/actions/workflows';
-import type { Member, SavingsAccountForDebit, TellerTransactionType, TellerTransactionView } from '@/lib/types';
+import { AccountInstructionsList } from '@/components/members/account-instructions';
+import type {
+  AccountInstructionLine, Member, SavingsAccountForDebit, TellerTransactionType, TellerTransactionView,
+} from '@/lib/types';
 
 type EligibleMember = Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>;
 
-function TxnFields({ members, initial }: { members: EligibleMember[]; initial?: TellerTransactionView | null }) {
+interface Verification {
+  instructions: AccountInstructionLine[];
+  photoSrc: string | null;
+  signatureSrc: string | null;
+}
+
+function TxnFields({ members, initial, verification }: {
+  members: EligibleMember[]; initial?: TellerTransactionView | null; verification?: Verification;
+}) {
   const { cur } = useFormat();
-  const editing = !!initial;
   const [transactionType, setTransactionType] = useState<TellerTransactionType>(initial?.transaction_type ?? 'CASH_DEPOSIT');
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
-  const [accounts, setAccounts] = useState<SavingsAccountForDebit[]>([]);
+  // On Edit, seed the picker with the account already on the transaction so its label shows
+  // immediately — the effect then loads the member's full list of eligible accounts.
+  const [accounts, setAccounts] = useState<SavingsAccountForDebit[]>(
+    initial?.savings_account_id ? [{
+      id: initial.savings_account_id, account_no: initial.account_no, status: 'ACTIVE',
+      balance: initial.account_balance, hold_amount: initial.account_hold_amount,
+      product_name: initial.account_product_name, min_balance: initial.account_min_balance,
+      gl_control_id: initial.account_gl_control_id,
+    }] : [],
+  );
   const [savingsAccountId, setSavingsAccountId] = useState(String(initial?.savings_account_id ?? ''));
 
   useEffect(() => {
     let cancelled = false;
     if (!memberId) { setAccounts([]); return; }
-    accountsForTellerTransaction(Number(memberId)).then((res) => {
+    accountsForTellerTransaction(Number(memberId), transactionType).then((res) => {
       if (!cancelled && res.ok) setAccounts(res.data);
     });
     return () => { cancelled = true; };
-  }, [memberId]);
+  }, [memberId, transactionType]);
 
   const acct = accounts.find((a) => String(a.id) === savingsAccountId);
   const available = acct ? Math.max(acct.balance - acct.hold_amount - acct.min_balance, 0) : null;
   const isDeposit = transactionType === 'CASH_DEPOSIT';
+  // The verification block (photo / signature / instructions) belongs to the document's original
+  // member — hide it if the teller re-points the transaction at someone else.
+  const verificationForCurrentMember = !!verification && memberId === String(initial?.member_id ?? '');
 
   return (
     <>
       <div className="field">
         <label htmlFor="f_transactionType">Transaction <span className="req">*</span></label>
-        {editing ? (
-          <>
-            {/* A disabled <select> is omitted from FormData, so carry the locked value in a
-                hidden input the server still receives. */}
-            <input type="hidden" name="transactionType" value={transactionType} />
-            <input type="text" value={isDeposit ? 'Cash Deposit' : 'Cash Withdrawal'} disabled readOnly />
-          </>
-        ) : (
-          <select id="f_transactionType" name="transactionType" value={transactionType}
-            onChange={(e) => setTransactionType(e.target.value as TellerTransactionType)}>
-            <option value="CASH_DEPOSIT">Cash Deposit</option>
-            <option value="CASH_WITHDRAWAL">Cash Withdrawal</option>
-          </select>
-        )}
+        <select id="f_transactionType" name="transactionType" value={transactionType}
+          onChange={(e) => { setTransactionType(e.target.value as TellerTransactionType); setSavingsAccountId(''); }}>
+          <option value="CASH_DEPOSIT">Cash Deposit</option>
+          <option value="CASH_WITHDRAWAL">Cash Withdrawal</option>
+        </select>
       </div>
 
       <MemberSelect id="f_memberId" name="memberId" members={members} value={memberId}
-        onChange={(id) => { setMemberId(id); setSavingsAccountId(''); }} required disabled={editing} />
+        onChange={(id) => { setMemberId(id); setSavingsAccountId(''); }} required />
 
       <SearchableSelect id="f_savingsAccountId" name="savingsAccountId" label="Account" required
         items={accounts} getValue={(a) => String(a.id)} getLabel={(a) => `${a.account_no} — ${a.product_name}`}
         value={savingsAccountId} onChange={setSavingsAccountId}
-        placeholder={accounts.length ? 'Search account…' : 'No withdrawable account for this member'}
+        placeholder={accounts.length
+          ? 'Search account…'
+          : isDeposit ? 'No active account for this member' : 'No withdrawable account for this member'}
         emptyText="No matching accounts"
         hint={acct ? `Balance ${cur(acct.balance)} · available ${cur(available ?? 0)}` : undefined} />
 
@@ -82,6 +97,29 @@ function TxnFields({ members, initial }: { members: EligibleMember[]; initial?: 
         <Field name="transactedByIdNo" label="ID number"
           defaultValue={initial?.transacted_by_id_no ?? ''} />
       </div>
+
+      {verification && !verificationForCurrentMember ? (
+        <div className="note" style={{ marginTop: 4 }}>
+          You have changed the member — save to load the new member&apos;s photo, signature and account instructions.
+        </div>
+      ) : null}
+      {verificationForCurrentMember && verification ? (
+        <div className="card inset" style={{ marginTop: 4 }}>
+          <div className="metric-label" style={{ marginBottom: 6 }}>
+            {isDeposit ? 'Member verification' : 'Authenticate the person before paying out'}
+          </div>
+          <div className="inline" style={{ gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            {verification.photoSrc
+              ? <img src={verification.photoSrc} alt="Member" style={{ width: 96, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }} />
+              : <div className="tiny muted-cell">No photo</div>}
+            {verification.signatureSrc
+              ? <img src={verification.signatureSrc} alt="Signature" style={{ maxWidth: 180, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: '#fff' }} />
+              : <div className="tiny muted-cell">No signature</div>}
+          </div>
+          <div className="metric-label" style={{ margin: '10px 0 4px' }}>Account instructions</div>
+          <AccountInstructionsList lines={verification.instructions} dense />
+        </div>
+      ) : null}
 
       <div className="note">
         Within your approval limit this posts immediately and emails the member a slip; above it,
@@ -115,8 +153,8 @@ export function NewTellerTransactionButton({ members }: { members: EligibleMembe
   );
 }
 
-export function EditButton({ doc, members, className = 'btn ghost' }: {
-  doc: TellerTransactionView; members: EligibleMember[]; className?: string;
+export function EditButton({ doc, members, verification, className = 'btn ghost' }: {
+  doc: TellerTransactionView; members: EligibleMember[]; verification?: Verification; className?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -130,7 +168,7 @@ export function EditButton({ doc, members, className = 'btn ghost' }: {
           submitLabel="Save changes"
           successTitle="Transaction updated"
         >
-          <TxnFields members={members} initial={doc} />
+          <TxnFields members={members} initial={doc} verification={verification} />
         </FormModal>
       ) : null}
     </>

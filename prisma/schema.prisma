@@ -999,6 +999,52 @@ model member_signatory {
   @@index([member_id], map: "ix_signatory_member")
 }
 
+/// AL "Account Instructions" (Tab52204129) — the admin-managed list of standard operating
+/// instructions a member can pick at registration (e.g. "No third-party withdrawals").
+model account_instruction {
+  id          Int    @id @default(autoincrement())
+  code        String @unique
+  description String
+  active      Int    @default(1)
+  sort        Int    @default(0)
+}
+
+/// AL "Member Account Instructions" (Tab52204009), scoped to a live member.
+model member_account_instruction {
+  id               Int    @id @default(autoincrement())
+  member_id        Int
+  line_no          Int    @default(10000)
+  instruction_type String @default("USER_DEFINED")
+  instruction      String
+  member           member @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_mai_member")
+}
+
+/// Same lines staged on a member application, copied to member_account_instruction on approval.
+model member_application_account_instruction {
+  id                Int                @id @default(autoincrement())
+  application_no     String
+  line_no           Int                @default(10000)
+  instruction_type  String             @default("USER_DEFINED")
+  instruction       String
+  member_application member_application @relation(fields: [application_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([application_no], map: "ix_aai_no")
+}
+
+/// Same lines staged on a member edit request, applied onto member_account_instruction on process.
+model member_edit_account_instruction {
+  id                 Int                @id @default(autoincrement())
+  edit_no            String
+  line_no            Int                @default(10000)
+  instruction_type   String             @default("USER_DEFINED")
+  instruction        String
+  member_edit_request member_edit_request @relation(fields: [edit_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([edit_no], map: "ix_eai_no")
+}
+
 /// The staging table a membership goes through before member.createMember() runs — carries
 /// every field the resulting member record will have, plus its own approval workflow.
 model member_application {
@@ -1059,6 +1105,7 @@ model member_application {
   member_application_next_of_kin member_application_next_of_kin[]
   member_application_nominee     member_application_nominee[]
   member_application_signatory   member_application_signatory[]
+  member_application_account_instruction member_application_account_instruction[]
 
   @@index([status], map: "ix_app_status")
   @@index([county_id], map: "ix_app_county")
@@ -1189,6 +1236,7 @@ model member_edit_request {
   member_edit_next_of_kin  member_edit_next_of_kin[]
   member_edit_nominee      member_edit_nominee[]
   member_edit_signatory    member_edit_signatory[]
+  member_edit_account_instruction member_edit_account_instruction[]
 
   @@index([member_id], map: "ix_edit_member")
   @@index([status], map: "ix_edit_status")
@@ -1350,6 +1398,7 @@ model member {
   member_next_of_kin       member_next_of_kin[]
   member_nominee           member_nominee[]
   member_signatory         member_signatory[]
+  member_account_instruction member_account_instruction[]
   member_application       member_application[]
   member_edit_request      member_edit_request[]
   account_opening_request  account_opening_request[]

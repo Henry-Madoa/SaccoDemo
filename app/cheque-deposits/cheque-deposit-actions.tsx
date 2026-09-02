@@ -28,7 +28,14 @@ function DepositFields({ members, chequeTypes, initial }: {
   const editing = !!initial;
   const [chequeTypeId, setChequeTypeId] = useState(String(initial?.cheque_type_id ?? (chequeTypes[0]?.id ?? '')));
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
-  const [accounts, setAccounts] = useState<DepositAccount[]>([]);
+  // On Edit, seed the picker with the account already on the deposit so its label shows
+  // immediately — the effect then loads the member's full list of eligible accounts.
+  const [accounts, setAccounts] = useState<DepositAccount[]>(
+    initial?.savings_account_id ? [{
+      id: initial.savings_account_id, account_no: initial.account_no,
+      product_name: initial.account_product_name, balance: initial.account_balance,
+    }] : [],
+  );
   const [savingsAccountId, setSavingsAccountId] = useState(String(initial?.savings_account_id ?? ''));
   const [amount, setAmount] = useState(initial ? toTwoDp(String(initial.amount / 100)) : '');
   const [depositDate, setDepositDate] = useState(initial?.deposit_date ?? today());
@@ -65,12 +72,20 @@ function DepositFields({ members, chequeTypes, initial }: {
       {chequeTypes.length ? (
         <div className="field">
           <label htmlFor="f_chequeTypeId">Cheque type <span className="req">*</span></label>
-          <select id="f_chequeTypeId" name="chequeTypeId" value={chequeTypeId}
-            onChange={(e) => setChequeTypeId(e.target.value)} disabled={editing}>
-            {chequeTypes.map((t) => (
-              <option key={t.id} value={t.id}>{t.code} — {t.description}</option>
-            ))}
-          </select>
+          {editing ? (
+            <>
+              {/* A disabled <select> is omitted from FormData — carry the locked value along. */}
+              <input type="hidden" name="chequeTypeId" value={chequeTypeId} />
+              <input type="text" value={type ? `${type.code} — ${type.description}` : ''} disabled readOnly />
+            </>
+          ) : (
+            <select id="f_chequeTypeId" name="chequeTypeId" value={chequeTypeId}
+              onChange={(e) => setChequeTypeId(e.target.value)}>
+              {chequeTypes.map((t) => (
+                <option key={t.id} value={t.id}>{t.code} — {t.description}</option>
+              ))}
+            </select>
+          )}
           <div className="hint">
             {type?.in_house ? 'In-house — clears on the deposit date. ' : `Maturity period: ${type?.maturity_days ?? 0} day(s). `}
             {preview?.maturityDate ? `Matures ${preview.maturityDate}.` : ''}

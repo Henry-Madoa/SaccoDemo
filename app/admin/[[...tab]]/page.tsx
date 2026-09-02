@@ -29,6 +29,7 @@ import { listChequeTypes } from '@/lib/chequeTypes';
 import { sectorTree } from '@/lib/economicSectors';
 import { listNoSeriesWithLines, listDocumentNoSeries, listNoSeriesCodes } from '@/lib/noSeries';
 import { splitNo } from '@/lib/noSeriesFormat';
+import { listAccountInstructions } from '@/lib/accountInstructions';
 import { listLoanProductCharges } from '@/lib/loanProductCharges';
 import {
   listMemberCategories, getMemberCategoryDefaultAccounts, listCounties, listSubCounties,
@@ -74,6 +75,7 @@ import {
 import {
   NoSeriesFormButton, DeleteNoSeriesButton, NoSeriesLineFormButton, DeleteNoSeriesLineButton, DocumentSeriesSelect,
 } from '../no-series-form';
+import { AccountInstructionFormButton, DeleteAccountInstructionButton } from '../account-instruction-form';
 import { WorkflowFormButton } from '../workflow-form';
 import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
 import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
@@ -115,6 +117,7 @@ const POOL_GROUPS: PoolGroup[] = [
   {
     key: 'membership', label: 'Membership', screens: [
       { key: 'member-categories', label: 'Member Categories', page: 'ADMIN_POOL_CATEGORIES' },
+      { key: 'account-instructions', label: 'Account Instructions', page: 'ADMIN_ACCOUNT_INSTRUCTIONS' },
     ],
   },
   {
@@ -252,6 +255,7 @@ export default async function AdminPage({ params, searchParams }: {
           {poolScreen.key === 'no-series' ? <NoSeriesTab /> : null}
           {poolScreen.key === 'automation' ? <JobQueueTab /> : null}
           {poolScreen.key === 'member-categories' ? <MemberCategoriesTab /> : null}
+          {poolScreen.key === 'account-instructions' ? <AccountInstructionsTab /> : null}
           {poolScreen.key === 'loan-products' ? <LoanProductsTab /> : null}
           {poolScreen.key === 'collateral-types' ? <CollateralTypesTab /> : null}
           {poolScreen.key === 'fd-types' ? <FixedDepositTypesTab /> : null}
@@ -987,6 +991,51 @@ function NoSeriesLineCard({ line, code }: {
         <div className="tiny muted-cell" style={{ marginTop: 6 }}>Warns once it reaches <span className="mono">{line.warning_no}</span></div>
       ) : null}
     </Card>
+  );
+}
+
+async function AccountInstructionsTab() {
+  const rows = await listAccountInstructions();
+  return (
+    <>
+      <Toolbar>
+        <span className="tiny muted-cell">
+          The dropdown a member picks from at registration. Members can still add their own free-text
+          instruction for anything unusual.
+        </span>
+        <Spacer />
+        <AccountInstructionFormButton>Add instruction</AccountInstructionFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead title="Account Instructions"
+          sub="AL Tab52204129 — predefined operating instructions for member accounts" />
+        {rows.length ? (
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Code</th><th>Instruction</th><th className="num">Sort</th><th>Status</th><th className="num" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="mono">{r.code}</td>
+                  <td>{r.description}</td>
+                  <td className="num">{r.sort}</td>
+                  <td>{r.active ? <Pill tone="ok">Active</Pill> : <Pill tone="">Inactive</Pill>}</td>
+                  <td className="num">
+                    <span className="inline" style={{ gap: 4 }}>
+                      <AccountInstructionFormButton row={r} className="btn sm ghost">Edit</AccountInstructionFormButton>
+                      <DeleteAccountInstructionButton id={r.id} />
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        ) : <EmptyState icon="📋" title="No predefined instructions" sub="Add the standard ones your SACCO uses" />}
+      </Card>
+    </>
   );
 }
 

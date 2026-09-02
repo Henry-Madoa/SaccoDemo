@@ -161,6 +161,22 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .nav a.active { background: var(--sidebar-active-bg); color: var(--sidebar-fg-active); font-weight: 500; }
 .nav a .ico { width: 16px; text-align: center; opacity: .9; }
 .nav a .badge { margin-left: auto; background: rgba(255,255,255,.18); border-radius: 20px; padding: 1px 7px; font-size: 11px; }
+
+/* Collapsible sub-menu (one nesting level) inside a nav group. */
+.nav-submenu-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  padding: 9px 12px; margin-bottom: 2px; border: none; border-radius: var(--radius-sm);
+  background: none; color: var(--sidebar-fg); font: inherit; font-size: 13.5px;
+}
+.nav-submenu-head:hover { background: rgba(255,255,255,.07); color: var(--sidebar-fg-active); }
+.nav-submenu-head.active { color: var(--sidebar-fg-active); font-weight: 500; }
+.nav-submenu-head .ico { width: 16px; text-align: center; opacity: .9; }
+.nav-submenu-head .chev { margin-left: auto; font-size: 12px; opacity: .55; transition: transform .18s ease; }
+.nav-submenu-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.nav-submenu-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .18s ease; }
+.nav-submenu-body.collapsed { grid-template-rows: 0fr; }
+.nav-submenu-body-inner { overflow: hidden; min-height: 0; }
+.nav-submenu-body a { padding-left: 34px; }
 .sidebar-foot { padding: calc(var(--sp)*1.5) calc(var(--sp)*2); font-size: 11px; opacity: .5; border-top: 1px solid rgba(255,255,255,.1); }
 
 .main { display: flex; flex-direction: column; min-width: 0; }
@@ -283,6 +299,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   .sidebar { transition: none; }
   .nav-backdrop { animation: none; }
   .nav-group-body { transition: none; }
+  .nav-submenu-body { transition: none; }
   .collapsible-body { transition: none; }
 }
 

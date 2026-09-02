@@ -11,7 +11,6 @@ import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { ExportButton } from '@/components/ui/export-button';
-import { TxnButton, type TxnAccount } from './txn-form';
 
 export default async function SavingsPage({ searchParams }: {
   searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
@@ -20,10 +19,9 @@ export default async function SavingsPage({ searchParams }: {
   const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, empty, canDeposit, canWithdraw, products] = await Promise.all([
+  const [rows, empty, products] = await Promise.all([
     listAccounts({ search: q, filters, sort }),
     hasAnyAccounts().then((any) => !any),
-    currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'),
     listActiveSavingsProducts(),
   ]);
   const fields = SAVINGS_ACCOUNT_FILTER_FIELDS.map((f) => (
@@ -33,11 +31,12 @@ export default async function SavingsPage({ searchParams }: {
   const total = rows.reduce((a, r) => a + r.balance, 0);
 
   return (
-    <Page title="Savings & FOSA" crumb="Member deposit accounts and teller operations" user={user}>
+    <Page title="Member Accounts List" crumb="Member deposit accounts and balances — cash movements are captured in Cash Deposits & Withdrawals" user={user}>
       <Toolbar>
         <SearchInput placeholder="Search account number, member number or name…" disabled={empty} />
         <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
+        <Link href="/teller-transactions" className="btn ghost sm">Cash Deposits &amp; Withdrawals</Link>
         <ExportButton href="/api/export/savings" params={{ q, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>
 
@@ -57,18 +56,11 @@ export default async function SavingsPage({ searchParams }: {
                   <th><SortLink sortKey="status">Status</SortLink></th>
                   <th className="num"><SortLink sortKey="balance">Balance</SortLink></th>
                   <th className="num"><SortLink sortKey="available">Available</SortLink></th>
-                  <th className="num">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((a) => {
                   const available = a.balance - a.hold_amount - a.min_balance;
-                  // The modal needs the account shape, not the whole row.
-                  const account: TxnAccount = {
-                    id: a.id, account_no: a.account_no, product_name: a.product_name,
-                    balance: a.balance, hold_amount: a.hold_amount, min_balance: a.min_balance,
-                    member_no: a.member_no, first_name: a.first_name, last_name: a.last_name,
-                  };
                   return (
                     <tr key={a.id}>
                       <td className="mono"><Link href={`/savings/${a.id}`}>{a.account_no}</Link></td>
@@ -80,12 +72,6 @@ export default async function SavingsPage({ searchParams }: {
                       <td><Pill status={a.status} /></td>
                       <td className="num"><b><Money cents={a.balance} /></b></td>
                       <td className="num muted-cell"><Money cents={Math.max(available, 0)} /></td>
-                      <td className="num">
-                        {canDeposit ? <TxnButton kind="DEPOSIT" account={account} /> : null}
-                        {canWithdraw && a.allow_withdrawal && a.status === 'ACTIVE'
-                          ? <TxnButton kind="WITHDRAWAL" account={account} />
-                          : null}
-                      </td>
                     </tr>
                   );
                 })}

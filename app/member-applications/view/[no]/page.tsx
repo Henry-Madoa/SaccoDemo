@@ -5,6 +5,7 @@ import { getMemberApplication, getAdjacentApplicationNos, type MemberApplication
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { listApplicationNextOfKin, listApplicationNominees } from '@/lib/applicationNominees';
 import { listApplicationSignatories } from '@/lib/applicationSignatories';
+import { listApplicationAccountInstructions, listActiveAccountInstructions } from '@/lib/accountInstructions';
 import { listApplicationAttachments } from '@/lib/applicationAttachments';
 import {
   listActiveCounties, listActiveSubCounties, listActiveMemberCategories, listActiveDimensionValues,
@@ -23,6 +24,7 @@ import { ApplicationBiometricPanel } from './biometric-panel';
 import { ApplicationAttachmentPanel } from './attachment-panel';
 import { ApplicationNextOfKinPanel, ApplicationNomineePanel } from './nok-nominee-form';
 import { ApplicationSignatoryPanel } from './signatory-form';
+import { ApplicationAccountInstructionPanel } from './account-instruction-form';
 import {
   GeneralInfoCard, BasicInfoCard, GroupInfoCard, ContactInfoCard,
 } from './info-cards';
@@ -45,7 +47,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
   const [
     canUpdate, canCreate, canApprove, nextOfKin, nominees, signatories, attachments,
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 }, tasks,
-    { prevNo, nextNo },
+    { prevNo, nextNo }, accountInstructions, predefinedInstructions,
   ] = await Promise.all([
     currentCanAction('MEMBER_APPLICATIONS_UPDATE'), currentCanAction('MEMBER_APPLICATIONS_CREATE'), currentCanAction('MEMBER_APPLICATIONS_APPROVE'),
     listApplicationNextOfKin(no), listApplicationNominees(no), listApplicationSignatories(no),
@@ -54,6 +56,8 @@ export default async function MemberApplicationDetailPage({ params, searchParams
     listActiveDimensionValues(1), listActiveDimensionValues(2), getDimensionCaptions(),
     listWorkflowTasksForDocument('MEMBER_APPLICATION', no),
     getAdjacentApplicationNos(no, view),
+    listApplicationAccountInstructions(no),
+    listActiveAccountInstructions(),
   ]);
   const mediaEnabled = isConfigured();
   const isOpen = application.status === 'Open';
@@ -115,6 +119,13 @@ export default async function MemberApplicationDetailPage({ params, searchParams
     <ApplicationSignatoryPanel applicationNo={no} signatories={signatories} canManage={canUpdate && isOpen} />
   );
 
+  const accountInstructionPanel = (
+    <ApplicationAccountInstructionPanel
+      applicationNo={no} lines={accountInstructions} predefined={predefinedInstructions}
+      canManage={canUpdate && isOpen}
+    />
+  );
+
   return (
     <>
       <CardNav
@@ -154,6 +165,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
           { key: 'kyc', label: 'KYC Attachments' },
           { key: 'nominee', label: 'Nominee' },
           { key: 'nok', label: 'Next Of Kin' },
+          { key: 'instructions', label: 'Account Instructions' },
           ...(isIndividual ? [] : [{ key: 'signatory', label: 'Signatories' }]),
           { key: 'audit', label: 'Audit Trail' },
         ]}
@@ -185,6 +197,7 @@ export default async function MemberApplicationDetailPage({ params, searchParams
           ),
           nok: nokPanel,
           nominee: nomineePanel,
+          instructions: accountInstructionPanel,
           ...(isIndividual ? {} : { signatory: signatoryPanel }),
           audit: <AuditTrail application={application} tasks={tasks} />,
         }}

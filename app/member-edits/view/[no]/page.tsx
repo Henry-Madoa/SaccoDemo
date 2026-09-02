@@ -4,6 +4,7 @@ import { requireAction, currentCanAction } from '@/lib/session';
 import { getMemberEditRequest, diffMemberEditFields, getAdjacentEditRequestNos, type MemberEditView } from '@/lib/memberEdits';
 import { getMember, listActiveMembers } from '@/lib/members';
 import { listEditNextOfKin, listEditNominees } from '@/lib/editNominees';
+import { listEditAccountInstructions, listActiveAccountInstructions } from '@/lib/accountInstructions';
 import { listEditSignatories } from '@/lib/editSignatories';
 import { listEditAttachments } from '@/lib/editAttachments';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
@@ -24,6 +25,7 @@ import { MemberEditPhoto } from './photo-panel';
 import { EditRequestBiometricPanel } from './biometric-panel';
 import { EditAttachmentPanel } from './attachment-panel';
 import { EditNextOfKinPanel, EditNomineePanel } from './nok-nominee-form';
+import { EditAccountInstructionPanel } from './account-instruction-form';
 import { EditSignatoryPanel } from './signatory-form';
 import {
   GeneralInfoCard, BasicInfoCard, GroupInfoCard, ContactInfoCard,
@@ -49,6 +51,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
     canUpdate, canApprove, currentMember,
     counties, subCounties, memberCategories, gd1Values, gd2Values, { caption1, caption2 },
     nextOfKin, nominees, signatories, attachments, tasks, { prevNo, nextNo },
+    accountInstructions, predefinedInstructions,
   ] = await Promise.all([
     currentCanAction('MEMBER_EDITS_UPDATE'), currentCanAction('MEMBER_EDITS_APPROVE'),
     getMember(request.member_id),
@@ -57,6 +60,8 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
     listEditNextOfKin(no), listEditNominees(no), listEditSignatories(no), listEditAttachments(no),
     listWorkflowTasksForDocument('MEMBER_EDIT', no),
     getAdjacentEditRequestNos(no, view),
+    listEditAccountInstructions(no),
+    listActiveAccountInstructions(),
   ]);
   if (!currentMember) notFound();
 
@@ -130,6 +135,13 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
     <EditSignatoryPanel editNo={no} signatories={signatories} canManage={canUpdate && isOpen} />
   );
 
+  const accountInstructionPanel = (
+    <EditAccountInstructionPanel
+      editNo={no} lines={accountInstructions} predefined={predefinedInstructions}
+      canManage={canUpdate && isOpen}
+    />
+  );
+
   return (
     <>
       <CardNav
@@ -172,6 +184,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
           { key: 'kyc', label: 'KYC Attachments' },
           { key: 'nominee', label: 'Nominee' },
           { key: 'nok', label: 'Next Of Kin' },
+          { key: 'instructions', label: 'Account Instructions' },
           ...(isIndividual ? [] : [{ key: 'signatory', label: 'Signatories' }]),
           { key: 'audit', label: 'Audit Trail' },
         ]}
@@ -209,6 +222,7 @@ export default async function MemberEditDetailPage({ params, searchParams }: {
           ),
           nominee: nomineePanel,
           nok: nokPanel,
+          instructions: accountInstructionPanel,
           ...(isIndividual ? {} : { signatory: signatoryPanel }),
           audit: <AuditTrail request={request} tasks={tasks} />,
         }}

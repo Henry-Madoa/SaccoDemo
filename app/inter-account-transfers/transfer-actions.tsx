@@ -29,11 +29,22 @@ function TransferFields({ members, canCrossMember, initial }: {
   const { cur } = useFormat();
   const editing = !!initial;
   const [amountType, setAmountType] = useState<InterAccountTransferAmountType>(initial?.amount_type ?? 'PARTIAL');
+  // On Edit, seed each picker with the account already on the transfer so its label shows
+  // immediately — the effects below then load the full list of selectable accounts.
+  const initialSourceAccount: TransferAccount[] = initial?.source_account_id ? [{
+    id: initial.source_account_id, account_no: initial.source_account_no, product_name: initial.source_product_name,
+    balance: initial.source_balance, hold_amount: initial.source_hold_amount, min_balance: initial.source_min_balance,
+  }] : [];
+  const initialDestAccount: TransferAccount[] = initial?.destination_account_id ? [{
+    id: initial.destination_account_id, account_no: initial.destination_account_no, product_name: initial.destination_product_name,
+    balance: initial.destination_balance, hold_amount: 0, min_balance: 0,
+  }] : [];
+
   const [sourceMemberId, setSourceMemberId] = useState(String(initial?.source_member_id ?? ''));
-  const [sourceAccounts, setSourceAccounts] = useState<TransferAccount[]>([]);
+  const [sourceAccounts, setSourceAccounts] = useState<TransferAccount[]>(initialSourceAccount);
   const [sourceAccountId, setSourceAccountId] = useState(String(initial?.source_account_id ?? ''));
   const [destMemberId, setDestMemberId] = useState(String(initial?.destination_member_id ?? initial?.source_member_id ?? ''));
-  const [destAccounts, setDestAccounts] = useState<TransferAccount[]>([]);
+  const [destAccounts, setDestAccounts] = useState<TransferAccount[]>(initialDestAccount);
   const [destAccountId, setDestAccountId] = useState(String(initial?.destination_account_id ?? ''));
   const [charge, setCharge] = useState<number | null>(initial ? initial.charge_amount : null);
   const [amount, setAmount] = useState(initial ? toTwoDp(String(initial.amount / 100)) : '');

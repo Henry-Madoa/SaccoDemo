@@ -50,7 +50,7 @@ export async function listPermissionTables(): Promise<{ name: string; label: str
 export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'DASHBOARD', label: 'Dashboard', route: '/dashboard' },
   { code: 'APPROVALS', label: 'Approvals', route: '/approvals' },
-  { code: 'SAVINGS', label: 'Savings & FOSA', route: '/savings' },
+  { code: 'SAVINGS', label: 'Member Accounts List', route: '/savings' },
   { code: 'LOANS', label: 'Loans', route: '/loans' },
   { code: 'LOAN_CALCULATOR', label: 'Loan Calculator', route: '/loan-calculator' },
   { code: 'MEMBER_APPLICATIONS', label: 'Member Application', route: '/member-applications' },
@@ -93,6 +93,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/pool/finance/charge-codes' },
   { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/pool/finance/transaction-charges' },
   { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/membership/member-categories' },
+  { code: 'ADMIN_ACCOUNT_INSTRUCTIONS', label: 'Account Instructions', route: '/admin/pool/membership/account-instructions' },
   { code: 'ADMIN_POOL_COUNTIES', label: 'Counties', route: '/admin/pool/general/counties' },
   { code: 'ADMIN_POOL_DIMENSIONS', label: 'Global Dimensions', route: '/admin/pool/general/dimensions' },
   { code: 'ADMIN_NO_SERIES', label: 'No. Series', route: '/admin/pool/general/no-series' },
@@ -164,6 +165,7 @@ export const ACTIONS = {
       ['member_application_nominee', 'insert'], ['member_application_nominee', 'delete'],
       ['member_application_signatory', 'insert'], ['member_application_signatory', 'delete'],
       ['member_application_attachment', 'insert'], ['member_application_attachment', 'delete'],
+      ['member_application_account_instruction', 'insert'], ['member_application_account_instruction', 'delete'],
     ],
   },
   MEMBER_APPLICATIONS_APPROVE: {
@@ -183,6 +185,7 @@ export const ACTIONS = {
       ['member_edit_nominee', 'insert'], ['member_edit_nominee', 'delete'],
       ['member_edit_signatory', 'insert'], ['member_edit_signatory', 'delete'],
       ['member_edit_attachment', 'insert'], ['member_edit_attachment', 'delete'],
+      ['member_edit_account_instruction', 'insert'], ['member_edit_account_instruction', 'delete'],
     ],
   },
   MEMBER_EDITS_APPROVE: { page: 'MEMBER_EDITS', tables: [['member_edit_request', 'modify'], ['member', 'modify']] },
@@ -705,6 +708,12 @@ export const ACTIONS = {
   ADMIN_POOL_CATEGORIES_MANAGE: {
     page: 'ADMIN_POOL_CATEGORIES',
     tables: [['member_category', 'insert'], ['member_category', 'modify'], ['member_category_default_account', 'insert'], ['member_category_default_account', 'delete']],
+  },
+  /** The admin-defined list of predefined account instructions (see lib/accountInstructions.ts). */
+  ADMIN_ACCOUNT_INSTRUCTIONS_READ: { page: 'ADMIN_ACCOUNT_INSTRUCTIONS', tables: [['account_instruction', 'read']] },
+  ADMIN_ACCOUNT_INSTRUCTIONS_MANAGE: {
+    page: 'ADMIN_ACCOUNT_INSTRUCTIONS',
+    tables: [['account_instruction', 'insert'], ['account_instruction', 'modify'], ['account_instruction', 'delete']],
   },
   ADMIN_POOL_COUNTIES_MANAGE: { page: 'ADMIN_POOL_COUNTIES', tables: [['county', 'insert'], ['county', 'modify'], ['sub_county', 'insert'], ['sub_county', 'delete']] },
   ADMIN_POOL_DIMENSIONS_MANAGE: {

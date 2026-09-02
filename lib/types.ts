@@ -354,6 +354,33 @@ export interface MemberNextOfKin {
   identification_no: string | null;
 }
 
+/* ------------------------------------------------------- account instructions */
+
+/** AL "Account Instruction Type" (Enum52204019). */
+export type AccountInstructionType = 'PREDEFINED' | 'USER_DEFINED';
+
+/** AL "Account Instructions" (Tab52204129) — the admin-defined list of standard operating
+ *  instructions a member can pick from at registration. */
+export interface AccountInstruction {
+  id: number;
+  code: string;
+  description: string;
+  active: Flag;
+  sort: number;
+}
+
+/** AL "Member Account Instructions" (Tab52204009) — one instruction line against a member,
+ *  a member application, or a member edit request (`owner_no` is whichever key applies). */
+export interface AccountInstructionLine {
+  id: number;
+  line_no: number;
+  instruction_type: AccountInstructionType;
+  instruction: string;
+}
+export interface MemberAccountInstruction extends AccountInstructionLine { member_id: number }
+export interface MemberApplicationAccountInstruction extends AccountInstructionLine { application_no: string }
+export interface MemberEditAccountInstruction extends AccountInstructionLine { edit_no: string }
+
 export interface MemberNominee {
   id: number;
   member_id: number;
@@ -970,6 +997,10 @@ export interface TellerTransactionView extends TellerTransaction {
   member_first_name: string;
   member_last_name: string;
   member_email: string | null;
+  member_identification_no: string | null;
+  /** Cloudinary public ids for the teller to authenticate the person at the counter. */
+  member_photo: string | null;
+  member_signature_image: string | null;
   account_no: string;
   account_product_name: string;
   account_balance: Cents;

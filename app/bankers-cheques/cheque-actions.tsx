@@ -30,7 +30,15 @@ function ChequeFields({ members, chequeTypes, initial }: {
   const editing = !!initial;
   const [chequeTypeId, setChequeTypeId] = useState(String(initial?.cheque_type_id ?? (chequeTypes[0]?.id ?? '')));
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
-  const [accounts, setAccounts] = useState<ChequeAccount[]>([]);
+  // On Edit, seed the picker with the account already on the cheque so its label shows
+  // immediately — the effect then loads the member's full list of eligible accounts.
+  const [accounts, setAccounts] = useState<ChequeAccount[]>(
+    initial?.savings_account_id ? [{
+      id: initial.savings_account_id, account_no: initial.account_no, product_name: initial.account_product_name,
+      balance: initial.account_balance, hold_amount: initial.account_hold_amount,
+      min_balance: initial.account_min_balance, available: initial.account_available,
+    }] : [],
+  );
   const [savingsAccountId, setSavingsAccountId] = useState(String(initial?.savings_account_id ?? ''));
   const [amount, setAmount] = useState(initial ? toTwoDp(String(initial.amount / 100)) : '');
   const [charge, setCharge] = useState<number | null>(initial ? initial.charge_amount : null);
@@ -72,12 +80,20 @@ function ChequeFields({ members, chequeTypes, initial }: {
       {chequeTypes.length ? (
         <div className="field">
           <label htmlFor="f_chequeTypeId">Cheque type <span className="req">*</span></label>
-          <select id="f_chequeTypeId" name="chequeTypeId" value={chequeTypeId}
-            onChange={(e) => setChequeTypeId(e.target.value)} disabled={editing}>
-            {chequeTypes.map((t) => (
-              <option key={t.id} value={t.id}>{t.code} — {t.description}</option>
-            ))}
-          </select>
+          {editing ? (
+            <>
+              {/* A disabled <select> is omitted from FormData — carry the locked value along. */}
+              <input type="hidden" name="chequeTypeId" value={chequeTypeId} />
+              <input type="text" value={type ? `${type.code} — ${type.description}` : ''} disabled readOnly />
+            </>
+          ) : (
+            <select id="f_chequeTypeId" name="chequeTypeId" value={chequeTypeId}
+              onChange={(e) => setChequeTypeId(e.target.value)}>
+              {chequeTypes.map((t) => (
+                <option key={t.id} value={t.id}>{t.code} — {t.description}</option>
+              ))}
+            </select>
+          )}
           {type && type.maximum_amount > 0 ? (
             <div className="hint">Maximum per cheque: {cur(type.maximum_amount)}</div>
           ) : null}

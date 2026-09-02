@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { initials } from '@/lib/format';
-import { NAV } from '@/lib/nav';
+import { NAV, isSubMenu, type NavItem } from '@/lib/nav';
 import { useNav } from './nav-context';
 import type { OrgBrand, SessionUser } from '@/lib/types';
 
@@ -31,10 +31,11 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
     else close();
   };
 
+  // One set drives both the group headers and the nested sub-menus: a key present here means the
+  // user has collapsed it. Everything starts expanded (matching the server render), then this
+  // reconciles from localStorage right after mount.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  // Server render can't know a returning user's preference — it always starts
-  // fully expanded, then this reconciles from localStorage right after mount.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(COLLAPSED_GROUPS_KEY);
@@ -49,6 +50,45 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
       localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...next]));
       return next;
     });
+  };
+
+  const isActive = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
+
+  const renderLink = (item: NavItem) => {
+    const active = isActive(item.path);
+    const badge = item.badge ? badges[item.badge] : 0;
+    return (
+      <Link key={item.path} href={item.path} className={active ? 'active' : ''}
+        aria-current={active ? 'page' : undefined}>
+        <span className="ico" aria-hidden="true">{item.icon}</span>
+        {item.label}
+        {badge ? <span className="badge">{badge}</span> : null}
+      </Link>
+    );
+  };
+
+  const renderSubMenu = (group: string, sub: { submenu: string; icon: string; items: NavItem[] }) => {
+    const key = `sub:${group}:${sub.submenu}`;
+    const hasActiveChild = sub.items.some((c) => isActive(c.path));
+    // Expanded by default (like the groups); a user collapse is remembered, but an active child
+    // always forces it open so the current page is never hidden.
+    const open = hasActiveChild || !collapsed.has(key);
+    const bodyId = `nav-sub-${key.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+    return (
+      <div className="nav-submenu" key={key}>
+        <button type="button" className={`nav-submenu-head ${hasActiveChild ? 'active' : ''}`}
+          aria-expanded={open} aria-controls={bodyId} onClick={() => toggleGroup(key)}>
+          <span className="ico" aria-hidden="true">{sub.icon}</span>
+          {sub.submenu}
+          <span className="chev" aria-hidden="true">›</span>
+        </button>
+        <div id={bodyId} className={`nav-submenu-body ${open ? '' : 'collapsed'}`}>
+          <div className="nav-submenu-body-inner">
+            {sub.items.map(renderLink)}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -77,8 +117,11 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
 
         <nav className="nav">
           {NAV.map((group) => {
-            const items = group.items.filter((i) => allowedPaths.includes(i.path));
-            if (!items.length) return null;
+            // Keep an entry only if it (or, for a sub-menu, one of its children) is allowed.
+            const entries = group.items
+              .map((e) => (isSubMenu(e) ? { ...e, items: e.items.filter((c) => allowedPaths.includes(c.path)) } : e))
+              .filter((e) => (isSubMenu(e) ? e.items.length : allowedPaths.includes(e.path)));
+            if (!entries.length) return null;
             const isCollapsed = collapsed.has(group.group);
             const bodyId = `nav-group-${group.group.replace(/\s+/g, '-').toLowerCase()}`;
             return (
@@ -89,18 +132,11 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
                 </button>
                 <div id={bodyId} className={`nav-group-body ${isCollapsed ? 'collapsed' : ''}`}>
                   <div className="nav-group-body-inner">
-                    {items.map((item) => {
-                      const active = pathname === item.path || pathname.startsWith(`${item.path}/`);
-                      const badge = item.badge ? badges[item.badge] : 0;
-                      return (
-                        <Link key={item.path} href={item.path} className={active ? 'active' : ''}
-                          aria-current={active ? 'page' : undefined}>
-                          <span className="ico" aria-hidden="true">{item.icon}</span>
-                          {item.label}
-                          {badge ? <span className="badge">{badge}</span> : null}
-                        </Link>
-                      );
-                    })}
+                    {entries.map((entry) => (
+                      isSubMenu(entry)
+                        ? renderSubMenu(group.group, entry)
+                        : renderLink(entry)
+                    ))}
                   </div>
                 </div>
               </div>

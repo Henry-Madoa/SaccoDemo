@@ -26,7 +26,15 @@ function LienFields({ members, initial }: { members: EligibleMember[]; initial?:
   const editing = !!initial;
   const [transactionType, setTransactionType] = useState<LienTransactionType>(initial?.transaction_type ?? 'HOLD');
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
-  const [accounts, setAccounts] = useState<LienAccount[]>([]);
+  // On Edit, seed the picker with the account already on the lien so its label shows immediately —
+  // the effect then loads the member's full list of eligible accounts.
+  const [accounts, setAccounts] = useState<LienAccount[]>(
+    initial?.savings_account_id ? [{
+      id: initial.savings_account_id, account_no: initial.account_no, product_name: initial.account_product_name,
+      balance: initial.account_balance, hold_amount: initial.account_hold_amount,
+      min_balance: initial.account_min_balance, available: initial.account_available,
+    }] : [],
+  );
   const [savingsAccountId, setSavingsAccountId] = useState(String(initial?.savings_account_id ?? ''));
 
   useEffect(() => {

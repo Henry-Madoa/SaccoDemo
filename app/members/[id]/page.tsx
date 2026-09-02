@@ -6,6 +6,8 @@ import { listActiveEmployers } from '@/lib/employers';
 import type { MemberStatus } from '@/lib/types';
 import { getDimensionCaptions } from '@/lib/org';
 import { listAttachments } from '@/lib/attachments';
+import { listMemberAccountInstructions } from '@/lib/accountInstructions';
+import { AccountInstructionsList } from '@/components/members/account-instructions';
 import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import { formatDate } from '@/lib/format';
 import { Page } from '@/components/layout/page';
@@ -37,7 +39,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
   } = detail;
   const [
     canOpen, canCreateLoan, canViewStatement, canExit, canOpenFd, canSetEmployer, attachments,
-    { caption1, caption2 }, { prevId, nextId },
+    { caption1, caption2 }, { prevId, nextId }, accountInstructions,
   ] = await Promise.all([
     currentCanAction('ACCOUNT_OPENING_CREATE'), currentCanAction('LOAN_CREATE'),
     currentCanAction('MEMBER_STATEMENTS_READ'), currentCanAction('MEMBER_EXITS_CREATE'),
@@ -46,6 +48,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
     listAttachments('member', m.id),
     getDimensionCaptions(),
     getAdjacentMemberIds(m.id, status),
+    listMemberAccountInstructions(m.id),
   ]);
   const mediaEnabled = isConfigured();
   const employers = canSetEmployer ? await listActiveEmployers() : [];
@@ -256,6 +259,11 @@ export default async function MemberDetailPage({ params, searchParams }: {
                 </tbody>
               </TableWrap>
             ) : <EmptyState icon="🎗" title="No nominees on file" />}
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Account instructions"
+            sub="Standing operating instructions — change them through Member Editing">
+            <AccountInstructionsList lines={accountInstructions} />
           </CollapsibleCard>
         </div>
 

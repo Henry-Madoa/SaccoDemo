@@ -38,10 +38,20 @@ function FosaFields({ initial }: { initial?: FosaTransactionView | null }) {
   const editing = !!initial;
   const [documentType, setDocumentType] = useState<FosaDocumentType>(initial?.document_type ?? 'TREASURY_REQUEST');
   const meta: FosaDocTypeMeta = FOSA_DOC_TYPES.find((d) => d.value === documentType)!;
-  const [accts, setAccts] = useState<Acct[]>([]);
   const initialCounterparty = initial
     ? (meta.counterparty === 'SOURCE' ? initial.source_bank_account_id : initial.destination_bank_account_id)
     : null;
+  // On Edit, seed the counterparty picker with the account already on the document so its label
+  // shows immediately — the effect then loads the full list (with real capacity limits).
+  const initialCounterpartyAcct: Acct[] = initial && initialCounterparty ? [{
+    id: initialCounterparty,
+    code: meta.counterparty === 'SOURCE' ? initial.source_code : initial.destination_code,
+    name: meta.counterparty === 'SOURCE' ? initial.source_name : initial.destination_name,
+    account_type: meta.counterparty === 'SOURCE' ? initial.source_account_type : initial.destination_account_type,
+    balance: meta.counterparty === 'SOURCE' ? initial.source_balance : initial.destination_balance,
+    min_capacity: 0, max_capacity: 0,
+  }] : [];
+  const [accts, setAccts] = useState<Acct[]>(initialCounterpartyAcct);
   const [counterpartyBankAccountId, setCounterparty] = useState(String(initialCounterparty ?? ''));
   // The end of the movement auto-resolved from the user's own Teller Setup (their till / vault)
   // — carries capacity limits so the Amount can be pre-filled and capped against the real

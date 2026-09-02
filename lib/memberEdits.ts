@@ -10,6 +10,7 @@ import { listSignatories, replaceSignatories } from './signatories.ts';
 import { listEditNextOfKin, listEditNominees, replaceEditNextOfKin, replaceEditNominees } from './editNominees.ts';
 import { listEditSignatories, replaceEditSignatories } from './editSignatories.ts';
 import { applyEditAttachments, cloneMemberAttachmentsToEdit } from './editAttachments.ts';
+import { seedEditAccountInstructions, applyEditAccountInstructions } from './accountInstructions.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
@@ -219,6 +220,7 @@ export async function createMemberEditRequest(memberId: number, user: Actor): Pr
     await replaceEditNextOfKin(no, nok);
     await replaceEditNominees(no, nominees);
     await replaceEditSignatories(no, signatories);
+    await seedEditAccountInstructions(memberId, no);
     await cloneMemberAttachmentsToEdit(memberId, no);
 
     const changes = [
@@ -273,6 +275,7 @@ export async function changeMemberEditRequestMember(
     await replaceEditNextOfKin(no, nok);
     await replaceEditNominees(no, nominees);
     await replaceEditSignatories(no, signatories);
+    await seedEditAccountInstructions(newMemberId, no);
     // cloneMemberAttachmentsToEdit() only ever appends — clear whatever was staged for the
     // previous member first (just the index rows, not the underlying Cloudinary assets: a
     // cloned row shares its public_id with the live member's own attachment, so destroying the
@@ -414,6 +417,7 @@ export async function processMemberEdit(no: string, user: Actor): Promise<{ memb
     await replaceNextOfKin(req.member_id, nok, user);
     await replaceNominees(req.member_id, nominees, user);
     await replaceSignatories(req.member_id, signatories, user);
+    await applyEditAccountInstructions(no, req.member_id, user);
     await applyEditAttachments(no, req.member_id, user);
 
     await run(

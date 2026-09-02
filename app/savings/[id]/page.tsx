@@ -16,7 +16,6 @@ import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import { JournalLink } from '@/app/accounting/drill-downs';
-import { TxnButton, type TxnAccount } from '../txn-form';
 import { ReverseButton } from './reverse-button';
 
 export default async function SavingsAccountPage({ params, searchParams }: {
@@ -37,23 +36,18 @@ export default async function SavingsAccountPage({ params, searchParams }: {
 
   const { account: a, opening, lines } = data;
   const [
-    org, empty, canDeposit, canWithdraw, canReverse, canDeactivate, canActivate, { prevId, nextId }, { caption1, caption2 },
+    org, empty, canReverse, canDeactivate, canActivate, canTeller, { prevId, nextId }, { caption1, caption2 },
   ] = await Promise.all([
     getOrgBrand(),
     hasAnyTxns(a.id).then((any) => !any),
-    currentCanAction('SAVINGS_DEPOSIT'), currentCanAction('SAVINGS_WITHDRAW'), currentCanAction('SAVINGS_REVERSE'),
+    currentCanAction('SAVINGS_REVERSE'),
     currentCanAction('ACCOUNT_DEACTIVATION_CREATE'), currentCanAction('ACCOUNT_ACTIVATION_CREATE'),
+    currentCanAction('TELLER_TRANSACTIONS_CREATE'),
     getAdjacentAccountIds(a.id),
     getDimensionCaptions(),
   ]);
 
   const available = a.balance - a.hold_amount - a.min_balance;
-  const account: TxnAccount = {
-    id: a.id, account_no: a.account_no, product_name: a.product_name,
-    balance: a.balance, hold_amount: a.hold_amount, min_balance: a.min_balance,
-    withdrawal_fee: a.withdrawal_fee,
-    member_no: a.member_no, first_name: a.first_name, last_name: a.last_name,
-  };
 
   // The statement's running balance starts from the opening figure and walks
   // the period's postings, so it reconciles to the closing balance on screen.
@@ -105,10 +99,9 @@ export default async function SavingsAccountPage({ params, searchParams }: {
         <Link href="/savings" className="btn ghost sm">← All accounts</Link>
         <Link href={`/members/${a.member_id}`} className="btn ghost sm">Member 360</Link>
         <Spacer />
-        {canDeposit ? <TxnButton kind="DEPOSIT" account={account} className="btn ghost" /> : null}
-        {canWithdraw && a.allow_withdrawal && a.status === 'ACTIVE'
-          ? <TxnButton kind="WITHDRAWAL" account={account} className="btn ghost" />
-          : null}
+        {canTeller && a.status === 'ACTIVE' ? (
+          <Link href="/teller-transactions" className="btn ghost">Cash deposit / withdrawal</Link>
+        ) : null}
         {canDeactivate && a.status === 'ACTIVE' ? (
           <Link href={`/account-deactivations?new=${a.member_id}`} className="btn ghost">Deactivate account</Link>
         ) : null}

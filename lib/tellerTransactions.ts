@@ -43,6 +43,8 @@ const WITHDRAWAL_MEMBER_STATUSES = ['ACTIVE', 'DORMANT', 'WITHDRAWN'];
 const SELECT_ROW = `
   SELECT tt.*,
          m.member_no, m.first_name AS member_first_name, m.last_name AS member_last_name, m.email AS member_email,
+         m.identification_no AS member_identification_no, m.photo AS member_photo,
+         m.signature_image AS member_signature_image,
          sa.account_no, sp.name AS account_product_name, sa.balance AS account_balance,
          sa.hold_amount AS account_hold_amount, sp.min_balance AS account_min_balance,
          sp.gl_control_id AS account_gl_control_id,
@@ -119,14 +121,17 @@ export async function getAdjacentTellerTransactionNos(
   return { prevNo: prev?.no ?? null, nextNo: next?.no ?? null };
 }
 
-/** The member's accounts a teller may transact against — withdrawable deposits, active. Same
- *  pool lib/memberCharging.ts's withdrawableAccountsForMember() uses. */
-export const eligibleAccountsForMember = (memberId: number): Promise<SavingsAccountForDebit[]> =>
+/** The member's active accounts a teller may transact against. A withdrawal is limited to
+ *  withdrawal-enabled products; a deposit may target any active account (shares, BOSA deposits). */
+export const eligibleAccountsForMember = (
+  memberId: number, transactionType: TellerTransactionType = 'CASH_WITHDRAWAL',
+): Promise<SavingsAccountForDebit[]> =>
   all<SavingsAccountForDebit>(
     `SELECT sa.id, sa.account_no, sa.status, sa.balance, sa.hold_amount, p.name AS product_name,
             p.min_balance, p.gl_control_id
      FROM savings_account sa JOIN savings_product p ON p.id = sa.product_id
-     WHERE sa.member_id = ? AND sa.status = 'ACTIVE' AND p.allow_withdrawal = 1
+     WHERE sa.member_id = ? AND sa.status = 'ACTIVE'
+       ${transactionType === 'CASH_DEPOSIT' ? '' : 'AND p.allow_withdrawal = 1'}
      ORDER BY sa.account_no`,
     memberId,
   );
@@ -244,16 +249,19 @@ export async function updateTellerTransaction(
   if (!before) throw new AppError('Document not found', 'NOT_FOUND');
   if (before.status !== 'Open') throw new AppError('Only an open document can be edited', 'VALIDATION');
   if (before.created_by !== user.username) throw new AppError('Only the person who created this document can edit it', 'NOT_CREATOR');
-  if (input.transactionType !== before.transaction_type) throw new AppError('The transaction type cannot be changed', 'VALIDATION');
   const r = await resolveAndValidate(input, user);
+  // Switching direction re-runs every rule (charge type, member-status / product checks, sufficient
+  // balance, approval limit) via resolveAndValidate, and a fresh denomination count can be captured
+  // on the document afterwards — nothing is posted while it is still Open.
   await run(
     `UPDATE teller_transaction
-     SET member_id = ?, savings_account_id = ?, amount = ?, source_of_funds = ?, transacted_by_name = ?,
-         transacted_by_id_no = ?, transaction_charge_id = ?, charge_amount = ?, available_balance = ?,
-         book_balance = ?, approval_required = ?, till_bank_account_id = ?
+     SET transaction_type = ?, member_id = ?, savings_account_id = ?, amount = ?, source_of_funds = ?,
+         transacted_by_name = ?, transacted_by_id_no = ?, transaction_charge_id = ?, charge_amount = ?,
+         available_balance = ?, book_balance = ?, approval_required = ?, till_bank_account_id = ?
      WHERE no = ?`,
-    input.memberId, input.savingsAccountId, Math.round(input.amount), input.sourceOfFunds?.trim() || null,
-    input.transactedByName?.trim() || null, input.transactedByIdNo?.trim() || null, r.chargeId, r.chargeAmount,
+    input.transactionType, input.memberId, input.savingsAccountId, Math.round(input.amount),
+    input.sourceOfFunds?.trim() || null, input.transactedByName?.trim() || null,
+    input.transactedByIdNo?.trim() || null, r.chargeId, r.chargeAmount,
     r.availableBalance, r.bookBalance, r.approvalRequired, r.tillBankAccountId, no,
   );
   await audit(user, 'TELLER_TRANSACTION_UPDATE', 'teller_transaction', no, {});

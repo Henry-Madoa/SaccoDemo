@@ -140,9 +140,11 @@ export async function resendTellerSlip(no: string): Promise<ActionResult<{ email
   });
 }
 
-export async function accountsForTellerTransaction(memberId: number): Promise<ActionResult<SavingsAccountForDebit[]>> {
+export async function accountsForTellerTransaction(
+  memberId: number, transactionType?: TellerTransactionType,
+): Promise<ActionResult<SavingsAccountForDebit[]>> {
   return actionResult(async () => {
     await requireAction('TELLER_TRANSACTIONS_CREATE');
-    return eligibleAccountsForMember(memberId);
+    return eligibleAccountsForMember(memberId, transactionType);
   });
 }

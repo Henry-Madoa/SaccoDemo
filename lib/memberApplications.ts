@@ -5,6 +5,7 @@ import { AppError } from './errors.ts';
 import { createMember, type MemberInput } from './members.ts';
 import { listApplicationNextOfKin, listApplicationNominees } from './applicationNominees.ts';
 import { listApplicationSignatories } from './applicationSignatories.ts';
+import { listApplicationAccountInstructions } from './accountInstructions.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
 import { getMemberCategoryDefaultAccounts } from './pool.ts';
@@ -379,6 +380,12 @@ export async function createMemberFromApplication(no: string, user: Actor): Prom
         `INSERT INTO member_signatory (member_id, identification_no, name, designation, date_of_birth, email, phone)
          VALUES (?,?,?,?,?,?,?)`,
         member.id, s.identification_no, s.name, s.designation, s.date_of_birth, s.email, s.phone,
+      );
+    }
+    for (const ai of await listApplicationAccountInstructions(no)) {
+      await run(
+        'INSERT INTO member_account_instruction (member_id, line_no, instruction_type, instruction) VALUES (?,?,?,?)',
+        member.id, ai.line_no, ai.instruction_type, ai.instruction,
       );
     }
     for (const a of attachments) {

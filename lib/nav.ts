@@ -7,9 +7,20 @@ export interface NavItem {
   badge?: 'pendingApprovals';
 }
 
+/** A collapsible sub-menu inside a group — one level of nesting only. */
+export interface NavSubMenu {
+  submenu: string;
+  icon: string;
+  items: NavItem[];
+}
+
+export type NavEntry = NavItem | NavSubMenu;
+
+export const isSubMenu = (e: NavEntry): e is NavSubMenu => 'submenu' in e;
+
 export interface NavGroup {
   group: string;
-  items: NavItem[];
+  items: NavEntry[];
 }
 
 /*
@@ -37,7 +48,20 @@ export const NAV: NavGroup[] = [
       { path: '/member-chargings', label: 'Member Charging', icon: '🧾', page: 'MEMBER_CHARGING' },
       { path: '/member-exits', label: 'Member Exit', icon: '🚪', page: 'MEMBER_EXITS' },
       { path: '/member-activations', label: 'Member Activation', icon: '🔓', page: 'MEMBER_ACTIVATIONS' },
-    { path: '/member-readmissions', label: 'Member Re-admission', icon: '↩', page: 'MEMBER_READMISSIONS' },
+      { path: '/member-readmissions', label: 'Member Re-admission', icon: '↩', page: 'MEMBER_READMISSIONS' },
+      {
+        submenu: 'Periodic Activities', icon: '🕰',
+        items: [
+          { path: '/entrance-fee-recovery', label: 'Entrance Fee Recovery', icon: '🎟', page: 'ENTRANCE_FEE_RECOVERY' },
+          { path: '/member-status-update', label: 'Member Status Update', icon: '🕰', page: 'MEMBER_STATUS_UPDATE' },
+        ],
+      },
+      {
+        submenu: 'Reports', icon: '📊',
+        items: [
+          { path: '/member-statements', label: 'Member Statement', icon: '🧾', page: 'MEMBER_STATEMENTS' },
+        ],
+      },
       ],
   },
   {
@@ -50,13 +74,18 @@ export const NAV: NavGroup[] = [
       { path: '/loans', label: 'Loans', icon: '📄', page: 'LOANS' },
       { path: '/guarantor-changes', label: 'Guarantor Changes', icon: '🔁', page: 'GUARANTOR_CHANGES' },
       { path: '/checkoff-batches', label: 'Checkoff & Salary', icon: '💼', page: 'CHECKOFF_BATCHES' },
-      { path: '/loan-documents', label: 'Reports', icon: '📊', page: 'LOANS' },
+      {
+        submenu: 'Reports', icon: '📊',
+        items: [
+          { path: '/loan-documents', label: 'Loan Documents', icon: '🖨', page: 'LOANS' },
+          { path: '/sectorial-lending', label: 'Sectorial Lending Return', icon: '🌾', page: 'LOANS' },
+        ],
+      },
       ],
   },
    {
     group:'FOSA',
     items:[
-      { path: '/savings', label: 'Savings & FOSA', icon: '💰', page: 'SAVINGS' },
       { path: '/teller-transactions', label: 'Cash Deposits & Withdrawals', icon: '💵', page: 'TELLER_TRANSACTIONS' },
       { path: '/cash-management', label: 'Cash Management', icon: '🏧', page: 'CASH_MANAGEMENT' },
       { path: '/liens', label: 'Liens & Holds', icon: '🔒', page: 'LIENS' },
@@ -65,27 +94,25 @@ export const NAV: NavGroup[] = [
       { path: '/cheque-deposits', label: 'Cheque Deposits', icon: '🧾', page: 'CHEQUE_DEPOSITS' },
       { path: '/fixed-deposits', label: 'Fixed Deposits', icon: '🏛', page: 'FIXED_DEPOSITS' },
       { path: '/standing-orders', label: 'Standing Orders', icon: '🔄', page: 'STANDING_ORDERS' },
+      {
+        submenu: 'Reports', icon: '📊',
+        items: [
+          { path: '/savings', label: 'Member Accounts List', icon: '📄', page: 'SAVINGS' },
+        ],
+      },
     ],
   },
   {
     group: 'Finance',
     items: [
       { path: '/accounting', label: 'General Ledger', icon: '⚖', page: 'GL' },
-   ],
-  },
-    {
-    group: 'Reports',
-    items: [
-      { path: '/member-statements', label: 'Member Statement', icon: '🧾', page: 'MEMBER_STATEMENTS' },
-      { path: '/reports', label: 'Financial Reports', icon: '📊', page: 'REPORTS' },
+      {
+        submenu: 'Reports', icon: '📊',
+        items: [
+          { path: '/reports', label: 'Financial Reports',  icon: '📄', page: 'REPORTS' },
+        ],
+      },
     ],
-  },
-  {
-    group: 'Automations',
-    items: [
-        { path: '/entrance-fee-recovery', label: 'Entrance Fee Recovery', icon: '🎟', page: 'ENTRANCE_FEE_RECOVERY' },
-        { path: '/member-status-update', label: 'Member Status Update', icon: '🕰', page: 'MEMBER_STATUS_UPDATE' },
-     ],
   },
   {
     group: 'Administration',

@@ -6,6 +6,9 @@ import {
 } from '@/lib/tellerTransactions';
 import { getDenominationLines } from '@/lib/denominations';
 import { listActiveMembers } from '@/lib/members';
+import { listMemberAccountInstructions } from '@/lib/accountInstructions';
+import { imageSrc } from '@/lib/cloudinary';
+import { AccountInstructionsList } from '@/components/members/account-instructions';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
@@ -37,7 +40,7 @@ export default async function TellerTransactionDetailPage({ params, searchParams
   if (!doc) notFound();
   const isDeposit = doc.transaction_type === 'CASH_DEPOSIT';
 
-  const [canCreate, canApprove, canPost, tasks, { prevNo, nextNo }, denomLines, history] = await Promise.all([
+  const [canCreate, canApprove, canPost, tasks, { prevNo, nextNo }, denomLines, history, accountInstructions] = await Promise.all([
     currentCanAction('TELLER_TRANSACTIONS_CREATE'),
     currentCanAction('TELLER_TRANSACTIONS_APPROVE'),
     currentCanAction('TELLER_TRANSACTIONS_POST'),
@@ -45,7 +48,10 @@ export default async function TellerTransactionDetailPage({ params, searchParams
     getAdjacentTellerTransactionNos(no, view),
     getDenominationLines('TELLER', no),
     doc.status === 'Processed' ? listTellerTransactionHistory(no) : Promise.resolve([]),
+    listMemberAccountInstructions(doc.member_id),
   ]);
+  const photoSrc = imageSrc(doc.member_photo, { width: 150, height: 190, crop: 'fill' });
+  const signatureSrc = imageSrc(doc.member_signature_image, { width: 240, height: 90, crop: 'fit' });
 
   const isOwn = doc.created_by === user.username;
   const isOpen = doc.status === 'Open';
@@ -73,7 +79,10 @@ export default async function TellerTransactionDetailPage({ params, searchParams
           <Link href="/teller-transactions" className="btn ghost sm">← All transactions</Link>
           <Link href={`/members/${doc.member_id}`} className="btn ghost sm">View member</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditButton doc={doc} members={editMembers} className="btn ghost" /> : null}
+          {isOpen && canCreate && isOwn ? (
+            <EditButton doc={doc} members={editMembers} className="btn ghost"
+              verification={{ instructions: accountInstructions, photoSrc, signatureSrc }} />
+          ) : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={doc.no} className="btn ghost" /> : null}
           {isOpen && doc.approval_required && canCreate && isOwn ? <SubmitButton no={doc.no} className="btn ghost" /> : null}
           {isOpen && !doc.approval_required && canPost ? <PostButton no={doc.no} /> : null}
@@ -117,6 +126,46 @@ export default async function TellerTransactionDetailPage({ params, searchParams
               doc.journal_no ? ['Journal', <span className="mono" key="j">{doc.journal_no}</span>] : null,
               doc.slip_emailed_at ? ['Slip emailed', formatDateTime(doc.slip_emailed_at)] : null,
             ]} />
+          </div>
+        </CollapsibleCard>
+
+        <CollapsibleCard
+          title="Member verification & account instructions"
+          sub={isDeposit
+            ? 'Confirm you are transacting with the right member'
+            : 'Authenticate the person before paying out — check the photo and signature'}
+        >
+          {!isDeposit && accountInstructions.length ? (
+            <div className="note" style={{ marginBottom: 12 }}>
+              ⚠ This account carries {accountInstructions.length} operating instruction{accountInstructions.length === 1 ? '' : 's'} — read them before paying.
+            </div>
+          ) : null}
+          <div className="grid split-side-sm">
+            <div className="stack-2">
+              <div>
+                <div className="metric-label" style={{ marginBottom: 4 }}>Passport photo</div>
+                {photoSrc
+                  ? <img src={photoSrc} alt="Member" style={{ width: 150, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }} />
+                  : <div className="tiny muted-cell">No photo on file</div>}
+              </div>
+              <div>
+                <div className="metric-label" style={{ marginBottom: 4 }}>Specimen signature</div>
+                {signatureSrc
+                  ? <img src={signatureSrc} alt="Signature" style={{ maxWidth: 240, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: '#fff' }} />
+                  : <div className="tiny muted-cell">No signature on file</div>}
+              </div>
+              <DefinitionList items={[
+                ['Member', <>{doc.member_first_name} {doc.member_last_name} <span className="mono">({doc.member_no})</span></>],
+                ['ID / Passport no.', <span className="mono" key="id">{doc.member_identification_no || '—'}</span>],
+                doc.transacted_by_name
+                  ? ['Presented by', `${doc.transacted_by_name}${doc.transacted_by_id_no ? ` — ID ${doc.transacted_by_id_no}` : ''}`]
+                  : null,
+              ]} />
+            </div>
+            <div>
+              <div className="metric-label" style={{ marginBottom: 6 }}>Account instructions</div>
+              <AccountInstructionsList lines={accountInstructions} dense />
+            </div>
           </div>
         </CollapsibleCard>
 

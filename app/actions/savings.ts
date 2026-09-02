@@ -4,42 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as savings from '@/lib/savings';
-import { toCents } from '@/lib/format';
-import type { ActionResult, Cents, Channel, FormValues } from '@/lib/types';
+import type { ActionResult, Cents, FormValues } from '@/lib/types';
 
-export async function postDeposit(values: FormValues): Promise<ActionResult<savings.PostingResult>> {
-  return actionResult(async () => {
-    const user = await requireAction('SAVINGS_DEPOSIT');
-    const result = await savings.deposit({
-      accountId: Number(values.accountId),
-      amount: toCents(values.amount),
-      channel: values.channel as Channel,
-      valueDate: String(values.valueDate || ''),
-      description: String(values.description || ''),
-      user,
-    });
-    revalidatePath('/savings');
-    revalidatePath(`/savings/${values.accountId}`);
-    return result;
-  });
-}
-
-export async function postWithdrawal(values: FormValues): Promise<ActionResult<savings.PostingResult>> {
-  return actionResult(async () => {
-    const user = await requireAction('SAVINGS_WITHDRAW');
-    const result = await savings.withdraw({
-      accountId: Number(values.accountId),
-      amount: toCents(values.amount),
-      channel: values.channel as Channel,
-      valueDate: String(values.valueDate || ''),
-      description: String(values.description || ''),
-      user,
-    });
-    revalidatePath('/savings');
-    revalidatePath(`/savings/${values.accountId}`);
-    return result;
-  });
-}
+// Manual counter deposits/withdrawals moved to the Cash Deposits & Withdrawals (teller) module —
+// see app/actions/tellerTransactions.ts. Reversal of an already-posted savings entry stays here.
 
 export async function reverseTransaction(
   accountId: number,

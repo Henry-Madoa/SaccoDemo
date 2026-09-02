@@ -52,13 +52,17 @@ export function SearchableSelect<T>({
   const inputRef = useRef<HTMLInputElement>(null);
   const fieldId = id ?? `f_${name}`;
 
-  // Keeps the visible text in sync whenever the selected value changes from outside this
-  // component (e.g. Edit forms initialising `value` from an existing record).
+  // Keeps the visible text in sync when the selected value changes from outside this component
+  // (Edit forms initialising `value` from an existing record) — including the case where `items`
+  // arrive asynchronously *after* `value` is already set, which otherwise leaves a required field
+  // looking empty and unsubmittable. Skipped while the field is open so it never fights the user's
+  // own typing.
   useEffect(() => {
+    if (open) return;
     const it = items.find((x) => getValue(x) === value) ?? null;
     setQuery(it ? getLabel(it) : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  }, [value, items, open]);
 
   const needle = query.trim().toLowerCase();
   const filtered = useMemo(() => {

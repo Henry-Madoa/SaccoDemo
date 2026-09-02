@@ -18,7 +18,6 @@ import { MultiSelectFilter } from '@/components/ui/multi-select-filter';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { AppraisalCard, AppraisalMeta, toAppraisal } from '@/components/loans/appraisal-card';
-import { SectorialLendingReport } from '@/components/reports/sectorial-lending';
 import type { Organisation } from '@/lib/types';
 
 type DocType = 'application' | 'appraisal' | 'schedule';
@@ -27,7 +26,6 @@ const TABS: TabDefinition[] = [
   { key: 'application', label: 'Loan Application' },
   { key: 'appraisal', label: 'Loan Appraisal' },
   { key: 'schedule', label: 'Repayment Schedule' },
-  { key: 'sectorial-lending', label: 'Sectorial Lending' },
 ];
 
 const parseIds = (raw?: string): number[] =>
@@ -37,13 +35,12 @@ const parseList = (raw?: string): string[] => (raw ? raw.split(',').filter(Boole
 export default async function LoanDocumentsPage({ searchParams }: {
   searchParams: Promise<{
     type?: string; loan?: string; member?: string; product?: string; status?: string;
-    appFrom?: string; appTo?: string; expFrom?: string; expTo?: string; from?: string; to?: string;
+    appFrom?: string; appTo?: string; expFrom?: string; expTo?: string;
   }>;
 }) {
   const user = await requireAction('LOAN_READ');
   const sp = await searchParams;
   const type: DocType = DOC_TYPES.includes(sp.type as DocType) ? (sp.type as DocType) : 'application';
-  const activeTab = sp.type === 'sectorial-lending' ? 'sectorial-lending' : type;
 
   const loanIds = parseIds(sp.loan);
   const memberIds = parseIds(sp.member);
@@ -101,12 +98,8 @@ export default async function LoanDocumentsPage({ searchParams }: {
   }[type];
 
   return (
-    <Page title="Loan Reports" crumb="Loan document printouts and the SASRA Sectorial Lending Return" user={user}>
-      <Tabs tabs={TABS} active={activeTab} hrefFor={buildTabHref} />
-      {activeTab === 'sectorial-lending' ? (
-        <SectorialLendingReport from={sp.from} to={sp.to} />
-      ) : (
-      <>
+    <Page title="Loan Documents" crumb="Loan application, appraisal and repayment-schedule printouts" user={user}>
+      <Tabs tabs={TABS} active={type} hrefFor={buildTabHref} />
       <Toolbar>
         <MultiSelectFilter paramName="loan" label="Loan" options={loanOptions} placeholder="Search loan no…" />
         <MultiSelectFilter paramName="member" label="Member" options={memberOptions} placeholder="Search member no. or name…" />
@@ -140,8 +133,6 @@ export default async function LoanDocumentsPage({ searchParams }: {
         appraisalDocs.map((d) => <AppraisalDoc key={d.loan.id} doc={d} org={org} />)
       ) : (
         scheduleDocs.map((d) => <ScheduleDoc key={d.loan.id} doc={d} org={org} />)
-      )}
-      </>
       )}
     </Page>
   );

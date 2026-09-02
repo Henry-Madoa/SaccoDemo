@@ -306,7 +306,7 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
         <div className="note">
           Opened at a zero balance — minimum opening {cur(product.min_opening)} · minimum balance{' '}
           {cur(product.min_balance)} · {product.allow_withdrawal ? 'withdrawals permitted' : 'no withdrawals'} ·{' '}
-          interest {product.interest_rate}% p.a. Fund the account afterwards from Savings &amp; FOSA.
+          interest {product.interest_rate}% p.a. Fund the account afterwards from Cash Deposits &amp; Withdrawals.
         </div>
       ) : null}
     </FormModal>
