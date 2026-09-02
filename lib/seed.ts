@@ -10,6 +10,7 @@ import * as savings from './savings.ts';
 import * as loanSvc from './loanService.ts';
 import { addMonths } from './loans.ts';
 import { expandActionsToLines, type ActionKey } from './permissions.ts';
+import { NO_SERIES_DOCUMENTS } from './noSeries.ts';
 import type {
   Actor, Cents, Channel, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member,
 } from './types.ts';
@@ -30,6 +31,10 @@ const CHART: ChartRow[] = [
   ['1020', 'Bank Current Account', 'ASSET', '1000', 1],
   ['1030', 'M-Pesa Settlement Account', 'ASSET', '1000', 1],
   ['1040', 'Check-off Receivable Clearing', 'ASSET', '1000', 1],
+  ['1050', 'Cheques in Clearing', 'ASSET', '1000', 1],
+  ['1015', 'Main Vault — Treasury', 'ASSET', '1000', 1],
+  ['1016', 'Till 01 — Cash', 'ASSET', '1000', 1],
+  ['1017', 'Till 02 — Cash', 'ASSET', '1000', 1],
   ['1100', 'LOANS AND ADVANCES TO MEMBERS', 'ASSET', null, 0],
   ['1110', 'Normal Loans Receivable', 'ASSET', '1100', 1],
   ['1120', 'Emergency Loans Receivable', 'ASSET', '1100', 1],
@@ -48,6 +53,7 @@ const CHART: ChartRow[] = [
   ['2110', 'Accounts Payable and Accruals', 'LIABILITY', '2100', 1],
   ['2120', 'Interest Payable on Deposits', 'LIABILITY', '2100', 1],
   ['2130', 'Unallocated Receipts (Suspense)', 'LIABILITY', '2100', 1],
+  ['2140', 'Bankers Cheques Payable', 'LIABILITY', '2100', 1],
   ['3000', 'CAPITAL AND RESERVES', 'EQUITY', null, 0],
   ['3010', 'Member Share Capital', 'EQUITY', '3000', 1],
   ['3020', 'Statutory Reserve Fund', 'EQUITY', '3000', 1],
@@ -92,6 +98,16 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_READMISSIONS_READ', 'MEMBER_READMISSIONS_CREATE', 'MEMBER_READMISSIONS_APPROVE',
       'STANDING_ORDERS_READ', 'STANDING_ORDERS_CREATE', 'STANDING_ORDERS_APPROVE', 'STANDING_ORDERS_RUN',
       'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
+      'CASH_MANAGEMENT_READ', 'CASH_MANAGEMENT_CREATE', 'CASH_MANAGEMENT_APPROVE', 'CASH_MANAGEMENT_POST',
+      'TELLER_TRANSACTIONS_READ', 'TELLER_TRANSACTIONS_CREATE', 'TELLER_TRANSACTIONS_APPROVE', 'TELLER_TRANSACTIONS_POST',
+      'LIENS_READ', 'LIENS_CREATE', 'LIENS_APPROVE', 'LIENS_POST',
+      'INTER_ACCOUNT_TRANSFERS_READ', 'INTER_ACCOUNT_TRANSFERS_CREATE', 'INTER_ACCOUNT_TRANSFERS_APPROVE',
+      'INTER_ACCOUNT_TRANSFERS_POST', 'INTER_ACCOUNT_TRANSFERS_CROSS_MEMBER',
+      'BANKERS_CHEQUES_READ', 'BANKERS_CHEQUES_CREATE', 'BANKERS_CHEQUES_APPROVE', 'BANKERS_CHEQUES_POST',
+      'BANKERS_CHEQUES_TYPES_MANAGE',
+      'CHEQUE_DEPOSITS_READ', 'CHEQUE_DEPOSITS_CREATE', 'CHEQUE_DEPOSITS_APPROVE', 'CHEQUE_DEPOSITS_CLEAR',
+      'CHEQUE_DEPOSITS_TYPES_MANAGE',
+      'TELLER_SETUP_READ', 'TELLER_SETUP_MANAGE', 'DENOMINATIONS_READ',
       'ENTRANCE_FEE_RECOVERY_READ', 'ENTRANCE_FEE_RECOVERY_RUN',
       'MEMBER_STATUS_UPDATE_READ', 'MEMBER_STATUS_UPDATE_RUN', 'ADMIN_JOB_QUEUE_MANAGE',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW',
@@ -99,7 +115,8 @@ export const ROLES: RoleSeed[] = [
       'LOAN_CALCULATOR_READ', 'LOAN_CALCULATOR_CREATE', 'LOAN_CALCULATOR_DELETE', 'LOAN_CALCULATOR_CONVERT',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_APPLICATIONS_APPROVE',
       'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE',
-      'COLLATERAL_RELEASES_APPROVE', 'ADMIN_PRODUCTS_COLLATERAL_MANAGE',
+      'COLLATERAL_RELEASES_APPROVE', 'ADMIN_PRODUCTS_COLLATERAL_MANAGE', 'ADMIN_POOL_SECTORS_MANAGE',
+      'ADMIN_NO_SERIES_READ', 'ADMIN_NO_SERIES_MANAGE',
       'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE', 'GUARANTOR_CHANGES_APPROVE',
       'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE', 'MEMBER_EXITS_APPROVE',
       'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE', 'CHECKOFF_BATCHES_APPROVE', 'EMPLOYERS_MANAGE',
@@ -137,6 +154,13 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE',
       'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE',
       'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
+      'CASH_MANAGEMENT_READ', 'CASH_MANAGEMENT_CREATE', 'CASH_MANAGEMENT_POST',
+      'TELLER_TRANSACTIONS_READ', 'TELLER_TRANSACTIONS_CREATE', 'TELLER_TRANSACTIONS_POST',
+      'LIENS_READ', 'LIENS_CREATE', 'LIENS_POST',
+      'INTER_ACCOUNT_TRANSFERS_READ', 'INTER_ACCOUNT_TRANSFERS_CREATE', 'INTER_ACCOUNT_TRANSFERS_POST',
+      'INTER_ACCOUNT_TRANSFERS_CROSS_MEMBER',
+      'BANKERS_CHEQUES_READ', 'BANKERS_CHEQUES_CREATE', 'BANKERS_CHEQUES_POST',
+      'CHEQUE_DEPOSITS_READ', 'CHEQUE_DEPOSITS_CREATE', 'CHEQUE_DEPOSITS_CLEAR',
       'ENTRANCE_FEE_RECOVERY_READ', 'ENTRANCE_FEE_RECOVERY_RUN',
       'MEMBER_STATUS_UPDATE_READ', 'MEMBER_STATUS_UPDATE_RUN',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW', 'LOAN_READ', 'LOAN_REPAY',
@@ -152,6 +176,15 @@ export const ROLES: RoleSeed[] = [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_ACTIVATIONS_READ', 'MEMBER_READMISSIONS_READ', 'STANDING_ORDERS_READ',
       'MEMBER_CHARGING_READ', 'SAVINGS_READ', 'MEMBER_EXITS_READ',
+      'CASH_MANAGEMENT_READ', 'CASH_MANAGEMENT_CREATE', 'CASH_MANAGEMENT_APPROVE', 'CASH_MANAGEMENT_POST',
+      'TELLER_TRANSACTIONS_READ', 'TELLER_TRANSACTIONS_APPROVE',
+      'LIENS_READ', 'LIENS_CREATE', 'LIENS_APPROVE', 'LIENS_POST',
+      'INTER_ACCOUNT_TRANSFERS_READ', 'INTER_ACCOUNT_TRANSFERS_CREATE', 'INTER_ACCOUNT_TRANSFERS_APPROVE',
+      'INTER_ACCOUNT_TRANSFERS_POST', 'INTER_ACCOUNT_TRANSFERS_CROSS_MEMBER',
+      'BANKERS_CHEQUES_READ', 'BANKERS_CHEQUES_CREATE', 'BANKERS_CHEQUES_APPROVE', 'BANKERS_CHEQUES_POST',
+      'BANKERS_CHEQUES_TYPES_MANAGE',
+      'CHEQUE_DEPOSITS_READ', 'CHEQUE_DEPOSITS_CREATE', 'CHEQUE_DEPOSITS_APPROVE', 'CHEQUE_DEPOSITS_CLEAR',
+      'CHEQUE_DEPOSITS_TYPES_MANAGE',
       'ENTRANCE_FEE_RECOVERY_READ', 'MEMBER_STATUS_UPDATE_READ',
       'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE',
@@ -169,6 +202,9 @@ export const ROLES: RoleSeed[] = [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'MEMBER_APPLICATIONS_READ', 'MEMBER_EDITS_READ', 'ACCOUNT_OPENING_READ',
       'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_ACTIVATION_READ', 'MEMBER_ACTIVATIONS_READ', 'MEMBER_READMISSIONS_READ', 'STANDING_ORDERS_READ',
       'MEMBER_CHARGING_READ', 'SAVINGS_READ', 'MEMBER_EXITS_READ',
+      'CASH_MANAGEMENT_READ', 'TELLER_TRANSACTIONS_READ', 'LIENS_READ', 'INTER_ACCOUNT_TRANSFERS_READ',
+      'BANKERS_CHEQUES_READ', 'CHEQUE_DEPOSITS_READ',
+      'TELLER_SETUP_READ', 'DENOMINATIONS_READ',
       'ENTRANCE_FEE_RECOVERY_READ', 'MEMBER_STATUS_UPDATE_READ',
       'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
@@ -194,6 +230,42 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   await run(INS_SEQ, 'JOURNAL', 'JV', 1, 8);
   await run(INS_SEQ, 'JOURNAL_DRAFT', 'JVD', 1, 6);
   await run(INS_SEQ, 'TXN', 'TX', 1, 9);
+  await run(INS_SEQ, 'FOSA_TRANSACTION', 'FT', 1, 6);
+  await run(INS_SEQ, 'TELLER_TRANSACTION', 'TT', 1, 6);
+  await run(INS_SEQ, 'MEMBER_LIEN', 'LIEN', 1, 6);
+  await run(INS_SEQ, 'INTER_ACCOUNT_TRANSFER', 'IAT', 1, 6);
+  await run(INS_SEQ, 'BANKERS_CHEQUE', 'BCQ', 1, 6);
+  await run(INS_SEQ, 'CHEQUE_DEPOSIT', 'CHQ', 1, 6);
+
+  // Business Central No. Series — mirror every flat counter into a managed series (code ==
+  // document code) plus its Admin Centre → No. Series assignment row. From here on the services'
+  // nextSequence() calls draw from these; the `sequence` rows above are the fall-back only.
+  for (const doc of NO_SERIES_DOCUMENTS) {
+    const seq = await one<{ prefix: string; next_no: number; width: number }>(
+      'SELECT prefix, next_no, width FROM sequence WHERE name = ?', doc.code,
+    );
+    if (!seq) continue;
+    const startNo = seq.prefix + String(seq.next_no).padStart(seq.width, '0');
+    await run(
+      'INSERT INTO no_series (code, description, default_nos, manual_nos, date_order) VALUES (?,?,1,0,0) ON CONFLICT (code) DO NOTHING',
+      doc.code, doc.label,
+    );
+    const hasLine = await one<{ c: number }>(
+      'SELECT COUNT(*) AS c FROM no_series_line WHERE series_code = ?', doc.code,
+    );
+    if (!Number(hasLine?.c ?? 0)) {
+      await run(
+        `INSERT INTO no_series_line (series_code, line_no, starting_date, starting_no, increment_by_no, open, allow_gaps)
+         VALUES (?, 10000, NULL, ?, 1, 1, 0)`,
+        doc.code, startNo,
+      );
+    }
+    await run(
+      `INSERT INTO no_series_setup (document_code, label, category, sort, series_code) VALUES (?,?,?,?,?)
+       ON CONFLICT (document_code) DO NOTHING`,
+      doc.code, doc.label, doc.category, NO_SERIES_DOCUMENTS.indexOf(doc), doc.code,
+    );
+  }
 
   await run(
     `INSERT INTO organisation (id, name, short_name, motto, registration_no, sasra_licence_no, kra_pin,
@@ -298,18 +370,23 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   // channel a teller already posts through has a matching reconcilable bank account from day
   // one, and each of these control accounts is flagged no_direct_posting so a manual G/L
   // journal can no longer touch it (see lib/gl.ts's createJournal/postManualJournal).
-  const [a1010, a1020, a1030, a1040] = await Promise.all([
+  const [a1010, a1020, a1030, a1040, a1015, a1016, a1017] = await Promise.all([
     accId('1010'), accId('1020'), accId('1030'), accId('1040'),
+    accId('1015'), accId('1016'), accId('1017'),
   ]);
   const INS_BANK_ACCOUNT =
-    'INSERT INTO bank_account (code, name, gl_account_id, bank_name, account_no, created_at) VALUES (?,?,?,?,?,?)';
-  await run(INS_BANK_ACCOUNT, 'CASH', 'Cash in Hand — Tellers', a1010, null, null, now);
-  await run(INS_BANK_ACCOUNT, 'BANK', 'Bank Current Account', a1020, 'Co-operative Bank of Kenya', '01100123456789', now);
-  await run(INS_BANK_ACCOUNT, 'MPESA', 'M-Pesa Settlement Account', a1030, 'Safaricom M-Pesa', '400200', now);
-  await run(INS_BANK_ACCOUNT, 'CHECKOFF', 'Check-off Receivable Clearing', a1040, null, null, now);
+    'INSERT INTO bank_account (code, name, gl_account_id, bank_name, account_no, account_type, created_at) VALUES (?,?,?,?,?,?,?)';
+  await run(INS_BANK_ACCOUNT, 'CASH', 'Cash in Hand — Tellers', a1010, null, null, 'OTHER', now);
+  await run(INS_BANK_ACCOUNT, 'BANK', 'Bank Current Account', a1020, 'Co-operative Bank of Kenya', '01100123456789', 'MAIN', now);
+  await run(INS_BANK_ACCOUNT, 'MPESA', 'M-Pesa Settlement Account', a1030, 'Safaricom M-Pesa', '400200', 'OTHER', now);
+  await run(INS_BANK_ACCOUNT, 'CHECKOFF', 'Check-off Receivable Clearing', a1040, null, null, 'OTHER', now);
+  // FOSA tellering — the branch Treasury vault and two tills (AL "Teller Setup" targets).
+  await run(INS_BANK_ACCOUNT, 'TREASURY', 'Main Vault — Treasury', a1015, null, null, 'TREASURY', now);
+  await run(INS_BANK_ACCOUNT, 'TILL-01', 'Till 01', a1016, null, null, 'TILL', now);
+  await run(INS_BANK_ACCOUNT, 'TILL-02', 'Till 02', a1017, null, null, 'TILL', now);
 
   const noDirectPosting = [
-    a1010, a1020, a1030, a1040, // bank accounts
+    a1010, a1020, a1030, a1040, a1015, a1016, a1017, // bank / cash accounts
     a3010, a2010, a2020, a2030, a2040, // savings control accounts
     a1110, a1120, a1130, a1140, // loan receivable accounts
   ];
@@ -318,16 +395,46 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     ...noDirectPosting,
   );
 
+  // FOSA cash denomination master (Kenyan notes & coins; value in cents).
+  const INS_DENOM = 'INSERT INTO denomination (code, description, value, active, sort_order) VALUES (?,?,?,true,?)';
+  const DENOMS: [string, string, number][] = [
+    ['N1000', 'KSh 1,000 note', K(1000)], ['N500', 'KSh 500 note', K(500)], ['N200', 'KSh 200 note', K(200)],
+    ['N100', 'KSh 100 note', K(100)], ['N50', 'KSh 50 note', K(50)], ['C40', 'KSh 40 coin', K(40)],
+    ['C20', 'KSh 20 coin', K(20)], ['C10', 'KSh 10 coin', K(10)], ['C5', 'KSh 5 coin', K(5)], ['C1', 'KSh 1 coin', K(1)],
+  ];
+  for (const [code, desc, value] of DENOMS) await run(INS_DENOM, code, desc, value, DENOMS.findIndex((d) => d[0] === code) + 1);
+
+  // Teller Setup (AL Tab52204042) — the demo teller operates Till 01; finance & manager run the vault.
+  const bankId = async (code: string): Promise<number> =>
+    (await one<{ id: number }>('SELECT id FROM bank_account WHERE code = ?', code))!.id;
+  const [tillOne, vault] = await Promise.all([bankId('TILL-01'), bankId('TREASURY')]);
+  const INS_TS =
+    `INSERT INTO teller_setup (user_username, setup_type, bank_account_id, max_capacity, min_capacity, approval_limit, created_at, created_by)
+     VALUES (?,?,?,?,?,?,?,?)`;
+  await run(INS_TS, 'teller', 'TELLER', tillOne, K(5000000), 0, K(200000), now, 'system');
+  await run(INS_TS, 'finance', 'TREASURY', vault, K(50000000), K(1000000), 0, now, 'system');
+  await run(INS_TS, 'manager', 'TREASURY', vault, K(50000000), K(1000000), 0, now, 'system');
+
   const INS_SP =
     `INSERT INTO savings_product (code, name, category, min_balance, min_opening, interest_rate,
-      allow_withdrawal, withdrawal_fee, is_loanable_base, withdrawal_notice_days,
+      allow_withdrawal, allow_transfer, withdrawal_fee, is_loanable_base, withdrawal_notice_days,
       gl_control_id, gl_interest_exp_id, gl_fee_income_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  await run(INS_SP, 'SHR', 'Member Share Capital', 'SHARE CAPITAL ACCOUNT', 0, K(5000), 0, 0, 0, 0, 0, 0, a3010, a5010, a4040);
+  await run(INS_SP, 'BOSA', 'BOSA Member Deposits', 'NON WITHDRAWABLE DEPOSIT', 0, K(1000), 8, 0, 0, 0, 0, 1, 60, a2010, a5010, a4040);
+  await run(INS_SP, 'FOSA', 'FOSA Savings Account', 'WITHDRAWABLE DEPOSIT', K(500), K(500), 2, 1, 1, K(50), 0, 0, a2020, a5010, a4040);
+  await run(INS_SP, 'FIXED', 'Fixed Deposit Account', 'FIXED DEPOSIT ACCOUNT', 0, K(20000), 9.5, 0, 0, 0, 0, 90, a2030, a5010, a4040);
+  await run(INS_SP, 'HOL', 'Holiday & Education Savings', 'HOLIDAY ACCOUNT', 0, K(500), 4, 1, 1, K(30), 0, 0, a2040, a5010, a4040);
+
+  // Cheque Types (AL "Cheque Types"): a BANKERS type sold by the SACCO (cleared against the
+  // Bankers Cheques Payable liability) and an EXTERNAL type members bank (cleared through
+  // Cheques in Clearing). No charges configured out of the box.
+  const INS_CT =
+    `INSERT INTO cheque_type (code, type, description, maximum_amount, clearing_gl_account_id, clearing_charge_id,
+       bouncing_charge_id, express_charge_id, in_house, maturity_days, status, created_at, created_by)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  await run(INS_SP, 'SHR', 'Member Share Capital', 'SHARE CAPITAL ACCOUNT', 0, K(5000), 0, 0, 0, 0, 0, a3010, a5010, a4040);
-  await run(INS_SP, 'BOSA', 'BOSA Member Deposits', 'NON WITHDRAWABLE DEPOSIT', 0, K(1000), 8, 0, 0, 1, 60, a2010, a5010, a4040);
-  await run(INS_SP, 'FOSA', 'FOSA Savings Account', 'WITHDRAWABLE DEPOSIT', K(500), K(500), 2, 1, K(50), 0, 0, a2020, a5010, a4040);
-  await run(INS_SP, 'FIXED', 'Fixed Deposit Account', 'FIXED DEPOSIT ACCOUNT', 0, K(20000), 9.5, 0, 0, 0, 90, a2030, a5010, a4040);
-  await run(INS_SP, 'HOL', 'Holiday & Education Savings', 'HOLIDAY ACCOUNT', 0, K(500), 4, 1, K(30), 0, 0, a2040, a5010, a4040);
+  await run(INS_CT, 'STD', 'BANKERS', 'Standard Banker’s Cheque', K(1000000), await accId('2140'), null, null, null, false, 0, 'ACTIVE', now, 'system');
+  await run(INS_CT, 'EXT', 'EXTERNAL', 'Local Bank Cheque', 0, await accId('1050'), null, null, null, false, 3, 'ACTIVE', now, 'system');
 
   const INS_LP =
     `INSERT INTO loan_product (code, name, interest_rate, interest_method, max_term_months, min_amount,

@@ -131,6 +131,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .sidebar-head { padding: calc(var(--sp) * 2.5) calc(var(--sp) * 2); display: flex; gap: 10px; align-items: center; border-bottom: 1px solid rgba(255,255,255,.1); }
+.sidebar-brand { display: flex; gap: 10px; align-items: center; flex: 1; min-width: 0; text-decoration: none; color: inherit; }
+.sidebar-brand:hover { text-decoration: none; }
+.sidebar-brand:hover .name { color: var(--sidebar-fg-active); }
 .sidebar-head img { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: var(--radius-sm); padding: 3px; flex: none; }
 .sidebar-head .mark {
   width: 38px; height: 38px; flex: none; border-radius: var(--radius-sm);
@@ -254,6 +257,26 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   .nav-toggle { display: inline-flex; }
   .topbar { padding: 0 calc(var(--sp) * 1.5); gap: var(--sp); }
   .content { padding: calc(var(--sp) * 2); }
+}
+
+/* ------------------------------------------- desktop: hide / show the sidebar */
+/* The button in the sidebar header sets body.nav-hidden; the top-bar hamburger
+   (shown only in that state) clears it. Default — no class — is always shown. */
+.sidebar-collapse {
+  margin-left: auto; flex: none; width: 28px; height: 28px; padding: 0;
+  display: grid; place-items: center; border-radius: var(--radius-sm);
+  background: none; border: 1px solid transparent; color: var(--sidebar-fg);
+  opacity: .55; cursor: pointer;
+}
+.sidebar-collapse:hover { opacity: 1; background: rgba(255, 255, 255, .08); }
+@media (max-width: 900px) { .sidebar-collapse { display: none; } }
+
+@media (min-width: 901px) {
+  body.nav-hidden .shell { display: block; }
+  body.nav-hidden .sidebar { display: none; }
+  body.nav-hidden .nav-toggle { display: inline-flex; }
+  body.nav-hidden .modal-back { padding-left: 20px; }
+  body.nav-hidden .card-nav-prev { left: calc(var(--sp) * 2.5); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -245,7 +245,7 @@ export function RepayButton({ loan, accounts, bankAccounts }: {
               ['Allocation order', 'Penalties → interest → principal, oldest instalment first'],
             ]} />
           </div>
-          <Field name="amount" label="Amount received" type="number" step="0.01" required
+          <Field name="amount" label="Amount received" type="currency" required
             defaultValue={toUnits(loan.installment)} />
           <SearchableSelect name="fromSavingsAccountId" label="Debit a member account instead"
             items={accounts} getValue={(a) => String(a.id)}
@@ -312,7 +312,7 @@ export function AttachCollateralButton({ loanId, memberId, className = 'btn sm g
                 getLabel={(c) => `${c.no} — ${c.collateral_description || c.serial_reg_no || 'Untitled'} (cover left ${cur(c.collateral_balance)})`}
                 value={collateralNo} onChange={setCollateralNo}
                 placeholder="Search collateral…" emptyText="No matching collateral" />
-              <Field name="guaranteeSh" label="Cover to draw from this item" type="number" step="0.01" required
+              <Field name="guaranteeSh" label="Cover to draw from this item" type="currency" required
                 defaultValue={chosen ? toUnits(chosen.collateral_balance) : ''}
                 hint={chosen ? `Up to ${cur(chosen.collateral_balance)} still available` : undefined} />
             </>
@@ -395,7 +395,7 @@ export function AttachFdSecurityButton({ loanId, memberId, className = 'btn sm g
                 getLabel={(f) => `${f.no} — ${f.fd_type_description} (cover left ${cur(f.available)})`}
                 value={fdNo} onChange={setFdNo}
                 placeholder="Search fixed deposit…" emptyText="No matching fixed deposits" />
-              <Field name="guaranteeSh" label="Cover to draw from this fixed deposit" type="number" step="0.01" required
+              <Field name="guaranteeSh" label="Cover to draw from this fixed deposit" type="currency" required
                 defaultValue={chosen ? toUnits(chosen.available) : ''}
                 hint={chosen ? `Up to ${cur(chosen.available)} still available` : undefined} />
             </>
@@ -463,7 +463,7 @@ export function AddGuarantorButton({ loanId, memberId, existingMemberIds, classN
             <>
               <MemberSelect id="f_guarantorId" name="guarantorId" label="Guarantor" members={available}
                 value={guarantorId} onChange={setGuarantorId} required />
-              <Field name="amountSh" label="Amount guaranteed" type="number" step="0.01" required
+              <Field name="amountSh" label="Amount guaranteed" type="currency" required
                 defaultValue={chosen ? toUnits(chosen.availableGuarantee) : ''}
                 hint={chosen ? `Up to ${cur(chosen.availableGuarantee)} available to guarantee` : 'Pick a member above first'} />
             </>

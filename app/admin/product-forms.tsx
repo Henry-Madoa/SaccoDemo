@@ -68,11 +68,11 @@ export function SavingsProductButton({ product, accounts, className = 'btn', chi
               defaultValue={p?.category} options={SAVINGS_CATEGORIES} />
             <Field name="interest_rate" label="Interest rate (% p.a.)" type="number" step="0.01"
               defaultValue={p ? p.interest_rate : 0} />
-            <Field name="min_opening_sh" label="Minimum opening deposit" type="number" step="0.01"
+            <Field name="min_opening_sh" label="Minimum opening deposit" type="currency"
               defaultValue={p ? toUnits(p.min_opening) : 0} />
-            <Field name="min_balance_sh" label="Minimum balance" type="number" step="0.01"
+            <Field name="min_balance_sh" label="Minimum balance" type="currency"
               defaultValue={p ? toUnits(p.min_balance) : 0} />
-            <Field name="withdrawal_fee_sh" label="Withdrawal charge" type="number" step="0.01"
+            <Field name="withdrawal_fee_sh" label="Withdrawal charge" type="currency"
               defaultValue={p ? toUnits(p.withdrawal_fee) : 0} />
             <Field name="withdrawal_notice_days" label="Notice period (days)" type="number"
               defaultValue={p ? p.withdrawal_notice_days : 0} />
@@ -81,6 +81,8 @@ export function SavingsProductButton({ product, accounts, className = 'btn', chi
           </div>
           <Field name="allow_withdrawal" label="Withdrawals permitted" type="checkbox"
             defaultValue={p ? p.allow_withdrawal : 1} />
+          <Field name="allow_transfer" label="Funds transfer permitted (source of an inter-account transfer)" type="checkbox"
+            defaultValue={p ? p.allow_transfer : 1} />
           <Field name="is_loanable_base" label="Counts toward the loan deposit multiplier" type="checkbox"
             defaultValue={p ? p.is_loanable_base : 0} />
           <Field name="is_business_account" label="Business account — collects business details when opened" type="checkbox"
@@ -167,9 +169,9 @@ export function LoanProductButton({ product, chargeLines, charges, accounts, cla
               defaultValue={p?.interest_method} options={INTEREST_METHODS} />
             <Field name="max_term_months" label="Maximum term (months)" type="number"
               defaultValue={p ? p.max_term_months : 48} />
-            <Field name="min_amount_sh" label="Minimum amount" type="number" step="0.01"
+            <Field name="min_amount_sh" label="Minimum amount" type="currency"
               defaultValue={p ? toUnits(p.min_amount) : 0} />
-            <Field name="max_amount_sh" label="Maximum amount" type="number" step="0.01"
+            <Field name="max_amount_sh" label="Maximum amount" type="currency"
               defaultValue={p ? toUnits(p.max_amount) : 0} />
             <Field name="deposit_multiplier" label="Deposit multiplier" type="number" step="0.1"
               defaultValue={p ? p.deposit_multiplier : 3} />

@@ -187,6 +187,9 @@ export default async function LoanDetailPage({ params, searchParams }: {
         ['Member', <>{l.first_name} {l.last_name} <span className="mono">({l.member_no})</span></>],
         ['Product', l.product_name],
         ['Purpose', l.purpose || '—'],
+        ['Economic sector', l.sector_code ? `${l.sector_code} — ${l.sector_name}` : '—'],
+        ['Sub-sector', l.sub_sector_code ? `${l.sub_sector_code} — ${l.sub_sector_name}` : '—'],
+        ['Sub-subsector', l.sub_subsector_code ? `${l.sub_subsector_code} — ${l.sub_subsector_name}` : '—'],
         ['Recovery mode', humanise(l.recovery_mode)],
         ['Applied', `${formatDate(l.applied_date)} by ${l.created_by || '—'}`],
         ['Approved', l.approved_date ? `${formatDate(l.approved_date)} by ${l.approved_by}` : '—'],
@@ -382,6 +385,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
             loan={{
               id: l.id, loan_no: l.loan_no, member_id: l.member_id, product_id: l.product_id,
               principal: l.principal, term_months: l.term_months, purpose: l.purpose,
+              sector_code: l.sector_code, sub_sector_code: l.sub_sector_code, sub_subsector_code: l.sub_subsector_code,
               disburse_to_account_id: l.disburse_to_account_id, recovery_mode: l.recovery_mode,
             }}
           />

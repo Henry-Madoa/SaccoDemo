@@ -19,6 +19,7 @@ import { listLoanCollateral } from './loanCollateral.ts';
 import { listLoanProductCharges } from './loanProductCharges.ts';
 import { ensureSalaryAppraisalLines, computeSalaryTotals, listLoanSalaryAppraisalLines } from './salaryAppraisal.ts';
 import { guarantorCapacity, selfGuaranteeCapacity } from './guarantors.ts';
+import { assertSectorSelection } from './economicSectors.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { LOAN_STATUSES, INTEREST_METHODS } from './constants.ts';
@@ -43,9 +44,14 @@ export function getLoan(id: number): Promise<LoanFull | undefined> {
     `SELECT l.*, p.name AS product_name, p.code AS product_code,
             p.gl_receivable_id, p.gl_interest_income_id, p.gl_penalty_income_id, p.salary_based,
             p.min_salary_count, p.salary_appraisal_type,
-            m.member_no, m.first_name, m.last_name
+            m.member_no, m.first_name, m.last_name,
+            es.name AS sector_name, ess.name AS sub_sector_name, esss.description AS sub_subsector_name
      FROM loan l JOIN loan_product p ON p.id = l.product_id
-     JOIN member m ON m.id = l.member_id WHERE l.id = ?`,
+     JOIN member m ON m.id = l.member_id
+     LEFT JOIN economic_sector es ON es.code = l.sector_code
+     LEFT JOIN economic_subsector ess ON ess.sector_code = l.sector_code AND ess.code = l.sub_sector_code
+     LEFT JOIN economic_subsubsector esss ON esss.sector_code = l.sector_code AND esss.subsector_code = l.sub_sector_code AND esss.code = l.sub_subsector_code
+     WHERE l.id = ?`,
     id,
   );
 }
@@ -483,6 +489,11 @@ export async function saveAppraisal({ loanId, user }: SaveAppraisalInput): Promi
 
 export interface ApplyInput extends AppraiseInput {
   purpose?: string | null;
+  /** SASRA Sectorial Lending classification (lib/economicSectors.ts) — optional at this stage,
+   *  but required before the application can be submitted for approval (see submit() below). */
+  sectorCode?: string | null;
+  subSectorCode?: string | null;
+  subSubsectorCode?: string | null;
   guarantors?: { memberId: number; amount?: Cents }[];
   disburseToAccountId?: number | null;
   /** See lib/checkoffBatches.ts (CHECKOFF) and disburse()'s own doc comment (STANDING_ORDER).
@@ -496,6 +507,7 @@ export interface ApplyInput extends AppraiseInput {
  *  memberApplications.ts's createMemberApplication()/submitMemberApplication() split. */
 export async function apply({
   memberId, productId, principal, termMonths, purpose,
+  sectorCode = null, subSectorCode = null, subSubsectorCode = null,
   guarantors = [], disburseToAccountId = null, recoveryMode = 'DIRECT', user,
 }: ApplyInput): Promise<LoanFull> {
   principal = Math.round(principal);
@@ -505,15 +517,18 @@ export async function apply({
   if (termMonths <= 0 || termMonths > product.max_term_months) {
     throw new PostingError(`Term must be between 1 and ${product.max_term_months} months`, 'INVALID_TERM');
   }
+  await assertSectorSelection(sectorCode, subSectorCode, subSubsectorCode);
 
   const id = await tx(async () => {
     const loanNo = await nextSequence('LOAN');
     const info = await run(
       `INSERT INTO loan (loan_no, member_id, product_id, principal, interest_rate, interest_method,
-         term_months, purpose, status, applied_date, disburse_to_account_id, recovery_mode, created_by)
-       VALUES (?,?,?,?,?,?,?,?,'OPEN',?,?,?,?)`,
+         term_months, purpose, sector_code, sub_sector_code, sub_subsector_code,
+         status, applied_date, disburse_to_account_id, recovery_mode, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?)`,
       loanNo, memberId, productId, principal, product.interest_rate, product.interest_method,
-      termMonths, purpose || null, today(), disburseToAccountId || null, recoveryMode, user.username,
+      termMonths, purpose || null, sectorCode, subSectorCode, subSubsectorCode,
+      today(), disburseToAccountId || null, recoveryMode, user.username,
     );
     const loanId = Number(info.lastInsertRowid);
     for (const g of guarantors) {
@@ -541,6 +556,9 @@ export interface UpdateLoanInput {
   principal: Cents;
   termMonths: number;
   purpose?: string | null;
+  sectorCode?: string | null;
+  subSectorCode?: string | null;
+  subSubsectorCode?: string | null;
   disburseToAccountId?: number | null;
   recoveryMode?: LoanRecoveryMode;
   user: Actor;
@@ -552,8 +570,9 @@ export interface UpdateLoanInput {
  *  apply() does, and re-copies its interest rate/method, since switching products mid-edit
  *  should re-price the loan the same way starting a fresh application would. */
 export async function update({
-  loanId, memberId, productId, principal, termMonths, purpose = null, disburseToAccountId = null,
-  recoveryMode, user,
+  loanId, memberId, productId, principal, termMonths, purpose = null,
+  sectorCode = null, subSectorCode = null, subSubsectorCode = null,
+  disburseToAccountId = null, recoveryMode, user,
 }: UpdateLoanInput): Promise<LoanFull> {
   const loan = await getLoan(loanId);
   if (!loan) throw new PostingError('Loan not found', 'NOT_FOUND');
@@ -566,13 +585,16 @@ export async function update({
   if (termMonths <= 0 || termMonths > product.max_term_months) {
     throw new PostingError(`Term must be between 1 and ${product.max_term_months} months`, 'INVALID_TERM');
   }
+  await assertSectorSelection(sectorCode, subSectorCode, subSubsectorCode);
 
   await run(
     `UPDATE loan SET member_id=?, product_id=?, principal=?, interest_rate=?, interest_method=?,
-       term_months=?, purpose=?, disburse_to_account_id=?, recovery_mode=?, version = version + 1
+       term_months=?, purpose=?, sector_code=?, sub_sector_code=?, sub_subsector_code=?,
+       disburse_to_account_id=?, recovery_mode=?, version = version + 1
      WHERE id=?`,
     memberId, productId, principal, product.interest_rate, product.interest_method,
-    termMonths, purpose || null, disburseToAccountId || null, recoveryMode ?? loan.recovery_mode, loanId,
+    termMonths, purpose || null, sectorCode, subSectorCode, subSubsectorCode,
+    disburseToAccountId || null, recoveryMode ?? loan.recovery_mode, loanId,
   );
 
   // Only reseed the Salary Appraisal section when the product actually changed to a non-salary-

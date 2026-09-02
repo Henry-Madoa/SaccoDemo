@@ -25,8 +25,10 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
       member_exit_notice_days: Number(values.member_exit_notice_days) || 30,
       dormancy_days: Number(values.dormancy_days) || 90,
       instant_withdrawal_charge_id: values.instant_withdrawal_charge_id ? Number(values.instant_withdrawal_charge_id) : null,
+      inter_account_transfer_charge_id: values.inter_account_transfer_charge_id ? Number(values.inter_account_transfer_charge_id) : null,
       allow_posting_from: String(values.allow_posting_from || '').trim() || null,
       allow_posting_to: String(values.allow_posting_to || '').trim() || null,
+      validate_cash_denomination: Number(values.validate_cash_denomination) ? 'true' : 'false',
     }, user);
     // The society's name, logo and currency appear in the shell on every page.
     revalidatePath('/', 'layout');
@@ -111,6 +113,7 @@ export async function saveSavingsProduct(
       withdrawal_fee: toCents(values.withdrawal_fee_sh),
       withdrawal_notice_days: Number(values.withdrawal_notice_days) || 0,
       allow_withdrawal: Number(values.allow_withdrawal) ? 1 : 0,
+      allow_transfer: Number(values.allow_transfer) ? 1 : 0,
       is_loanable_base: Number(values.is_loanable_base) ? 1 : 0,
       is_business_account: Number(values.is_business_account) ? 1 : 0,
       gl_control_id: Number(values.gl_control_id) || null,

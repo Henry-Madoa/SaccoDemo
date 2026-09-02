@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
-import { Field } from '@/components/ui/field';
+import { Field, MoneyInput } from '@/components/ui/field';
 import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
@@ -116,12 +116,12 @@ function JournalForm({
                   onChange={(v) => update(i, { globalDimension2Id: v ? Number(v) : '' })} />
               </td>
               <td>
-                <input type="number" step="0.01" min="0" className="num" value={line.debit} aria-label="Debit"
-                  onChange={(e) => update(i, { debit: e.target.value })} />
+                <MoneyInput value={line.debit} ariaLabel="Debit" className="num" min={0}
+                  onChange={(v) => update(i, { debit: v })} />
               </td>
               <td>
-                <input type="number" step="0.01" min="0" className="num" value={line.credit} aria-label="Credit"
-                  onChange={(e) => update(i, { credit: e.target.value })} />
+                <MoneyInput value={line.credit} ariaLabel="Credit" className="num" min={0}
+                  onChange={(v) => update(i, { credit: v })} />
               </td>
               <td>
                 <button type="button" className="btn sm ghost" onClick={() => remove(i)}

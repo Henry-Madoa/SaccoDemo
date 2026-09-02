@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
-import { Field } from '@/components/ui/field';
+import { Field, MoneyInput } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
 import { useRunAction } from '@/components/ui/run-action';
@@ -170,9 +170,9 @@ export function RemittedAmountField({ no, line, isCheckoff }: {
 
   return (
     <div className="inline" style={{ gap: 6 }}>
-      <input type="number" step="0.01" min={0} style={{ width: 130, textAlign: 'right' }}
-        aria-label={`Remitted amount for ${line.member_first_name} ${line.member_last_name}`}
-        value={value} disabled={busy} onChange={(e) => setValue(e.target.value)} onBlur={save} />
+      <MoneyInput min={0} style={{ width: 130, textAlign: 'right' }}
+        ariaLabel={`Remitted amount for ${line.member_first_name} ${line.member_last_name}`}
+        value={value} disabled={busy} onChange={setValue} onBlur={save} />
       {previewVariance != null && previewVariance !== 0 ? (
         <span className={previewVariance < 0 ? 'neg' : 'tiny'}>
           {previewVariance > 0 ? '+' : ''}{cur(previewVariance)}

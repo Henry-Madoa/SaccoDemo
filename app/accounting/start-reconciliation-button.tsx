@@ -55,7 +55,7 @@ export function StartReconciliationButton({ bankAccount, className = 'btn ghost 
         >
           <form ref={formRef}>
             <Field name="statementDate" label="Statement date" type="date" required defaultValue={today()} />
-            <Field name="statementBalance" label="Statement balance" type="number" step="0.01" required />
+            <Field name="statementBalance" label="Statement balance" type="currency" required />
           </form>
         </Modal>
       ) : null}

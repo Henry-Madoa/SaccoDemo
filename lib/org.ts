@@ -12,8 +12,8 @@ const ORG_FIELDS = [
   'email', 'website', 'paybill_no', 'bank_name', 'bank_account_no', 'logo', 'currency_code',
   'currency_symbol', 'locale', 'timezone', 'date_format', 'fy_start_month', 'fy_start_day', 'statement_footer',
   'global_dimension_1_caption', 'global_dimension_2_caption', 'guarantor_multiplier', 'self_guarantor_multiplier',
-  'member_exit_notice_days', 'dormancy_days', 'instant_withdrawal_charge_id',
-  'allow_posting_from', 'allow_posting_to',
+  'member_exit_notice_days', 'dormancy_days', 'instant_withdrawal_charge_id', 'inter_account_transfer_charge_id',
+  'allow_posting_from', 'allow_posting_to', 'validate_cash_denomination',
 ] as const satisfies readonly (keyof Organisation)[];
 
 export type OrgField = (typeof ORG_FIELDS)[number];

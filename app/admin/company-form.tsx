@@ -37,6 +37,7 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
   const [name, setName] = useState(org.name ?? '');
   const [shortName, setShortName] = useState(org.short_name ?? '');
   const [instantWithdrawalChargeId, setInstantWithdrawalChargeId] = useState(String(org.instant_withdrawal_charge_id ?? ''));
+  const [interAccountTransferChargeId, setInterAccountTransferChargeId] = useState(String(org.inter_account_transfer_charge_id ?? ''));
 
   const previewName = shortName || name || 'SACCO';
 
@@ -182,6 +183,11 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
               value={instantWithdrawalChargeId} onChange={setInstantWithdrawalChargeId}
               placeholder="Search charge code or description…" emptyText="No matching charges"
               hint="Auto-applied on Member Exit when Instant Withdrawal is checked" />
+            <SearchableSelect name="inter_account_transfer_charge_id" label="Inter-account transfer charge"
+              items={charges} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
+              value={interAccountTransferChargeId} onChange={setInterAccountTransferChargeId}
+              placeholder="Search charge code or description…" emptyText="No matching charges"
+              hint="Auto-applied to every inter-account transfer, deducted from the source account. Leave blank to fall back to the charge configured for type ‘Acc. Transfer’." />
           </Card>
 
           <Card>
@@ -198,6 +204,16 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
               <Field name="allow_posting_to" label="Allow posting to" type="date"
                 defaultValue={org.allow_posting_to ?? ''} />
             </div>
+          </Card>
+
+          <Card>
+            <h3>Cash &amp; Tellering</h3>
+            <div className="card-sub">
+              Business Central&apos;s General Ledger Setup &ldquo;Validate Cash Denomination&rdquo;.
+            </div>
+            <Field name="validate_cash_denomination" label="Validate cash denomination" type="checkbox"
+              defaultValue={org.validate_cash_denomination ? 1 : 0}
+              hint="When on, a Cash Management movement or a teller deposit/withdrawal cannot be submitted or posted unless its denomination breakdown totals exactly the amount" />
           </Card>
         </div>
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
-import { Field, readForm } from '@/components/ui/field';
+import { Field, MoneyInput, readForm } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useToast } from '@/components/ui/toast';
@@ -11,11 +11,13 @@ import { Card, CardHead, TableWrap } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { AppraisalCard } from '@/components/loans/appraisal-card';
 import { appraiseLoan, applyForLoan, memberDisbursementAccounts, updateLoanApplication } from '@/app/actions/loans';
+import { sectorsForLoanForm, subsectorsForSector, subsubsectorsForSubsector } from '@/app/actions/economicSectors';
 import { calculateLoanProductCharges } from '@/lib/loans';
 import { RECOVERY_MODES } from '@/lib/constants';
 import { toCents, toUnits } from '@/lib/format';
 import type {
-  Appraisal, Cents, LoanProductWithCharges, LoanRecoveryMode, Member, SavingsAccountWithProduct,
+  Appraisal, Cents, EconomicSector, EconomicSubsector, EconomicSubsubsector, LoanProductWithCharges,
+  LoanRecoveryMode, Member, SavingsAccountWithProduct,
 } from '@/lib/types';
 
 export interface ApplicationFormProps {
@@ -35,6 +37,9 @@ export interface EditableLoan {
   principal: Cents;
   term_months: number;
   purpose: string | null;
+  sector_code?: string | null;
+  sub_sector_code?: string | null;
+  sub_subsector_code?: string | null;
   disburse_to_account_id: number | null;
   recovery_mode?: LoanRecoveryMode;
 }
@@ -58,6 +63,32 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
   const [disburseToAccountId, setDisburseToAccountId] = useState(String(loan?.disburse_to_account_id ?? ''));
   const [appraisal, setAppraisal] = useState<Appraisal | null>(null);
   const [checking, setChecking] = useState(false);
+
+  // SASRA Sectorial Lending classification — a 3-level cascade (Sector -> Sub-sector ->
+  // Sub-subsector), each level fetched only once its parent is picked, same pattern as the
+  // disbursement account above.
+  const [sectors, setSectors] = useState<EconomicSector[]>([]);
+  const [sectorCode, setSectorCode] = useState(loan?.sector_code ?? '');
+  const [subsectors, setSubsectors] = useState<EconomicSubsector[]>([]);
+  const [subSectorCode, setSubSectorCode] = useState(loan?.sub_sector_code ?? '');
+  const [subsubsectors, setSubsubsectors] = useState<EconomicSubsubsector[]>([]);
+  const [subSubsectorCode, setSubSubsectorCode] = useState(loan?.sub_subsector_code ?? '');
+
+  useEffect(() => {
+    sectorsForLoanForm().then((res) => { if (res.ok) setSectors(res.data); });
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    if (!sectorCode) { setSubsectors([]); return; }
+    subsectorsForSector(sectorCode).then((res) => { if (!cancelled && res.ok) setSubsectors(res.data); });
+    return () => { cancelled = true; };
+  }, [sectorCode]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!sectorCode || !subSectorCode) { setSubsubsectors([]); return; }
+    subsubsectorsForSubsector(sectorCode, subSectorCode).then((res) => { if (!cancelled && res.ok) setSubsubsectors(res.data); });
+    return () => { cancelled = true; };
+  }, [sectorCode, subSectorCode]);
 
   // The disbursement target depends on the member, so it is fetched rather than
   // shipped for all 120 members up front.
@@ -134,9 +165,8 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
 
         <div className="field">
           <label htmlFor="f_principal">Amount applied for <span className="req">*</span></label>
-          <input id="f_principal" name="principal" type="number" step="0.01" required
-            value={principal} disabled={!product}
-            onChange={(e) => setPrincipal(e.target.value)} />
+          <MoneyInput id="f_principal" name="principal" required disabled={!product}
+            value={principal} onChange={setPrincipal} />
           <div className="hint">
             {product
               ? `${product.name} range: ${(product.min_amount / 100).toLocaleString()} – ${(product.max_amount / 100).toLocaleString()}`
@@ -150,6 +180,33 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
             value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
         </div>
         <Field name="purpose" label="Purpose" placeholder="e.g. Business expansion" defaultValue={loan?.purpose ?? ''} />
+
+        <div className="field">
+          <label htmlFor="f_sectorCode">Economic sector</label>
+          <select id="f_sectorCode" name="sectorCode" value={sectorCode}
+            onChange={(e) => { setSectorCode(e.target.value); setSubSectorCode(''); setSubSubsectorCode(''); }}>
+            <option value="">— Not classified —</option>
+            {sectors.map((s) => <option key={s.code} value={s.code}>{s.code} — {s.name}</option>)}
+          </select>
+          <div className="hint">SASRA Sectorial Lending classification</div>
+        </div>
+        <div className="field">
+          <label htmlFor="f_subSectorCode">Sub-sector</label>
+          <select id="f_subSectorCode" name="subSectorCode" value={subSectorCode} disabled={!sectorCode}
+            onChange={(e) => { setSubSectorCode(e.target.value); setSubSubsectorCode(''); }}>
+            <option value="">{sectorCode ? '— None —' : 'Pick a sector first'}</option>
+            {subsectors.map((s) => <option key={s.id} value={s.code}>{s.code} — {s.name}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="f_subSubsectorCode">Sub-subsector</label>
+          <select id="f_subSubsectorCode" name="subSubsectorCode" value={subSubsectorCode} disabled={!subSectorCode}
+            onChange={(e) => setSubSubsectorCode(e.target.value)}>
+            <option value="">{subSectorCode ? '— None —' : 'Pick a sub-sector first'}</option>
+            {subsubsectors.map((s) => <option key={s.id} value={s.code}>{s.code} — {s.description}</option>)}
+          </select>
+        </div>
+
         {/* Keyed on the loaded account count: accounts arrive async (fetched once memberId is
             known) — remounting once real options exist is what lets Edit's saved disbursement
             account resolve to its label instead of showing blank until then. */}

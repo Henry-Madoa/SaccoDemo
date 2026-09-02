@@ -15,7 +15,10 @@ export const listChangeLogSetup = (): Promise<ChangeLogSetup[]> =>
 
 /** Tables this feature can never track, opted in or not: the log tables themselves
  *  and Postgres/Prisma internals with no business record to diff. */
-const UNTRACKABLE_TABLES = new Set(['change_log_setup', 'change_log_entry', 'session', 'sequence']);
+const UNTRACKABLE_TABLES = new Set([
+  'change_log_setup', 'change_log_entry', 'session', 'sequence',
+  'no_series', 'no_series_line', 'no_series_setup',
+]);
 
 const captionFor = (tableName: string): string =>
   tableName.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');

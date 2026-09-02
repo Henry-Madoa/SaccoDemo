@@ -2,15 +2,24 @@
 
 import { useNav } from './nav-context';
 
-/** Hamburger that opens the sidebar drawer. Hidden by CSS above 900px. */
+/** Hamburger in the top bar. On phones/tablets it opens the sidebar drawer; on
+ *  desktop it is shown only while the sidebar is hidden, and brings it back. */
 export function NavToggle() {
-  const { open, toggle } = useNav();
+  const { open, toggle, showDesktop } = useNav();
+
+  const onClick = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 901px)').matches) {
+      showDesktop();
+    } else {
+      toggle();
+    }
+  };
 
   return (
     <button
       type="button"
       className="nav-toggle"
-      onClick={toggle}
+      onClick={onClick}
       aria-label={open ? 'Close navigation' : 'Open navigation'}
       aria-expanded={open}
       aria-controls="app-sidebar"

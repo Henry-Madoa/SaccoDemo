@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
 import { getOrgBrand, getDimensionCaptions } from '@/lib/org';
 import { getBalanceSheet, getIncomeStatement, getPortfolioAtRisk } from '@/lib/reports';
+import { SectorialLendingReport } from '@/components/reports/sectorial-lending';
 import { TRIAL_BALANCE_FILTER_FIELDS, TRIAL_BALANCE_DIMENSION_FILTER_FIELDS } from '@/lib/gl';
 import { formatDate, today, startOfYear } from '@/lib/format';
 import { parseFilters, type FilterFieldDef } from '@/lib/listFilters';
@@ -20,6 +21,7 @@ const TABS: TabDefinition[] = [
   { key: 'balance-sheet', label: 'Statement of financial position' },
   { key: 'income', label: 'Statement of comprehensive income' },
   { key: 'par', label: 'Risk classification & provisioning' },
+  { key: 'sectorial-lending', label: 'Sectorial lending' },
 ];
 
 export default async function ReportsPage({ params, searchParams }: {
@@ -42,6 +44,7 @@ export default async function ReportsPage({ params, searchParams }: {
       {tab === 'balance-sheet' ? <BalanceSheetTab filtersRaw={filtersRaw} asOf={asOf} from={from} /> : null}
       {tab === 'income' ? <IncomeTab filtersRaw={filtersRaw} from={from} to={to} /> : null}
       {tab === 'par' ? <ParTab /> : null}
+      {tab === 'sectorial-lending' ? <SectorialLendingReport from={from} to={to} /> : null}
     </Page>
   );
 }

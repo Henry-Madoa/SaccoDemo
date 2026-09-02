@@ -346,6 +346,8 @@ model gl_account {
   member_fixed_deposit_type_interest_expense                     member_fixed_deposit_type[] @relation("mfdt_interest_expense")
   member_fixed_deposit_type_interest_payable                     member_fixed_deposit_type[] @relation("mfdt_interest_payable")
   member_fixed_deposit_type_withholding_tax                      member_fixed_deposit_type[] @relation("mfdt_withholding_tax")
+  cheque_type                                                    cheque_type[]
+  cheque_deposit                                                 cheque_deposit[]           @relation("cd_clearing_gl_account")
 }
 
 model charge {
@@ -381,6 +383,13 @@ model transaction_charge {
   transaction_recovery       transaction_recovery[]
   checkoff_batch             checkoff_batch[]
   organisation               organisation[]
+  teller_transaction         teller_transaction[]
+  inter_account_transfer     inter_account_transfer[]
+  cheque_type_clearing       cheque_type[]              @relation("ct_clearing_charge")
+  cheque_type_bouncing       cheque_type[]              @relation("ct_bouncing_charge")
+  cheque_type_express        cheque_type[]              @relation("ct_express_charge")
+  bankers_cheque             bankers_cheque[]
+  cheque_deposit_clearing    cheque_deposit[]           @relation("cd_clearing_charge")
 
   @@index([transaction_type], map: "ix_tc_type")
 }
@@ -487,6 +496,8 @@ model journal {
   member_activation_request                     member_activation_request[]
   member_readmission_request                    member_readmission_request[]
   bank_account_ledger_entry                     bank_account_ledger_entry[]
+  fosa_transaction                              fosa_transaction[]
+  teller_transaction                            teller_transaction[]
 
   @@index([value_date], map: "ix_journal_date")
   @@index([global_dimension_1_id], map: "ix_journal_gd1")
@@ -530,12 +541,20 @@ model bank_account {
   account_no                String?
   balance                   BigInt                      @default(0)
   status                    String                      @default("ACTIVE")
-  created_at                String?
+  /// FOSA tellering role — 'MAIN' (the SACCO's external bank), 'TREASURY' (the branch vault),
+  /// 'TILL' (a teller's own cash drawer), or 'OTHER' (M-Pesa/check-off clearing and the generic
+  /// teller cash account the Savings screen posts through). Drives which accounts each
+  /// fosa_transaction document type may move cash between — see lib/cashManagement.ts.
+  account_type              String                      @default("OTHER")
   gl_account                gl_account                  @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   bank_account_ledger_entry bank_account_ledger_entry[]
   bank_reconciliation       bank_reconciliation[]
   txn                       txn[]
   standing_order            standing_order[]
+  teller_setup                 teller_setup[]
+  teller_transaction           teller_transaction[]
+  fosa_transaction_source      fosa_transaction[]          @relation("ft_source")
+  fosa_transaction_destination fosa_transaction[]          @relation("ft_destination")
 }
 
 /// One posted entry against a bank account's G/L control account — populated automatically by
@@ -594,6 +613,10 @@ model loan {
   interest_method        String
   term_months            Int
   purpose                String?
+  /// SASRA Sectorial Lending classification — AL Tab52204014 fields 68 / 70 / 72.
+  sector_code            String?
+  sub_sector_code        String?
+  sub_subsector_code     String?
   status                 String            @default("PENDING")
   applied_date           String?
   approved_date          String?
@@ -632,11 +655,49 @@ model loan {
   member_exit_line       member_exit_line[]
   loan_fd_lien           loan_fd_lien[]
   standing_order         standing_order[]
+  cheque_instruction     cheque_instruction[]
+  economic_sector        economic_sector?  @relation(fields: [sector_code], references: [code], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([member_id], map: "ix_loan_member")
   @@index([recovery_mode], map: "ix_loan_recovery_mode")
   @@index([product_id], map: "ix_loan_product")
   @@index([status], map: "ix_loan_status")
+  @@index([sector_code], map: "ix_loan_sector")
+}
+
+/// AL Tab52204077 "Economic Sectors" — the top level of the SASRA Sectorial Lending
+/// classification (Agriculture, Manufacturing, Trade, …).
+model economic_sector {
+  code                  String                  @id
+  name                  String
+  created_at            String?
+  created_by            String?
+  economic_subsector    economic_subsector[]
+  economic_subsubsector economic_subsubsector[]
+  loan                  loan[]
+}
+
+/// AL Tab52204078 "Economic Subsectors".
+model economic_subsector {
+  id              Int             @id @default(autoincrement())
+  sector_code     String
+  code            String
+  name            String
+  economic_sector economic_sector @relation(fields: [sector_code], references: [code], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([sector_code, code])
+}
+
+/// AL Tab52204079 "Economic Sub-subsector".
+model economic_subsubsector {
+  id              Int             @id @default(autoincrement())
+  sector_code     String
+  subsector_code  String
+  code            String
+  description     String
+  economic_sector economic_sector @relation(fields: [sector_code], references: [code], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([sector_code, subsector_code, code], map: "economic_subsubsector_key")
 }
 
 model loan_guarantor {
@@ -1308,6 +1369,12 @@ model member {
   member_readmission_request        member_readmission_request[]
   standing_order                    standing_order[]                    @relation("sto_owner")
   standing_order_destination        standing_order[]                    @relation("sto_destination")
+  teller_transaction                teller_transaction[]
+  member_lien                       member_lien[]
+  inter_account_transfer_source      inter_account_transfer[]           @relation("iat_source_member")
+  inter_account_transfer_destination inter_account_transfer[]           @relation("iat_destination_member")
+  bankers_cheque                    bankers_cheque[]
+  cheque_deposit                    cheque_deposit[]
 
   @@index([county_id], map: "ix_member_county")
   @@index([employer_id], map: "ix_member_employer")
@@ -1365,12 +1432,21 @@ model organisation {
   /// mirrors AL's General Ledger Setup precedent of Code[20] fields pointing at Transaction
   /// Charges for global default fees (Loan Repayment/Balance Inquiry/Mini & Full Statement).
   instant_withdrawal_charge_id Int?
+  /// AL General Ledger Setup "Inter Acc Transfer Charges" — the Transaction Charge auto-applied to
+  /// every inter-account transfer, deducted from the source account (see lib/interAccountTransfer.ts).
+  /// A bare FK (DB-level constraint only) to keep organisation's single Prisma relation to
+  /// transaction_charge unambiguous — every read here is raw SQL.
+  inter_account_transfer_charge_id Int?
   /// BC's General Ledger Setup "Allow Posting From"/"Allow Posting To" — the company-wide
   /// default range a posting's own value date must fall within, enforced centrally in
   /// accounting.ts's postJournal() (lib/postingDates.ts). Null = unrestricted. A user's own
   /// approval_user_setup.allow_posting_from/to, if set, overrides this for that one user.
   allow_posting_from         String?
   allow_posting_to           String?
+  /// AL General Ledger Setup "Validate Cash Denomination" — when true, a cash document
+  /// (fosa_transaction / teller_transaction) cannot be submitted or posted unless its
+  /// denomination breakdown total exactly equals the document amount. See lib/denominations.ts.
+  validate_cash_denomination Boolean @default(false)
   instant_withdrawal_charge  transaction_charge? @relation(fields: [instant_withdrawal_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updated_at                 String?
   updated_by                 String?
@@ -1443,6 +1519,13 @@ model savings_account {
   member_exit_line                 member_exit_line[]
   member_fixed_deposit_source      member_fixed_deposit[]         @relation("mfd_source_account")
   member_fixed_deposit_fd_account  member_fixed_deposit[]         @relation("mfd_fd_account")
+  teller_transaction               teller_transaction[]
+  member_lien                      member_lien[]
+  inter_account_transfer_source      inter_account_transfer[]     @relation("iat_source_account")
+  inter_account_transfer_destination inter_account_transfer[]     @relation("iat_destination_account")
+  bankers_cheque                   bankers_cheque[]
+  cheque_deposit                   cheque_deposit[]
+  cheque_instruction               cheque_instruction[]
 
   @@index([member_id], map: "ix_sa_member")
   @@index([product_id], map: "ix_sa_product")
@@ -1719,6 +1802,9 @@ model savings_product {
   min_opening                                               BigInt                            @default(0)
   interest_rate                                             Float                             @default(0)
   allow_withdrawal                                          Int                               @default(1)
+  /// AL "Cash Transfer Allowed" (Vendor / Sacco Products) — whether an account on this product may
+  /// be the SOURCE of an inter-account transfer. Backfilled to allow_withdrawal on migration.
+  allow_transfer                                            Int                               @default(1)
   withdrawal_fee                                            BigInt                            @default(0)
   is_loanable_base                                          Int                               @default(0)
   is_business_account                                       Int                               @default(0)
@@ -1841,6 +1927,53 @@ model sequence {
   prefix  String @default("")
   next_no Int    @default(1)
   width   Int    @default(6)
+}
+
+/// Business Central No. Series (Table 308). One per numbered document; `nextSequence()` / the
+/// legacy `sequence` table are superseded once a series exists for a code.
+model no_series {
+  code        String            @id
+  description String            @default("")
+  /// "Default Nos." — the series is offered automatically on a new document.
+  default_nos Int               @default(1)
+  /// "Manual Nos." — a user may also type a number by hand.
+  manual_nos  Int               @default(0)
+  /// "Date Order" — numbers must be assigned in non-decreasing document-date order.
+  date_order  Int               @default(0)
+  lines       no_series_line[]
+  setups      no_series_setup[]
+}
+
+/// Business Central No. Series Line (Table 309): a date-effective number range.
+model no_series_line {
+  id              Int       @id @default(autoincrement())
+  series_code     String
+  line_no         Int       @default(10000)
+  starting_date   String?
+  starting_no     String
+  ending_no       String?
+  last_no_used    String?
+  last_date_used  String?
+  warning_no      String?
+  increment_by_no Int       @default(1)
+  open            Int       @default(1)
+  allow_gaps      Int       @default(0)
+  series          no_series @relation(fields: [series_code], references: [code], onDelete: Cascade)
+
+  @@index([series_code])
+}
+
+/// Which No. Series each numbered document draws from — BC keeps these as the "…Nos." fields on
+/// the setup cards; consolidated here onto the Admin Centre → No. Series card.
+model no_series_setup {
+  document_code String     @id
+  label         String
+  category      String     @default("General")
+  sort          Int        @default(0)
+  series_code   String?
+  series        no_series? @relation(fields: [series_code], references: [code])
+
+  @@index([series_code])
 }
 
 model session {
@@ -2464,4 +2597,346 @@ model job_queue_entry {
   updated_by        String?
 
   @@index([status], map: "ix_jqe_status")
+}
+
+/// FOSA cash-denomination master — AL "Denominations Setup" (Tab under Codeunit 52204019's
+/// ValidateTransactionDenominations). One row per note/coin; `value` is in cents.
+model denomination {
+  id                     Int                      @id @default(autoincrement())
+  code                   String                   @unique
+  description            String
+  value                  BigInt
+  active                 Boolean                  @default(true)
+  sort_order             Int                      @default(0)
+  cash_denomination_line cash_denomination_line[]
+}
+
+/// The per-document denomination breakdown — AL "Transaction Denomination" (Tab52204045), one
+/// shared table keyed by a document-kind discriminator ('FOSA' | 'TELLER') exactly as AL keys
+/// its rows by the "FOSA Transaction Types" enum (which includes "Teller Transactions").
+model cash_denomination_line {
+  id             Int          @id @default(autoincrement())
+  document_kind  String
+  document_no    String
+  denomination_id Int
+  quantity       Int          @default(0)
+  denomination   denomination @relation(fields: [denomination_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([document_kind, document_no, denomination_id])
+  @@index([document_kind, document_no], map: "ix_cdl_document")
+}
+
+/// AL "Teller Setup" (Tab52204042) — links a user to the cash account they operate: a TELLER to
+/// their own till (bank_account.account_type = 'TILL'), or a TREASURY user to the branch vault
+/// (account_type = 'TREASURY'). Capacity limits gate fosa_transaction posting; approval_limit
+/// gates whether a teller_transaction auto-posts or must be approved first.
+model teller_setup {
+  id             Int          @id @default(autoincrement())
+  user_username  String
+  setup_type     String
+  bank_account_id Int
+  max_capacity   BigInt       @default(0)
+  min_capacity   BigInt       @default(0)
+  approval_limit BigInt       @default(0)
+  created_at     String?
+  created_by     String?
+  bank_account   bank_account @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([user_username, setup_type])
+  @@index([bank_account_id], map: "ix_ts_bank_account")
+}
+
+/// AL "FOSA Transactions" (Tab52204044) — the five treasury/till cash movements, one table with
+/// a `document_type` discriminator: RECEIVE_FROM_BANK (Main Bank -> Treasury), TREASURY_REQUEST
+/// (Treasury -> Till), INTER_TILL (Till -> Till), TREASURY_RETURN (Till -> Treasury),
+/// SEND_TO_BANK (Treasury -> Main Bank). Maker-checker: Open -> Pending Approval -> Approved ->
+/// Processed. Posting (lib/cashManagement.ts) is one balanced journal debiting the source bank
+/// account's control G/L and crediting the destination's — postJournal() then maintains both
+/// bank_account balances and the reconciliation subledger automatically.
+model fosa_transaction {
+  no                          String       @id
+  document_type               String
+  source_bank_account_id      Int
+  destination_bank_account_id Int
+  amount                      BigInt       @default(0)
+  status                      String       @default("Open")
+  decision_reason             String?
+  posted                      Boolean      @default(false)
+  journal_id                  Int?
+  global_dimension_1_id       Int?
+  global_dimension_2_id       Int?
+  created_at                  String?
+  created_by                  String?
+  posted_at                   String?
+  posted_by                   String?
+  source_bank_account         bank_account @relation("ft_source", fields: [source_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_bank_account    bank_account @relation("ft_destination", fields: [destination_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal                     journal?     @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([document_type, status], map: "ix_ft_type_status")
+  @@index([created_by], map: "ix_ft_created_by")
+}
+
+/// AL "Teller Transactions" (Tab52204046) — an over-the-counter member cash deposit or
+/// withdrawal posted against the teller's own till. Auto-posts when the amount is within the
+/// teller's Approval Limit (and the member is not staff); otherwise routes through maker-checker
+/// approval first. Posting (lib/tellerTransactions.ts) debits/credits the till cash G/L against
+/// the member's withdrawable-deposit control G/L, plus a configurable transaction charge.
+model teller_transaction {
+  no                    String              @id
+  transaction_type      String
+  member_id             Int
+  savings_account_id    Int
+  till_bank_account_id  Int
+  teller_username       String
+  amount                BigInt
+  source_of_funds       String?
+  transacted_by_name    String?
+  transacted_by_id_no   String?
+  transaction_charge_id Int?
+  charge_amount         BigInt              @default(0)
+  available_balance     BigInt              @default(0)
+  book_balance          BigInt              @default(0)
+  approval_required     Boolean             @default(false)
+  status                String              @default("Open")
+  decision_reason       String?
+  posted                Boolean             @default(false)
+  journal_id            Int?
+  slip_emailed_at       String?
+  global_dimension_1_id Int?
+  global_dimension_2_id Int?
+  created_at            String?
+  created_by            String?
+  posted_at             String?
+  posted_by             String?
+  member                member              @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account       savings_account     @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  till_bank_account     bank_account        @relation(fields: [till_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge    transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal               journal?            @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([transaction_type, status], map: "ix_tt_type_status")
+  @@index([member_id], map: "ix_tt_member")
+  @@index([created_by], map: "ix_tt_created_by")
+}
+
+/// AL "Lien" (Tab52204192 / Pages 52204235-6 / Cod52204007.PostAmountHolding). A maker-checker
+/// instruction to place a HOLD on part of a member's deposit-account balance (making it
+/// unavailable to withdraw / borrow against / sweep) or to RELEASE a previous hold. There is no
+/// G/L posting — processing just moves savings_account.hold_amount, which every "available
+/// balance" calculation in the app already subtracts (AL's "Uncleared Funds"). Lifecycle:
+/// Open -> Pending Approval -> Approved -> Processed, with a Reopen back to Open while Approved
+/// and not yet processed.
+model member_lien {
+  no                    String          @id
+  member_id             Int
+  savings_account_id    Int
+  /// 'HOLD' | 'RELEASE'
+  transaction_type      String
+  amount                BigInt          @default(0)
+  narration             String?
+  posting_date          String
+  status                String          @default("Open")
+  decision_reason       String?
+  processed             Boolean         @default(false)
+  global_dimension_1_id Int?
+  global_dimension_2_id Int?
+  created_at            String?
+  created_by            String?
+  processed_at          String?
+  processed_by          String?
+  member                member          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account       savings_account @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_lien_member")
+  @@index([savings_account_id], map: "ix_lien_account")
+  @@index([transaction_type, status], map: "ix_lien_type_status")
+  @@index([created_by], map: "ix_lien_created_by")
+}
+
+/// Inter Account Transfer — AL Tab52204093 / Cod52204019.PostInterAccountTransfer. A maker-checker
+/// instruction to move cash between two member deposit accounts (same member's other account, or a
+/// different member's account when the creator holds the cross-member right). Only products
+/// flagged `savings_product.allow_transfer` (AL's "Cash Transfer Allowed") can be the source.
+/// Posting withdraws `amount` from the source, deposits it to the destination and deducts a
+/// configurable transfer charge (organisation.inter_account_transfer_charge_id) from the source.
+model inter_account_transfer {
+  no                     String          @id
+  source_member_id       Int
+  source_account_id      Int
+  destination_member_id  Int
+  destination_account_id Int
+  /// PARTIAL keeps the source above its product minimum balance; FULL may drain it to zero.
+  amount_type            String          @default("PARTIAL")
+  amount                 BigInt          @default(0)
+  transaction_charge_id  Int?
+  charge_amount          BigInt          @default(0)
+  narration              String?
+  posting_date           String
+  status                 String          @default("Open")
+  decision_reason        String?
+  posted                 Boolean         @default(false)
+  journal_id             Int?
+  global_dimension_1_id  Int?
+  global_dimension_2_id  Int?
+  created_at             String?
+  created_by             String?
+  posted_at             String?
+  posted_by             String?
+  source_member          member          @relation("iat_source_member", fields: [source_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_member     member          @relation("iat_destination_member", fields: [destination_member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  source_account         savings_account @relation("iat_source_account", fields: [source_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination_account    savings_account @relation("iat_destination_account", fields: [destination_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge     transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([source_member_id], map: "ix_iat_source_member")
+  @@index([destination_member_id], map: "ix_iat_dest_member")
+  @@index([source_account_id], map: "ix_iat_source_account")
+  @@index([status], map: "ix_iat_status")
+  @@index([created_by], map: "ix_iat_created_by")
+}
+
+/// Cheque Types master — AL Tab52204122 (only the "Bankers Cheque" type is ported). One row per
+/// kind of banker's cheque the SACCO sells: its ceiling, the clearing G/L account the issued
+/// cheque is credited to, and the clearing charge deducted from the member.
+model cheque_type {
+  id                     Int                @id @default(autoincrement())
+  code                   String             @unique
+  /// 'BANKERS' (lib/bankersCheques.ts) | 'EXTERNAL' (lib/chequeDeposits.ts) — AL Cheque Type enum.
+  type                   String             @default("BANKERS")
+  description            String
+  maximum_amount         BigInt             @default(0)
+  clearing_gl_account_id Int
+  clearing_charge_id     Int?
+  bouncing_charge_id     Int?
+  express_charge_id      Int?
+  in_house               Boolean            @default(false)
+  /// AL "Maturity Period" (DateFormula) collapsed to a plain calendar-day count.
+  maturity_days          Int                @default(3)
+  status                 String             @default("ACTIVE")
+  created_at             String?
+  created_by             String?
+  clearing_gl_account    gl_account         @relation(fields: [clearing_gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clearing_charge        transaction_charge? @relation("ct_clearing_charge", fields: [clearing_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bouncing_charge        transaction_charge? @relation("ct_bouncing_charge", fields: [bouncing_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  express_charge         transaction_charge? @relation("ct_express_charge", fields: [express_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bankers_cheque         bankers_cheque[]
+  cheque_deposit         cheque_deposit[]
+}
+
+/// Cheque Deposit — AL Tab52204124. A member banks a third-party cheque; it clears to their
+/// account on its maturity date (clearing charge), or bounces (bouncing charge), or is
+/// express-cleared before maturity (express charge + a hold on the account until the real
+/// maturity date). Lifecycle Open -> Pending Approval -> Approved -> Cleared | Bounced.
+model cheque_deposit {
+  no                     String             @id
+  cheque_type_id         Int
+  description            String?
+  member_id              Int
+  savings_account_id     Int
+  cheque_no              String?
+  cheque_date            String?
+  deposit_date           String
+  maturity_date          String
+  in_house               Boolean            @default(false)
+  amount                 BigInt             @default(0)
+  express_cheque         Boolean            @default(false)
+  drawer_account_name    String?
+  drawer_bank            String?
+  drawer_branch          String?
+  drawer_account_no      String?
+  clearing_gl_account_id Int
+  clearing_charge_id     Int?
+  bouncing_charge_id     Int?
+  express_charge_id      Int?
+  /// The charge actually taken on clearing / bouncing (recomputed at post time).
+  charge_amount          BigInt             @default(0)
+  /// Amount currently held on the account from an express clearance (0 once released at maturity).
+  express_hold_amount    BigInt             @default(0)
+  status                 String             @default("Open")
+  decision_reason        String?
+  cleared_by             String?
+  clearance_date         String?
+  journal_id             Int?
+  global_dimension_1_id  Int?
+  global_dimension_2_id  Int?
+  created_at             String?
+  created_by             String?
+  cheque_type            cheque_type        @relation(fields: [cheque_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member                 member             @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account        savings_account    @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clearing_gl_account    gl_account         @relation("cd_clearing_gl_account", fields: [clearing_gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clearing_charge        transaction_charge? @relation("cd_clearing_charge", fields: [clearing_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cheque_instruction     cheque_instruction[]
+
+  @@index([member_id], map: "ix_cd_member")
+  @@index([savings_account_id], map: "ix_cd_account")
+  @@index([status], map: "ix_cd_status")
+  @@index([created_by], map: "ix_cd_created_by")
+  @@index([maturity_date], map: "ix_cd_maturity")
+}
+
+/// Cheque Instructions — AL Tab52204087. When a cheque deposit clears, move part of the funds
+/// from the deposit account to another of the same member's savings accounts, and/or apply it to
+/// one of their disbursed loans. Executed when the funds are confirmed (normal clearing, or
+/// when an express clearance's hold is released at maturity).
+model cheque_instruction {
+  id                Int             @id @default(autoincrement())
+  cheque_deposit_no String
+  line_no           Int             @default(0)
+  /// 'ACCOUNT' | 'LOAN'
+  target_type       String          @default("ACCOUNT")
+  savings_account_id Int?
+  loan_id           Int?
+  amount            BigInt          @default(0)
+  created_at        String?
+  created_by        String?
+  cheque_deposit    cheque_deposit  @relation(fields: [cheque_deposit_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  savings_account   savings_account? @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan              loan?           @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([cheque_deposit_no], map: "ix_ci_deposit")
+}
+
+/// Bankers Cheque — AL Tab52204123. A maker-checker sale of a banker's cheque against a member's
+/// deposit account: on posting the member's account is debited `amount` (+ clearing charge) and
+/// the cheque type's clearing G/L account is credited `amount`. Lifecycle Open -> Pending
+/// Approval -> Approved -> Processed, same shape as lib/liens.ts / lib/interAccountTransfer.ts.
+model bankers_cheque {
+  no                    String             @id
+  cheque_type_id        Int
+  /// Snapshot of the cheque type's description / ceiling at capture time.
+  description           String?
+  max_amount            BigInt             @default(0)
+  member_id             Int
+  savings_account_id    Int
+  payee_details         String?
+  /// The physical cheque leaf number entered by the teller.
+  cheque_no             String?
+  book_balance          BigInt             @default(0)
+  amount                BigInt             @default(0)
+  transaction_charge_id Int?
+  charge_amount         BigInt             @default(0)
+  net_amount            BigInt             @default(0)
+  posting_date          String
+  status                String             @default("Open")
+  decision_reason       String?
+  posted                Boolean            @default(false)
+  journal_id            Int?
+  global_dimension_1_id Int?
+  global_dimension_2_id Int?
+  created_at            String?
+  created_by            String?
+  posted_at            String?
+  posted_by            String?
+  cheque_type           cheque_type        @relation(fields: [cheque_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member                member             @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account       savings_account    @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transaction_charge    transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([member_id], map: "ix_bcq_member")
+  @@index([savings_account_id], map: "ix_bcq_account")
+  @@index([status], map: "ix_bcq_status")
+  @@index([created_by], map: "ix_bcq_created_by")
+  @@index([posting_date], map: "ix_bcq_posting_date")
 }

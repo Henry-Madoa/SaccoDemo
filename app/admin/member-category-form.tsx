@@ -72,7 +72,7 @@ export function MemberCategoryFormButton({ category, defaultAccounts, accounts, 
             <Field name="category_type" label="Category type" type="select" required
               defaultValue={c?.category_type}
               options={MEMBER_CATEGORY_TYPES.map((t) => ({ value: t.value, label: t.label }))} />
-            <Field name="registration_fee_sh" label="Registration fee" type="number" step="0.01"
+            <Field name="registration_fee_sh" label="Registration fee" type="currency"
               defaultValue={c ? toUnits(c.registration_fee) : 0} />
             <GlAccountSelect name="registration_fee_account_id" label="Registration fee GL account"
               accounts={accounts} value={regFeeAccountId} onChange={setRegFeeAccountId} />

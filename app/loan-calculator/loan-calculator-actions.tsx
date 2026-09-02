@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { MoneyInput } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardHead, TableWrap } from '@/components/ui/primitives';
@@ -121,8 +122,8 @@ function NewCalculationForm({ members, products, presetMemberId, onClose }: NewC
 
         <div className="field">
           <label htmlFor="f_principal">Principal amount <span className="req">*</span></label>
-          <input id="f_principal" name="principal" type="number" step="0.01" required
-            value={principal} disabled={!product} onChange={(e) => setPrincipal(e.target.value)} />
+          <MoneyInput id="f_principal" name="principal" required disabled={!product}
+            value={principal} onChange={setPrincipal} />
           <div className="hint">
             {product
               ? `${product.name} range: ${(product.min_amount / 100).toLocaleString()} – ${(product.max_amount / 100).toLocaleString()}`

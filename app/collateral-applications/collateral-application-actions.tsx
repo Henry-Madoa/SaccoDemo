@@ -204,7 +204,7 @@ function CollateralFields({ defaults, category, setCategory, counties }: {
           items={candidateTypes} getValue={(t) => String(t.id)} getLabel={(t) => t.code}
           value={collateralTypeId} onChange={setCollateralTypeId}
           placeholder="Search collateral type…" emptyText="No matching types" />
-        <Field name="collateralValueSh" label="Collateral value (market/appraised)" type="number" step="0.01" required
+        <Field name="collateralValueSh" label="Collateral value (market/appraised)" type="currency" required
           defaultValue={defaults?.collateral_value !== undefined ? toUnits(defaults.collateral_value) : ''} />
         <Field name="serialRegNo" label="Serial / Registration No." required
           defaultValue={defaults?.serial_reg_no ?? ''}

@@ -67,6 +67,12 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'MEMBER_READMISSIONS', label: 'Member Re-admission', route: '/member-readmissions' },
   { code: 'STANDING_ORDERS', label: 'Standing Orders', route: '/standing-orders' },
   { code: 'MEMBER_CHARGING', label: 'Member Charging', route: '/member-chargings' },
+  { code: 'CASH_MANAGEMENT', label: 'Cash Management', route: '/cash-management' },
+  { code: 'TELLER_TRANSACTIONS', label: 'Cash Deposits & Withdrawals', route: '/teller-transactions' },
+  { code: 'LIENS', label: 'Liens & Holds', route: '/liens' },
+  { code: 'INTER_ACCOUNT_TRANSFERS', label: 'Inter Account Transfers', route: '/inter-account-transfers' },
+  { code: 'BANKERS_CHEQUES', label: 'Bankers Cheques', route: '/bankers-cheques' },
+  { code: 'CHEQUE_DEPOSITS', label: 'Cheque Deposits', route: '/cheque-deposits' },
   { code: 'ENTRANCE_FEE_RECOVERY', label: 'Entrance Fee Recovery', route: '/entrance-fee-recovery' },
   { code: 'MEMBER_STATUS_UPDATE', label: 'Member Status Update', route: '/member-status-update' },
   { code: 'COLLATERAL_APPLICATIONS', label: 'Collateral Applications', route: '/collateral-applications' },
@@ -77,17 +83,21 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'ADMIN_COMPANY', label: 'Company Information', route: '/admin/company' },
   { code: 'ADMIN_APPEARANCE', label: 'Appearance & Theme', route: '/admin/appearance' },
-  { code: 'ADMIN_PRODUCTS_SAVINGS', label: 'Savings Products', route: '/admin/products/savings' },
-  { code: 'ADMIN_PRODUCTS_LOANS', label: 'Loan Products', route: '/admin/products/loans' },
-  { code: 'ADMIN_PRODUCTS_COLLATERAL', label: 'Collateral Types', route: '/admin/products/collateral' },
-  { code: 'ADMIN_PRODUCTS_SALARY_PARAMS', label: 'Salary Appraisal Parameters', route: '/admin/products/salary' },
-  { code: 'ADMIN_PRODUCTS_EMPLOYERS', label: 'Employers', route: '/admin/products/employers' },
-  { code: 'ADMIN_PRODUCTS_FD', label: 'Fixed Deposit Types', route: '/admin/products/fixed-deposit-types' },
-  { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/charges/master' },
-  { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/charges/transaction' },
-  { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/categories' },
-  { code: 'ADMIN_POOL_COUNTIES', label: 'Counties', route: '/admin/pool/counties' },
-  { code: 'ADMIN_POOL_DIMENSIONS', label: 'Dimensions', route: '/admin/pool/dimensions' },
+  { code: 'ADMIN_PRODUCTS_SAVINGS', label: 'Savings Products', route: '/admin/pool/fosa/savings-products' },
+  { code: 'ADMIN_PRODUCTS_LOANS', label: 'Loan Products', route: '/admin/pool/credit/loan-products' },
+  { code: 'ADMIN_PRODUCTS_COLLATERAL', label: 'Collateral Types', route: '/admin/pool/credit/collateral-types' },
+  { code: 'ADMIN_PRODUCTS_SALARY_PARAMS', label: 'Salary Appraisal Parameters', route: '/admin/pool/hr-payroll/salary-params' },
+  { code: 'ADMIN_PRODUCTS_EMPLOYERS', label: 'Employers', route: '/admin/pool/hr-payroll/employers' },
+  { code: 'ADMIN_PRODUCTS_FD', label: 'Fixed Deposit Types', route: '/admin/pool/credit/fd-types' },
+  { code: 'ADMIN_POOL_SECTORS', label: 'Economic Sectors', route: '/admin/pool/credit/sectors' },
+  { code: 'ADMIN_CHARGES_MASTER', label: 'Charge Codes', route: '/admin/pool/finance/charge-codes' },
+  { code: 'ADMIN_CHARGES_TRANSACTION', label: 'Transaction Charges', route: '/admin/pool/finance/transaction-charges' },
+  { code: 'ADMIN_POOL_CATEGORIES', label: 'Member Categories', route: '/admin/pool/membership/member-categories' },
+  { code: 'ADMIN_POOL_COUNTIES', label: 'Counties', route: '/admin/pool/general/counties' },
+  { code: 'ADMIN_POOL_DIMENSIONS', label: 'Global Dimensions', route: '/admin/pool/general/dimensions' },
+  { code: 'ADMIN_NO_SERIES', label: 'No. Series', route: '/admin/pool/general/no-series' },
+  { code: 'ADMIN_POOL_DENOMINATIONS', label: 'Cash Denominations', route: '/admin/pool/fosa/denominations' },
+  { code: 'ADMIN_TELLER_SETUP', label: 'Teller Setup', route: '/admin/pool/fosa/teller-setup' },
   { code: 'ADMIN_WORKFLOWS_DEFINITIONS', label: 'Workflows', route: '/admin/workflows/definitions' },
   { code: 'ADMIN_WORKFLOWS_GROUPS', label: 'Approval User Groups', route: '/admin/workflows/groups' },
   { code: 'ADMIN_WORKFLOWS_TABLES', label: 'Table Relations', route: '/admin/workflows/tables' },
@@ -97,7 +107,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ADMIN_AUDIT', label: 'Audit Trail', route: '/admin/security/audit' },
   { code: 'ADMIN_CHANGELOG', label: 'Change Log Management', route: '/admin/security/changelog' },
   { code: 'ADMIN_DATA', label: 'Data Management', route: '/admin/data' },
-  { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/automation' },
+  { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/pool/general/automation' },
 ];
 
 export interface ActionGrant {
@@ -359,6 +369,144 @@ export const ACTIONS = {
     ],
   },
 
+  // FOSA Cash Management — the five treasury/till cash movements (see lib/cashManagement.ts).
+  // Maker-checker: _CREATE drafts and submits, _APPROVE decides, _POST moves the cash (one
+  // balanced journal between two bank/cash accounts; postJournal maintains the bank subledger).
+  CASH_MANAGEMENT_READ: { page: 'CASH_MANAGEMENT', tables: [['fosa_transaction', 'read']] },
+  CASH_MANAGEMENT_CREATE: {
+    page: 'CASH_MANAGEMENT',
+    tables: [
+      ['fosa_transaction', 'insert'], ['fosa_transaction', 'modify'], ['fosa_transaction', 'delete'],
+      ['cash_denomination_line', 'insert'], ['cash_denomination_line', 'modify'], ['cash_denomination_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  CASH_MANAGEMENT_APPROVE: { page: 'CASH_MANAGEMENT', tables: [['fosa_transaction', 'modify']] },
+  CASH_MANAGEMENT_POST: {
+    page: 'CASH_MANAGEMENT',
+    tables: [
+      ['fosa_transaction', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['bank_account_ledger_entry', 'insert'],
+    ],
+  },
+
+  // Teller Transactions — over-the-counter member cash deposit/withdrawal (see
+  // lib/tellerTransactions.ts). Auto-posts within the teller's Approval Limit; above it, routes
+  // through _APPROVE first. _POST moves the savings balance, the till cash and the charge.
+  TELLER_TRANSACTIONS_READ: { page: 'TELLER_TRANSACTIONS', tables: [['teller_transaction', 'read']] },
+  TELLER_TRANSACTIONS_CREATE: {
+    page: 'TELLER_TRANSACTIONS',
+    tables: [
+      ['teller_transaction', 'insert'], ['teller_transaction', 'modify'], ['teller_transaction', 'delete'],
+      ['cash_denomination_line', 'insert'], ['cash_denomination_line', 'modify'], ['cash_denomination_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  TELLER_TRANSACTIONS_APPROVE: { page: 'TELLER_TRANSACTIONS', tables: [['teller_transaction', 'modify']] },
+  TELLER_TRANSACTIONS_POST: {
+    page: 'TELLER_TRANSACTIONS',
+    tables: [
+      ['teller_transaction', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['bank_account_ledger_entry', 'insert'], ['txn', 'insert'],
+    ],
+  },
+
+  // Liens / Holds — a maker-checker instruction to hold or release part of a member's deposit
+  // balance (see lib/liens.ts). No G/L: processing just moves savings_account.hold_amount.
+  LIENS_READ: { page: 'LIENS', tables: [['member_lien', 'read']] },
+  LIENS_CREATE: {
+    page: 'LIENS',
+    tables: [
+      ['member_lien', 'insert'], ['member_lien', 'modify'], ['member_lien', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  LIENS_APPROVE: { page: 'LIENS', tables: [['member_lien', 'modify']] },
+  LIENS_POST: { page: 'LIENS', tables: [['member_lien', 'modify'], ['savings_account', 'modify']] },
+
+  // Inter Account Transfer — a maker-checker cash move between two member deposit accounts (see
+  // lib/interAccountTransfer.ts). Only savings_product.allow_transfer products can be the source.
+  // _POST withdraws from the source, deposits to the destination and deducts the transfer charge.
+  INTER_ACCOUNT_TRANSFERS_READ: { page: 'INTER_ACCOUNT_TRANSFERS', tables: [['inter_account_transfer', 'read']] },
+  INTER_ACCOUNT_TRANSFERS_CREATE: {
+    page: 'INTER_ACCOUNT_TRANSFERS',
+    tables: [
+      ['inter_account_transfer', 'insert'], ['inter_account_transfer', 'modify'], ['inter_account_transfer', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  INTER_ACCOUNT_TRANSFERS_APPROVE: { page: 'INTER_ACCOUNT_TRANSFERS', tables: [['inter_account_transfer', 'modify']] },
+  INTER_ACCOUNT_TRANSFERS_POST: {
+    page: 'INTER_ACCOUNT_TRANSFERS',
+    tables: [
+      ['inter_account_transfer', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+  /** AL User Setup "Can Transfer To Other Members" — lets the creator pick a DESTINATION member
+   *  other than the source member. Without it, a transfer is always same-member. */
+  INTER_ACCOUNT_TRANSFERS_CROSS_MEMBER: { page: 'INTER_ACCOUNT_TRANSFERS', tables: [['inter_account_transfer', 'insert']] },
+
+  // Bankers Cheque — a maker-checker sale of a banker's cheque against a member's deposit account
+  // (see lib/bankersCheques.ts). _POST debits the member's account (+ clearing charge) and credits
+  // the cheque type's clearing G/L account.
+  BANKERS_CHEQUES_READ: { page: 'BANKERS_CHEQUES', tables: [['bankers_cheque', 'read']] },
+  BANKERS_CHEQUES_CREATE: {
+    page: 'BANKERS_CHEQUES',
+    tables: [
+      ['bankers_cheque', 'insert'], ['bankers_cheque', 'modify'], ['bankers_cheque', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  BANKERS_CHEQUES_APPROVE: { page: 'BANKERS_CHEQUES', tables: [['bankers_cheque', 'modify']] },
+  BANKERS_CHEQUES_POST: {
+    page: 'BANKERS_CHEQUES',
+    tables: [
+      ['bankers_cheque', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+  /** The Cheque Types master (ceilings, clearing account, clearing charge). */
+  BANKERS_CHEQUES_TYPES_MANAGE: {
+    page: 'BANKERS_CHEQUES',
+    tables: [['cheque_type', 'insert'], ['cheque_type', 'modify'], ['cheque_type', 'delete']],
+  },
+
+  // Cheque Deposit — a member banks a third-party cheque; it clears to their account on maturity
+  // (see lib/chequeDeposits.ts). _CLEAR covers Clear / Express clear / Release hold / Bounce.
+  CHEQUE_DEPOSITS_READ: { page: 'CHEQUE_DEPOSITS', tables: [['cheque_deposit', 'read']] },
+  CHEQUE_DEPOSITS_CREATE: {
+    page: 'CHEQUE_DEPOSITS',
+    tables: [
+      ['cheque_deposit', 'insert'], ['cheque_deposit', 'modify'], ['cheque_deposit', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  CHEQUE_DEPOSITS_APPROVE: { page: 'CHEQUE_DEPOSITS', tables: [['cheque_deposit', 'modify']] },
+  CHEQUE_DEPOSITS_CLEAR: {
+    page: 'CHEQUE_DEPOSITS',
+    tables: [
+      ['cheque_deposit', 'modify'], ['savings_account', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+  CHEQUE_DEPOSITS_TYPES_MANAGE: {
+    page: 'CHEQUE_DEPOSITS',
+    tables: [['cheque_type', 'insert'], ['cheque_type', 'modify'], ['cheque_type', 'delete']],
+  },
+
+  // Teller Setup + cash Denomination masters (Admin Centre).
+  TELLER_SETUP_READ: { page: 'ADMIN_TELLER_SETUP', tables: [['teller_setup', 'read']] },
+  TELLER_SETUP_MANAGE: {
+    page: 'ADMIN_TELLER_SETUP',
+    tables: [['teller_setup', 'insert'], ['teller_setup', 'modify'], ['teller_setup', 'delete']],
+  },
+  DENOMINATIONS_READ: { page: 'ADMIN_POOL_DENOMINATIONS', tables: [['denomination', 'read']] },
+  DENOMINATIONS_MANAGE: {
+    page: 'ADMIN_POOL_DENOMINATIONS',
+    tables: [['denomination', 'insert'], ['denomination', 'modify'], ['denomination', 'delete']],
+  },
+
   // Entrance Fee Recovery — batch sweep that recovers a Not Paid Up member's outstanding
   // registration fee (Admin Centre → Member Categories' own Registration Fee/Account) from
   // their Non-Withdrawable Deposit account, capped by what's actually available; once the fee
@@ -522,6 +670,28 @@ export const ACTIONS = {
   },
   EMPLOYERS_MANAGE: { page: 'ADMIN_PRODUCTS_EMPLOYERS', tables: [['employer', 'insert'], ['employer', 'modify']] },
   ADMIN_PRODUCTS_FD_MANAGE: { page: 'ADMIN_PRODUCTS_FD', tables: [['member_fixed_deposit_type', 'insert'], ['member_fixed_deposit_type', 'modify']] },
+  /** SASRA Sectorial Lending classification masters (see lib/economicSectors.ts). */
+  ADMIN_POOL_SECTORS_MANAGE: {
+    page: 'ADMIN_POOL_SECTORS',
+    tables: [
+      ['economic_sector', 'insert'], ['economic_sector', 'modify'], ['economic_sector', 'delete'],
+      ['economic_subsector', 'insert'], ['economic_subsector', 'modify'], ['economic_subsector', 'delete'],
+      ['economic_subsubsector', 'insert'], ['economic_subsubsector', 'modify'], ['economic_subsubsector', 'delete'],
+    ],
+  },
+  /** Business Central No. Series Management (see lib/noSeries.ts). */
+  ADMIN_NO_SERIES_READ: {
+    page: 'ADMIN_NO_SERIES',
+    tables: [['no_series', 'read'], ['no_series_line', 'read'], ['no_series_setup', 'read']],
+  },
+  ADMIN_NO_SERIES_MANAGE: {
+    page: 'ADMIN_NO_SERIES',
+    tables: [
+      ['no_series', 'insert'], ['no_series', 'modify'], ['no_series', 'delete'],
+      ['no_series_line', 'insert'], ['no_series_line', 'modify'], ['no_series_line', 'delete'],
+      ['no_series_setup', 'insert'], ['no_series_setup', 'modify'],
+    ],
+  },
   ADMIN_CHARGES_MASTER_MANAGE: { page: 'ADMIN_CHARGES_MASTER', tables: [['charge', 'insert'], ['charge', 'modify']] },
   ADMIN_CHARGES_TRANSACTION_MANAGE: {
     page: 'ADMIN_CHARGES_TRANSACTION',

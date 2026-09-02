@@ -21,8 +21,15 @@ export interface SidebarProps {
 
 export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) {
   const pathname = usePathname();
-  const { open, close } = useNav();
+  const { open, close, hideDesktop } = useNav();
   const name = org.short_name || org.name || 'SACCO';
+
+  // The header button hides the permanent column on desktop; on the mobile
+  // drawer it simply closes it (the hamburger in the top bar reopens either).
+  const hide = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 901px)').matches) hideDesktop();
+    else close();
+  };
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -52,11 +59,20 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
 
       <aside id="app-sidebar" className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-head">
-          {org.logo ? <img src={org.logo} alt="" /> : <div className="mark">{initials(name)}</div>}
-          <div>
-            <div className="name">{name}</div>
-            <div className="sub">Core Banking System</div>
-          </div>
+          <Link href="/dashboard" className="sidebar-brand" onClick={close}>
+            {org.logo ? <img src={org.logo} alt="" /> : <div className="mark">{initials(name)}</div>}
+            <div>
+              <div className="name">{name}</div>
+              <div className="sub">Core Banking System</div>
+            </div>
+          </Link>
+          <button type="button" className="sidebar-collapse" onClick={hide}
+            aria-label="Hide sidebar" title="Hide sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M13 6l-6 6 6 6M19 6l-6 6 6 6" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
 
         <nav className="nav">

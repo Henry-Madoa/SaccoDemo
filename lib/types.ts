@@ -63,10 +63,16 @@ export interface Organisation {
   dormancy_days: number;
   /** The Transaction Charge auto-applied when a Member Exit is marked Instant Withdrawal. */
   instant_withdrawal_charge_id: number | null;
+  /** AL General Ledger Setup "Inter Acc Transfer Charges" — the Transaction Charge auto-applied to
+   *  every inter-account transfer, deducted from the source account. See lib/interAccountTransfer.ts. */
+  inter_account_transfer_charge_id: number | null;
   /** BC's General Ledger Setup "Allow Posting From"/"Allow Posting To" — see
    *  lib/postingDates.ts. Null = unrestricted. */
   allow_posting_from: IsoDate | null;
   allow_posting_to: IsoDate | null;
+  /** AL General Ledger Setup "Validate Cash Denomination" — when true a cash document's
+   *  denomination breakdown must total exactly its amount. See lib/denominations.ts. */
+  validate_cash_denomination: boolean;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -848,6 +854,405 @@ export interface MemberChargingWithDimensions extends MemberCharging {
   source_balance: Cents;
 }
 
+/* ------------------------------------------------------- FOSA tellering */
+
+/** bank_account.account_type — see lib/cashManagement.ts. */
+export type BankAccountType = 'MAIN' | 'TREASURY' | 'TILL' | 'OTHER';
+
+/** AL "FOSA Transaction Types" (the five treasury/till cash movements). */
+export type FosaDocumentType =
+  | 'RECEIVE_FROM_BANK' | 'TREASURY_REQUEST' | 'INTER_TILL' | 'TREASURY_RETURN' | 'SEND_TO_BANK';
+
+export type TellerTransactionType = 'CASH_DEPOSIT' | 'CASH_WITHDRAWAL';
+
+export type DenominationDocumentKind = 'FOSA' | 'TELLER';
+
+export interface Denomination {
+  id: number;
+  code: string;
+  description: string;
+  value: Cents;
+  active: boolean;
+  sort_order: number;
+}
+
+/** One denomination row for a specific document, joined to its master for description/value. */
+export interface DenominationLine {
+  denomination_id: number;
+  code: string;
+  description: string;
+  value: Cents;
+  quantity: number;
+  total: Cents;
+}
+
+export interface TellerSetup {
+  id: number;
+  user_username: string;
+  setup_type: 'TELLER' | 'TREASURY';
+  bank_account_id: number;
+  max_capacity: Cents;
+  min_capacity: Cents;
+  approval_limit: Cents;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface TellerSetupWithAccount extends TellerSetup {
+  bank_account_code: string;
+  bank_account_name: string;
+  bank_account_type: BankAccountType;
+}
+
+export interface FosaTransaction {
+  no: string;
+  document_type: FosaDocumentType;
+  source_bank_account_id: number;
+  destination_bank_account_id: number;
+  amount: Cents;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface FosaTransactionView extends FosaTransaction {
+  source_code: string;
+  source_name: string;
+  source_account_type: BankAccountType;
+  source_balance: Cents;
+  destination_code: string;
+  destination_name: string;
+  destination_account_type: BankAccountType;
+  destination_balance: Cents;
+  journal_no: string | null;
+  /** Sum of this document's denomination breakdown — see lib/denominations.ts. */
+  denomination_total: Cents;
+}
+
+export interface TellerTransaction {
+  no: string;
+  transaction_type: TellerTransactionType;
+  member_id: number;
+  savings_account_id: number;
+  till_bank_account_id: number;
+  teller_username: string;
+  amount: Cents;
+  source_of_funds: string | null;
+  transacted_by_name: string | null;
+  transacted_by_id_no: string | null;
+  transaction_charge_id: number | null;
+  charge_amount: Cents;
+  available_balance: Cents;
+  book_balance: Cents;
+  approval_required: boolean;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  slip_emailed_at: IsoDateTime | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface TellerTransactionView extends TellerTransaction {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  member_email: string | null;
+  account_no: string;
+  account_product_name: string;
+  account_balance: Cents;
+  account_hold_amount: Cents;
+  account_min_balance: Cents;
+  account_gl_control_id: number;
+  till_code: string;
+  till_name: string;
+  transaction_charge_code: string | null;
+  transaction_charge_description: string | null;
+  journal_no: string | null;
+  denomination_total: Cents;
+}
+
+/* ------------------------------------------------------- Liens / holds */
+
+/** AL "Lien" transaction type — HOLD places a hold on part of a deposit balance, RELEASE lifts
+ *  a previous hold. */
+export type LienTransactionType = 'HOLD' | 'RELEASE';
+
+export interface MemberLien {
+  no: string;
+  member_id: number;
+  savings_account_id: number;
+  transaction_type: LienTransactionType;
+  amount: Cents;
+  narration: string | null;
+  posting_date: IsoDate;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  processed: boolean;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  processed_at: IsoDateTime | null;
+  processed_by: string | null;
+}
+
+export interface MemberLienView extends MemberLien {
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  account_no: string;
+  account_product_name: string;
+  account_balance: Cents;
+  account_hold_amount: Cents;
+  account_min_balance: Cents;
+  /** balance - hold_amount - min_balance, clamped to >= 0 (AL's "ActualBalance" — the most that
+   *  can still be held). */
+  account_available: Cents;
+}
+
+/** AL Tab52204093 "Amount Type" — PARTIAL keeps the source above its product minimum balance;
+ *  FULL may drain the source to zero. */
+export type InterAccountTransferAmountType = 'PARTIAL' | 'FULL';
+
+/** AL "Inter Account Transfer" (Tab52204093) — a maker-checker cash move between two member
+ *  deposit accounts. Only `savings_product.allow_transfer` products can be the source. */
+export interface InterAccountTransfer {
+  no: string;
+  source_member_id: number;
+  source_account_id: number;
+  destination_member_id: number;
+  destination_account_id: number;
+  amount_type: InterAccountTransferAmountType;
+  amount: Cents;
+  transaction_charge_id: number | null;
+  charge_amount: Cents;
+  narration: string | null;
+  posting_date: IsoDate;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface InterAccountTransferView extends InterAccountTransfer {
+  source_member_no: string;
+  source_first_name: string;
+  source_last_name: string;
+  destination_member_no: string;
+  destination_first_name: string;
+  destination_last_name: string;
+  source_account_no: string;
+  source_product_name: string;
+  source_balance: Cents;
+  source_hold_amount: Cents;
+  source_min_balance: Cents;
+  destination_account_no: string;
+  destination_product_name: string;
+  destination_balance: Cents;
+  transaction_charge_code: string | null;
+  journal_no: string | null;
+  /** For PARTIAL: balance - hold - min_balance; for FULL: balance - hold. Clamped >= 0. */
+  source_available: Cents;
+}
+
+/* ------------------------------------------------------- bankers cheque */
+
+export type ChequeTypeKind = 'BANKERS' | 'EXTERNAL';
+
+/** AL "Cheque Types" (Tab52204122). BANKERS backs lib/bankersCheques.ts; EXTERNAL backs
+ *  lib/chequeDeposits.ts (clearing / bouncing / express charges + maturity period). */
+export interface ChequeType {
+  id: number;
+  code: string;
+  type: ChequeTypeKind;
+  description: string;
+  maximum_amount: Cents;
+  clearing_gl_account_id: number;
+  clearing_charge_id: number | null;
+  bouncing_charge_id: number | null;
+  express_charge_id: number | null;
+  in_house: boolean;
+  maturity_days: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ChequeTypeWithDetail extends ChequeType {
+  clearing_gl_account_code: string;
+  clearing_gl_account_name: string;
+  clearing_charge_code: string | null;
+  bouncing_charge_code: string | null;
+  express_charge_code: string | null;
+  cheques_issued: number;
+}
+
+/* -------------------------------------------------------- cheque deposit */
+
+export type ChequeDepositStatus = DocumentStatus | 'Cleared' | 'Bounced';
+
+/** AL "Cheque Deposits" (Tab52204124), Deposit document type. */
+export interface ChequeDeposit {
+  no: string;
+  cheque_type_id: number;
+  description: string | null;
+  member_id: number;
+  savings_account_id: number;
+  cheque_no: string | null;
+  cheque_date: IsoDate | null;
+  deposit_date: IsoDate;
+  maturity_date: IsoDate;
+  in_house: boolean;
+  amount: Cents;
+  express_cheque: boolean;
+  drawer_account_name: string | null;
+  drawer_bank: string | null;
+  drawer_branch: string | null;
+  drawer_account_no: string | null;
+  clearing_gl_account_id: number;
+  clearing_charge_id: number | null;
+  bouncing_charge_id: number | null;
+  express_charge_id: number | null;
+  charge_amount: Cents;
+  express_hold_amount: Cents;
+  status: ChequeDepositStatus;
+  decision_reason: string | null;
+  cleared_by: string | null;
+  clearance_date: IsoDate | null;
+  journal_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ChequeDepositView extends ChequeDeposit {
+  cheque_type_code: string;
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  account_no: string;
+  account_product_name: string;
+  account_balance: Cents;
+  clearing_gl_account_code: string;
+  clearing_charge_code: string | null;
+  journal_no: string | null;
+  /** True once the deposit is Approved and on/after its maturity date (ready for normal clearing). */
+  matured: boolean;
+  /** Sum of this deposit's cheque instructions. */
+  instructions_total: Cents;
+}
+
+export type ChequeInstructionTarget = 'ACCOUNT' | 'LOAN';
+
+/** AL "Cheque Instructions" (Tab52204087) — one distribution line on a cheque deposit. */
+export interface ChequeInstruction {
+  id: number;
+  cheque_deposit_no: string;
+  line_no: number;
+  target_type: ChequeInstructionTarget;
+  savings_account_id: number | null;
+  loan_id: number | null;
+  amount: Cents;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ChequeInstructionView extends ChequeInstruction {
+  /** Display name of the target — the account (no. + product) or the loan (no. + product). */
+  target_label: string;
+  /** Live balance of the target — the account balance, or the loan's outstanding balance. */
+  target_balance: Cents;
+}
+
+/** AL "Bankers Cheque" (Tab52204123) — a maker-checker sale of a banker's cheque against a
+ *  member's deposit account. */
+export interface BankersCheque {
+  no: string;
+  cheque_type_id: number;
+  description: string | null;
+  max_amount: Cents;
+  member_id: number;
+  savings_account_id: number;
+  payee_details: string | null;
+  cheque_no: string | null;
+  book_balance: Cents;
+  amount: Cents;
+  transaction_charge_id: number | null;
+  charge_amount: Cents;
+  net_amount: Cents;
+  posting_date: IsoDate;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface BankersChequeView extends BankersCheque {
+  cheque_type_code: string;
+  member_no: string;
+  member_first_name: string;
+  member_last_name: string;
+  account_no: string;
+  account_product_name: string;
+  account_balance: Cents;
+  account_hold_amount: Cents;
+  account_min_balance: Cents;
+  /** balance - hold_amount - min_balance, clamped >= 0 (AL's available-balance check). */
+  account_available: Cents;
+  clearing_gl_account_code: string;
+  transaction_charge_code: string | null;
+  journal_no: string | null;
+}
+
+/** One line of the AL Rep52204097 "Bankers Cheque Schedule" — posted cheques only. */
+export interface BankersChequeScheduleRow {
+  no: string;
+  posting_date: IsoDate;
+  cheque_no: string | null;
+  account_name: string;
+  account_no: string;
+  payee_details: string | null;
+  amount: Cents;
+  charge_amount: Cents;
+  net_amount: Cents;
+}
+
+/** The rendered slip view-model — AL Rep52204068 / Rep52204069 dataset. */
+export interface TellerSlip {
+  doc: TellerTransactionView;
+  org: Organisation;
+  amountWords: string;
+  bookBalanceBefore: Cents;
+  bookBalanceAfter: Cents;
+  availableAfter: Cents;
+}
+
 export interface MemberApplicationNextOfKin {
   id: number;
   application_no: string;
@@ -1308,6 +1713,8 @@ export interface BankAccount {
   account_no: string | null;
   balance: Cents;
   status: 'ACTIVE' | 'INACTIVE';
+  /** FOSA tellering role — see lib/cashManagement.ts. */
+  account_type: BankAccountType;
 }
 
 export interface BankAccountListRow extends BankAccount {
@@ -1389,6 +1796,9 @@ export interface SavingsProduct {
   min_opening: Cents;
   interest_rate: number;
   allow_withdrawal: Flag;
+  /** AL "Cash Transfer Allowed" — whether an account on this product may be the source of an
+   *  inter-account transfer. See lib/interAccountTransfer.ts. */
+  allow_transfer: Flag;
   withdrawal_fee: Cents;
   is_loanable_base: Flag;
   /** Collects business details (name, location, paybill/till, phone) at Account Opening time. */
@@ -1690,6 +2100,10 @@ export interface Loan {
   interest_method: InterestMethod;
   term_months: number;
   purpose: string | null;
+  /** SASRA Sectorial Lending classification (see lib/economicSectors.ts). */
+  sector_code: string | null;
+  sub_sector_code: string | null;
+  sub_subsector_code: string | null;
   status: LoanStatus;
   applied_date: IsoDate | null;
   approved_date: IsoDate | null;
@@ -1735,6 +2149,113 @@ export interface LoanFull extends LoanWithProductName {
   member_no: string;
   first_name: string;
   last_name: string;
+  sector_name: string | null;
+  sub_sector_name: string | null;
+  sub_subsector_name: string | null;
+}
+
+/* -------------------------------------------------------- economic sectors */
+
+/** AL Tab52204077 "Economic Sectors". */
+export interface EconomicSector {
+  code: string;
+  name: string;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+export interface EconomicSubsector {
+  id: number;
+  sector_code: string;
+  code: string;
+  name: string;
+}
+export interface EconomicSubsubsector {
+  id: number;
+  sector_code: string;
+  subsector_code: string;
+  code: string;
+  description: string;
+}
+
+export interface EconomicSectorTree extends EconomicSector {
+  subsectors: (EconomicSubsector & { subsubsectors: EconomicSubsubsector[] })[];
+  loans: number;
+}
+
+/** One line of the SASRA Sectorial Lending Return (AL Rep52204034). */
+export interface SectorialLendingRow {
+  sector_code: string | null;
+  sector_name: string;
+  sub_sector_code: string | null;
+  sub_sector_name: string;
+  sub_subsector_code: string | null;
+  sub_subsector_name: string;
+  /** Loans currently DISBURSED classified here. */
+  loans: number;
+  /** Principal advanced in the period (new lending). */
+  disbursed: Cents;
+  /** Principal recovered in the period. */
+  repaid: Cents;
+  /** disbursed − repaid — AL's "Net Change-Principal". */
+  net_change: Cents;
+  /** Current outstanding principal balance. */
+  outstanding: Cents;
+}
+
+/* --------------------------------------------------------------- No. Series */
+
+export interface NoSeries {
+  code: string;
+  description: string;
+  default_nos: number;
+  manual_nos: number;
+  date_order: number;
+}
+
+export interface NoSeriesLine {
+  id: number;
+  series_code: string;
+  line_no: number;
+  starting_date: string | null;
+  starting_no: string;
+  ending_no: string | null;
+  last_no_used: string | null;
+  last_date_used: string | null;
+  warning_no: string | null;
+  increment_by_no: number;
+  open: number;
+  allow_gaps: number;
+}
+
+export interface NoSeriesWithLines extends NoSeries {
+  lines: NoSeriesLine[];
+}
+
+export interface NoSeriesListRow extends NoSeries {
+  line_count: number;
+  /** The current (latest) line's key figures, rolled up for the list. */
+  starting_no: string | null;
+  ending_no: string | null;
+  last_no_used: string | null;
+  last_date_used: string | null;
+  increment_by_no: number | null;
+  starting_date: string | null;
+  /** How many documents point at this series. */
+  used_by: number;
+  /** What GetNextNo would hand out today (null if the series can't currently issue). */
+  next_no: string | null;
+}
+
+export interface DocumentNoSeriesRow {
+  document_code: string;
+  label: string;
+  category: string;
+  sort: number;
+  series_code: string | null;
+  series_description: string | null;
+  last_no_used: string | null;
+  next_no: string | null;
+  manual_nos: number;
 }
 
 export interface LoanListRow extends LoanWithProductName {
@@ -2532,7 +3053,9 @@ export interface SubledgerEntryRow extends TxnWithMember {
 export type WorkflowDocumentType =
   | 'MEMBER_APPLICATION' | 'MEMBER_EDIT' | 'LOAN' | 'JOURNAL' | 'ACCOUNT_OPENING' | 'ACCOUNT_DEACTIVATION'
   | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'MEMBER_READMISSION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE'
-  | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER';
+  | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER'
+  | 'FOSA_TRANSACTION' | 'TELLER_TRANSACTION' | 'MEMBER_LIEN' | 'INTER_ACCOUNT_TRANSFER' | 'BANKERS_CHEQUE'
+  | 'CHEQUE_DEPOSIT';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';

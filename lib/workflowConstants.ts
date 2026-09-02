@@ -40,6 +40,12 @@ export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
   MEMBER_EXIT: 'member_exit',
   CHECKOFF_BATCH: 'checkoff_batch',
   FIXED_DEPOSIT: 'member_fixed_deposit',
+  FOSA_TRANSACTION: 'fosa_transaction',
+  TELLER_TRANSACTION: 'teller_transaction',
+  MEMBER_LIEN: 'member_lien',
+  INTER_ACCOUNT_TRANSFER: 'inter_account_transfer',
+  BANKERS_CHEQUE: 'bankers_cheque',
+  CHEQUE_DEPOSIT: 'cheque_deposit',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
@@ -59,6 +65,12 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   MEMBER_EXIT: 'Member Exit',
   CHECKOFF_BATCH: 'Checkoff Batch',
   FIXED_DEPOSIT: 'Fixed Deposit',
+  FOSA_TRANSACTION: 'FOSA Cash Movement',
+  TELLER_TRANSACTION: 'Teller Transaction',
+  MEMBER_LIEN: 'Lien / Hold',
+  INTER_ACCOUNT_TRANSFER: 'Inter Account Transfer',
+  BANKERS_CHEQUE: 'Banker’s Cheque',
+  CHEQUE_DEPOSIT: 'Cheque Deposit',
 };
 
 const humanizeIdentifier = (identifier: string): string => identifier
@@ -105,6 +117,12 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   MEMBER_EXIT: (id) => `/member-exits/view/${id}`,
   CHECKOFF_BATCH: (id) => `/checkoff-batches/view/${id}`,
   FIXED_DEPOSIT: (id) => `/fixed-deposits/view/${id}`,
+  FOSA_TRANSACTION: (id) => `/cash-management/view/${id}`,
+  TELLER_TRANSACTION: (id) => `/teller-transactions/view/${id}`,
+  MEMBER_LIEN: (id) => `/liens/view/${id}`,
+  INTER_ACCOUNT_TRANSFER: (id) => `/inter-account-transfers/view/${id}`,
+  BANKERS_CHEQUE: (id) => `/bankers-cheques/view/${id}`,
+  CHEQUE_DEPOSIT: (id) => `/cheque-deposits/view/${id}`,
 };
 
 export function documentLabel(documentType: WorkflowDocumentType, entityId: string): string {

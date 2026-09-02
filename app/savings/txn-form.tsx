@@ -62,7 +62,7 @@ function TxnForm({ kind, account, onClose }: {
         ]} />
       </div>
 
-      <Field name="amount" label="Amount" type="number" step="0.01" min={0} required />
+      <Field name="amount" label="Amount" type="currency" min={0} required />
       <Field name="channel" label="Channel" type="select"
         options={isDeposit ? DEPOSIT_CHANNELS : WITHDRAWAL_CHANNELS} />
       <Field name="valueDate" label="Value date" type="date" defaultValue={today()} />

@@ -24,7 +24,7 @@ export default async function EmployerViewPage({ params }: { params: Promise<{ i
   return (
     <Page title={employer.name} crumb={`Employer ${employer.code} · ${employer.status}`} user={user}>
       <Toolbar>
-        <Link href="/admin/products/employers" className="btn ghost sm">← All employers</Link>
+        <Link href="/admin/pool/hr-payroll/employers" className="btn ghost sm">← All employers</Link>
         <Link href="/checkoff-batches" className="btn ghost sm">Checkoff & Salary batches</Link>
       </Toolbar>
 

@@ -7,8 +7,8 @@
  * bundle, and webpack failed the build on its `require('fs')`.
  */
 import type {
-  Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CheckoffSearchType, CollateralCategory,
-  DocumentStatus, GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
+  BankAccountType, Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CheckoffSearchType, CollateralCategory,
+  DocumentStatus, FosaDocumentType, GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
   LoanChargeCalculationType, LoanRecoveryMode, LoanStatus, MemberCategoryType, MemberStatus, PayMode, SalaryAppraisalLineType,
   TransactionRecoveryDeductionType, TransactionRecoveryType,
   SalaryAppraisalSpecialType, SavingsAccountStatus, SavingsCategory, StandingOrderAmountType, StandingOrderClass,
@@ -300,3 +300,44 @@ export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
+
+/* ----------------------------------------------------------- FOSA tellering */
+
+export interface FosaDocTypeMeta {
+  value: FosaDocumentType;
+  label: string;
+  /** Movement described for the UI. */
+  flow: string;
+  /** Which end the creator picks, and the account_type that end must be. */
+  counterparty: 'SOURCE' | 'DESTINATION';
+  counterpartyType: BankAccountType;
+  /** The Teller Setup the creator must hold for the auto-resolved end. */
+  creatorSetup: 'TELLER' | 'TREASURY';
+}
+
+/** AL "FOSA Transaction Types" — the five treasury/till cash movements (see lib/cashManagement.ts). */
+export const FOSA_DOC_TYPES: FosaDocTypeMeta[] = [
+  {
+    value: 'RECEIVE_FROM_BANK', label: 'Receive from Main Bank',
+    flow: 'Main Bank → Treasury vault', counterparty: 'SOURCE', counterpartyType: 'MAIN', creatorSetup: 'TREASURY',
+  },
+  {
+    value: 'TREASURY_REQUEST', label: 'Request Till Cash from Treasury',
+    flow: 'Treasury vault → your till', counterparty: 'SOURCE', counterpartyType: 'TREASURY', creatorSetup: 'TELLER',
+  },
+  {
+    value: 'INTER_TILL', label: 'Inter-Till Request',
+    flow: 'Another till → your till', counterparty: 'SOURCE', counterpartyType: 'TILL', creatorSetup: 'TELLER',
+  },
+  {
+    value: 'TREASURY_RETURN', label: 'Return to Treasury',
+    flow: 'Your till → Treasury vault', counterparty: 'DESTINATION', counterpartyType: 'TREASURY', creatorSetup: 'TELLER',
+  },
+  {
+    value: 'SEND_TO_BANK', label: 'Return to Main Bank',
+    flow: 'Treasury vault → Main Bank', counterparty: 'DESTINATION', counterpartyType: 'MAIN', creatorSetup: 'TREASURY',
+  },
+];
+
+export const fosaDocTypeMeta = (t: FosaDocumentType): FosaDocTypeMeta =>
+  FOSA_DOC_TYPES.find((d) => d.value === t)!;

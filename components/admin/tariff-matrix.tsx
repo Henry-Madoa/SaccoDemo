@@ -1,6 +1,7 @@
 'use client';
 
 import { useFormat } from '@/components/ui/format-provider';
+import { MoneyInput } from '@/components/ui/field';
 import { CHARGE_RATE_TYPES } from '@/lib/constants';
 import { toCents, toUnits } from '@/lib/format';
 import type { Cents, ChargeRateType } from '@/lib/types';
@@ -107,13 +108,13 @@ export function TariffMatrix({ bands, baseLabel, hint, onChange }: {
           {bands.map((band, bi) => (
             <tr key={bi}>
               <td>
-                <input type="number" step="0.01" value={band.lower_limit_sh} aria-label="Lower limit" style={{ width: 100 }}
-                  onChange={(e) => update(bi, { lower_limit_sh: e.target.value })} />
+                <MoneyInput value={band.lower_limit_sh} ariaLabel="Lower limit" style={{ width: 110 }}
+                  onChange={(v) => update(bi, { lower_limit_sh: v })} />
               </td>
               <td>
-                <input type="number" step="0.01" value={band.upper_limit_sh} aria-label="Upper limit" style={{ width: 100 }}
+                <MoneyInput value={band.upper_limit_sh} ariaLabel="Upper limit" style={{ width: 110 }}
                   placeholder="Unbounded"
-                  onChange={(e) => update(bi, { upper_limit_sh: e.target.value })} />
+                  onChange={(v) => update(bi, { upper_limit_sh: v })} />
               </td>
               <td>
                 <select value={band.rate_type} aria-label="Rate type"
@@ -122,29 +123,32 @@ export function TariffMatrix({ bands, baseLabel, hint, onChange }: {
                 </select>
               </td>
               <td>
-                <input type="number" step="0.01" value={band.rate_sh} aria-label="Rate" style={{ width: 90 }}
-                  onChange={(e) => update(bi, { rate_sh: e.target.value })} />
-                {band.rate_type === 'PERCENTAGE' ? (
+                {band.rate_type === 'FLAT' ? (
+                  <MoneyInput value={band.rate_sh} ariaLabel="Rate" style={{ width: 100 }}
+                    onChange={(v) => update(bi, { rate_sh: v })} />
+                ) : (
                   <>
+                    <input type="number" step="0.01" value={band.rate_sh} aria-label="Rate" style={{ width: 90 }}
+                      onChange={(e) => update(bi, { rate_sh: e.target.value })} />
                     <span className="tiny">%</span>
                     <div className="tiny muted-cell" style={{ marginTop: 2 }}>
                       = {cur(Math.round(Number(band.rate_sh) || 0))} per KSh 1.00 of the amount
                     </div>
                   </>
-                ) : null}
+                )}
               </td>
               <td>
-                <input
-                  type="number" step="0.01" value={band.lower_charge_limit_sh} aria-label="Minimum charge"
-                  style={{ width: 100 }} disabled={band.rate_type !== 'PERCENTAGE'}
-                  onChange={(e) => update(bi, { lower_charge_limit_sh: e.target.value })}
+                <MoneyInput
+                  value={band.lower_charge_limit_sh} ariaLabel="Minimum charge"
+                  style={{ width: 110 }} disabled={band.rate_type !== 'PERCENTAGE'}
+                  onChange={(v) => update(bi, { lower_charge_limit_sh: v })}
                 />
               </td>
               <td>
-                <input
-                  type="number" step="0.01" value={band.upper_charge_limit_sh} aria-label="Maximum charge"
-                  style={{ width: 100 }} disabled={band.rate_type !== 'PERCENTAGE'}
-                  onChange={(e) => update(bi, { upper_charge_limit_sh: e.target.value })}
+                <MoneyInput
+                  value={band.upper_charge_limit_sh} ariaLabel="Maximum charge"
+                  style={{ width: 110 }} disabled={band.rate_type !== 'PERCENTAGE'}
+                  onChange={(v) => update(bi, { upper_charge_limit_sh: v })}
                 />
               </td>
               <td>

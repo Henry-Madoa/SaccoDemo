@@ -212,7 +212,7 @@ function NewFixedDepositForm({ members, onClose }: {
             onChange={(e) => setRate(e.target.value)} />
           {fdType ? <div className="hint">Range: {fdType.min_interest_rate}% – {fdType.max_interest_rate}%</div> : null}
         </div>
-        <Field name="amount" label="Amount" type="number" step="0.01" required />
+        <Field name="amount" label="Amount" type="currency" required />
         <Field name="termMonths" label="Term (months)" type="number" required defaultValue={12} />
         <div className="field">
           <label htmlFor="f_startDate">Start date <span className="req">*</span></label>

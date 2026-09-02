@@ -335,11 +335,11 @@ function StandingOrderFields({
       </div>
 
       {amountType === 'FIXED' ? (
-        <Field name="amount" label="Amount" type="number" step="0.01" required
+        <Field name="amount" label="Amount" type="currency" required
           defaultValue={initial ? initial.amount / 100 : ''} />
       ) : null}
       {amountType === 'AMOUNT_BASED' ? (
-        <Field name="amountLimit" label="Amount limit" type="number" step="0.01" required
+        <Field name="amountLimit" label="Amount limit" type="currency" required
           defaultValue={initial ? initial.amount_limit / 100 : ''}
           hint="Once the source account's available balance reaches this, the whole balance sweeps" />
       ) : null}

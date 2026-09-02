@@ -639,6 +639,42 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       else await svc.rejectFixedDeposit(task.entity_id, reason, decidedBy);
       break;
     }
+    case 'FOSA_TRANSACTION': {
+      const svc = await import('./cashManagement.ts');
+      if (approved) await svc.approveFosaTransaction(task.entity_id, decidedBy);
+      else await svc.rejectFosaTransaction(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'TELLER_TRANSACTION': {
+      const svc = await import('./tellerTransactions.ts');
+      if (approved) await svc.approveTellerTransaction(task.entity_id, decidedBy);
+      else await svc.rejectTellerTransaction(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'MEMBER_LIEN': {
+      const svc = await import('./liens.ts');
+      if (approved) await svc.approveLien(task.entity_id, decidedBy);
+      else await svc.rejectLien(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'INTER_ACCOUNT_TRANSFER': {
+      const svc = await import('./interAccountTransfer.ts');
+      if (approved) await svc.approveInterAccountTransfer(task.entity_id, decidedBy);
+      else await svc.rejectInterAccountTransfer(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'BANKERS_CHEQUE': {
+      const svc = await import('./bankersCheques.ts');
+      if (approved) await svc.approveBankersCheque(task.entity_id, decidedBy);
+      else await svc.rejectBankersCheque(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'CHEQUE_DEPOSIT': {
+      const svc = await import('./chequeDeposits.ts');
+      if (approved) await svc.approveChequeDeposit(task.entity_id, decidedBy);
+      else await svc.rejectChequeDeposit(task.entity_id, reason, decidedBy);
+      break;
+    }
   }
 }
 

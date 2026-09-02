@@ -57,7 +57,7 @@ const client = (): RawClient => txStore.getStore() ?? db;
 
 /* ------------------------------------------------------------- translation */
 
-const NO_IDENTITY = /\binto\s+"?(session|sequence|member_application|member_edit_request|change_log_setup|account_opening_request|account_deactivation_request|account_activation_request|member_activation_request|member_readmission_request|standing_order|member_charging|collateral_application|collateral_register|collateral_release|loan_guarantor_change|member_exit|checkoff_batch|member_fixed_deposit)"?\b/i;
+const NO_IDENTITY = /\binto\s+"?(session|sequence|member_application|member_edit_request|change_log_setup|account_opening_request|account_deactivation_request|account_activation_request|member_activation_request|member_readmission_request|standing_order|member_charging|collateral_application|collateral_register|collateral_release|loan_guarantor_change|member_exit|checkoff_batch|member_fixed_deposit|fosa_transaction|teller_transaction|member_lien|inter_account_transfer|bankers_cheque|cheque_deposit|economic_sector|no_series|no_series_setup)"?\b/i;
 
 /**
  * Rewrite the legacy `?` and `@named` placeholders into PostgreSQL's positional form.
@@ -199,15 +199,18 @@ export async function tx<T>(fn: () => Promise<T>): Promise<T> {
 
 /* --------------------------------------------------------------- sequences */
 
+/**
+ * The next document number for `name`.
+ *
+ * Delegates to the No. Series engine (lib/noSeries.ts) — a Business-Central-style
+ * series with a configurable Starting No./Date, Increment-by and Ending No. that
+ * an admin manages from the Admin Centre. Any code not yet placed on a series
+ * falls through to the legacy flat `sequence` counter, so numbering never breaks
+ * mid-migration. Loaded lazily to keep this module free of a cycle.
+ */
 export async function nextSequence(name: string): Promise<string> {
-  // A single atomic statement: two clerks opening accounts at once cannot be
-  // handed the same account number.
-  const row = await one<{ prefix: string; next_no: number; width: number }>(
-    'UPDATE sequence SET next_no = next_no + 1 WHERE name = ? RETURNING prefix, next_no - 1 AS next_no, width',
-    name,
-  );
-  if (!row) throw new Error('Unknown sequence: ' + name);
-  return row.prefix + String(row.next_no).padStart(row.width, '0');
+  const { nextSequence: fromSeries } = await import('./noSeries.ts');
+  return fromSeries(name);
 }
 
 export async function audit(

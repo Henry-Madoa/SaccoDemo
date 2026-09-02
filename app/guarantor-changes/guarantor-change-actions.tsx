@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Modal } from '@/components/ui/modal';
-import { Field } from '@/components/ui/field';
+import { Field, MoneyInput } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { TableWrap } from '@/components/ui/primitives';
@@ -339,8 +339,7 @@ export function ReplacementsModal({ no, line, disabled }: {
                 )}
                 <div className="field">
                   <label htmlFor={`f_replacementAmount_${line.id}`}>Amount</label>
-                  <input id={`f_replacementAmount_${line.id}`} type="number" step="0.01" value={amountSh}
-                    onChange={(e) => setAmountSh(e.target.value)} />
+                  <MoneyInput id={`f_replacementAmount_${line.id}`} value={amountSh} onChange={setAmountSh} />
                   <div className="hint">
                     {availableOnChosen != null ? `Up to ${cur(availableOnChosen)} available` : `${cur(Math.max(0, remaining))} left unallocated on this line`}
                   </div>
