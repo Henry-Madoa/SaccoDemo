@@ -14,4 +14,9 @@ tsconfig.tsbuildinfo
 .env.local
 .env.*.local
 .env.local.example
+.env.realbak
+*.realbak
 backup/
+
+# Business Central AL reference source (kept out of the app repo)
+ERPDemo/
