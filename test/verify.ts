@@ -49,6 +49,25 @@ const memberActivation = await import('../lib/memberActivation.ts');
 const standingOrdersLib = await import('../lib/standingOrders.ts');
 const employersLib = await import('../lib/employers.ts');
 const checkoffBatchesLib = await import('../lib/checkoffBatches.ts');
+const faDepr = await import('../lib/fixedAssetDepreciation.ts');
+const faJournalLib = await import('../lib/faJournal.ts');
+const faLib = await import('../lib/fixedAssets.ts');
+const dateFormula = await import('../lib/dateFormula.ts');
+const custLib = await import('../lib/customers.ts');
+const salesLib = await import('../lib/salesDocuments.ts');
+const cashReceiptLib = await import('../lib/cashReceipts.ts');
+const reminderLib = await import('../lib/reminders.ts');
+const custLedgerLib = await import('../lib/custLedger.ts');
+const arReports = await import('../lib/receivablesReports.ts');
+const vendorLib = await import('../lib/vendors.ts');
+const purchaseLib = await import('../lib/purchaseDocuments.ts');
+const paymentJournalLib = await import('../lib/paymentJournal.ts');
+const vendLedgerLib = await import('../lib/vendLedger.ts');
+const apReports = await import('../lib/payablesReports.ts');
+const receiptsLib = await import('../lib/receipts.ts');
+const pvLib = await import('../lib/paymentVouchers.ts');
+const whtLib = await import('../lib/whtCertificate.ts');
+const vatReportsLib = await import('../lib/vatReports.ts');
 
 import type {
   Actor, LoanFull, LoanProduct, LoanProductChargeDetail, LoanScheduleRow, Member, SavingsAccount, SessionUser,
@@ -1992,6 +2011,535 @@ await test('subsidiary ledgers still reconcile after the lifecycle test', async 
 });
 
 /* ------------------------------------------------------------------------ */
+section('Fixed Assets');
+
+await test('the 30/360 day count matches Business Central', () => {
+  assert.strictEqual(faDepr.depreciationDays('2024-01-01', '2024-02-01'), 30);
+  assert.strictEqual(faDepr.depreciationDays('2024-01-01', '2025-01-01'), 360);
+  assert.strictEqual(faDepr.depreciationDays('2024-01-31', '2024-02-29'), 29); // day clamped to 30 both ends → 29
+  assert.strictEqual(faDepr.depreciationDays('2024-03-01', '2024-01-01'), 0);
+});
+
+await test('straight-line depreciation charges an even fraction of the basis and stops at salvage', () => {
+  const base = {
+    depreciation_method: 'Straight-Line' as const,
+    depreciation_starting_date: '2024-01-01',
+    depreciation_ending_date: null,
+    no_of_depreciation_years: 5,
+    straight_line_pct: 0,
+    declining_balance_pct: 0,
+    salvage_value: 20_000_00,
+    last_depreciation_date: null,
+    acquisition_cost: 1_200_000_00,
+    accumulated_depreciation: 0,
+    write_down_amount: 0,
+    appreciation_amount: 0,
+    book_value: 1_200_000_00,
+    disposed: 0 as const,
+  };
+  // One full year: (1,200,000 − 20,000) / 5 = 236,000.
+  const oneYear = faDepr.computeDepreciation(base, '2025-01-01');
+  assert.strictEqual(oneYear.amount, -236_000_00);
+  assert.strictEqual(oneYear.newBookValue, 964_000_00);
+
+  // Near the end, with book value just above salvage, it takes only what is left.
+  const almostDone = faDepr.computeDepreciation(
+    { ...base, book_value: 25_000_00, accumulated_depreciation: -1_175_000_00 }, '2026-01-01', 100_00,
+  );
+  assert.strictEqual(almostDone.amount, -5_000_00);
+  assert.strictEqual(almostDone.newBookValue, 20_000_00);
+
+  // Once book value is at salvage, nothing more is due.
+  const done = faDepr.computeDepreciation({ ...base, book_value: 20_000_00 }, '2027-01-01');
+  assert.strictEqual(done.amount, 0);
+});
+
+await test('a Manual book is never auto-depreciated', () => {
+  const r = faDepr.computeDepreciation({
+    depreciation_method: 'Manual', depreciation_starting_date: '2024-01-01', depreciation_ending_date: null,
+    no_of_depreciation_years: 5, straight_line_pct: 0, declining_balance_pct: 0, salvage_value: 0,
+    last_depreciation_date: null, acquisition_cost: 1_000_000_00, accumulated_depreciation: 0,
+    write_down_amount: 0, appreciation_amount: 0, book_value: 1_000_000_00, disposed: 0,
+  }, '2025-01-01');
+  assert.strictEqual(r.amount, 0);
+});
+
+await test('the seeded assets have their acquisition posted and some depreciation run', async () => {
+  const assets = await faLib.listFixedAssets();
+  assert.ok(assets.length >= 3, 'expected the seed to create demo fixed assets');
+  for (const a of assets) {
+    assert.ok(a.acquisition_cost > 0, `${a.no} has no acquisition cost`);
+    assert.ok(a.book_value < a.acquisition_cost, `${a.no} has not been depreciated`);
+    assert.ok(a.book_value > 0, `${a.no} is already fully depreciated`);
+  }
+});
+
+await test('every FA ledger book value reconciles to its FA Depreciation Book roll-up', async () => {
+  const books = await all<{ fixed_asset_id: number; depreciation_book_code: string; book_value: number }>(
+    'SELECT fixed_asset_id, depreciation_book_code, book_value FROM fa_depreciation_book',
+  );
+  for (const b of books) {
+    const led = (await one<{ total: number }>(
+      `SELECT COALESCE(SUM(CASE WHEN part_of_book_value = 1 THEN amount ELSE 0 END), 0) AS total
+       FROM fa_ledger_entry WHERE fixed_asset_id = ? AND depreciation_book_code = ?`,
+      b.fixed_asset_id, b.depreciation_book_code,
+    ))!;
+    assert.strictEqual(led.total, b.book_value, `asset ${b.fixed_asset_id} book value diverged from its ledger`);
+  }
+});
+
+await test('the FA subledger ties to the property, plant & equipment control accounts', async () => {
+  const report = await (await import('../lib/fixedAssetReports.ts')).getFaBookValueReport({ bookCode: 'COMPANY' });
+  const cost = await accounting.accountBalance('1420') + await accounting.accountBalance('1430');
+  const accum = await accounting.accountBalance('1425') + await accounting.accountBalance('1435');
+  assert.strictEqual(report.totals.book_value, cost + accum);
+});
+
+await test('disposing an asset above its book value books a gain and zeroes the book value', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const asset = (await faLib.listFixedAssets()).find((a) => !a.disposed && a.book_value > 0)!;
+  const bookValueBefore = asset.book_value;
+  const gainBefore = await accounting.accountBalance('4060');
+
+  const lineNo = await (await import('../lib/db.ts')).run(
+    `INSERT INTO fa_journal_line (no, posting_date, fixed_asset_id, depreciation_book_code, fa_posting_type, amount,
+       balancing_gl_account_id, status, created_at, created_by)
+     VALUES (?, ?, ?, 'COMPANY', 'Disposal', ?, (SELECT id FROM gl_account WHERE code='1020'), 'Approved', ?, 'system')`,
+    `FAJ-DISPOSE-TEST`, '2026-08-31', asset.id, bookValueBefore + 50_000_00, new Date().toISOString(),
+  ).then(() => 'FAJ-DISPOSE-TEST');
+
+  const res = await faJournalLib.postFaJournalLine(lineNo, sys);
+  assert.strictEqual(res.bookValue, 0);
+  assert.ok(res.disposed);
+
+  const after = await faLib.getFixedAsset(asset.no);
+  assert.ok(after?.disposal_date, 'disposal date was not stamped');
+  // Gain on disposal = proceeds − book value = 50,000 (a credit to income account 4060).
+  assert.strictEqual(await accounting.accountBalance('4060') - gainBefore, 50_000_00);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Receivables');
+
+await test('BC date formulas resolve correctly', () => {
+  assert.strictEqual(dateFormula.applyDateFormula('2026-01-15', '30D'), '2026-02-14');
+  assert.strictEqual(dateFormula.applyDateFormula('2026-01-15', 'CM'), '2026-01-31');
+  assert.strictEqual(dateFormula.applyDateFormula('2026-01-15', 'CM+10D'), '2026-02-10');
+  assert.strictEqual(dateFormula.applyDateFormula('2026-01-15', ''), '2026-01-15');
+});
+
+await test('a seeded customer exists with a posted invoice and a balance', async () => {
+  const customers = await custLib.listCustomers();
+  assert.ok(customers.length >= 3, 'expected the seed to create demo customers');
+  const withBalance = customers.filter((c) => c.balance > 0);
+  assert.ok(withBalance.length >= 1, 'expected at least one customer with an open balance');
+  for (const c of withBalance) {
+    const led = (await one<{ total: number }>(
+      'SELECT COALESCE(SUM(remaining_amount),0) total FROM cust_ledger_entry WHERE customer_id = ? AND open = 1', c.id,
+    ))!;
+    assert.strictEqual(led.total, c.balance, `${c.no} balance diverged from its open ledger entries`);
+  }
+});
+
+await test('the receivables subledger ties to the 1250 control account', async () => {
+  const subledger = (await one<{ total: number }>('SELECT COALESCE(SUM(remaining_amount),0) total FROM cust_ledger_entry WHERE open = 1'))!;
+  assert.strictEqual(subledger.total, await accounting.accountBalance('1250'));
+});
+
+await test('posting a sales invoice creates an open Cust. Ledger Entry, moves the G/L and the customer balance', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const cust = (await custLib.listCustomers())[0];
+  const before = cust.balance;
+  const glBefore = await accounting.accountBalance('4094');
+  const arBefore = await accounting.accountBalance('1250');
+
+  const { no } = await salesLib.createSalesDocument(
+    { documentType: 'Invoice', customerId: cust.id, postingDate: '2026-08-01', documentDate: '2026-08-01', paymentTermsCode: '30 DAYS' }, sys,
+  );
+  await salesLib.setSalesLines(no, [{ type: 'G/L Account', no: '4094', description: 'Test service', quantity: 1, unitPrice: 50_000_00 }], sys);
+  await run("UPDATE sales_header SET status = 'Released', due_date = '2026-08-31', sell_to_name = ? WHERE no = ?", cust.name, no);
+  const res = await salesLib.postSalesDocument(no, { invoice: true }, sys);
+  assert.ok(res.custLedgerEntryId, 'no Cust. Ledger Entry created');
+
+  const cle = (await one<{ amount: number; remaining_amount: number; open: number; due_date: string }>(
+    'SELECT amount, remaining_amount, open, due_date FROM cust_ledger_entry WHERE id = ?', res.custLedgerEntryId,
+  ))!;
+  assert.strictEqual(cle.amount, 50_000_00);
+  assert.strictEqual(cle.remaining_amount, 50_000_00);
+  assert.strictEqual(cle.open, 1);
+  assert.strictEqual(cle.due_date, '2026-08-31');
+  assert.strictEqual(await accounting.accountBalance('4094'), glBefore + 50_000_00);
+  assert.strictEqual(await accounting.accountBalance('1250'), arBefore + 50_000_00);
+  assert.strictEqual((await custLib.getCustomerById(cust.id))!.balance, before + 50_000_00);
+});
+
+await test('a cash receipt applies to an open invoice, closing it and moving bank + AR', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const inv = (await all<{ id: number; customer_id: number; document_no: string; remaining_amount: number }>(
+    "SELECT id, customer_id, document_no, remaining_amount FROM cust_ledger_entry WHERE document_type = 'Invoice' AND open = 1 ORDER BY id DESC LIMIT 1",
+  ))[0];
+  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
+  const arBefore = await accounting.accountBalance('1250');
+
+  const { no } = await cashReceiptLib.createCashReceipt({
+    postingDate: '2026-08-05', documentDate: '2026-08-05', bankAccountId: bankId, description: 'Test receipt',
+    lines: [{ customerId: inv.customer_id, amount: inv.remaining_amount, appliesToDocNo: inv.document_no }],
+  }, sys);
+  await run("UPDATE cash_receipt_header SET status = 'Approved' WHERE no = ?", no);
+  const res = await cashReceiptLib.postCashReceipt(no, sys);
+  assert.ok(res.journalNo, 'no journal posted');
+
+  const after = (await one<{ open: number; remaining_amount: number; closed_by_entry_no: number | null }>(
+    'SELECT open, remaining_amount, closed_by_entry_no FROM cust_ledger_entry WHERE id = ?', inv.id,
+  ))!;
+  assert.strictEqual(after.open, 0, 'invoice not closed by a full payment');
+  assert.strictEqual(after.remaining_amount, 0);
+  assert.ok(after.closed_by_entry_no, 'closed_by_entry_no not stamped');
+  assert.strictEqual(await accounting.accountBalance('1250'), arBefore - inv.remaining_amount);
+  const bale = (await one<{ n: number }>("SELECT COUNT(*) n FROM bank_account_ledger_entry WHERE description LIKE ?", `Cash Receipt ${no}%`))!;
+  assert.ok(Number(bale.n) >= 1, 'no bank_account_ledger_entry for the receipt');
+});
+
+await test('createReminders picks up an overdue entry and computes interest + fee', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  // The seeded tenant (14 DAYS terms) has an invoice from two months ago — overdue.
+  const tenant = (await all<{ id: number; no: string }>("SELECT id, no FROM customer WHERE customer_posting_group_code = 'TENANT' LIMIT 1"))[0];
+  const overdue = (await one<{ n: number }>(
+    "SELECT COUNT(*) n FROM cust_ledger_entry WHERE customer_id = ? AND open = 1 AND due_date < ?", tenant.id, new Date().toISOString().slice(0, 10),
+  ))!;
+  assert.ok(Number(overdue.n) >= 1, 'expected the seeded tenant to have an overdue invoice');
+
+  const res = await reminderLib.createReminders({ customerId: tenant.id, documentDate: new Date().toISOString().slice(0, 10) }, sys);
+  const rem = (await one<{ no: string; interest_amount: number; additional_fee: number; reminder_level: number }>(
+    "SELECT no, interest_amount, additional_fee, reminder_level FROM reminder_header WHERE customer_id = ? AND status = 'Open' ORDER BY id DESC LIMIT 1", tenant.id,
+  ));
+  assert.ok(res.created >= 1 || rem, 'no reminder created for the overdue tenant');
+
+  if (rem) {
+    const glBefore = await accounting.accountBalance('4099');
+    const arBefore = await accounting.accountBalance('1250');
+    const issue = await reminderLib.issueReminder(rem.no, sys);
+    if (rem.additional_fee > 0 || rem.interest_amount > 0) {
+      assert.ok(issue.journalNo, 'issuing a reminder with a charge posted no journal');
+      const feeMoved = (await accounting.accountBalance('4099')) - glBefore;
+      const interestMoved = (await accounting.accountBalance('4098'));
+      assert.ok(feeMoved >= 0 && interestMoved >= 0);
+      assert.ok((await accounting.accountBalance('1250')) >= arBefore, 'AR did not rise with the reminder charge');
+    }
+  }
+});
+
+await test('the Aged AR report buckets an overdue entry and its total ties to 1250', async () => {
+  const asOf = new Date().toISOString().slice(0, 10);
+  const report = await arReports.getAgedAccountsReceivable({ asOf });
+  const grand = report.totals.balance;
+  assert.strictEqual(grand, report.totals.not_due + report.totals.bucket_1 + report.totals.bucket_2 + report.totals.bucket_3 + report.totals.bucket_over);
+  assert.strictEqual(grand, await accounting.accountBalance('1250'), 'Aged AR grand total does not equal the 1250 control account');
+});
+
+await test('a sales credit memo reverses signs against the ledger', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const cust = (await custLib.listCustomers())[0];
+  const arBefore = await accounting.accountBalance('1250');
+  const { no } = await salesLib.createSalesDocument(
+    { documentType: 'Credit Memo', customerId: cust.id, postingDate: '2026-08-10', documentDate: '2026-08-10' }, sys,
+  );
+  await salesLib.setSalesLines(no, [{ type: 'G/L Account', no: '4094', description: 'Credit', quantity: 1, unitPrice: 10_000_00 }], sys);
+  await run("UPDATE sales_header SET status = 'Released', sell_to_name = ? WHERE no = ?", cust.name, no);
+  const res = await salesLib.postSalesDocument(no, { invoice: true }, sys);
+  const cle = (await one<{ amount: number; positive: number }>('SELECT amount, positive FROM cust_ledger_entry WHERE id = ?', res.custLedgerEntryId))!;
+  assert.strictEqual(cle.amount, -10_000_00);
+  assert.strictEqual(cle.positive, 0);
+  assert.strictEqual(await accounting.accountBalance('1250'), arBefore - 10_000_00);
+});
+
+section('Payables');
+
+await test('a seeded vendor exists with a posted invoice and a balance', async () => {
+  const vendors = await vendorLib.listVendors();
+  assert.ok(vendors.length >= 3, 'expected the seed to create demo vendors');
+  const withBalance = vendors.filter((v) => v.balance > 0);
+  assert.ok(withBalance.length >= 1, 'expected at least one vendor with an open balance');
+  for (const v of withBalance) {
+    const led = (await one<{ total: number }>(
+      'SELECT COALESCE(SUM(remaining_amount),0) total FROM vendor_ledger_entry WHERE vendor_id = ? AND open = 1', v.id,
+    ))!;
+    assert.strictEqual(led.total, v.balance, `${v.no} balance diverged from its open ledger entries`);
+  }
+});
+
+await test('the payables subledger ties to the 2150 control account', async () => {
+  const subledger = (await one<{ total: number }>('SELECT COALESCE(SUM(remaining_amount),0) total FROM vendor_ledger_entry WHERE open = 1'))!;
+  assert.strictEqual(subledger.total, await accounting.accountBalance('2150'));
+});
+
+await test('posting a purchase invoice (G/L line) creates an open Vendor Ledger Entry and moves the G/L', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const vend = (await vendorLib.listVendors())[0];
+  const before = vend.balance;
+  const glBefore = await accounting.accountBalance('5030');
+  const apBefore = await accounting.accountBalance('2150');
+
+  const { no } = await purchaseLib.createPurchaseDocument(
+    { documentType: 'Invoice', vendorId: vend.id, postingDate: '2026-08-01', documentDate: '2026-08-01', paymentTermsCode: '30 DAYS', vendorInvoiceNo: 'TEST-INV-1' }, sys,
+  );
+  await purchaseLib.setPurchaseLines(no, [{ type: 'G/L Account', no: '5030', description: 'Test supplies', quantity: 1, directUnitCost: 40_000_00 }], sys);
+  await run("UPDATE purchase_header SET status = 'Released', due_date = '2026-08-31', buy_from_name = ? WHERE no = ?", vend.name, no);
+  const res = await purchaseLib.postPurchaseDocument(no, { invoice: true }, sys);
+  assert.ok(res.vendorLedgerEntryId, 'no Vendor Ledger Entry created');
+
+  const vle = (await one<{ amount: number; remaining_amount: number; open: number; due_date: string; positive: number }>(
+    'SELECT amount, remaining_amount, open, due_date, positive FROM vendor_ledger_entry WHERE id = ?', res.vendorLedgerEntryId,
+  ))!;
+  assert.strictEqual(vle.amount, 40_000_00);
+  assert.strictEqual(vle.remaining_amount, 40_000_00);
+  assert.strictEqual(vle.open, 1);
+  assert.strictEqual(vle.positive, 1);
+  assert.strictEqual(vle.due_date, '2026-08-31');
+  assert.strictEqual(await accounting.accountBalance('5030'), glBefore + 40_000_00);
+  assert.strictEqual(await accounting.accountBalance('2150'), apBefore + 40_000_00);
+  assert.strictEqual((await vendorLib.getVendorById(vend.id))!.balance, before + 40_000_00);
+});
+
+await test('a purchase invoice with a Fixed Asset line posts an FA acquisition', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const vend = (await vendorLib.listVendors())[0];
+  const { no: assetNo } = await faLib.createFixedAsset(
+    { description: 'Payables test asset', faClassCode: 'EQUIPMENT', faSubclassCode: 'OFFICE-EQUIP', faLocationCode: 'HQ', blocked: false, inactive: false }, sys,
+  );
+  const asset = (await one<{ id: number }>('SELECT id FROM fixed_asset WHERE no = ?', assetNo))!;
+  await faLib.setFaDepreciationBook(asset.id, {
+    depreciationBookCode: 'COMPANY', faPostingGroupCode: 'EQUIPMENT', depreciationMethod: 'Straight-Line',
+    depreciationStartingDate: '2026-08-01', depreciationEndingDate: null, noOfDepreciationYears: 4,
+    straightLinePct: 0, decliningBalancePct: 0, salvageValue: 0, disposalCalculationMethod: 'Net',
+  }, sys);
+
+  const { no } = await purchaseLib.createPurchaseDocument(
+    { documentType: 'Invoice', vendorId: vend.id, postingDate: '2026-08-02', documentDate: '2026-08-02', vendorInvoiceNo: 'TEST-FA-1' }, sys,
+  );
+  await purchaseLib.setPurchaseLines(no, [{ type: 'Fixed Asset', no: assetNo, description: 'New asset', quantity: 1, directUnitCost: 250_000_00, faDepreciationBookCode: 'COMPANY' }], sys);
+  await run("UPDATE purchase_header SET status = 'Released', buy_from_name = ? WHERE no = ?", vend.name, no);
+  await purchaseLib.postPurchaseDocument(no, { invoice: true }, sys);
+
+  const book = (await one<{ acquisition_cost: number; book_value: number }>(
+    "SELECT acquisition_cost, book_value FROM fa_depreciation_book WHERE fixed_asset_id = ? AND depreciation_book_code = 'COMPANY'", asset.id,
+  ))!;
+  assert.strictEqual(book.acquisition_cost, 250_000_00);
+  assert.strictEqual(book.book_value, 250_000_00);
+  const stamped = (await one<{ acquisition_date: string | null }>('SELECT acquisition_date FROM fixed_asset WHERE id = ?', asset.id))!;
+  assert.ok(stamped.acquisition_date, 'acquisition_date not stamped');
+});
+
+await test('a payment journal pays a vendor invoice, closing it and moving bank + AP', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const inv = (await all<{ id: number; vendor_id: number; document_no: string; remaining_amount: number }>(
+    "SELECT id, vendor_id, document_no, remaining_amount FROM vendor_ledger_entry WHERE document_type = 'Invoice' AND open = 1 ORDER BY id DESC LIMIT 1",
+  ))[0];
+  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
+  const apBefore = await accounting.accountBalance('2150');
+
+  const { no } = await paymentJournalLib.createPaymentJournal({
+    postingDate: '2026-08-06', documentDate: '2026-08-06', bankAccountId: bankId, description: 'Test payment',
+    lines: [{ vendorId: inv.vendor_id, amount: inv.remaining_amount, appliesToDocNo: inv.document_no }],
+  }, sys);
+  await run("UPDATE payment_journal_header SET status = 'Approved' WHERE no = ?", no);
+  const res = await paymentJournalLib.postPaymentJournal(no, sys);
+  assert.ok(res.journalNo, 'no journal posted');
+
+  const after = (await one<{ open: number; remaining_amount: number; closed_by_entry_no: number | null }>(
+    'SELECT open, remaining_amount, closed_by_entry_no FROM vendor_ledger_entry WHERE id = ?', inv.id,
+  ))!;
+  assert.strictEqual(after.open, 0, 'invoice not closed by a full payment');
+  assert.strictEqual(after.remaining_amount, 0);
+  assert.ok(after.closed_by_entry_no, 'closed_by_entry_no not stamped');
+  assert.strictEqual(await accounting.accountBalance('2150'), apBefore - inv.remaining_amount);
+  const bale = (await one<{ n: number }>("SELECT COUNT(*) n FROM bank_account_ledger_entry WHERE description LIKE ?", `Payment Journal ${no}%`))!;
+  assert.ok(Number(bale.n) >= 1, 'no bank_account_ledger_entry for the payment');
+});
+
+await test('suggestVendorPayments drafts a payment journal from overdue vendor invoices', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
+  const openBefore = (await one<{ n: number }>("SELECT COUNT(*) n FROM vendor_ledger_entry WHERE open = 1 AND positive = 1 AND due_date <= ?", '2026-12-31'))!;
+  if (Number(openBefore.n) >= 1) {
+    const res = await paymentJournalLib.suggestVendorPayments(
+      { lastPaymentDate: '2026-12-31', findPaymentDiscounts: true, bankAccountId: bankId }, sys,
+    );
+    assert.ok(res.lineCount >= 1, 'expected at least one suggested payment line');
+    const hdr = (await one<{ total_amount: number; status: string }>('SELECT total_amount, status FROM payment_journal_header WHERE no = ?', res.no))!;
+    assert.strictEqual(hdr.status, 'Open');
+    assert.ok(hdr.total_amount > 0);
+  }
+});
+
+await test('the Aged AP report buckets an overdue entry and its total ties to 2150', async () => {
+  const asOf = new Date().toISOString().slice(0, 10);
+  const report = await apReports.getAgedAccountsPayable({ asOf });
+  const grand = report.totals.balance;
+  assert.strictEqual(grand, report.totals.not_due + report.totals.bucket_1 + report.totals.bucket_2 + report.totals.bucket_3 + report.totals.bucket_over);
+  assert.strictEqual(grand, await accounting.accountBalance('2150'), 'Aged AP grand total does not equal the 2150 control account');
+});
+
+await test('a purchase credit memo reverses signs against the ledger', async () => {
+  const sys: Actor = { id: 1, username: 'system' };
+  const vend = (await vendorLib.listVendors())[0];
+  const apBefore = await accounting.accountBalance('2150');
+  const { no } = await purchaseLib.createPurchaseDocument(
+    { documentType: 'Credit Memo', vendorId: vend.id, postingDate: '2026-08-10', documentDate: '2026-08-10', vendorInvoiceNo: 'TEST-CM-1' }, sys,
+  );
+  await purchaseLib.setPurchaseLines(no, [{ type: 'G/L Account', no: '5030', description: 'Credit', quantity: 1, directUnitCost: 8_000_00 }], sys);
+  await run("UPDATE purchase_header SET status = 'Released', buy_from_name = ? WHERE no = ?", vend.name, no);
+  const res = await purchaseLib.postPurchaseDocument(no, { invoice: true }, sys);
+  const vle = (await one<{ amount: number; positive: number }>('SELECT amount, positive FROM vendor_ledger_entry WHERE id = ?', res.vendorLedgerEntryId))!;
+  assert.strictEqual(vle.amount, -8_000_00);
+  assert.strictEqual(vle.positive, 0);
+  assert.strictEqual(await accounting.accountBalance('2150'), apBefore - 8_000_00);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Cash Management, VAT & Withholding Tax');
+
+const cmSys: Actor = { id: 1, username: 'system' };
+await run('UPDATE cash_management_setup SET receipt_approval_limit = 999999999999, pv_approval_limit = 999999999999 WHERE id = 1');
+
+await test('the seed created the VAT Posting Setup (BC style, reused for WHT)', async () => {
+  const vat16 = (await one<{ vat_pct: number; tax_type: string; code: string }>(
+    "SELECT s.vat_pct, s.tax_type, a.code FROM vat_posting_setup s JOIN gl_account a ON a.id = s.tax_account_id WHERE s.vat_bus_posting_group_code = 'STANDARD' AND s.vat_prod_posting_group_code = 'VAT16'",
+  ))!;
+  assert.strictEqual(vat16.vat_pct, 16);
+  assert.strictEqual(vat16.tax_type, 'VAT');
+  assert.strictEqual(vat16.code, '1260');
+  const wht = (await one<{ vat_pct: number; tax_type: string; code: string }>(
+    "SELECT s.vat_pct, s.tax_type, a.code FROM vat_posting_setup s JOIN gl_account a ON a.id = s.tax_account_id WHERE s.vat_prod_posting_group_code = 'WHT-PROF'",
+  ))!;
+  assert.strictEqual(wht.vat_pct, 5);
+  assert.strictEqual(wht.tax_type, 'WHT');
+  assert.strictEqual(wht.code, '2190');
+});
+
+let vatInvoiceNo = '';
+await test('a purchase invoice with a VAT16 line extracts input VAT to 1260; a no-VAT line is unchanged', async () => {
+  const vend = (await vendorLib.listVendors())[0];
+  const b1260 = await accounting.accountBalance('1260');
+  const b2150 = await accounting.accountBalance('2150');
+  const b5030 = await accounting.accountBalance('5030');
+  const { no } = await purchaseLib.createPurchaseDocument(
+    { documentType: 'Invoice', vendorId: vend.id, postingDate: '2026-08-05', documentDate: '2026-08-05', paymentTermsCode: '30 DAYS', vendorInvoiceNo: 'VAT-INV-1' }, cmSys,
+  );
+  vatInvoiceNo = no;
+  await purchaseLib.setPurchaseLines(no, [
+    { type: 'G/L Account', no: '5030', description: 'Consultancy', quantity: 1, directUnitCost: 100_000_00, vatProdPostingGroupCode: 'VAT16' },
+    { type: 'G/L Account', no: '5030', description: 'Reimbursables (no VAT)', quantity: 1, directUnitCost: 10_000_00 },
+  ], cmSys);
+  await run("UPDATE purchase_header SET status = 'Released', due_date = '2026-09-04', buy_from_name = ? WHERE no = ?", vend.name, no);
+  const res = await purchaseLib.postPurchaseDocument(no, { invoice: true }, cmSys);
+
+  assert.strictEqual(await accounting.accountBalance('5030'), b5030 + 110_000_00, 'expense ex-VAT (both lines)');
+  assert.strictEqual(await accounting.accountBalance('1260'), b1260 + 16_000_00, 'input VAT = 16% of the VAT line');
+  assert.strictEqual(await accounting.accountBalance('2150'), b2150 + 126_000_00, 'payables = ex-VAT + VAT');
+  const vle = (await one<{ amount: number }>('SELECT amount FROM vendor_ledger_entry WHERE id = ?', res.vendorLedgerEntryId))!;
+  assert.strictEqual(vle.amount, 126_000_00, 'the vendor is owed the VAT-inclusive total');
+  const ve = (await one<{ base: number; amount: number }>("SELECT base, amount FROM vat_entry WHERE document_no = ? AND tax_type = 'VAT'", no))!;
+  assert.strictEqual(ve.base, 100_000_00);
+  assert.strictEqual(ve.amount, 16_000_00);
+});
+
+await test('a Receipt (G/L line) posts Dr bank / Cr income and writes a Bank Ledger Entry + posted_receipt', async () => {
+  const bank = (await one<{ gl_account_id: number; balance: number; balance_lcy: number }>("SELECT gl_account_id, balance, balance_lcy FROM bank_account WHERE code = 'BANK'"))!;
+  const bankBal = await accounting.accountBalance('1020');
+  const incomeBal = await accounting.accountBalance('4050');
+  const { no } = await receiptsLib.createReceipt({
+    receiptType: 'G/L Account', bankAccountId: (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id,
+    postingDate: '2026-08-10', description: 'Sundry income received', payModeCode: null,
+    lines: [{ lineType: 'G/L Account', accountNo: '4050', description: 'Photocopy income', amount: 5_000_00 }],
+  }, cmSys);
+  const res = await receiptsLib.postReceipt(no, cmSys);
+  assert.ok(res.journalNo, 'a journal was posted');
+  assert.strictEqual(await accounting.accountBalance('1020'), bankBal + 5_000_00);
+  assert.strictEqual(await accounting.accountBalance('4050'), incomeBal + 5_000_00);
+  const bale = (await one<{ document_type: string; amount: number; amount_lcy: number }>(
+    "SELECT document_type, amount, amount_lcy FROM bank_account_ledger_entry WHERE document_no = ? ORDER BY id DESC LIMIT 1", no,
+  ))!;
+  assert.strictEqual(bale.document_type, 'Receipt');
+  assert.strictEqual(bale.amount, 5_000_00);
+  assert.strictEqual(bale.amount_lcy, 5_000_00);
+  const pr = (await one<{ amount: number }>('SELECT amount FROM posted_receipt WHERE receipt_no = ?', no))!;
+  assert.strictEqual(pr.amount, 5_000_00);
+  assert.strictEqual((await one<{ balance: number }>("SELECT balance FROM bank_account WHERE code = 'BANK'"))!.balance, bank.balance + 5_000_00);
+});
+
+await test('a Payment Voucher paying the VAT invoice with WHT-PROF closes it, books WHT payable and issues a certificate', async () => {
+  const vend = (await vendorLib.listVendors())[0];
+  await run("UPDATE vendor SET pin_no = 'A001122334Z' WHERE id = ?", vend.id);
+  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
+  const b2150 = await accounting.accountBalance('2150');
+  const b2190 = await accounting.accountBalance('2190');
+  const b1020 = await accounting.accountBalance('1020');
+
+  const { no } = await pvLib.createPaymentVoucher({
+    payingBankAccountId: bankId, date: '2026-08-12', payModeCode: 'EFT', description: `Pay ${vatInvoiceNo}`, payeeName: vend.name,
+    lines: [{ lineType: 'Vendor', accountNo: vend.no, amount: 126_000_00, appliesToDocNo: vatInvoiceNo, whtCodeOne: 'WHT-PROF' }],
+  }, cmSys);
+  // WHT base = ex-VAT 100,000 → 5% = 5,000. Net paid = 126,000 − 5,000 = 121,000.
+  const line = (await one<{ wht_amount_one: number; net_amount: number }>(
+    'SELECT wht_amount_one, net_amount FROM payment_voucher_line WHERE payment_voucher_header_id = (SELECT id FROM payment_voucher_header WHERE no = ?)', no,
+  ))!;
+  assert.strictEqual(line.wht_amount_one, 5_000_00, 'WHT on the VAT-exclusive base');
+  assert.strictEqual(line.net_amount, 121_000_00);
+
+  const res = await pvLib.postPaymentVoucher(no, cmSys);
+  assert.strictEqual(await accounting.accountBalance('2150'), b2150 - 126_000_00, 'the invoice is cleared in full');
+  assert.strictEqual(await accounting.accountBalance('2190'), b2190 + 5_000_00, 'WHT payable rises');
+  assert.strictEqual(await accounting.accountBalance('1020'), b1020 - 121_000_00, 'bank falls by the net paid');
+  const vle = (await one<{ open: number }>("SELECT open FROM vendor_ledger_entry WHERE document_no = ? AND document_type = 'Invoice'", vatInvoiceNo))!;
+  assert.strictEqual(vle.open, 0, 'the purchase invoice is closed');
+  assert.strictEqual(res.whtCertificateNos.length, 1, 'one WHT certificate');
+  const cert = (await whtLib.getWhtCertificate(res.whtCertificateNos[0]))!;
+  assert.strictEqual(cert.total_wht, 5_000_00);
+  assert.strictEqual(cert.lines[0].base, 100_000_00);
+});
+
+await test('a direct-expense Payment Voucher extracts VAT and withholds both income WHT and withholding VAT', async () => {
+  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
+  const b1260 = await accounting.accountBalance('1260');
+  const b2190 = await accounting.accountBalance('2190');
+  const b2195 = await accounting.accountBalance('2195');
+  const b1020 = await accounting.accountBalance('1020');
+  const b5030 = await accounting.accountBalance('5030');
+
+  const { no } = await pvLib.createPaymentVoucher({
+    payingBankAccountId: bankId, date: '2026-08-14', payModeCode: 'EFT', description: 'Direct consultancy', payeeName: 'Ad-hoc Consultant',
+    lines: [{ lineType: 'G/L Account', accountNo: '5030', amount: 116_000_00, vatProdPostingGroupCode: 'VAT16', whtCodeOne: 'WHT-PROF', whtCodeTwo: 'WHT-VAT' }],
+  }, cmSys);
+  await pvLib.postPaymentVoucher(no, cmSys);
+  assert.strictEqual(await accounting.accountBalance('5030'), b5030 + 100_000_00, 'expense net of VAT');
+  assert.strictEqual(await accounting.accountBalance('1260'), b1260 + 16_000_00, 'input VAT extracted');
+  assert.strictEqual(await accounting.accountBalance('2190'), b2190 + 5_000_00, 'income WHT 5%');
+  assert.strictEqual(await accounting.accountBalance('2195'), b2195 + 2_000_00, 'withholding VAT 2%');
+  assert.strictEqual(await accounting.accountBalance('1020'), b1020 - 109_000_00, 'bank = gross − both WHTs');
+});
+
+await test('the VAT Input Listing total ties to the vat_entry ledger', async () => {
+  const rows = await vatReportsLib.vatInputListing({ from: '2026-01-01', to: '2026-12-31' });
+  const listed = rows.reduce((s, r) => s + Number(r.amount), 0);
+  const ledger = Number((await one<{ t: number }>("SELECT COALESCE(SUM(amount),0) t FROM vat_entry WHERE tax_type = 'VAT'"))!.t);
+  assert.strictEqual(listed, ledger);
+});
+
+await test('every Cash Management journal is internally balanced in LCY', async () => {
+  const rows = await all<{ id: number; d: number; c: number }>(
+    "SELECT j.id, SUM(jl.debit_lcy) d, SUM(jl.credit_lcy) c FROM journal j JOIN journal_line jl ON jl.journal_id = j.id WHERE j.source_module = 'CASH_MGMT' GROUP BY j.id",
+  );
+  assert.ok(rows.length > 0, 'some Cash Management journals were posted');
+  for (const r of rows) assert.strictEqual(Number(r.d), Number(r.c), `journal ${r.id} did not balance`);
+});
+
+await test('the payables subledger still ties to 2150 after the VAT invoice + payment voucher', async () => {
+  const subledger = Number((await one<{ total: number }>('SELECT COALESCE(SUM(remaining_amount_lcy),0) total FROM vendor_ledger_entry WHERE open = 1'))!.total);
+  assert.strictEqual(subledger, await accounting.accountBalance('2150'));
+});
+
+/* ------------------------------------------------------------------------ */
 section('Security');
 
 await test('passwords are salted and never stored in the clear', async () => {
@@ -2017,6 +2565,328 @@ await test('role permissions gate access correctly', async () => {
   assert.ok(!permissions.canAction(teller, 'ADMIN_USER_MANAGE'));
   const sysadmin = { is_system: 1, permissionSet: { tables: {}, pages: {} } } as SessionUser;
   assert.ok(permissions.canAction(sysadmin, 'ADMIN_USER_MANAGE'));
+});
+
+/* ------------------------------------------------------------------------ */
+section('Financial Reports (Account Schedules)');
+
+const expr = await import('../lib/expr.ts');
+const finReports = await import('../lib/financialReports.ts');
+const reportsLib = await import('../lib/reports.ts');
+
+await test('the formula evaluator honours precedence, parens and divide-by-zero', () => {
+  assert.strictEqual(expr.evalFormula('2+3*4', {}), 14);
+  assert.strictEqual(expr.evalFormula('(2+3)*4', {}), 20);
+  assert.strictEqual(expr.evalFormula('-A+B', { A: 10, B: 3 }), -7);
+  assert.strictEqual(expr.evalFormula('A/B*100', { A: 5, B: 0 }), 0);
+  assert.strictEqual(expr.evalFormula('UNKNOWN+1', {}), 1);
+  assert.ok(!expr.isValidFormula('A +* B'));
+});
+
+await test('a seeded Financial Report runs and its formula rows reconcile', async () => {
+  const res = await finReports.runFinancialReport({ reportName: 'SASRA-CAPITAL-ADEQUACY', to: today });
+  const byRow = Object.fromEntries(res.rows.map((r) => [r.rowNo, r.cells[0]?.value ?? 0]));
+  assert.ok(res.rows.length >= 7, 'every capital-adequacy line is present');
+  assert.ok(byRow.TA > 0, 'total assets is non-zero on the seeded ledger');
+  const expectedR1 = byRow.TA === 0 ? 0 : (byRow.CORE / byRow.TA) * 100;
+  assert.ok(Math.abs(byRow.R1 - expectedR1) < 1e-6, 'R1 equals CORE / TA * 100');
+});
+
+await test('the seeded Statement of Financial Position balances', async () => {
+  const res = await finReports.runFinancialReport({ reportName: 'STMT-FIN-POSITION', to: today });
+  const chk = res.rows.find((r) => r.rowNo === 'CHK')!;
+  assert.ok(Math.abs(chk.cells[0]?.value ?? 0) < 100, 'assets equal equity + liabilities (within a shilling)');
+
+  const bs = await reportsLib.getBalanceSheet({ asOf: today });
+  const ta = res.rows.find((r) => r.rowNo === 'TA')!.cells[0]?.value ?? 0;
+  assert.ok(Math.abs(ta - bs.totals.assets) < 100, 'total assets agrees with getBalanceSheet()');
+});
+
+await test('a comparison-date column measures the prior fiscal year, and formulas fold in', async () => {
+  await finReports.saveColumnLayoutName({ name: 'TEST-CL', description: 'test' }, admin);
+  await finReports.saveColumnLayoutLine({ layoutName: 'TEST-CL', columnNo: 'TY', columnHeader: 'This Year', columnType: 'NET_CHANGE' }, admin);
+  await finReports.saveColumnLayoutLine({ layoutName: 'TEST-CL', columnNo: 'LY', columnHeader: 'Last Year', columnType: 'NET_CHANGE', comparisonDateFormula: '-1Y' }, admin);
+  await finReports.saveColumnLayoutLine({ layoutName: 'TEST-CL', columnNo: 'VAR', columnHeader: 'Change', columnType: 'FORMULA', formula: 'TY-LY' }, admin);
+
+  await finReports.saveAccScheduleName({ name: 'TEST-FR', description: 'test', defaultColumnLayoutName: 'TEST-CL' }, admin);
+  await finReports.saveAccScheduleLine({ scheduleName: 'TEST-FR', rowNo: 'INC', description: 'Income', totalingType: 'POSTING_ACCOUNTS', totaling: '4010' }, admin);
+  await finReports.saveAccScheduleLine({ scheduleName: 'TEST-FR', rowNo: 'DBL', description: 'Doubled', totalingType: 'FORMULA', totaling: 'INC+INC' }, admin);
+
+  const col = (rows: Awaited<ReturnType<typeof finReports.runFinancialReport>>, rowNo: string, colNo: string): number => {
+    const r = rows.rows.find((x) => x.rowNo === rowNo)!;
+    return r.cells[rows.columns.findIndex((c) => c.columnNo === colNo)]?.value ?? 0;
+  };
+  const opts = { rowGroup: 'TEST-FR' as const, from: '2026-01-01', to: '2026-12-31' };
+  const beforeTY = col(await finReports.runFinancialReport(opts), 'INC', 'TY');
+  const beforeLY = col(await finReports.runFinancialReport(opts), 'INC', 'LY');
+
+  await accounting.postJournal({
+    valueDate: '2026-06-30', module: 'TEST', eventType: 'TEST_FR', description: 'current year income',
+    lines: [{ account: '4010', debit: 0, credit: 100_00 }, { account: '1210', debit: 100_00, credit: 0 }], user: admin,
+  });
+  await accounting.postJournal({
+    valueDate: '2025-06-30', module: 'TEST', eventType: 'TEST_FR', description: 'prior year income',
+    lines: [{ account: '4010', debit: 0, credit: 40_00 }, { account: '1210', debit: 40_00, credit: 0 }], user: admin,
+  });
+
+  const res = await finReports.runFinancialReport(opts);
+  assert.strictEqual(col(res, 'INC', 'TY') - beforeTY, 100_00, 'the this-year column picks up the 2026 posting');
+  assert.strictEqual(col(res, 'INC', 'LY') - beforeLY, 40_00, 'the -1Y comparison column picks up the 2025 posting');
+  assert.strictEqual(col(res, 'INC', 'VAR'), col(res, 'INC', 'TY') - col(res, 'INC', 'LY'), 'the formula column is TY - LY');
+  assert.strictEqual(col(res, 'DBL', 'TY'), col(res, 'INC', 'TY') * 2, 'a formula row evaluates over the other rows in its column');
+});
+
+await test('a dimension totaling that matches nothing yields zero', async () => {
+  await finReports.saveAccScheduleLine({
+    scheduleName: 'TEST-FR', rowNo: 'INCD', description: 'Income (unknown dimension)',
+    totalingType: 'POSTING_ACCOUNTS', totaling: '4010', dimension1Totaling: 'ZZZ-NO-SUCH-CODE',
+  }, admin);
+  const res = await finReports.runFinancialReport({ rowGroup: 'TEST-FR', from: '2026-01-01', to: '2026-12-31' });
+  const incd = res.rows.find((r) => r.rowNo === 'INCD')!;
+  assert.strictEqual(incd.cells[0]?.value ?? 0, 0);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Role Centres & Profiles');
+
+const profilesLib = await import('../lib/profiles.ts');
+const roleCentersLib = await import('../lib/roleCenters.ts');
+
+await test('the six Role Centre profiles and permission sets are seeded', async () => {
+  const codes = (await all<{ code: string }>('SELECT code FROM profile ORDER BY sort')).map((r) => r.code);
+  assert.deepStrictEqual(codes, ['SUPER', 'CRM', 'CREDIT', 'FOSA', 'FINANCE_MANAGER', 'ACCOUNTANT']);
+  for (const name of ['Super Role Centre', 'CRM Officer', 'Credit Officer', 'FOSA Officer', 'Finance Manager', 'Accountant']) {
+    const row = await one<{ id: number; lines: number }>(
+      `SELECT r.id, COUNT(l.id) lines FROM role r LEFT JOIN permission_set_line l ON l.role_id = r.id
+       WHERE r.name = ? GROUP BY r.id`, name,
+    );
+    assert.ok(row && Number(row.lines) > 5, `${name} exists with permission lines`);
+  }
+});
+
+await test('a Profile is a landing page only — it grants no permissions', async () => {
+  const teller = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='teller'"))!;
+  const before = await auth.loadPermissionSet(
+    (await one<{ role_id: number }>('SELECT role_id FROM app_user WHERE id = ?', teller.id))!.role_id,
+  );
+  const credit = (await one<{ id: number }>("SELECT id FROM profile WHERE code='CREDIT'"))!;
+  await profilesLib.setUserProfiles(teller.id, [credit.id], admin);
+  await profilesLib.setActiveProfile(teller.id, credit.id, admin);
+
+  const tok = `rc-${Date.now()}`;
+  await run('INSERT INTO session (token, user_id, created_at, expires_at) VALUES (?,?,?,?)',
+    tok, teller.id, new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString());
+  const su = (await auth.userFromToken(tok))!;
+  await run('DELETE FROM session WHERE token = ?', tok);
+
+  assert.strictEqual(su.activeProfile.code, 'CREDIT', 'the Credit Role Centre is now active');
+  assert.deepStrictEqual(su.permissionSet.pages, before.pages, 'pages are unchanged by the profile');
+  assert.deepStrictEqual(su.permissionSet.tables, before.tables, 'table rights are unchanged by the profile');
+  // The Teller permission set does not carry GL_READ regardless of the Credit profile.
+  assert.ok(!permissions.canAction(su as SessionUser, 'GL_JOURNAL_APPROVE'));
+});
+
+await test('assigning profiles keeps the active one valid; an unassigned choice is rejected', async () => {
+  const u = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='loans'"))!;
+  const [crm, fosa] = await Promise.all([
+    one<{ id: number }>("SELECT id FROM profile WHERE code='CRM'"),
+    one<{ id: number }>("SELECT id FROM profile WHERE code='FOSA'"),
+  ]);
+  await profilesLib.setUserProfiles(u.id, [crm!.id], admin);
+  let active = (await one<{ active_profile_id: number | null }>('SELECT active_profile_id FROM app_user WHERE id = ?', u.id))!;
+  assert.strictEqual(active.active_profile_id, crm!.id, 'active resets to the only assigned profile');
+
+  // Switching to a profile the user does not hold falls back rather than sticking.
+  const back = await profilesLib.setActiveProfile(u.id, fosa!.id, admin);
+  assert.strictEqual(back.code, 'CRM', 'an unassigned profile choice falls back to an assigned one');
+
+  // Removing every profile clears the active pointer.
+  await profilesLib.setUserProfiles(u.id, [], admin);
+  active = (await one<{ active_profile_id: number | null }>('SELECT active_profile_id FROM app_user WHERE id = ?', u.id))!;
+  assert.strictEqual(active.active_profile_id, null);
+});
+
+await test('the active Role Centre scopes which sidebar groups show', async () => {
+  const { NAV, groupInRoleCentre } = await import('../lib/nav.ts');
+  const groupsFor = (centre: string) => NAV.filter((g) => groupInRoleCentre(g, centre)).map((g) => g.group);
+
+  // Super sees every group.
+  assert.deepStrictEqual(groupsFor('SUPER'), NAV.map((g) => g.group));
+  // A specialised centre sees Operations + Administration + only its own area.
+  const fosa = groupsFor('FOSA');
+  assert.ok(fosa.includes('Operations') && fosa.includes('FOSA') && fosa.includes('Administration'));
+  assert.ok(!fosa.includes('Credit') && !fosa.includes('Finance') && !fosa.includes('Client Relationship MGMT'));
+  assert.ok(groupsFor('FINANCE_MANAGER').includes('Finance') && groupsFor('ACCOUNTANT').includes('Finance'));
+  assert.ok(!groupsFor('CREDIT').includes('FOSA'));
+});
+
+await test('every Role Centre aggregate returns a well-formed object on the seeded ledger', async () => {
+  const crm = await roleCentersLib.getCrmRoleCenter();
+  assert.ok(Number.isFinite(crm.members.total) && crm.membersByMonth.length === 12);
+
+  const credit = await roleCentersLib.getCreditRoleCenter();
+  assert.ok(Number.isFinite(credit.kpi.parPct) && credit.par.rows.length > 0);
+
+  const fosa = await roleCentersLib.getFosaRoleCenter();
+  assert.ok(Number.isFinite(fosa.kpi.fosaDeposits) && fosa.flows.length === 12);
+
+  const fm = await roleCentersLib.getFinanceManagerRoleCenter();
+  assert.ok(fm.pl.length === 12 && fm.ratios.length === 4 && Number.isFinite(fm.ratios[0].value));
+
+  const acc = await roleCentersLib.getAccountantRoleCenter();
+  assert.ok(typeof acc.kpi.balanced === 'boolean' && acc.journalsByMonth.length === 12);
+});
+
+/* ------------------------------------------------------------------------ */
+section('Per-user permission overrides');
+
+const userPermsLib = await import('../lib/userPermissions.ts');
+
+const sessionFor = async (userId: number): Promise<SessionUser> => {
+  const tok = `up-${userId}-${Date.now()}-${Math.random()}`;
+  await run('INSERT INTO session (token, user_id, created_at, expires_at) VALUES (?,?,?,?)',
+    tok, userId, new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString());
+  const su = (await auth.userFromToken(tok))!;
+  await run('DELETE FROM session WHERE token = ?', tok);
+  return su;
+};
+
+await test('a DENY override removes a right the role grants', async () => {
+  const teller = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='teller'"))!;
+  await userPermsLib.resetUserPermissions(teller.id, admin);
+
+  const before = await sessionFor(teller.id);
+  assert.ok(permissions.canPage(before, 'TELLER_TRANSACTIONS'), 'Teller role grants the teller screen');
+  assert.ok(permissions.canAction(before, 'TELLER_TRANSACTIONS_POST'));
+
+  await userPermsLib.setUserPermissions(teller.id, [
+    { objectType: 'PAGE', objectName: 'TELLER_TRANSACTIONS', rights: { execute: false } },
+  ], admin);
+
+  const after = await sessionFor(teller.id);
+  assert.ok(!permissions.canPage(after, 'TELLER_TRANSACTIONS'), 'the override hides the screen');
+  assert.ok(!permissions.canAction(after, 'TELLER_TRANSACTIONS_POST'), 'and every action behind it');
+  await userPermsLib.resetUserPermissions(teller.id, admin);
+});
+
+await test('a GRANT override adds a right the role lacks', async () => {
+  const teller = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='teller'"))!;
+  const before = await sessionFor(teller.id);
+  assert.ok(!permissions.canAction(before, 'GL_READ'), 'Teller role has no general-ledger access');
+
+  await userPermsLib.setUserPermissions(teller.id, [
+    { objectType: 'PAGE', objectName: 'GL', rights: { execute: true } },
+    { objectType: 'TABLE', objectName: 'journal', rights: { read: true } },
+    { objectType: 'TABLE', objectName: 'journal_line', rights: { read: true } },
+    { objectType: 'TABLE', objectName: 'gl_account', rights: { read: true } },
+  ], admin);
+
+  const after = await sessionFor(teller.id);
+  assert.ok(permissions.canAction(after, 'GL_READ'), 'the override grants it');
+  await userPermsLib.resetUserPermissions(teller.id, admin);
+});
+
+await test('an additional Permission Set is unioned into the effective rights (BC model)', async () => {
+  const teller = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='teller'"))!;
+  const financeRole = (await one<{ id: number }>("SELECT id FROM role WHERE name='Finance Officer'"))!;
+  await userPermsLib.setUserPermissionSets(teller.id, [], admin);
+
+  const before = await sessionFor(teller.id);
+  assert.ok(!permissions.canAction(before, 'GL_READ') && permissions.canAction(before, 'TELLER_TRANSACTIONS_POST'));
+
+  await userPermsLib.setUserPermissionSets(teller.id, [financeRole.id], admin);
+  const after = await sessionFor(teller.id);
+  assert.ok(permissions.canAction(after, 'GL_READ'), 'Finance Officer rights are added…');
+  assert.ok(permissions.canAction(after, 'TELLER_TRANSACTIONS_POST'), '…without losing the Teller rights (union)');
+
+  assert.deepStrictEqual(
+    [...(await userPermsLib.listUserPermissionSets(teller.id)).map((s) => s.name)],
+    ['Finance Officer'],
+  );
+  await userPermsLib.setUserPermissionSets(teller.id, [], admin);
+});
+
+await test('two users on the same role differ only by their overrides', async () => {
+  const [a, b] = await all<{ id: number; role_id: number }>(
+    "SELECT id, role_id FROM app_user WHERE username IN ('teller','loans') ORDER BY username",
+  );
+  // Put both on the Teller role for the test.
+  const tellerRole = (await one<{ id: number }>("SELECT id FROM role WHERE name='Teller'"))!;
+  await run('UPDATE app_user SET role_id = ? WHERE id IN (?,?)', tellerRole.id, a.id, b.id);
+  await userPermsLib.resetUserPermissions(a.id, admin);
+  await userPermsLib.resetUserPermissions(b.id, admin);
+
+  await userPermsLib.setUserPermissions(a.id, [
+    { objectType: 'TABLE', objectName: 'savings_account', rights: { read: true } }, // strip deposit/withdraw modify
+  ], admin);
+
+  const sa = await sessionFor(a.id);
+  const sb = await sessionFor(b.id);
+  assert.notDeepStrictEqual(sa.permissionSet.tables.savings_account, sb.permissionSet.tables.savings_account);
+  const roleSet = await auth.loadPermissionSet(tellerRole.id);
+  assert.deepStrictEqual(sb.permissionSet.tables, roleSet.tables, 'the un-overridden user matches the role exactly');
+
+  await userPermsLib.resetUserPermissions(a.id, admin);
+  await run('UPDATE app_user SET role_id = ? WHERE id = ?', b.role_id, b.id);
+  await run('UPDATE app_user SET role_id = ? WHERE id = ?', a.role_id, a.id);
+});
+
+await test('an override equal to the role default is not stored', async () => {
+  const teller = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='teller'"))!;
+  const roleSet = await auth.loadPermissionSet(
+    (await one<{ role_id: number }>('SELECT role_id FROM app_user WHERE id = ?', teller.id))!.role_id,
+  );
+  const t = roleSet.tables.savings_account!;
+  await userPermsLib.setUserPermissions(teller.id, [
+    { objectType: 'TABLE', objectName: 'savings_account', rights: { ...t, execute: false } },
+  ], admin);
+  const n = await one<{ n: number }>('SELECT COUNT(*) n FROM user_permission_line WHERE user_id = ?', teller.id);
+  assert.strictEqual(Number(n?.n ?? 0), 0, 'a no-op override writes no row');
+});
+
+await test('a nav entry is hidden when the page is reachable but its data is not readable', async () => {
+  // A permission set that grants the LOANS page Execute but NOT `loan` table Read — the classic
+  // way a hand-edited matrix leaves a module in the sidebar the user cannot actually use.
+  const teller = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='teller'"))!;
+  const rid = Number((await run(
+    "INSERT INTO role (name, description, is_system) VALUES ('ZZ Nav Test', 't', 0)",
+  )).lastInsertRowid);
+  await run("INSERT INTO permission_set_line (role_id, object_type, object_name, execute_perm) VALUES (?, 'PAGE', 'DASHBOARD', 1)", rid);
+  await run("INSERT INTO permission_set_line (role_id, object_type, object_name, execute_perm) VALUES (?, 'PAGE', 'LOANS', 1)", rid);
+  const orig = (await one<{ role_id: number }>('SELECT role_id FROM app_user WHERE id = ?', teller.id))!.role_id;
+  await run('UPDATE app_user SET role_id = ? WHERE id = ?', rid, teller.id);
+  await userPermsLib.resetUserPermissions(teller.id, admin);
+  await userPermsLib.setUserPermissionSets(teller.id, [], admin);
+
+  const tok = `nv-${Date.now()}`;
+  await run('INSERT INTO session (token, user_id, created_at, expires_at) VALUES (?,?,?,?)',
+    tok, teller.id, new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString());
+  const su = (await auth.userFromToken(tok))!;
+  await run('DELETE FROM session WHERE token = ?', tok);
+
+  assert.ok(permissions.canPage(su as SessionUser, 'LOANS'), 'the page shell is reachable');
+  assert.ok(!permissions.canNav(su as SessionUser, 'LOANS'), 'but the nav entry is hidden — no loan read');
+  assert.ok(permissions.canNav(su as SessionUser, 'DASHBOARD'), 'the dashboard entry still shows');
+
+  await run('UPDATE app_user SET role_id = ? WHERE id = ?', orig, teller.id);
+  await run('DELETE FROM role WHERE id = ?', rid);
+});
+
+await test('the System Administrator cannot be restricted by an override', async () => {
+  const adminUser = (await one<{ id: number }>("SELECT id FROM app_user WHERE username='admin'"))!;
+  // Even a raw override row must not restrict a system user.
+  await run(
+    `INSERT INTO user_permission_line (user_id, object_type, object_name, execute_perm)
+     VALUES (?, 'PAGE', 'GL', 0) ON CONFLICT (user_id, object_type, object_name) DO NOTHING`,
+    adminUser.id,
+  );
+  const su = await sessionFor(adminUser.id);
+  assert.ok(permissions.canPage(su, 'GL') && permissions.canAction(su, 'GL_JOURNAL_APPROVE'),
+    'is_system short-circuits every check');
+  const matrix = await userPermsLib.getUserPermissionMatrix(adminUser.id);
+  assert.strictEqual(matrix.isSystem, true);
+  await throws(() => userPermsLib.setUserPermissions(adminUser.id, [], admin), /SYSTEM_USER/);
+  await run('DELETE FROM user_permission_line WHERE user_id = ?', adminUser.id);
 });
 
 /* ------------------------------------------------------------------------ */

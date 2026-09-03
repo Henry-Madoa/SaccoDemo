@@ -17,11 +17,15 @@ export interface DonutProps {
   thickness?: number;
   centerLabel?: string;
   centerValue?: string;
+  /** false when the slices count things rather than money — the legend/tooltip then show a
+   *  plain number instead of a currency amount. */
+  money?: boolean;
 }
 
 /** Donut for a small composition (≤6 slices), with a direct-labelled legend. */
-export function Donut({ segments, size = 190, thickness = 26, centerLabel, centerValue }: DonutProps) {
-  const { cur } = useFormat();
+export function Donut({ segments, size = 190, thickness = 26, centerLabel, centerValue, money = true }: DonutProps) {
+  const { cur: curMoney } = useFormat();
+  const cur = money ? curMoney : (v: number, _opts?: unknown) => Math.round(v).toLocaleString();
   const { show, hide, element } = useChartTip();
 
   const total = segments.reduce((a, s) => a + Math.max(s.value, 0), 0);

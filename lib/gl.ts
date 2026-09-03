@@ -64,7 +64,7 @@ function textFilterValue(filters: FilterCondition[], field: string): { value: st
  *  FIELDS, carried through `filters` unchanged so a balance stays consistent with whichever
  *  screen computed it) plus the Dimensional Trial Balance's own code-expression one
  *  (TRIAL_BALANCE_DIMENSION_FILTER_FIELDS, also read out of the same `filters` array). */
-async function buildDimensionJoinClause(
+export async function buildDimensionJoinClause(
   filters: FilterCondition[], paramPrefix: string,
 ): Promise<{ clause: string; params: Record<string, unknown> }> {
   const { clause: gdIdClause, params } = buildFilterClause(GL_DIMENSION_FILTER_FIELDS, filters, paramPrefix);
@@ -764,142 +764,12 @@ export async function getDormancyAging(asOf?: IsoDate): Promise<DormancyAgingRow
   });
 }
 
-/* ------------------------------------------------------------- bank accounts */
+/* --------------------------------------------------- bank accounts (moved to lib/bankMgmt.ts) */
 
-export const listBankAccounts = (): Promise<BankAccountListRow[]> =>
-  all<BankAccountListRow>(
-    `SELECT ba.*, g.code AS gl_account_code, g.name AS gl_account_name
-     FROM bank_account ba JOIN gl_account g ON g.id = ba.gl_account_id
-     ORDER BY ba.code`,
-  );
-
-/** Every enabled Bank/Cashbook account — the Payment Channel picklist for a manual external
- *  loan disbursement/repayment (lib/loanService.ts's disburse()/repay()), or any other document
- *  that lets its user pick which of the SACCO's own bank/cash/mobile-money accounts a posting
- *  actually moved through. */
-export const listActiveBankAccounts = (): Promise<BankAccount[]> =>
-  all<BankAccount>("SELECT * FROM bank_account WHERE status = 'ACTIVE' ORDER BY code");
-
-export const hasAnyBankAccounts = (): Promise<boolean> => hasAnyRow('bank_account');
-
-export interface CreateBankAccountInput {
-  code: string;
-  name: string;
-  gl_account_id: number;
-  bank_name?: string | null;
-  account_no?: string | null;
-}
-
-/** Creating a bank account also flags its control account no_direct_posting — from this point
- *  on a manual G/L journal can no longer touch it; only postJournal()'s automatic subledger
- *  posting (savings/loan/charge callers, or Bank Reconciliation adjustments) can. */
-export async function createBankAccount(input: CreateBankAccountInput, user: Actor): Promise<{ id: number }> {
-  const code = input.code.trim().toUpperCase();
-  const name = input.name.trim();
-  if (!code || !name || !input.gl_account_id) {
-    throw new AppError('Code, name and G/L account are required', 'VALIDATION');
-  }
-  if (await one('SELECT 1 FROM bank_account WHERE code = ?', code)) {
-    throw new AppError('Bank account code already exists', 'DUPLICATE');
-  }
-  if (await one('SELECT 1 FROM bank_account WHERE gl_account_id = ?', input.gl_account_id)) {
-    throw new AppError('That G/L account is already a bank account control account', 'DUPLICATE');
-  }
-  const info = await run(
-    'INSERT INTO bank_account (code, name, gl_account_id, bank_name, account_no, created_at) VALUES (?,?,?,?,?,?)',
-    code, name, input.gl_account_id, input.bank_name || null, input.account_no || null, new Date().toISOString(),
-  );
-  await run('UPDATE gl_account SET no_direct_posting = 1 WHERE id = ?', input.gl_account_id);
-  await audit(user, 'BANK_ACCOUNT_CREATE', 'bank_account', info.lastInsertRowid, { code, name });
-  return { id: Number(info.lastInsertRowid) };
-}
-
-export interface UpdateBankAccountInput {
-  name: string;
-  bank_name?: string | null;
-  account_no?: string | null;
-  status?: 'ACTIVE' | 'INACTIVE';
-}
-
-export async function updateBankAccount(id: number, input: UpdateBankAccountInput, user: Actor): Promise<void> {
-  const before = await one<{ code: string }>('SELECT code FROM bank_account WHERE id = ?', id);
-  if (!before) throw new AppError('Bank account not found', 'NOT_FOUND');
-  if (!input.name?.trim()) throw new AppError('Name is required', 'VALIDATION');
-  await run(
-    'UPDATE bank_account SET name = ?, bank_name = ?, account_no = ?, status = ? WHERE id = ?',
-    input.name.trim(), input.bank_name || null, input.account_no || null, input.status || 'ACTIVE', id,
-  );
-  await audit(user, 'BANK_ACCOUNT_UPDATE', 'bank_account', id, { code: before.code });
-}
-
-/* -------------------------------------------------------- bank reconciliation */
-
-export async function startBankReconciliation(
-  bankAccountId: number, statementDate: IsoDate, statementBalance: Cents, user: Actor,
-): Promise<{ id: number }> {
-  if (!(await one('SELECT 1 FROM bank_account WHERE id = ?', bankAccountId))) {
-    throw new AppError('Bank account not found', 'NOT_FOUND');
-  }
-  if (await one("SELECT 1 FROM bank_reconciliation WHERE bank_account_id = ? AND status = 'OPEN'", bankAccountId)) {
-    throw new AppError('An open reconciliation already exists for this bank account', 'DUPLICATE');
-  }
-  const info = await run(
-    `INSERT INTO bank_reconciliation (bank_account_id, statement_date, statement_balance, created_by, created_at)
-     VALUES (?,?,?,?,?)`,
-    bankAccountId, statementDate, statementBalance, user.username, new Date().toISOString(),
-  );
-  await audit(user, 'BANK_RECONCILIATION_START', 'bank_reconciliation', info.lastInsertRowid, {
-    bankAccountId, statementDate,
-  });
-  return { id: Number(info.lastInsertRowid) };
-}
-
-/** The reconciliation worksheet: every not-yet-reconciled entry up to the statement date, plus
- *  whatever this session has already ticked (bank_reconciliation_id = this id) — so a partially
- *  worked session reloads with its own ticks intact rather than losing them. */
-export async function getBankReconciliationWorksheet(id: number): Promise<BankReconciliationWorksheet | null> {
-  const reconciliation = await one<BankReconciliation>('SELECT * FROM bank_reconciliation WHERE id = ?', id);
-  if (!reconciliation) return null;
-  const bankAccount = await one<BankAccount>('SELECT * FROM bank_account WHERE id = ?', reconciliation.bank_account_id);
-  if (!bankAccount) return null;
-  const entries = await all<BankAccountLedgerEntryWithJournal>(
-    `SELECT bale.*, j.journal_no, j.source_module
-     FROM bank_account_ledger_entry bale JOIN journal j ON j.id = bale.journal_id
-     WHERE bale.bank_account_id = ?
-       AND bale.posting_date <= ?
-       AND (bale.reconciled = 0 OR bale.bank_reconciliation_id = ?)
-     ORDER BY bale.posting_date, bale.id`,
-    reconciliation.bank_account_id, reconciliation.statement_date, id,
-  );
-  const clearedTotal = entries
-    .filter((e) => e.bank_reconciliation_id === id)
-    .reduce((sum, e) => sum + e.amount, 0);
-  return { reconciliation, bankAccount, entries, clearedTotal, difference: reconciliation.statement_balance - clearedTotal };
-}
-
-export async function setEntryReconciled(
-  entryId: number, reconciliationId: number, reconciled: boolean, user: Actor,
-): Promise<void> {
-  const rec = await one<{ status: string }>('SELECT status FROM bank_reconciliation WHERE id = ?', reconciliationId);
-  if (!rec) throw new AppError('Reconciliation not found', 'NOT_FOUND');
-  if (rec.status !== 'OPEN') throw new AppError('This reconciliation is already completed', 'VALIDATION');
-  await run(
-    'UPDATE bank_account_ledger_entry SET reconciled = ?, bank_reconciliation_id = ? WHERE id = ?',
-    reconciled ? 1 : 0, reconciled ? reconciliationId : null, entryId,
-  );
-  await audit(user, 'BANK_RECONCILIATION_TICK', 'bank_account_ledger_entry', entryId, { reconciliationId, reconciled });
-}
-
-export async function completeBankReconciliation(id: number, user: Actor): Promise<void> {
-  const worksheet = await getBankReconciliationWorksheet(id);
-  if (!worksheet) throw new AppError('Reconciliation not found', 'NOT_FOUND');
-  if (worksheet.reconciliation.status !== 'OPEN') throw new AppError('This reconciliation is already completed', 'VALIDATION');
-  if (worksheet.difference !== 0) {
-    throw new AppError('The reconciliation is out of balance — tick every matching entry before completing', 'VALIDATION');
-  }
-  await run(
-    "UPDATE bank_reconciliation SET status = 'COMPLETED', completed_by = ?, completed_at = ? WHERE id = ?",
-    user.username, new Date().toISOString(), id,
-  );
-  await audit(user, 'BANK_RECONCILIATION_COMPLETE', 'bank_reconciliation', id, {});
-}
+export {
+  listBankAccounts, getBankAccount, getBankAccountByCode, listActiveBankAccounts, hasAnyBankAccounts,
+  createBankAccount, updateBankAccount, listBankAccountLedgerEntries, listBankReconciliations,
+  startBankReconciliation, suggestBankRecLines, matchBankRecLine, addBankRecGlAdjustmentLine,
+  deleteBankRecLine, getBankReconciliationDetail, postBankReconciliation,
+  type BankAccountInput, type ListBankLedgerOptions, type BankRecAdjustmentInput,
+} from './bankMgmt.ts';

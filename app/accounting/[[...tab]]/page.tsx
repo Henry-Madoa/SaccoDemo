@@ -6,7 +6,7 @@ import {
   getTrialBalance, listJournals, hasAnyJournals, listGlAccounts, hasAnyGlAccounts, listPeriods, hasAnyPeriods,
   listPostableAccounts, totalingBalance,
   listVendorLedgerEntries, hasAnyVendorLedgerEntries, listCustomerLedgerEntries, hasAnyCustomerLedgerEntries,
-  getDormancyAging, listBankAccounts, hasAnyBankAccounts,
+  getDormancyAging,
   JOURNAL_FILTER_FIELDS, GL_ACCOUNT_FILTER_FIELDS, TRIAL_BALANCE_FILTER_FIELDS, TRIAL_BALANCE_DIMENSION_FILTER_FIELDS,
   PERIOD_FILTER_FIELDS, SUBLEDGER_ENTRY_FILTER_FIELDS,
 } from '@/lib/gl';
@@ -28,8 +28,6 @@ import { ExportButton } from '@/components/ui/export-button';
 import { LedgerLink, JournalLink } from '../drill-downs';
 import { NewJournalButton } from '../journal-form';
 import { GlAccountFormButton } from '../gl-account-form';
-import { BankAccountFormButton } from '../bank-account-form';
-import { StartReconciliationButton } from '../start-reconciliation-button';
 import { PeriodToggle } from '../period-toggle';
 
 const TABS: TabDefinition[] = [
@@ -38,7 +36,6 @@ const TABS: TabDefinition[] = [
   { key: 'accounts', label: 'Chart of accounts' },
   { key: 'vendor-ledger', label: 'Vendor Ledger Entries' },
   { key: 'customer-ledger', label: 'Customer Ledger Entries' },
-  { key: 'bank-accounts', label: 'Bank Accounts' },
   { key: 'periods', label: 'Accounting periods' },
 ];
 
@@ -70,7 +67,6 @@ export default async function AccountingPage({ params, searchParams }: {
       {tab === 'customer-ledger' ? (
         <CustomerLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} from={from} to={to} />
       ) : null}
-      {tab === 'bank-accounts' ? <BankAccountsTab /> : null}
       {tab === 'periods' ? <PeriodsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
     </Page>
   );
@@ -486,64 +482,6 @@ async function CustomerLedgerTab({ search, filtersRaw, sortRaw, from, to }: {
           sub="Loan arrears are already classified against SASRA's bands — this is that same report, not a duplicate"
         />
         <Link href="/reports/par" className="btn ghost">Open risk classification &amp; provisioning report →</Link>
-      </Card>
-    </>
-  );
-}
-
-async function BankAccountsTab() {
-  const [rows, empty, canManage, postableAccounts] = await Promise.all([
-    listBankAccounts(),
-    hasAnyBankAccounts().then((any) => !any),
-    currentCanAction('GL_ACCOUNT_MANAGE'),
-    listPostableAccounts(),
-  ]);
-
-  return (
-    <>
-      <Toolbar>
-        <Spacer />
-        {canManage ? (
-          <BankAccountFormButton postableAccounts={postableAccounts} className="btn">Add bank account</BankAccountFormButton>
-        ) : null}
-      </Toolbar>
-      <Card>
-        <CardHead
-          title="Bank Accounts"
-          sub="Subledger masters for reconciliation — each controls its own G/L account, which a manual journal can no longer post to directly"
-        />
-        {rows.length ? (
-          <TableWrap>
-            <thead>
-              <tr>
-                <th>Code</th><th>Name</th><th>G/L account</th><th>Bank</th>
-                <th className="num">Balance</th><th>Status</th><th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((b) => (
-                <tr key={b.id}>
-                  <td className="mono">{b.code}</td>
-                  <td>{b.name}</td>
-                  <td className="mono muted-cell">{b.gl_account_code} — {b.gl_account_name}</td>
-                  <td>{b.bank_name || '—'}{b.account_no ? <span className="tiny mono"> · {b.account_no}</span> : null}</td>
-                  <td className="num"><Money cents={b.balance} /></td>
-                  <td><Pill status={b.status} /></td>
-                  <td className="num">
-                    <div className="inline" style={{ justifyContent: 'flex-end' }}>
-                      {canManage ? <StartReconciliationButton bankAccount={b} /> : null}
-                      {canManage ? (
-                        <BankAccountFormButton bankAccount={b} postableAccounts={postableAccounts} className="btn sm ghost">
-                          Edit
-                        </BankAccountFormButton>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </TableWrap>
-        ) : <EmptyState icon="🏦" title={empty ? 'No bank accounts yet' : 'No bank accounts match'} />}
       </Card>
     </>
   );

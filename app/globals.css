@@ -143,6 +143,18 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .sidebar-head .name { color: #fff; font-weight: 600; font-size: 14px; line-height: 1.25; }
 .sidebar-head .sub { font-size: 11px; opacity: .6; }
 .nav { padding: calc(var(--sp) * 1.5) calc(var(--sp) * 1.2); flex: 1; }
+/* Active Role Centre indicator at the top of the nav — the Profile scopes which groups show. */
+.nav-role-centre {
+  display: flex; align-items: center; gap: 10px;
+  margin: calc(var(--sp) * 1.5) calc(var(--sp) * 1) 4px;
+  padding: 9px 12px; border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+  color: var(--sidebar-fg); text-decoration: none; font-size: 13px; font-weight: 500;
+}
+.nav-role-centre:hover { background: rgba(255,255,255,.1); color: var(--sidebar-fg-active); text-decoration: none; }
+.nav-role-centre .ico { width: 16px; text-align: center; }
+.nav-role-centre .chev { margin-left: auto; opacity: .55; }
+
 .nav-group {
   display: block; width: 100%; text-align: left;
   font: inherit; font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em; opacity: .5;

@@ -167,6 +167,53 @@ export interface PermissionSetLine {
   execute_perm: Flag;
 }
 
+/** A per-user permission override line — same shape as PermissionSetLine, keyed to a user. When
+ *  present it replaces the role's line for that one object. See lib/userPermissions.ts. */
+export interface UserPermissionLine {
+  id: number;
+  user_id: number;
+  object_type: 'TABLE' | 'PAGE';
+  object_name: string;
+  read_perm: Flag;
+  insert_perm: Flag;
+  modify_perm: Flag;
+  delete_perm: Flag;
+  execute_perm: Flag;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PermissionRightSet {
+  read: boolean;
+  insert: boolean;
+  modify: boolean;
+  delete: boolean;
+  execute: boolean;
+}
+
+/** One object's row in the per-user permission editor: the rights granted by the user's assigned
+ *  Permission Sets (primary role ∪ additional sets), the effective rights after any per-user
+ *  override, and whether they differ. */
+export interface UserPermissionMatrixRow {
+  objectType: 'TABLE' | 'PAGE';
+  objectName: string;
+  label: string;
+  /** Granted by the union of the user's assigned Permission Sets, before overrides. */
+  granted: PermissionRightSet;
+  effective: PermissionRightSet;
+  overridden: boolean;
+}
+
+export interface UserPermissionMatrix {
+  userId: number;
+  userName: string;
+  role: { id: number; name: string; is_system: Flag };
+  /** Names of every Permission Set feeding the granted baseline — the primary role first. */
+  grantedSetNames: string[];
+  isSystem: boolean;
+  rows: UserPermissionMatrixRow[];
+}
+
 /** A table available in the Permission Set line dropdown — live, not curated. */
 export interface PermissionTableOption {
   name: string;
@@ -195,6 +242,28 @@ export interface AppUser {
   /** BC's "Work Date" (My Settings) — this user's own suggested default date, in place of the
    *  real system date, for new documents. Null = use today(). See lib/postingDates.ts. */
   work_date: IsoDate | null;
+  /** The Role Centre landing page this user currently sees. Points at one of their assigned
+   *  Profiles; null falls back to the default (Super) profile. Grants no permissions. */
+  active_profile_id: number | null;
+}
+
+/** Business Central's "Profile" — a landing-page selector. Decides which Role Centre (tailored
+ *  home dashboard) a user sees; carries no permissions (fully independent of the Permission Set
+ *  system). See lib/profiles.ts. */
+export interface Profile {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  /** The Role Centre this profile lands on — one of SUPER | CRM | CREDIT | FOSA | FINANCE_MANAGER
+   *  | ACCOUNTANT for the seeded profiles. */
+  role_centre: string;
+  icon: string;
+  sort: number;
+  is_default: Flag;
+  is_system: Flag;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
 }
 
 /** A role's lines, folded into direct lookups for canTable()/canPage(). */
@@ -212,6 +281,12 @@ export interface SessionUser extends Omit<AppUser, 'password_hash'> {
   role_name: string;
   is_system: Flag;
   permissionSet: PermissionSet;
+  /** Every Profile an admin has assigned to this user (system-admin users get all of them). */
+  profiles: Profile[];
+  /** The Profile whose Role Centre `/dashboard` renders — resolved from `active_profile_id`,
+   *  falling back to the default profile, then the first assigned, then a Super stand-in. Never
+   *  null. */
+  activeProfile: Profile;
 }
 
 /** Anything that can be recorded as the actor on an audit entry. */
@@ -231,6 +306,12 @@ export interface UserListRow {
   created_at: IsoDateTime | null;
   role_name: string;
   role_id: number;
+  /** Codes of the Role Centre Profiles assigned to this user (for the admin list). */
+  profile_codes: string[];
+  /** Names of the additional Permission Sets granted on top of the primary role. */
+  extra_permission_set_names: string[];
+  /** How many per-user permission overrides this user carries (0 = plain role). */
+  override_count: number;
 }
 
 export interface AuditEntry {
@@ -1399,6 +1480,8 @@ export interface GlAccount {
   status: 'ACTIVE' | 'INACTIVE';
   /** Blocks this account from a manual G/L journal line — see lib/gl.ts's createJournal(). */
   no_direct_posting: Flag;
+  vat_bus_posting_group_code: string | null;
+  vat_prod_posting_group_code: string | null;
 }
 
 export interface TrialBalanceRow {
@@ -1412,6 +1495,134 @@ export interface TrialBalanceRow {
   net: Cents;
   debit_balance: Cents;
   credit_balance: Cents;
+}
+
+/* ------------------------------------------- financial reports (account schedules) */
+
+export type ColumnLayoutType =
+  | 'NET_CHANGE' | 'BALANCE_AT_DATE' | 'BEGINNING_BALANCE' | 'YEAR_TO_DATE' | 'ENTIRE_FISCAL_YEAR' | 'FORMULA';
+export type FinReportAmountType = 'NET_AMOUNT' | 'DEBIT_AMOUNT' | 'CREDIT_AMOUNT';
+export type ColumnShowType = 'ALWAYS' | 'NEVER' | 'WHEN_POSITIVE' | 'WHEN_NEGATIVE';
+export type RoundingFactor = 'NONE' | '1' | '1000' | '1000000';
+export type AccScheduleTotalingType = 'POSTING_ACCOUNTS' | 'TOTAL_ACCOUNTS' | 'FORMULA' | 'SET_BASE_FOR_PERCENT';
+export type AccScheduleRowType = 'NET_CHANGE' | 'BALANCE_AT_DATE' | 'BEGINNING_BALANCE';
+export type AccScheduleShowType = 'YES' | 'NO' | 'IF_ANY_NOT_ZERO' | 'IF_ALL_ZERO';
+
+/** Business Central Table 334 "Column Layout Name". */
+export interface ColumnLayoutName {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 333 "Column Layout". */
+export interface ColumnLayout {
+  id: number;
+  column_layout_name_id: number;
+  line_no: number;
+  column_no: string;
+  column_header: string;
+  column_type: ColumnLayoutType;
+  ledger_entry_type: string;
+  amount_type: FinReportAmountType;
+  formula: string;
+  comparison_date_formula: string;
+  show: ColumnShowType;
+  rounding_factor: RoundingFactor;
+  created_at: string | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 85 "Acc. Schedule Name" — a Financial Report Row Definition. */
+export interface AccScheduleName {
+  id: number;
+  name: string;
+  description: string;
+  default_column_layout_name: string | null;
+  created_at: string | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 86 "Acc. Schedule Line". */
+export interface AccScheduleLine {
+  id: number;
+  acc_schedule_name_id: number;
+  line_no: number;
+  row_no: string;
+  description: string;
+  totaling_type: AccScheduleTotalingType;
+  totaling: string;
+  amount_type: FinReportAmountType;
+  row_type: AccScheduleRowType;
+  show: AccScheduleShowType;
+  bold: Flag;
+  italic: Flag;
+  underline: Flag;
+  double_underline: Flag;
+  show_opposite_sign: Flag;
+  new_page: Flag;
+  indentation: number;
+  dimension_1_totaling: string;
+  dimension_2_totaling: string;
+  created_at: string | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 133 "Financial Report" — a Row Definition paired with a Column Layout. */
+export interface FinancialReport {
+  id: number;
+  name: string;
+  description: string;
+  row_group: string;
+  column_group: string;
+  created_at: string | null;
+  created_by: string | null;
+}
+
+export interface FinReportColumn {
+  columnNo: string;
+  header: string;
+  isFormula: boolean;
+  /** Windows shown in the sub-heading, e.g. "01 Jan 2026 – 31 Dec 2026". */
+  windowLabel: string;
+}
+
+export interface FinReportCell {
+  /** null when the column's Show rule blanks it. */
+  value: number | null;
+  /** A percentage/ratio row is rendered as a plain number, an account row as money. */
+  isRatio: boolean;
+}
+
+export interface FinReportRow {
+  rowNo: string;
+  description: string;
+  indentation: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  doubleUnderline: boolean;
+  newPage: boolean;
+  isRatio: boolean;
+  /** True for a caption line (no totaling, not a formula) — values are blank. */
+  isCaption: boolean;
+  hidden: boolean;
+  /** Account filter behind an account row, for the Trial Balance drill-down link. */
+  totaling: string;
+  cells: FinReportCell[];
+}
+
+export interface FinancialReportResult {
+  reportName: string;
+  reportDescription: string;
+  rowGroup: string;
+  columnGroup: string;
+  from: string | null;
+  to: string;
+  columns: FinReportColumn[];
+  rows: FinReportRow[];
 }
 
 /* ------------------------------------------------------- charge management */
@@ -1624,6 +1835,8 @@ export interface Journal {
   idempotency_key: string | null;
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
+  currency_code: string;
+  currency_factor: number;
 }
 
 export interface JournalListRow extends Journal {
@@ -1641,6 +1854,10 @@ export interface JournalLine {
   gl_account_id: number;
   debit: Cents;
   credit: Cents;
+  debit_lcy: Cents;
+  credit_lcy: Cents;
+  currency_code: string;
+  currency_factor: number;
   narration: string | null;
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
@@ -1654,7 +1871,8 @@ export interface JournalLineWithAccount extends JournalLine {
   global_dimension_2_code: string | null;
 }
 
-/** A journal line as supplied to postJournal, before it is resolved and stored. */
+/** A journal line as supplied to postJournal, before it is resolved and stored. Amounts are in
+ *  the journal's transaction currency (`currencyCode`); postJournal derives the LCY amounts. */
 export interface JournalLineInput {
   /** GL account id (number) or account code (string). */
   account: number | string;
@@ -1664,6 +1882,10 @@ export interface JournalLineInput {
   /** Explicit per-line override — falls back to the header default (see PostJournalOptions) when omitted. */
   globalDimension1Id?: number | null;
   globalDimension2Id?: number | null;
+  /** For a line hitting a bank control account — stamped onto its bank_account_ledger_entry. */
+  bankDocumentType?: string | null;
+  bankDocumentNo?: string | null;
+  bankExternalDocumentNo?: string | null;
 }
 
 export interface PostJournalOptions {
@@ -1679,6 +1901,10 @@ export interface PostJournalOptions {
   lines: JournalLineInput[];
   user?: Actor | null;
   idempotencyKey?: string | null;
+  /** Transaction currency. Omitted → the base currency (KES); line amounts are then LCY. */
+  currencyCode?: string | null;
+  /** LCY per 1 unit of `currencyCode`. Omitted → resolved from currency_exchange_rate at valueDate. */
+  currencyFactor?: number | null;
 }
 
 export interface PostedJournal {
@@ -1746,6 +1972,18 @@ export interface BankAccount {
   status: 'ACTIVE' | 'INACTIVE';
   /** FOSA tellering role — see lib/cashManagement.ts. */
   account_type: BankAccountType;
+  currency_code: string;
+  balance_lcy: Cents;
+  bank_acc_posting_group_code: string | null;
+  bank_branch_no: string | null;
+  bank_sort_code: string | null;
+  external_bank_code: string | null;
+  iban: string | null;
+  swift_code: string | null;
+  min_balance: Cents;
+  last_statement_no: number;
+  balance_last_statement: Cents;
+  blocked: Flag;
 }
 
 export interface BankAccountListRow extends BankAccount {
@@ -1762,6 +2000,16 @@ export interface BankAccountLedgerEntry {
   description: string | null;
   amount: Cents;
   running_balance: Cents;
+  amount_lcy: Cents;
+  currency_code: string;
+  currency_factor: number;
+  document_type: string;
+  document_no: string | null;
+  external_document_no: string | null;
+  open: Flag;
+  statement_no: string | null;
+  statement_line_no: number | null;
+  reversed: Flag;
   reconciled: Flag;
   bank_reconciliation_id: number | null;
 }
@@ -1774,9 +2022,15 @@ export interface BankAccountLedgerEntryWithJournal extends BankAccountLedgerEntr
 export interface BankReconciliation {
   id: number;
   bank_account_id: number;
+  statement_no: string | null;
   statement_date: IsoDate;
   statement_balance: Cents;
-  status: 'OPEN' | 'COMPLETED';
+  balance_last_statement: Cents;
+  status: 'OPEN' | 'POSTED';
+  posted: boolean;
+  posted_by: string | null;
+  posted_at: IsoDateTime | null;
+  journal_id: number | null;
   created_by: string | null;
   created_at: IsoDateTime | null;
   completed_by: string | null;
@@ -3086,7 +3340,10 @@ export type WorkflowDocumentType =
   | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'MEMBER_READMISSION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE'
   | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER'
   | 'FOSA_TRANSACTION' | 'TELLER_TRANSACTION' | 'MEMBER_LIEN' | 'INTER_ACCOUNT_TRANSFER' | 'BANKERS_CHEQUE'
-  | 'CHEQUE_DEPOSIT';
+  | 'CHEQUE_DEPOSIT' | 'ITEM_JOURNAL' | 'FA_JOURNAL'
+  | 'SALES_DOCUMENT' | 'CASH_RECEIPT' | 'REMINDER'
+  | 'PURCHASE_DOCUMENT' | 'PAYMENT_JOURNAL'
+  | 'RECEIPT' | 'PAYMENT_VOUCHER';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -3490,4 +3747,1918 @@ export interface JobQueueEntry {
   created_by: string | null;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
+}
+
+/* ------------------------------------------------------------------ inventory */
+
+/** Business Central Table 14, trimmed. Every stock movement happens at one of these. */
+export interface Location {
+  id: number;
+  code: string;
+  name: string;
+  address: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 204. */
+export interface UnitOfMeasure {
+  id: number;
+  code: string;
+  description: string;
+  symbol: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+/** Business Central's Inventory Posting Group — the ledger side of an Item's ledger-subledger
+ *  mapping: which G/L account carries this item family's stock value. */
+export interface InventoryPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  inventory_gl_account_id: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface InventoryPostingGroupView extends InventoryPostingGroup {
+  inventory_gl_account_code: string;
+  inventory_gl_account_name: string;
+  /** Items currently referencing this group — guards deletion. */
+  items_using: number;
+}
+
+/** Business Central's Gen. Prod. Posting Group — the subledger side of an Item's ledger-subledger
+ *  mapping: which P&L account a Positive/Negative Adjmt. offsets against. */
+export interface ProductPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  adjustment_gl_account_id: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ProductPostingGroupView extends ProductPostingGroup {
+  adjustment_gl_account_code: string;
+  adjustment_gl_account_name: string;
+  items_using: number;
+}
+
+/** Business Central's own five Costing Methods. */
+export type ItemCostingMethod = 'FIFO' | 'LIFO' | 'Average' | 'Standard' | 'Specific';
+
+/** The two simplest Business Central Reordering Policies — see calculateReplenishment() in
+ *  lib/itemJournal.ts. */
+export type ItemReorderingPolicy = 'Fixed Reorder Qty.' | 'Maximum Qty.';
+
+/** Business Central Table 27 "Item", trimmed — see prisma/schema.prisma's model comment for
+ *  exactly what was left out and why. */
+export interface Item {
+  id: number;
+  no: string;
+  description: string;
+  description_2: string | null;
+  base_unit_of_measure_id: number;
+  purch_unit_of_measure_id: number | null;
+  sales_unit_of_measure_id: number | null;
+  inventory_posting_group_id: number;
+  product_posting_group_id: number;
+  costing_method: ItemCostingMethod;
+  unit_cost: Cents;
+  unit_price: Cents;
+  /** Maintained roll-up of this item's stockkeeping_unit rows, across every location. */
+  inventory: number;
+  reordering_policy: ItemReorderingPolicy;
+  reorder_point: number;
+  reorder_quantity: number;
+  maximum_inventory: number;
+  status: 'ACTIVE' | 'BLOCKED';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ItemListRow extends Item {
+  base_unit_of_measure_code: string;
+  purch_unit_of_measure_code: string | null;
+  sales_unit_of_measure_code: string | null;
+  inventory_posting_group_code: string;
+  product_posting_group_code: string;
+  below_reorder_point: boolean;
+}
+
+/** Business Central Table 5404. `qty_per_unit_of_measure` always converts to the item's own
+ *  Base UoM — never UoM-to-UoM. See lib/unitOfMeasureConversion.ts. */
+export interface ItemUnitOfMeasure {
+  id: number;
+  item_id: number;
+  unit_of_measure_id: number;
+  qty_per_unit_of_measure: number;
+}
+
+export interface ItemUnitOfMeasureView extends ItemUnitOfMeasure {
+  unit_of_measure_code: string;
+  unit_of_measure_description: string;
+}
+
+/** Business Central Table 5700 "Stockkeeping Unit" — one item's qty-on-hand at one location,
+ *  with an optional per-location override of the item's own reordering defaults. */
+export interface StockkeepingUnit {
+  id: number;
+  item_id: number;
+  location_id: number;
+  reordering_policy: ItemReorderingPolicy | null;
+  reorder_point: number | null;
+  reorder_quantity: number | null;
+  maximum_inventory: number | null;
+  inventory: number;
+}
+
+export interface StockByLocationRow extends StockkeepingUnit {
+  location_code: string;
+  location_name: string;
+  /** This row's own override where set, else the item's own default. */
+  effective_reordering_policy: ItemReorderingPolicy;
+  effective_reorder_point: number;
+  effective_reorder_quantity: number;
+  effective_maximum_inventory: number;
+}
+
+/** One row of the "Item Quantities per Location" report — every item+location combination that
+ *  has ever had a movement, with its current qty-on-hand and cost value. */
+export interface ItemQuantityByLocationRow {
+  item_id: number;
+  item_no: string;
+  item_description: string;
+  base_unit_of_measure_code: string;
+  location_id: number;
+  location_code: string;
+  location_name: string;
+  inventory: number;
+  unit_cost: Cents;
+  /** inventory * unit_cost, at the item's current (not historical per-lot) unit cost. */
+  value: Cents;
+  below_reorder_point: boolean;
+}
+
+/** Business Central's own two entry types this module posts — see prisma/schema.prisma. */
+export type ItemJournalEntryType = 'Positive Adjmt.' | 'Negative Adjmt.';
+
+/** Business Central Table 83 "Item Journal Line", scoped to Positive/Negative Adjmt. only.
+ *  Lifecycle Open -> Pending Approval -> Approved -> Processed, same shape as BankersCheque. */
+export interface ItemJournalLine {
+  id: number;
+  no: string;
+  posting_date: IsoDate;
+  entry_type: ItemJournalEntryType;
+  item_id: number;
+  location_id: number;
+  description: string | null;
+  unit_of_measure_id: number;
+  qty_per_unit_of_measure: number;
+  quantity: number;
+  base_quantity: number;
+  applies_to_entry_id: number | null;
+  unit_cost: Cents;
+  amount: Cents;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface ItemJournalLineView extends ItemJournalLine {
+  item_no: string;
+  item_description: string;
+  item_costing_method: ItemCostingMethod;
+  location_code: string;
+  unit_of_measure_code: string;
+  journal_no: string | null;
+  /** Open quantity (in the item's Base UoM) at this item+location — what a Negative Adjmt. may
+   *  not exceed. */
+  available_quantity: number;
+}
+
+/** Business Central Table 32 "Item Ledger Entry" — the posted, immutable stock movement. An
+ *  inbound (Positive Adjmt.) entry is a costed lot; `remaining_quantity`/`open` track how much of
+ *  it is still unconsumed by an outbound application. */
+export interface ItemLedgerEntry {
+  id: number;
+  item_id: number;
+  location_id: number;
+  posting_date: IsoDate;
+  entry_type: ItemJournalEntryType;
+  document_no: string;
+  quantity: number;
+  remaining_quantity: number;
+  open: boolean;
+  unit_cost: Cents;
+  amount: Cents;
+  item_journal_line_id: number;
+  created_at: IsoDateTime | null;
+}
+
+export interface ItemLedgerEntryView extends ItemLedgerEntry {
+  item_no: string;
+  item_description: string;
+  location_code: string;
+}
+
+/** Business Central Table 339 "Item Application Entry" — which inbound lot an outbound entry
+ *  consumed, and how much of it. Written for FIFO/LIFO/Average/Specific; Standard writes none. */
+export interface ItemApplicationEntry {
+  id: number;
+  outbound_entry_id: number;
+  inbound_entry_id: number;
+  quantity: number;
+  posting_date: IsoDate;
+  created_at: IsoDateTime | null;
+}
+
+export interface ItemApplicationEntryView extends ItemApplicationEntry {
+  inbound_document_no: string;
+  inbound_unit_cost: Cents;
+}
+
+/** One row of calculateReplenishment()'s computed report — an item+location at or below its
+ *  Reorder Point, with the quantity its Reordering Policy suggests raising. Nothing persists
+ *  until "Create adjustment" turns it into a real Item Journal Line. */
+export interface ReplenishmentSuggestion {
+  item_id: number;
+  item_no: string;
+  item_description: string;
+  location_id: number;
+  location_code: string;
+  reordering_policy: ItemReorderingPolicy;
+  inventory: number;
+  reorder_point: number;
+  reorder_quantity: number;
+  maximum_inventory: number;
+  suggested_quantity: number;
+}
+/* ============================================================================================
+ * Fixed Assets — Business Central FA subledger (Tables 5600/5601/5603/5606/5611/5612/5616/5628/
+ * 5629/5643). See lib/fixedAssets.ts, lib/faJournal.ts, lib/fixedAssetDepreciation.ts.
+ * ========================================================================================== */
+
+export type FaDepreciationMethod = 'Straight-Line' | 'Declining-Balance 1' | 'DB1/SL' | 'Manual';
+export type FaPostingType =
+  | 'Acquisition Cost' | 'Depreciation' | 'Write-Down' | 'Appreciation' | 'Disposal' | 'Maintenance';
+export type FaJournalStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Processed';
+export type FaJournalSource = 'MANUAL' | 'CALCULATE_DEPRECIATION';
+export type FaDisposalCalcMethod = 'Net' | 'Gross';
+
+export interface FaClass {
+  id: number;
+  code: string;
+  description: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface FaSubclass {
+  id: number;
+  code: string;
+  description: string;
+  fa_class_code: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface FaLocation {
+  id: number;
+  code: string;
+  description: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface Maintenance {
+  id: number;
+  code: string;
+  description: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 5611 "Depreciation Book". This port always integrates to the G/L. */
+export interface DepreciationBook {
+  id: number;
+  code: string;
+  description: string;
+  g_l_integration: Flag;
+  default_final_rounding_amount: Cents;
+  use_rounding_in_periodic_depr: Flag;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+/** Business Central Table 5606 "FA Posting Group" — the eight G/L accounts every FA posting
+ *  resolves its debit and credit from. */
+export interface FaPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  acquisition_cost_account_id: number;
+  accum_depreciation_account_id: number;
+  depreciation_expense_account_id: number;
+  write_down_expense_account_id: number;
+  appreciation_account_id: number;
+  maintenance_expense_account_id: number;
+  gains_acc_on_disposal_id: number;
+  losses_acc_on_disposal_id: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface FaPostingGroupView extends FaPostingGroup {
+  acquisition_cost_account_code: string;
+  accum_depreciation_account_code: string;
+  depreciation_expense_account_code: string;
+  write_down_expense_account_code: string;
+  appreciation_account_code: string;
+  maintenance_expense_account_code: string;
+  gains_acc_on_disposal_code: string;
+  losses_acc_on_disposal_code: string;
+  assets_using: number;
+}
+
+/** Business Central Table 5603 "FA Setup" — singleton. */
+export interface FaSetup {
+  id: number;
+  default_depreciation_book_code: string | null;
+  default_fa_posting_group_code: string | null;
+  allow_fa_posting_from: IsoDate | null;
+  allow_fa_posting_to: IsoDate | null;
+  updated_at: IsoDateTime | null;
+  updated_by: string | null;
+}
+
+/** Business Central Table 5600 "Fixed Asset". */
+export interface FixedAsset {
+  id: number;
+  no: string;
+  description: string;
+  description_2: string | null;
+  fa_class_code: string | null;
+  fa_subclass_code: string | null;
+  fa_location_code: string | null;
+  responsible_employee: string | null;
+  serial_no: string | null;
+  vendor_name: string | null;
+  asset_tag: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  blocked: Flag;
+  inactive: Flag;
+  acquisition_date: IsoDate | null;
+  disposal_date: IsoDate | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface FixedAssetListRow extends FixedAsset {
+  fa_class_description: string | null;
+  fa_subclass_description: string | null;
+  fa_location_description: string | null;
+  /** Roll-ups for the default depreciation book, when the asset has a book row. */
+  depreciation_book_code: string | null;
+  depreciation_method: FaDepreciationMethod | null;
+  acquisition_cost: Cents;
+  accumulated_depreciation: Cents;
+  book_value: Cents;
+  disposed: boolean;
+}
+
+/** Business Central Table 5612 "FA Depreciation Book" — one row per asset + book. */
+export interface FaDepreciationBook {
+  id: number;
+  fixed_asset_id: number;
+  depreciation_book_code: string;
+  fa_posting_group_code: string;
+  depreciation_method: FaDepreciationMethod;
+  depreciation_starting_date: IsoDate | null;
+  depreciation_ending_date: IsoDate | null;
+  no_of_depreciation_years: number | null;
+  straight_line_pct: number;
+  declining_balance_pct: number;
+  fixed_depr_amount: Cents;
+  salvage_value: Cents;
+  last_depreciation_date: IsoDate | null;
+  disposal_calculation_method: FaDisposalCalcMethod;
+  acquisition_cost: Cents;
+  accumulated_depreciation: Cents;
+  write_down_amount: Cents;
+  appreciation_amount: Cents;
+  book_value: Cents;
+  proceeds_on_disposal: Cents;
+  gain_loss_on_disposal: Cents;
+  maintenance_total: Cents;
+  disposed: Flag;
+}
+
+export interface FaDepreciationBookView extends FaDepreciationBook {
+  fixed_asset_no: string;
+  fixed_asset_description: string;
+  fa_posting_group_description: string;
+}
+
+/** The FA Journal — a maker-checker document, same lifecycle shape as ItemJournalLine. */
+export interface FaJournalLine {
+  id: number;
+  no: string;
+  posting_date: IsoDate;
+  document_no: string | null;
+  fixed_asset_id: number;
+  depreciation_book_code: string;
+  fa_posting_type: FaPostingType;
+  amount: Cents;
+  balancing_gl_account_id: number | null;
+  maintenance_code: string | null;
+  depr_until_fa_posting_date: Flag;
+  no_of_depreciation_days: number | null;
+  description: string | null;
+  source: FaJournalSource;
+  status: FaJournalStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface FaJournalLineView extends FaJournalLine {
+  fixed_asset_no: string;
+  fixed_asset_description: string;
+  balancing_gl_account_code: string | null;
+  balancing_gl_account_name: string | null;
+  journal_no: string | null;
+  book_value: Cents;
+  disposed: boolean;
+}
+
+/** Business Central Table 5601 "FA Ledger Entry" — the posted, immutable FA movement. */
+export interface FaLedgerEntry {
+  id: number;
+  fixed_asset_id: number;
+  depreciation_book_code: string;
+  fa_posting_date: IsoDate;
+  fa_posting_type: FaPostingType;
+  document_no: string;
+  description: string | null;
+  amount: Cents;
+  no_of_depreciation_days: number | null;
+  journal_id: number | null;
+  fa_journal_line_id: number | null;
+  part_of_book_value: Flag;
+  maintenance_code: string | null;
+  reversed: Flag;
+  created_at: IsoDateTime | null;
+}
+
+export interface FaLedgerEntryView extends FaLedgerEntry {
+  fixed_asset_no: string;
+  fixed_asset_description: string;
+}
+
+/** One line of calculateDepreciation()'s batch summary. */
+export interface FaDepreciationSuggestion {
+  fixed_asset_id: number;
+  fixed_asset_no: string;
+  fixed_asset_description: string;
+  amount: Cents;
+  days: number;
+  new_book_value: Cents;
+  no: string;
+}
+
+/** One row of the FA Book Value report — computed live from fa_ledger_entry. */
+export interface FaBookValueRow {
+  fixed_asset_id: number;
+  fixed_asset_no: string;
+  fixed_asset_description: string;
+  fa_class_code: string | null;
+  acquisition_cost: Cents;
+  depreciation: Cents;
+  write_down: Cents;
+  appreciation: Cents;
+  book_value: Cents;
+  disposed: boolean;
+}
+
+export interface FaBookValueReport {
+  book_code: string;
+  as_of: IsoDate;
+  rows: FaBookValueRow[];
+  totals: {
+    acquisition_cost: Cents;
+    depreciation: Cents;
+    write_down: Cents;
+    appreciation: Cents;
+    book_value: Cents;
+  };
+}
+/* ============================================================================================
+ * Receivables — Business Central Sales & Receivables (Tables 3/5/18/21/36/37/92/110-115/289/
+ * 293-296/302-305/311/379). See lib/customers.ts, lib/salesDocuments.ts, lib/custLedger.ts,
+ * lib/cashReceipts.ts, lib/reminders.ts, lib/receivablesReports.ts.
+ * ========================================================================================== */
+
+export type CustomerBlocked = '' | 'Ship' | 'Invoice' | 'All';
+export type PaymentMethodBalAccountType = 'None' | 'G/L Account' | 'Bank Account';
+export type SalesDocumentType = 'Quote' | 'Order' | 'Invoice' | 'Credit Memo';
+export type SalesLineType = 'Comment' | 'G/L Account' | 'Item' | 'Fixed Asset';
+export type SalesDocumentStatus = 'Open' | 'Pending Approval' | 'Released';
+export type PostedSalesDocumentType = 'Shipment' | 'Invoice' | 'Credit Memo';
+export type CustLedgerDocumentType =
+  | 'Invoice' | 'Payment' | 'Credit Memo' | 'Reminder' | 'Finance Charge Memo' | 'Refund';
+export type DetailedCustLedgerEntryType =
+  | 'Initial Entry' | 'Application' | 'Payment Discount' | 'Correction' | 'Unapplied'
+  | 'Realized Gain' | 'Realized Loss' | 'Unrealized Gain' | 'Unrealized Loss';
+export type ReminderDocumentType = 'Reminder' | 'Finance Charge Memo';
+export type ReminderStatus = 'Open' | 'Issued';
+export type ReminderLineType = '' | 'Reminder Line' | 'G/L Account' | 'Line Fee';
+export type CashReceiptStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Processed';
+export type CreditWarnings = 'Both' | 'Credit Limit' | 'Overdue Balance' | 'No Warning';
+export type FinChargeInterestMethod = 'Average Daily Balance' | 'Balance Due';
+
+export interface CustomerPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  receivables_account_id: number;
+  service_charge_account_id: number;
+  additional_fee_account_id: number;
+  payment_disc_debit_account_id: number;
+  payment_disc_credit_account_id: number;
+  invoice_rounding_account_id: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface CustomerPostingGroupView extends CustomerPostingGroup {
+  receivables_account_code: string;
+  service_charge_account_code: string;
+  additional_fee_account_code: string;
+  payment_disc_debit_account_code: string;
+  payment_disc_credit_account_code: string;
+  invoice_rounding_account_code: string;
+  customers_using: number;
+}
+
+export interface PaymentTerms {
+  id: number;
+  code: string;
+  description: string;
+  due_date_calculation: string;
+  discount_date_calculation: string;
+  discount_pct: number;
+  calc_pmt_disc_on_credit_memos: Flag;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PaymentMethod {
+  id: number;
+  code: string;
+  description: string;
+  bal_account_type: PaymentMethodBalAccountType;
+  bal_account_no: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ReminderTerms {
+  id: number;
+  code: string;
+  description: string;
+  max_no_of_reminders: number;
+  post_interest: Flag;
+  post_additional_fee: Flag;
+  min_amount: Cents;
+  dont_remind_on_hold: Flag;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ReminderLevel {
+  id: number;
+  reminder_terms_code: string;
+  level_no: number;
+  grace_period: string;
+  due_date_calculation: string;
+  calculate_interest: Flag;
+  additional_fee: Cents;
+  add_fee_per_line: Cents;
+  begin_text: string | null;
+  end_text: string | null;
+}
+
+export interface FinanceChargeTerms {
+  id: number;
+  code: string;
+  description: string;
+  interest_rate: number;
+  min_amount: Cents;
+  additional_fee: Cents;
+  grace_period: string;
+  due_date_calculation: string;
+  interest_period_days: number;
+  interest_calculation_method: FinChargeInterestMethod;
+  post_interest: Flag;
+  post_additional_fee: Flag;
+  line_description: string;
+  begin_text: string | null;
+  end_text: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface SalesReceivablesSetup {
+  id: number;
+  default_customer_posting_group_code: string | null;
+  default_payment_terms_code: string | null;
+  default_reminder_terms_code: string | null;
+  default_fin_charge_terms_code: string | null;
+  stockout_warning: Flag;
+  credit_warnings: CreditWarnings;
+  invoice_rounding: Flag;
+  invoice_rounding_precision: Cents;
+  allow_receivables_posting_from: IsoDate | null;
+  allow_receivables_posting_to: IsoDate | null;
+  updated_at: IsoDateTime | null;
+  updated_by: string | null;
+}
+
+/** Business Central Table 18 "Customer". */
+export interface Customer {
+  id: number;
+  no: string;
+  name: string;
+  name_2: string | null;
+  address: string | null;
+  address_2: string | null;
+  city: string | null;
+  post_code: string | null;
+  country: string | null;
+  contact: string | null;
+  phone: string | null;
+  email: string | null;
+  customer_posting_group_code: string | null;
+  payment_terms_code: string | null;
+  payment_method_code: string | null;
+  reminder_terms_code: string | null;
+  fin_charge_terms_code: string | null;
+  salesperson: string | null;
+  currency_code: string | null;
+  credit_limit: Cents;
+  blocked: CustomerBlocked;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  balance: Cents;
+  last_statement_no: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface CustomerListRow extends Customer {
+  customer_posting_group_description: string | null;
+  payment_terms_description: string | null;
+  balance_due: Cents;
+  credit_limit_exceeded: boolean;
+}
+
+export interface CustomerStatistics {
+  balance: Cents;
+  balance_due: Cents;
+  outstanding_orders: Cents;
+  overdue_entries: number;
+  ledger_entry_count: number;
+  credit_limit: Cents;
+}
+
+/** Business Central Table 36 "Sales Header". */
+export interface SalesHeader {
+  id: number;
+  document_type: SalesDocumentType;
+  no: string;
+  customer_id: number;
+  sell_to_name: string | null;
+  sell_to_address: string | null;
+  sell_to_city: string | null;
+  sell_to_contact: string | null;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  due_date: IsoDate | null;
+  payment_terms_code: string | null;
+  payment_method_code: string | null;
+  customer_posting_group_code: string | null;
+  your_reference: string | null;
+  salesperson: string | null;
+  currency_code: string;
+  currency_factor: number;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  status: SalesDocumentStatus;
+  amount: Cents;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface SalesHeaderView extends SalesHeader {
+  customer_no: string;
+  customer_name: string;
+  customer_blocked: CustomerBlocked;
+}
+
+/** Business Central Table 37 "Sales Line". */
+export interface SalesLine {
+  id: number;
+  sales_header_id: number;
+  line_no: number;
+  type: SalesLineType;
+  no: string | null;
+  description: string | null;
+  quantity: number;
+  unit_price: Cents;
+  line_discount_pct: number;
+  line_discount_amount: Cents;
+  line_amount: Cents;
+  qty_to_ship: number;
+  qty_shipped: number;
+  qty_to_invoice: number;
+  qty_invoiced: number;
+  location_code: string | null;
+  fa_depreciation_book_code: string | null;
+  depr_until_date: IsoDate | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+}
+
+export interface SalesDocumentDetail extends SalesHeaderView {
+  lines: SalesLine[];
+  outstanding_amount: Cents;
+  shipped_not_invoiced: Cents;
+}
+
+export interface PostedSalesDocument {
+  id: number;
+  document_type: PostedSalesDocumentType;
+  no: string;
+  customer_id: number;
+  sell_to_name: string | null;
+  sell_to_address: string | null;
+  sell_to_city: string | null;
+  sell_to_contact: string | null;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  due_date: IsoDate | null;
+  order_no: string | null;
+  payment_terms_code: string | null;
+  your_reference: string | null;
+  currency_code: string;
+  currency_factor: number;
+  amount: Cents;
+  cust_ledger_entry_id: number | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PostedSalesDocumentView extends PostedSalesDocument {
+  customer_no: string;
+  customer_name: string;
+}
+
+export interface PostedSalesLine {
+  id: number;
+  posted_sales_document_id: number;
+  line_no: number;
+  type: SalesLineType;
+  no: string | null;
+  description: string | null;
+  quantity: number;
+  unit_price: Cents;
+  line_discount_amount: Cents;
+  line_amount: Cents;
+  cogs_amount: Cents;
+  item_ledger_entry_id: number | null;
+  fa_ledger_entry_id: number | null;
+}
+
+/** Business Central Table 21 "Cust. Ledger Entry". */
+export interface CustLedgerEntry {
+  id: number;
+  customer_id: number;
+  posting_date: IsoDate;
+  document_type: CustLedgerDocumentType;
+  document_no: string;
+  description: string | null;
+  amount: Cents;
+  remaining_amount: Cents;
+  original_amount: Cents;
+  amount_lcy: Cents;
+  remaining_amount_lcy: Cents;
+  original_amount_lcy: Cents;
+  currency_code: string;
+  currency_factor: number;
+  due_date: IsoDate | null;
+  pmt_discount_date: IsoDate | null;
+  original_pmt_disc_possible: Cents;
+  open: Flag;
+  positive: Flag;
+  closed_by_entry_no: number | null;
+  closed_at_date: IsoDate | null;
+  reminder_level: number;
+  calculate_interest: Flag;
+  source_type: string | null;
+  source_id: number | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+}
+
+export interface CustLedgerEntryView extends CustLedgerEntry {
+  customer_no: string;
+  customer_name: string;
+}
+
+export interface DetailedCustLedgerEntry {
+  id: number;
+  cust_ledger_entry_id: number;
+  entry_type: DetailedCustLedgerEntryType;
+  posting_date: IsoDate;
+  document_type: string | null;
+  document_no: string | null;
+  amount: Cents;
+  amount_lcy: Cents;
+  applied_cust_ledger_entry_id: number | null;
+  journal_id: number | null;
+  unapplied: Flag;
+  unapplied_by_entry_id: number | null;
+  created_at: IsoDateTime | null;
+}
+
+export interface CashReceiptHeader {
+  id: number;
+  no: string;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  bank_account_id: number;
+  description: string | null;
+  status: CashReceiptStatus;
+  total_amount: Cents;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface CashReceiptHeaderView extends CashReceiptHeader {
+  bank_account_code: string;
+  bank_account_name: string;
+  line_count: number;
+  journal_no: string | null;
+}
+
+export interface CashReceiptLine {
+  id: number;
+  cash_receipt_header_id: number;
+  line_no: number;
+  customer_id: number;
+  amount: Cents;
+  payment_method_code: string | null;
+  document_no: string | null;
+  applies_to_doc_no: string | null;
+  external_document_no: string | null;
+  description: string | null;
+}
+
+export interface CashReceiptLineView extends CashReceiptLine {
+  customer_no: string;
+  customer_name: string;
+}
+
+export interface CashReceiptDetail extends CashReceiptHeaderView {
+  lines: CashReceiptLineView[];
+}
+
+export interface ReminderHeader {
+  id: number;
+  document_type: ReminderDocumentType;
+  no: string;
+  customer_id: number;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  due_date: IsoDate | null;
+  reminder_terms_code: string | null;
+  fin_charge_terms_code: string | null;
+  reminder_level: number;
+  customer_posting_group_code: string | null;
+  use_header_level: Flag;
+  status: ReminderStatus;
+  remaining_amount: Cents;
+  interest_amount: Cents;
+  additional_fee: Cents;
+  total_amount: Cents;
+  decision_reason: string | null;
+  journal_id: number | null;
+  cust_ledger_entry_id: number | null;
+  issued_at: IsoDateTime | null;
+  issued_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ReminderHeaderView extends ReminderHeader {
+  customer_no: string;
+  customer_name: string;
+}
+
+export interface ReminderLine {
+  id: number;
+  reminder_header_id: number;
+  line_no: number;
+  type: ReminderLineType;
+  cust_ledger_entry_id: number | null;
+  entry_document_type: string | null;
+  entry_document_no: string | null;
+  due_date: IsoDate | null;
+  original_amount: Cents;
+  remaining_amount: Cents;
+  no: string | null;
+  amount: Cents;
+  description: string | null;
+  line_type: '' | 'Not Due' | 'On Hold';
+}
+
+export interface ReminderDetail extends ReminderHeaderView {
+  lines: ReminderLine[];
+}
+
+/** One row of the Aged Accounts Receivable report (BC Report 120). */
+export interface AgedReceivableRow {
+  customer_id: number;
+  customer_no: string;
+  customer_name: string;
+  balance: Cents;
+  not_due: Cents;
+  bucket_1: Cents;
+  bucket_2: Cents;
+  bucket_3: Cents;
+  bucket_over: Cents;
+}
+
+export interface AgedReceivableReport {
+  as_of: IsoDate;
+  aging_by: 'Due Date' | 'Posting Date';
+  period_length: string;
+  bucket_labels: [string, string, string, string, string];
+  rows: AgedReceivableRow[];
+  totals: Omit<AgedReceivableRow, 'customer_id' | 'customer_no' | 'customer_name'>;
+}
+
+/** One row of the Customer Statement (BC Report 116). */
+export interface CustomerStatementLine {
+  posting_date: IsoDate;
+  document_type: CustLedgerDocumentType;
+  document_no: string;
+  description: string | null;
+  due_date: IsoDate | null;
+  amount: Cents;
+  remaining_amount: Cents;
+  running_balance: Cents;
+}
+
+export interface CustomerStatementReport {
+  customer_no: string;
+  customer_name: string;
+  from: IsoDate;
+  to: IsoDate;
+  opening_balance: Cents;
+  closing_balance: Cents;
+  lines: CustomerStatementLine[];
+}
+
+/* ============================================================================================
+ * Payables — Business Central Purchases & Payables (Tables 23/25/38/39/93/120/122/124/312/380).
+ * The mirror image of Receivables. See lib/vendors.ts, lib/purchaseDocuments.ts,
+ * lib/vendLedger.ts, lib/paymentJournal.ts, lib/payablesReports.ts.
+ * ========================================================================================== */
+
+export type VendorBlocked = '' | 'Payment' | 'Invoice' | 'All';
+export type PurchaseDocumentType = 'Quote' | 'Order' | 'Invoice' | 'Credit Memo';
+export type PurchaseLineType = 'Comment' | 'G/L Account' | 'Item' | 'Fixed Asset';
+export type PurchaseDocumentStatus = 'Open' | 'Pending Approval' | 'Released';
+export type PostedPurchaseDocumentType = 'Receipt' | 'Invoice' | 'Credit Memo';
+export type VendorLedgerDocumentType =
+  | 'Invoice' | 'Payment' | 'Credit Memo' | 'Finance Charge Memo' | 'Refund';
+export type DetailedVendorLedgerEntryType =
+  | 'Initial Entry' | 'Application' | 'Payment Discount' | 'Correction' | 'Unapplied'
+  | 'Realized Gain' | 'Realized Loss' | 'Unrealized Gain' | 'Unrealized Loss';
+export type PaymentJournalStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Processed';
+
+export interface VendorPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  payables_account_id: number;
+  service_charge_account_id: number;
+  payment_disc_debit_account_id: number;
+  payment_disc_credit_account_id: number;
+  invoice_rounding_account_id: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface VendorPostingGroupView extends VendorPostingGroup {
+  payables_account_code: string;
+  service_charge_account_code: string;
+  payment_disc_debit_account_code: string;
+  payment_disc_credit_account_code: string;
+  invoice_rounding_account_code: string;
+  vendors_using: number;
+}
+
+export interface PurchasesPayablesSetup {
+  id: number;
+  default_vendor_posting_group_code: string | null;
+  default_payment_terms_code: string | null;
+  default_vat_bus_posting_group_code: string | null;
+  prices_incl_vat: Flag;
+  receipt_on_invoice: Flag;
+  exact_cost_reversing_mandatory: Flag;
+  allow_payables_posting_from: IsoDate | null;
+  allow_payables_posting_to: IsoDate | null;
+  updated_at: IsoDateTime | null;
+  updated_by: string | null;
+}
+
+/** Business Central Table 23 "Vendor". */
+export interface Vendor {
+  id: number;
+  no: string;
+  name: string;
+  name_2: string | null;
+  address: string | null;
+  address_2: string | null;
+  city: string | null;
+  post_code: string | null;
+  country: string | null;
+  contact: string | null;
+  phone: string | null;
+  email: string | null;
+  vendor_posting_group_code: string | null;
+  vat_bus_posting_group_code: string | null;
+  pin_no: string | null;
+  wht_exempt: Flag;
+  payment_terms_code: string | null;
+  payment_method_code: string | null;
+  purchaser: string | null;
+  currency_code: string | null;
+  credit_limit: Cents;
+  blocked: VendorBlocked;
+  our_account_no: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  balance: Cents;
+  last_statement_no: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface VendorListRow extends Vendor {
+  vendor_posting_group_description: string | null;
+  payment_terms_description: string | null;
+  balance_due: Cents;
+}
+
+export interface VendorStatistics {
+  balance: Cents;
+  balance_due: Cents;
+  outstanding_orders: Cents;
+  overdue_entries: number;
+  ledger_entry_count: number;
+  credit_limit: Cents;
+}
+
+/** Business Central Table 38 "Purchase Header". */
+export interface PurchaseHeader {
+  id: number;
+  document_type: PurchaseDocumentType;
+  no: string;
+  vendor_id: number;
+  buy_from_name: string | null;
+  buy_from_address: string | null;
+  buy_from_city: string | null;
+  buy_from_contact: string | null;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  due_date: IsoDate | null;
+  payment_terms_code: string | null;
+  payment_method_code: string | null;
+  vendor_posting_group_code: string | null;
+  vat_bus_posting_group_code: string | null;
+  vendor_invoice_no: string | null;
+  purchaser: string | null;
+  currency_code: string;
+  currency_factor: number;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  status: PurchaseDocumentStatus;
+  amount: Cents;
+  amount_incl_vat: Cents;
+  decision_reason: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PurchaseHeaderView extends PurchaseHeader {
+  vendor_no: string;
+  vendor_name: string;
+  vendor_blocked: VendorBlocked;
+}
+
+/** Business Central Table 39 "Purchase Line". */
+export interface PurchaseLine {
+  id: number;
+  purchase_header_id: number;
+  line_no: number;
+  type: PurchaseLineType;
+  no: string | null;
+  description: string | null;
+  quantity: number;
+  direct_unit_cost: Cents;
+  line_discount_pct: number;
+  line_discount_amount: Cents;
+  line_amount: Cents;
+  vat_prod_posting_group_code: string | null;
+  vat_pct: number;
+  vat_base_amount: Cents;
+  vat_amount: Cents;
+  amount_incl_vat: Cents;
+  qty_to_receive: number;
+  qty_received: number;
+  qty_to_invoice: number;
+  qty_invoiced: number;
+  location_code: string | null;
+  fa_depreciation_book_code: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+}
+
+export interface PurchaseDocumentDetail extends PurchaseHeaderView {
+  lines: PurchaseLine[];
+  outstanding_amount: Cents;
+  received_not_invoiced: Cents;
+}
+
+export interface PostedPurchaseDocument {
+  id: number;
+  document_type: PostedPurchaseDocumentType;
+  no: string;
+  vendor_id: number;
+  buy_from_name: string | null;
+  buy_from_address: string | null;
+  buy_from_city: string | null;
+  buy_from_contact: string | null;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  due_date: IsoDate | null;
+  order_no: string | null;
+  vendor_invoice_no: string | null;
+  payment_terms_code: string | null;
+  vat_bus_posting_group_code: string | null;
+  currency_code: string;
+  currency_factor: number;
+  amount: Cents;
+  amount_incl_vat: Cents;
+  vendor_ledger_entry_id: number | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PostedPurchaseDocumentView extends PostedPurchaseDocument {
+  vendor_no: string;
+  vendor_name: string;
+}
+
+export interface PostedPurchaseLine {
+  id: number;
+  posted_purchase_document_id: number;
+  line_no: number;
+  type: PurchaseLineType;
+  no: string | null;
+  description: string | null;
+  quantity: number;
+  direct_unit_cost: Cents;
+  line_discount_amount: Cents;
+  line_amount: Cents;
+  vat_prod_posting_group_code: string | null;
+  vat_pct: number;
+  vat_base_amount: Cents;
+  vat_amount: Cents;
+  amount_incl_vat: Cents;
+  item_ledger_entry_id: number | null;
+  fa_ledger_entry_id: number | null;
+}
+
+/** Business Central Table 25 "Vendor Ledger Entry". */
+export interface VendorLedgerEntry {
+  id: number;
+  vendor_id: number;
+  posting_date: IsoDate;
+  document_type: VendorLedgerDocumentType;
+  document_no: string;
+  vendor_invoice_no: string | null;
+  description: string | null;
+  amount: Cents;
+  remaining_amount: Cents;
+  original_amount: Cents;
+  amount_lcy: Cents;
+  remaining_amount_lcy: Cents;
+  original_amount_lcy: Cents;
+  currency_code: string;
+  currency_factor: number;
+  due_date: IsoDate | null;
+  pmt_discount_date: IsoDate | null;
+  original_pmt_disc_possible: Cents;
+  open: Flag;
+  positive: Flag;
+  closed_by_entry_no: number | null;
+  closed_at_date: IsoDate | null;
+  on_hold: string | null;
+  source_type: string | null;
+  source_id: number | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+}
+
+export interface VendorLedgerEntryView extends VendorLedgerEntry {
+  vendor_no: string;
+  vendor_name: string;
+}
+
+export interface DetailedVendorLedgerEntry {
+  id: number;
+  vendor_ledger_entry_id: number;
+  entry_type: DetailedVendorLedgerEntryType;
+  posting_date: IsoDate;
+  document_type: string | null;
+  document_no: string | null;
+  amount: Cents;
+  amount_lcy: Cents;
+  applied_vendor_ledger_entry_id: number | null;
+  journal_id: number | null;
+  unapplied: Flag;
+  unapplied_by_entry_id: number | null;
+  created_at: IsoDateTime | null;
+}
+
+export interface PaymentJournalHeader {
+  id: number;
+  no: string;
+  posting_date: IsoDate;
+  document_date: IsoDate;
+  bank_account_id: number;
+  description: string | null;
+  status: PaymentJournalStatus;
+  total_amount: Cents;
+  decision_reason: string | null;
+  posted: boolean;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface PaymentJournalHeaderView extends PaymentJournalHeader {
+  bank_account_code: string;
+  bank_account_name: string;
+  line_count: number;
+  journal_no: string | null;
+}
+
+export interface PaymentJournalLine {
+  id: number;
+  payment_journal_header_id: number;
+  line_no: number;
+  vendor_id: number;
+  amount: Cents;
+  payment_method_code: string | null;
+  document_no: string | null;
+  applies_to_doc_no: string | null;
+  external_document_no: string | null;
+  description: string | null;
+  take_pmt_discount: Flag;
+}
+
+export interface PaymentJournalLineView extends PaymentJournalLine {
+  vendor_no: string;
+  vendor_name: string;
+}
+
+export interface PaymentJournalDetail extends PaymentJournalHeaderView {
+  lines: PaymentJournalLineView[];
+}
+
+/** One row of the Aged Accounts Payable report (BC Report 322). */
+export interface AgedPayableRow {
+  vendor_id: number;
+  vendor_no: string;
+  vendor_name: string;
+  balance: Cents;
+  not_due: Cents;
+  bucket_1: Cents;
+  bucket_2: Cents;
+  bucket_3: Cents;
+  bucket_over: Cents;
+}
+
+export interface AgedPayableReport {
+  as_of: IsoDate;
+  aging_by: 'Due Date' | 'Posting Date';
+  period_length: string;
+  bucket_labels: [string, string, string, string, string];
+  rows: AgedPayableRow[];
+  totals: Omit<AgedPayableRow, 'vendor_id' | 'vendor_no' | 'vendor_name'>;
+}
+
+export interface VendorStatementLine {
+  posting_date: IsoDate;
+  document_type: VendorLedgerDocumentType;
+  document_no: string;
+  description: string | null;
+  due_date: IsoDate | null;
+  amount: Cents;
+  remaining_amount: Cents;
+  running_balance: Cents;
+}
+
+export interface VendorStatementReport {
+  vendor_no: string;
+  vendor_name: string;
+  from: IsoDate;
+  to: IsoDate;
+  opening_balance: Cents;
+  closing_balance: Cents;
+  lines: VendorStatementLine[];
+}
+
+/* ============================================================================================
+ * Cash Management (Business Central) + multi-currency. See lib/bankMgmt.ts, lib/cashMgmtSetup.ts,
+ * lib/receipts.ts, lib/paymentVouchers.ts.
+ * ========================================================================================== */
+
+export type ReceiptLineType = 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account';
+export type ReceiptStatus = 'Open' | 'Pending Approval' | 'Approved';
+export type PaymentVoucherLineType = 'G/L Account' | 'Vendor' | 'Customer' | 'Bank Account';
+export type BankLedgerDocumentType =
+  '' | 'Payment' | 'Refund' | 'Receipt' | 'Transfer' | 'Reconciliation';
+export type BankRecLineType = 'Bank Account Ledger Entry' | 'G/L Adjustment';
+
+export interface Currency {
+  id: number;
+  code: string;
+  description: string;
+  symbol: string | null;
+  iso_numeric_code: string | null;
+  is_base: Flag;
+  amount_rounding_precision: Cents;
+  invoice_rounding_precision: Cents;
+  realized_gains_account_id: number | null;
+  realized_losses_account_id: number | null;
+  unrealized_gains_account_id: number | null;
+  unrealized_losses_account_id: number | null;
+  residual_gains_account_id: number | null;
+  residual_losses_account_id: number | null;
+  blocked: Flag;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface CurrencyView extends Currency {
+  realized_gains_account_code: string | null;
+  realized_losses_account_code: string | null;
+  latest_rate: number | null;
+  rate_count: number;
+}
+
+export interface CurrencyExchangeRate {
+  id: number;
+  currency_code: string;
+  starting_date: IsoDate;
+  exchange_rate_amount: number;
+  relational_exch_rate_amount: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface BankAccPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  gl_account_id: number;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface BankAccPostingGroupView extends BankAccPostingGroup {
+  gl_account_code: string;
+  gl_account_name: string;
+  accounts_using: number;
+}
+
+export interface ExternalBank {
+  id: number;
+  code: string;
+  name: string;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ExternalBankBranch {
+  id: number;
+  bank_code: string;
+  branch_code: string;
+  branch_name: string;
+}
+
+export interface CashManagementSetup {
+  id: number;
+  receipt_approval_limit: Cents;
+  pv_approval_limit: Cents;
+  default_vat_bus_posting_group_code: string | null;
+  bank_charges_account_id: number | null;
+  bank_interest_income_account_id: number | null;
+  default_receipt_bank_account_id: number | null;
+  allow_cm_posting_from: IsoDate | null;
+  allow_cm_posting_to: IsoDate | null;
+  updated_at: IsoDateTime | null;
+  updated_by: string | null;
+}
+
+export interface BankRecLine {
+  id: number;
+  bank_reconciliation_id: number;
+  line_no: number;
+  type: BankRecLineType;
+  transaction_date: IsoDate | null;
+  document_no: string | null;
+  description: string | null;
+  statement_amount: Cents;
+  applied_amount: Cents;
+  bank_account_ledger_entry_id: number | null;
+  gl_account_id: number | null;
+  applied: Flag;
+}
+
+export interface BankRecLineView extends BankRecLine {
+  entry_amount: Cents | null;
+  entry_open: Flag | null;
+  gl_account_code: string | null;
+}
+
+export interface BankReconciliationDetail {
+  reconciliation: BankReconciliation;
+  bankAccount: BankAccount;
+  lines: BankRecLineView[];
+  unmatchedEntries: BankAccountLedgerEntryWithJournal[];
+  appliedTotal: Cents;
+  adjustmentTotal: Cents;
+  totalBalance: Cents;
+  difference: Cents;
+}
+
+/* --------------------------------------------------------------------- Receipt */
+
+export interface ReceiptHeader {
+  id: number;
+  no: string;
+  receipt_type: ReceiptLineType;
+  posting_date: IsoDate;
+  bank_account_id: number;
+  bank_account_name: string | null;
+  pay_mode_code: string | null;
+  external_document_no: string | null;
+  manual_receipt_no: string | null;
+  description: string | null;
+  currency_code: string;
+  currency_factor: number;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  amount: Cents;
+  approval_limit: Cents;
+  status: ReceiptStatus;
+  posted: boolean;
+  decision_reason: string | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface ReceiptHeaderView extends ReceiptHeader {
+  bank_account_code: string;
+  line_count: number;
+  journal_no: string | null;
+}
+
+export interface ReceiptLine {
+  id: number;
+  receipt_header_id: number;
+  line_no: number;
+  line_type: ReceiptLineType;
+  account_no: string | null;
+  account_name: string | null;
+  description: string | null;
+  amount: Cents;
+  applies_to_doc_no: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+}
+
+export interface ReceiptDetail extends ReceiptHeaderView {
+  lines: ReceiptLine[];
+}
+
+export interface PostedReceipt {
+  id: number;
+  no: string;
+  receipt_no: string;
+  receipt_type: ReceiptLineType;
+  bank_account_id: number;
+  bank_account_name: string | null;
+  pay_mode_code: string | null;
+  external_document_no: string | null;
+  manual_receipt_no: string | null;
+  description: string | null;
+  currency_code: string;
+  currency_factor: number;
+  posting_date: IsoDate;
+  amount: Cents;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PostedReceiptLine {
+  id: number;
+  posted_receipt_id: number;
+  line_no: number;
+  line_type: ReceiptLineType;
+  account_no: string | null;
+  account_name: string | null;
+  description: string | null;
+  amount: Cents;
+  applies_to_doc_no: string | null;
+}
+
+/* --------------------------------------------------------------- Payment Voucher */
+
+export interface PaymentVoucherHeader {
+  id: number;
+  no: string;
+  date: IsoDate;
+  pv_type: string | null;
+  pay_mode_code: string | null;
+  cheque_no: string | null;
+  cheque_date: IsoDate | null;
+  cheque_received_by: string | null;
+  paying_bank_account_id: number;
+  currency_code: string;
+  currency_factor: number;
+  description: string | null;
+  payee_name: string | null;
+  payee_external_bank_code: string | null;
+  payee_bank_branch_code: string | null;
+  payee_account_no: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  total_amount: Cents;
+  approval_limit: Cents;
+  status: ReceiptStatus;
+  posted: boolean;
+  decision_reason: string | null;
+  prepared_by: string | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+}
+
+export interface PaymentVoucherHeaderView extends PaymentVoucherHeader {
+  paying_bank_account_code: string;
+  line_count: number;
+  journal_no: string | null;
+}
+
+export interface PaymentVoucherLine {
+  id: number;
+  payment_voucher_header_id: number;
+  line_no: number;
+  line_type: PaymentVoucherLineType;
+  account_no: string | null;
+  account_name: string | null;
+  description: string | null;
+  amount: Cents;
+  applies_to_doc_no: string | null;
+  vat_prod_posting_group_code: string | null;
+  wht_code_one: string | null;
+  wht_code_two: string | null;
+  vat_amount: Cents;
+  wht_amount_one: Cents;
+  wht_amount_two: Cents;
+  wht_base: Cents;
+  net_amount: Cents;
+  purchase_invoice_amount: Cents;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+}
+
+export interface PaymentVoucherDetail extends PaymentVoucherHeaderView {
+  lines: PaymentVoucherLine[];
+}
+
+export interface PostedPaymentVoucher {
+  id: number;
+  no: string;
+  pv_no: string;
+  date: IsoDate;
+  pay_mode_code: string | null;
+  cheque_no: string | null;
+  cheque_date: IsoDate | null;
+  cheque_received_by: string | null;
+  paying_bank_account_id: number;
+  currency_code: string;
+  currency_factor: number;
+  description: string | null;
+  payee_name: string | null;
+  payee_external_bank_code: string | null;
+  payee_bank_branch_code: string | null;
+  payee_account_no: string | null;
+  posting_date: IsoDate;
+  total_amount: Cents;
+  journal_id: number | null;
+  prepared_by: string | null;
+  approved_by: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PostedPaymentVoucherLine {
+  id: number;
+  posted_payment_voucher_id: number;
+  line_no: number;
+  line_type: PaymentVoucherLineType;
+  account_no: string | null;
+  account_name: string | null;
+  description: string | null;
+  amount: Cents;
+  applies_to_doc_no: string | null;
+  vat_prod_posting_group_code: string | null;
+  wht_code_one: string | null;
+  wht_code_two: string | null;
+  vat_amount: Cents;
+  wht_amount_one: Cents;
+  wht_amount_two: Cents;
+  wht_base: Cents;
+  net_amount: Cents;
+}
+
+/* ----------------------------------------------------------------- print slips */
+
+export interface ReceiptSlipLine { description: string; amount: Cents }
+export interface ReceiptSlip {
+  org_name: string;
+  org_address: string;
+  org_phone: string | null;
+  receipt_no: string;
+  date: IsoDate;
+  received_from: string;
+  pay_mode: string | null;
+  cheque_ref: string | null;
+  manual_no: string | null;
+  currency_code: string;
+  currency_symbol: string;
+  amount: Cents;
+  amount_words: string;
+  being_for: string;
+  lines: ReceiptSlipLine[];
+  issued_by: string | null;
+}
+
+export interface PaymentVoucherSlipLine {
+  account_no: string; account_name: string; description: string; amount: Cents;
+}
+export interface PaymentVoucherSlip {
+  org_name: string;
+  org_address: string;
+  org_phone: string | null;
+  pv_no: string;
+  date: IsoDate;
+  payee: string;
+  payee_bank: string | null;
+  payee_branch: string | null;
+  payee_account_no: string | null;
+  pay_mode: string | null;
+  paying_bank: string;
+  cheque_no: string | null;
+  cheque_date: IsoDate | null;
+  narration: string;
+  currency_code: string;
+  currency_symbol: string;
+  total: Cents;
+  total_words: string;
+  lines: PaymentVoucherSlipLine[];
+  prepared_by: string | null;
+  approved_by: string | null;
+  paid_by: string | null;
+  /** Deductions summary — populated when any line carries VAT / WHT. */
+  vat_total: Cents;
+  wht_total: Cents;
+  net_paid: Cents;
+}
+
+/* --------------------------------------------------------------- VAT + Withholding Tax */
+
+export type TaxType = 'VAT' | 'WHT';
+export type VatCalculationType = 'Normal' | 'Zero VAT' | 'Exempt';
+
+export interface VatBusinessPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface VatProductPostingGroup {
+  id: number;
+  code: string;
+  description: string;
+  tax_type: TaxType;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface VatPostingSetup {
+  id: number;
+  vat_bus_posting_group_code: string;
+  vat_prod_posting_group_code: string;
+  tax_type: TaxType;
+  vat_pct: number;
+  vat_calculation_type: VatCalculationType;
+  tax_account_id: number | null;
+  wht_base: 'Net' | 'Gross';
+  blocked: Flag;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface VatPostingSetupView extends VatPostingSetup {
+  tax_account_code: string | null;
+  tax_account_name: string | null;
+  vat_prod_description: string | null;
+}
+
+export interface VatEntry {
+  id: number;
+  posting_date: IsoDate;
+  document_type: string;
+  document_no: string;
+  type: 'Purchase' | 'Settlement';
+  tax_type: TaxType;
+  vat_bus_posting_group_code: string | null;
+  vat_prod_posting_group_code: string | null;
+  vat_pct: number;
+  base: Cents;
+  amount: Cents;
+  base_fcy: Cents;
+  amount_fcy: Cents;
+  currency_code: string;
+  currency_factor: number;
+  bill_to_pay_to_no: string | null;
+  vendor_pin: string | null;
+  wht_certificate_no: string | null;
+  journal_id: number | null;
+  source_type: string | null;
+  source_id: number | null;
+  closed: Flag;
+  created_at: IsoDateTime | null;
+}
+
+export interface WhtCertificate {
+  id: number;
+  no: string;
+  vendor_id: number;
+  vendor_name: string | null;
+  vendor_pin: string | null;
+  payment_voucher_no: string;
+  certificate_date: IsoDate;
+  gross_amount: Cents;
+  total_wht: Cents;
+  remitted: Flag;
+  remittance_ref: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface WhtCertificateLine {
+  id: number;
+  wht_certificate_id: number;
+  line_no: number;
+  wht_code: string;
+  description: string | null;
+  rate: number;
+  base: Cents;
+  wht_amount: Cents;
+  vat_entry_id: number | null;
+}
+
+export interface WhtCertificateView extends WhtCertificate {
+  vendor_no: string;
+}
+
+export interface WhtCertificateDetail extends WhtCertificateView {
+  lines: WhtCertificateLine[];
+}
+
+/** The one place the AL "Payment Voucher Lines".Amount arithmetic lives. */
+export interface LineTaxResult {
+  vatBase: Cents;
+  vatAmount: Cents;
+  netOfVat: Cents;
+  whtBase: Cents;
+  whtOne: Cents;
+  whtTwo: Cents;
+  netPaid: Cents;
+}
+
+export interface WhtCertificateSlipLine {
+  wht_code: string;
+  description: string;
+  rate: number;
+  base: Cents;
+  wht_amount: Cents;
+}
+
+export interface WhtCertificateSlip {
+  org_name: string;
+  org_address: string;
+  org_pin: string | null;
+  certificate_no: string;
+  certificate_date: IsoDate;
+  vendor_name: string;
+  vendor_pin: string | null;
+  payment_voucher_no: string;
+  gross_amount: Cents;
+  total_wht: Cents;
+  total_wht_words: string;
+  lines: WhtCertificateSlipLine[];
+}
+
+export interface VatInputListingRow {
+  vat_prod_posting_group_code: string;
+  description: string | null;
+  vat_pct: number;
+  base: Cents;
+  amount: Cents;
+  entry_count: number;
+}
+
+export interface WhtAnalysisRow {
+  bill_to_pay_to_no: string | null;
+  vendor_name: string | null;
+  vendor_pin: string | null;
+  wht_code: string | null;
+  rate: number;
+  base: Cents;
+  amount: Cents;
+  entry_count: number;
 }

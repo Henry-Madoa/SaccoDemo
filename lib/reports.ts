@@ -147,7 +147,7 @@ export async function getIncomeStatement(
   if (gd2Ids !== null) { dimParts.push('AND jl.global_dimension_2_id = ANY(@gd2Ids)'); dimParams.gd2Ids = gd2Ids; }
 
   const rows = await all<{ code: string; name: string; type: string; d: Cents; c: Cents }>(
-    `SELECT a.code, a.name, a.type, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    `SELECT a.code, a.name, a.type, COALESCE(SUM(jl.debit_lcy),0) d, COALESCE(SUM(jl.credit_lcy),0) c
      FROM gl_account a
      JOIN journal_line jl ON jl.gl_account_id = a.id
      JOIN journal j ON j.id = jl.journal_id

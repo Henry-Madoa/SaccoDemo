@@ -7,6 +7,7 @@ import {
   listUsers, listRoles, listSavingsProducts, listLoanProducts, listAuditLog, hasAnyAuditLog, AUDIT_FILTER_FIELDS,
   listActiveSavingsProducts, listActiveLoanProducts,
 } from '@/lib/admin';
+import { listProfiles, listUserProfiles } from '@/lib/profiles';
 import { listCollateralTypes } from '@/lib/collateralTypes';
 import { listFixedDepositTypes } from '@/lib/fixedDepositTypes';
 import { listSalaryAppraisalParameters } from '@/lib/salaryAppraisal';
@@ -55,6 +56,7 @@ import { ExportButton } from '@/components/ui/export-button';
 import { CompanyForm } from '../company-form';
 import { AppearanceEditor } from '../appearance-editor';
 import { UserFormButton } from '../user-form';
+import { UserPermissionsButton } from '../user-permissions-form';
 import { RoleFormButton, RoleRow } from '../role-form';
 import { SavingsProductButton, LoanProductButton } from '../product-forms';
 import { CollateralTypeButton } from '../collateral-type-form';
@@ -76,6 +78,7 @@ import {
   NoSeriesFormButton, DeleteNoSeriesButton, NoSeriesLineFormButton, DeleteNoSeriesLineButton, DocumentSeriesSelect,
 } from '../no-series-form';
 import { AccountInstructionFormButton, DeleteAccountInstructionButton } from '../account-instruction-form';
+import { ProfileFormButton, DeleteProfileButton } from '../profile-forms';
 import { WorkflowFormButton } from '../workflow-form';
 import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
 import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
@@ -85,6 +88,10 @@ import { ConfigPackageFormButton } from '../config-package-form';
 import { ConfigPackageCard, DeleteConfigPackageButton } from '../config-package-io';
 import { ChargeFormButton } from '../charge-form';
 import { TransactionChargeFormButton } from '../transaction-charge-form';
+import { listCurrencies, listExchangeRates } from '@/lib/cashMgmtSetup';
+import { listVatBusinessPostingGroups, listVatProductPostingGroups, listVatPostingSetup } from '@/lib/vatSetup';
+import { CurrencyFormButton, ExchangeRateFormButton, DeleteRateButton } from '../../cash-management/cash-mgmt-forms';
+import { VatBusinessGroupButton, VatProductGroupButton, VatPostingSetupRowButton } from '../vat-forms';
 import {
   JobQueueEntryFormButton, ToggleJobQueueStatusButton, RunJobQueueEntryButton, DeleteJobQueueEntryButton,
 } from '../job-queue-form';
@@ -111,6 +118,7 @@ const POOL_GROUPS: PoolGroup[] = [
       { key: 'dimensions', label: 'Global Dimensions', page: 'ADMIN_POOL_DIMENSIONS' },
       { key: 'document-no-series', label: 'Document No. Series', page: 'ADMIN_NO_SERIES' },
       { key: 'no-series', label: 'No. Series', page: 'ADMIN_NO_SERIES' },
+      { key: 'profiles', label: 'Role Centre Profiles', page: 'ADMIN_PROFILES' },
       { key: 'automation', label: 'System Automation', page: 'ADMIN_JOB_QUEUE' },
     ],
   },
@@ -141,6 +149,8 @@ const POOL_GROUPS: PoolGroup[] = [
     key: 'finance', label: 'Finance', screens: [
       { key: 'charge-codes', label: 'Charge Codes', page: 'ADMIN_CHARGES_MASTER' },
       { key: 'transaction-charges', label: 'Transaction Charges', page: 'ADMIN_CHARGES_TRANSACTION' },
+      { key: 'currencies', label: 'Currencies', page: 'ADMIN_POOL_CURRENCIES' },
+      { key: 'vat-posting-setup', label: 'VAT Posting Setup', page: 'ADMIN_POOL_VAT' },
     ],
   },
   {
@@ -253,6 +263,7 @@ export default async function AdminPage({ params, searchParams }: {
           {poolScreen.key === 'dimensions' ? <DimensionsTab /> : null}
           {poolScreen.key === 'document-no-series' ? <DocumentNoSeriesTab /> : null}
           {poolScreen.key === 'no-series' ? <NoSeriesTab /> : null}
+          {poolScreen.key === 'profiles' ? <ProfilesTab /> : null}
           {poolScreen.key === 'automation' ? <JobQueueTab /> : null}
           {poolScreen.key === 'member-categories' ? <MemberCategoriesTab /> : null}
           {poolScreen.key === 'account-instructions' ? <AccountInstructionsTab /> : null}
@@ -267,6 +278,8 @@ export default async function AdminPage({ params, searchParams }: {
           {poolScreen.key === 'external-cheque-types' ? <ExternalChequeTypesTab /> : null}
           {poolScreen.key === 'charge-codes' ? <ChargesMasterTab /> : null}
           {poolScreen.key === 'transaction-charges' ? <TransactionChargesTab /> : null}
+          {poolScreen.key === 'currencies' ? <CurrenciesAdminTab /> : null}
+          {poolScreen.key === 'vat-posting-setup' ? <VatPostingSetupTab /> : null}
           {poolScreen.key === 'salary-params' ? <SalaryParamsTab /> : null}
           {poolScreen.key === 'employers' ? <EmployersTab /> : null}
         </>
@@ -317,21 +330,21 @@ async function AppearanceTab() {
 }
 
 async function UsersTab() {
-  const [users, roles] = await Promise.all([listUsers(), listRoles()]);
+  const [users, roles, profiles] = await Promise.all([listUsers(), listRoles(), listProfiles()]);
 
   return (
     <>
       <Toolbar>
         <Spacer />
-        <UserFormButton roles={roles}>Add user</UserFormButton>
+        <UserFormButton roles={roles} profiles={profiles}>Add user</UserFormButton>
       </Toolbar>
       <Card>
         <CardHead title={`${users.length} system users`}
-          sub="Access is granted through roles, never directly to a person" />
+          sub="The permission set sets the defaults; per-user overrides tune an individual user; Role Centres are just the landing dashboard" />
         <TableWrap>
           <thead>
             <tr>
-              <th>User</th><th>Username</th><th>Role</th>
+              <th>User</th><th>Username</th><th>Roles &amp; permissions</th><th>Role Centres</th>
               <th>Last sign-in</th><th>Status</th><th className="num" />
             </tr>
           </thead>
@@ -343,13 +356,29 @@ async function UsersTab() {
                   <div className="tiny">{u.email || ''}</div>
                 </td>
                 <td className="mono">{u.username}</td>
-                <td>{u.role_name}</td>
+                <td>
+                  <b>{u.role_name}</b>
+                  {u.extra_permission_set_names.length ? (
+                    <div className="tiny muted-cell">+ {u.extra_permission_set_names.join(', ')}</div>
+                  ) : null}
+                  {u.override_count ? (
+                    <div><Pill tone="warn">{u.override_count} permission override{u.override_count === 1 ? '' : 's'}</Pill></div>
+                  ) : null}
+                </td>
+                <td className="tiny">
+                  {u.profile_codes.length
+                    ? profiles.filter((p) => u.profile_codes.includes(p.code)).map((p) => p.name).join(', ')
+                    : <span className="muted-cell">Super (default)</span>}
+                </td>
                 <td>{u.last_login_at ? formatDateTime(u.last_login_at) : 'never'}</td>
                 <td><Pill status={u.status} /></td>
                 <td className="num">
-                  <UserFormButton user={u} roles={roles} className="btn sm ghost">
-                    Edit
-                  </UserFormButton>
+                  <span className="inline" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                    <UserPermissionsButton user={u} pages={PAGES}>Permissions</UserPermissionsButton>
+                    <UserFormButton user={u} roles={roles} profiles={profiles} className="btn sm ghost">
+                      Edit
+                    </UserFormButton>
+                  </span>
                 </td>
               </tr>
             ))}
@@ -994,6 +1023,61 @@ function NoSeriesLineCard({ line, code }: {
   );
 }
 
+/** Setup Pool → General → Role Centre Profiles. A Profile is a landing-page selector — it decides
+ *  which Role Centre dashboard a user sees and carries no permissions. Assign them to users on the
+ *  Users tab; a user switches their active one in My Settings. */
+async function ProfilesTab() {
+  const [profiles, links] = await Promise.all([
+    listProfiles(),
+    Promise.all((await listUsers()).map(async (u) => ({ user: u, profiles: await listUserProfiles(u.id) }))),
+  ]);
+  const usersByProfile = new Map<number, string[]>();
+  for (const { user, profiles: ups } of links) {
+    for (const p of ups) usersByProfile.set(p.id, [...(usersByProfile.get(p.id) ?? []), user.full_name]);
+  }
+
+  return (
+    <>
+      <Toolbar>
+        <span className="tiny muted-cell">
+          A Role Centre chooses a user&apos;s home dashboard and which sidebar groups they see — it
+          grants no rights. Permissions come from the roles assigned on the Users tab.
+        </span>
+        <Spacer />
+        <ProfileFormButton>New profile</ProfileFormButton>
+      </Toolbar>
+      <Card>
+        <CardHead title={`${profiles.length} Role Centre profiles`}
+          sub="The six built-in profiles cannot be deleted; you can rename them or add your own" />
+        <TableWrap>
+          <thead>
+            <tr>
+              <th>Code</th><th>Name</th><th>Role Centre</th><th>Assigned users</th><th>Type</th><th className="num" />
+            </tr>
+          </thead>
+          <tbody>
+            {profiles.map((p) => (
+              <tr key={p.id}>
+                <td className="mono">{p.icon ? `${p.icon} ` : ''}{p.code}</td>
+                <td><b>{p.name}</b><div className="tiny muted-cell">{p.description}</div></td>
+                <td className="tiny">{p.role_centre}</td>
+                <td className="tiny">{(usersByProfile.get(p.id) ?? []).join(', ') || <span className="muted-cell">none</span>}</td>
+                <td>{p.is_system ? <Pill tone="info">Built-in</Pill> : <Pill>Custom</Pill>}</td>
+                <td className="num">
+                  <span className="inline" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                    <ProfileFormButton profile={p} className="btn sm ghost">Edit</ProfileFormButton>
+                    {p.is_system ? null : <DeleteProfileButton code={p.code} />}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      </Card>
+    </>
+  );
+}
+
 async function AccountInstructionsTab() {
   const rows = await listAccountInstructions();
   return (
@@ -1069,6 +1153,83 @@ async function ChargesMasterTab() {
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="💳" title="No charges yet" />}
+      </Card>
+    </>
+  );
+}
+
+async function CurrenciesAdminTab() {
+  const [currencies, rates, accounts] = await Promise.all([
+    listCurrencies(), listExchangeRates(), listPostableAccounts(),
+  ]);
+  const fx = currencies.filter((c) => !c.is_base).map((c) => ({ code: c.code }));
+  return (
+    <>
+      <Toolbar><Spacer /><CurrencyFormButton accounts={accounts}>New currency</CurrencyFormButton></Toolbar>
+      <Card>
+        <CardHead title="Currencies" sub="Business Central Table 4 — base currency plus every foreign currency, with its exchange gain/loss accounts" />
+        <TableWrap>
+          <thead><tr><th>Code</th><th>Description</th><th>Base</th><th className="num">Latest rate</th><th>Status</th><th className="num" /></tr></thead>
+          <tbody>
+            {currencies.map((c) => (
+              <tr key={c.id}>
+                <td className="mono">{c.code}</td><td>{c.description}</td>
+                <td>{c.is_base ? <Pill status="ok">Base</Pill> : '—'}</td>
+                <td className="num">{c.latest_rate ?? '—'}</td>
+                <td>{c.blocked ? <Pill tone="bad">Blocked</Pill> : <Pill status="ok">Active</Pill>}</td>
+                <td className="num">{!c.is_base ? <CurrencyFormButton currency={c} accounts={accounts} className="btn sm ghost">Edit</CurrencyFormButton> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      </Card>
+      <Card>
+        <CardHead title="Exchange Rates"><ExchangeRateFormButton currencies={fx}>Add rate</ExchangeRateFormButton></CardHead>
+        {rates.length ? (
+          <TableWrap>
+            <thead><tr><th>Currency</th><th>Starting date</th><th className="num">Units</th><th className="num">LCY</th><th className="num" /></tr></thead>
+            <tbody>{rates.map((r) => (
+              <tr key={r.id}><td className="mono">{r.currency_code}</td><td>{formatDate(r.starting_date)}</td>
+                <td className="num">{r.exchange_rate_amount}</td><td className="num">{r.relational_exch_rate_amount}</td>
+                <td className="num"><DeleteRateButton id={r.id} /></td></tr>
+            ))}</tbody>
+          </TableWrap>
+        ) : <EmptyState icon="💱" title="No exchange rates" />}
+      </Card>
+    </>
+  );
+}
+
+async function VatPostingSetupTab() {
+  const [busGroups, prodGroups, setup, accounts] = await Promise.all([
+    listVatBusinessPostingGroups(), listVatProductPostingGroups(), listVatPostingSetup(), listPostableAccounts(),
+  ]);
+  return (
+    <>
+      <Card>
+        <CardHead title="VAT Business Posting Groups" sub="Assigned to a vendor — combines with the product group to find the rate"><VatBusinessGroupButton>New</VatBusinessGroupButton></CardHead>
+        <TableWrap><thead><tr><th>Code</th><th>Description</th><th className="num" /></tr></thead><tbody>
+          {busGroups.map((g) => <tr key={g.id}><td className="mono">{g.code}</td><td>{g.description}</td><td className="num"><VatBusinessGroupButton row={g} className="btn sm ghost">Edit</VatBusinessGroupButton></td></tr>)}
+        </tbody></TableWrap>
+      </Card>
+      <Card>
+        <CardHead title="VAT Product Posting Groups" sub="Type VAT or WHT — the code carried on a G/L account or a payment-voucher line"><VatProductGroupButton>New</VatProductGroupButton></CardHead>
+        <TableWrap><thead><tr><th>Code</th><th>Description</th><th>Type</th><th className="num" /></tr></thead><tbody>
+          {prodGroups.map((g) => <tr key={g.id}><td className="mono">{g.code}</td><td>{g.description}</td><td>{g.tax_type}</td><td className="num"><VatProductGroupButton row={g} className="btn sm ghost">Edit</VatProductGroupButton></td></tr>)}
+        </tbody></TableWrap>
+      </Card>
+      <Card>
+        <CardHead title="VAT Posting Setup" sub="Business Central Table 325 — the % and G/L account for each business × product combination"><VatPostingSetupRowButton busGroups={busGroups} prodGroups={prodGroups} accounts={accounts}>New row</VatPostingSetupRowButton></CardHead>
+        <TableWrap><thead><tr><th>Business</th><th>Product</th><th>Type</th><th className="num">Rate %</th><th>Calc</th><th>Tax account</th><th className="num" /></tr></thead><tbody>
+          {setup.map((s) => (
+            <tr key={s.id}>
+              <td className="mono">{s.vat_bus_posting_group_code}</td><td className="mono">{s.vat_prod_posting_group_code}</td>
+              <td>{s.tax_type}</td><td className="num">{s.vat_pct}</td><td>{s.vat_calculation_type}</td>
+              <td className="mono muted-cell">{s.tax_account_code ?? '—'}</td>
+              <td className="num"><VatPostingSetupRowButton row={s} busGroups={busGroups} prodGroups={prodGroups} accounts={accounts} className="btn sm ghost">Edit</VatPostingSetupRowButton></td>
+            </tr>
+          ))}
+        </tbody></TableWrap>
       </Card>
     </>
   );

@@ -4,6 +4,8 @@ import {
 import { AppError } from './errors.ts';
 import { hashPassword } from './auth.ts';
 import { requireAction } from './session.ts';
+import { setUserProfiles } from './profiles.ts';
+import { setUserPermissionSets } from './userPermissions.ts';
 import { passwordStrengthError } from './password.ts';
 import { listPermissionTables } from './permissions.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
@@ -98,13 +100,38 @@ export async function updateRole(
 }
 
 /* --------------------------------------------------------------------- users */
-export const listUsers = (): Promise<UserListRow[]> =>
-  all<UserListRow>(
-    `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at,
-            r.name AS role_name, r.id AS role_id
-     FROM app_user u JOIN role r ON r.id = u.role_id
-     ORDER BY u.full_name`,
-  );
+export async function listUsers(): Promise<UserListRow[]> {
+  const [rows, profileLinks, overrides, extraSets] = await Promise.all([
+    all<Omit<UserListRow, 'profile_codes' | 'override_count' | 'extra_permission_set_names'>>(
+      `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at,
+              r.name AS role_name, r.id AS role_id
+       FROM app_user u JOIN role r ON r.id = u.role_id
+       ORDER BY u.full_name`,
+    ),
+    all<{ user_id: number; code: string }>(
+      `SELECT up.user_id, p.code FROM user_profile up JOIN profile p ON p.id = up.profile_id
+       ORDER BY p.sort, p.id`,
+    ),
+    all<{ user_id: number; n: number }>(
+      'SELECT user_id, COUNT(*) n FROM user_permission_line GROUP BY user_id',
+    ),
+    all<{ user_id: number; name: string }>(
+      `SELECT ups.user_id, r.name FROM user_permission_set ups JOIN role r ON r.id = ups.role_id
+       ORDER BY r.name`,
+    ),
+  ]);
+  const byUser = new Map<number, string[]>();
+  for (const l of profileLinks) byUser.set(l.user_id, [...(byUser.get(l.user_id) ?? []), l.code]);
+  const overrideByUser = new Map(overrides.map((o) => [o.user_id, Number(o.n)]));
+  const extraSetsByUser = new Map<number, string[]>();
+  for (const s of extraSets) extraSetsByUser.set(s.user_id, [...(extraSetsByUser.get(s.user_id) ?? []), s.name]);
+  return rows.map((r) => ({
+    ...r,
+    profile_codes: byUser.get(r.id) ?? [],
+    extra_permission_set_names: extraSetsByUser.get(r.id) ?? [],
+    override_count: overrideByUser.get(r.id) ?? 0,
+  }));
+}
 
 export interface UserInput {
   username?: string;
@@ -114,10 +141,16 @@ export interface UserInput {
   password?: string | null;
   role_id?: number | null;
   status?: UserStatus | null;
+  /** Role Centre Profiles to assign (My Settings then lets the user switch between them).
+   *  `undefined` leaves the current set alone; `[]` clears it. */
+  profileIds?: number[];
+  /** Additional Permission Sets granted on top of the primary role (BC "User Permission Sets").
+   *  `undefined` leaves the current set alone; `[]` clears it. Effective rights are the union. */
+  permissionSetIds?: number[];
 }
 
 export async function createUser(
-  { username, full_name, email, phone, password, role_id }: UserInput,
+  { username, full_name, email, phone, password, role_id, profileIds, permissionSetIds }: UserInput,
   user: Actor,
 ): Promise<{ id: number }> {
   if (!username || !full_name || !password || !role_id) {
@@ -128,19 +161,24 @@ export async function createUser(
   if (await one('SELECT 1 FROM app_user WHERE username = ?', username)) {
     throw new AppError('That username is already taken', 'DUPLICATE');
   }
-  const info = await run(
-    `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, created_at)
-     VALUES (?,?,?,?,?,?,?)`,
-    username, full_name, email || null, phone || null, hashPassword(password),
-    role_id, new Date().toISOString(),
-  );
-  await audit(user, 'USER_CREATE', 'app_user', info.lastInsertRowid, { username, role_id });
-  return { id: Number(info.lastInsertRowid) };
+  return tx(async () => {
+    const info = await run(
+      `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      username, full_name, email || null, phone || null, hashPassword(password),
+      role_id, new Date().toISOString(),
+    );
+    const newId = Number(info.lastInsertRowid);
+    if (profileIds !== undefined) await setUserProfiles(newId, profileIds, user);
+    if (permissionSetIds !== undefined) await setUserPermissionSets(newId, permissionSetIds, user);
+    await audit(user, 'USER_CREATE', 'app_user', newId, { username, role_id });
+    return { id: newId };
+  });
 }
 
 export async function updateUser(
   id: number,
-  { full_name, email, phone, role_id, status, password }: UserInput,
+  { full_name, email, phone, role_id, status, password, profileIds, permissionSetIds }: UserInput,
   user: Actor,
 ): Promise<{ updated: true }> {
   if (Number(id) === user.id && status && status !== 'ACTIVE') {
@@ -151,13 +189,17 @@ export async function updateUser(
     const pwError = passwordStrengthError(String(password), { username: existing?.username });
     if (pwError) throw new AppError(pwError, 'WEAK_PASSWORD');
   }
-  await run(
-    `UPDATE app_user SET full_name=COALESCE(?,full_name), email=COALESCE(?,email), phone=COALESCE(?,phone),
-      role_id=COALESCE(?,role_id), status=COALESCE(?,status),
-      password_hash=COALESCE(?,password_hash) WHERE id=?`,
-    full_name ?? null, email ?? null, phone ?? null, role_id ?? null, status ?? null,
-    password ? hashPassword(password) : null, id,
-  );
+  await tx(async () => {
+    await run(
+      `UPDATE app_user SET full_name=COALESCE(?,full_name), email=COALESCE(?,email), phone=COALESCE(?,phone),
+        role_id=COALESCE(?,role_id), status=COALESCE(?,status),
+        password_hash=COALESCE(?,password_hash) WHERE id=?`,
+      full_name ?? null, email ?? null, phone ?? null, role_id ?? null, status ?? null,
+      password ? hashPassword(password) : null, id,
+    );
+    if (profileIds !== undefined) await setUserProfiles(id, profileIds, user);
+    if (permissionSetIds !== undefined) await setUserPermissionSets(id, permissionSetIds, user);
+  });
   await audit(user, 'USER_UPDATE', 'app_user', id, { role_id, status, passwordReset: !!password });
   return { updated: true };
 }

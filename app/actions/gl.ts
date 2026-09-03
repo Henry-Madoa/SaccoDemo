@@ -93,68 +93,8 @@ export async function fetchJournalRelatedEntries(journalId: number): Promise<Act
   });
 }
 
-export async function createBankAccount(values: FormValues): Promise<ActionResult<{ id: number }>> {
-  return actionResult(async () => {
-    const user = await requireAction('GL_ACCOUNT_MANAGE');
-    const created = await gl.createBankAccount({
-      code: String(values.code || ''),
-      name: String(values.name || ''),
-      gl_account_id: Number(values.gl_account_id),
-      bank_name: String(values.bank_name || '') || null,
-      account_no: String(values.account_no || '') || null,
-    }, user);
-    revalidatePath('/accounting');
-    return created;
-  });
-}
-
-export async function updateBankAccount(id: number, values: FormValues): Promise<ActionResult<{ id: number }>> {
-  return actionResult(async () => {
-    const user = await requireAction('GL_ACCOUNT_MANAGE');
-    await gl.updateBankAccount(id, {
-      name: String(values.name || ''),
-      bank_name: String(values.bank_name || '') || null,
-      account_no: String(values.account_no || '') || null,
-      status: (String(values.status || 'ACTIVE') as 'ACTIVE' | 'INACTIVE'),
-    }, user);
-    revalidatePath('/accounting');
-    return { id };
-  });
-}
-
-export async function startBankReconciliation(
-  bankAccountId: number, values: FormValues,
-): Promise<ActionResult<{ id: number }>> {
-  return actionResult(async () => {
-    const user = await requireAction('GL_BANK_RECONCILE');
-    const rec = await gl.startBankReconciliation(
-      bankAccountId, String(values.statementDate || ''), toCents(String(values.statementBalance || '0')), user,
-    );
-    revalidatePath('/accounting');
-    return rec;
-  });
-}
-
-export async function toggleReconciledEntry(
-  entryId: number, reconciliationId: number, reconciled: boolean,
-): Promise<ActionResult<{ ok: true }>> {
-  return actionResult(async () => {
-    const user = await requireAction('GL_BANK_RECONCILE');
-    await gl.setEntryReconciled(entryId, reconciliationId, reconciled, user);
-    revalidatePath(`/accounting/bank-reconciliation/${reconciliationId}`);
-    return { ok: true };
-  });
-}
-
-export async function completeBankReconciliation(id: number): Promise<ActionResult<{ ok: true }>> {
-  return actionResult(async () => {
-    const user = await requireAction('GL_BANK_RECONCILE');
-    await gl.completeBankReconciliation(id, user);
-    revalidatePath(`/accounting/bank-reconciliation/${id}`);
-    revalidatePath('/accounting');
-    return { ok: true };
-  });
-}
+// Bank Accounts + Bank Reconciliation moved to the Cash Management module — see
+// app/actions/cashMgmt.ts.
 
 export async function createGlAccount(values: FormValues): Promise<ActionResult<{ id: number }>> {
   return actionResult(async () => {

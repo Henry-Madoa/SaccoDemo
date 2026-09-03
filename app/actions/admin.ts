@@ -4,13 +4,16 @@ import { revalidatePath } from 'next/cache';
 import { requireAction } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as admin from '@/lib/admin';
+import * as profiles from '@/lib/profiles';
+import * as userPerms from '@/lib/userPermissions';
 import { updateOrg, updateTheme } from '@/lib/org';
 import { toCents } from '@/lib/format';
 import type { LoanProductChargeDraft } from '@/lib/loanProductCharges';
 import type {
   ActionResult, FormValues, Organisation, PermissionTableOption, Role, SavingsProduct,
-  LoanProduct, Theme, ThemeTokens, UserStatus,
+  LoanProduct, Theme, ThemeTokens, UserPermissionMatrix, UserStatus,
 } from '@/lib/types';
+import type { DesiredPermissionRow } from '@/lib/userPermissions';
 
 /* --------------------------------------------------------------- company */
 export async function saveOrganisation(values: FormValues): Promise<ActionResult<Organisation>> {
@@ -53,6 +56,11 @@ export type SaveUserResult = { id: number } | { updated: true };
 export async function saveUser(id: number | null, values: FormValues): Promise<ActionResult<SaveUserResult>> {
   return actionResult(async () => {
     const user = await requireAction('ADMIN_USER_MANAGE');
+    // The profile / permission-set chips each post one comma-separated hidden field; an empty
+    // string is a deliberate "none", absent (undefined) leaves the current set alone.
+    const csvIds = (v: unknown): number[] | undefined => (v === undefined
+      ? undefined
+      : String(v).split(',').map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0));
     const body = {
       username: String(values.username || ''),
       full_name: String(values.full_name || ''),
@@ -62,10 +70,42 @@ export async function saveUser(id: number | null, values: FormValues): Promise<A
       status: (values.status as UserStatus) || null,
       // An empty box means "leave the password alone", not "set it to empty".
       password: String(values.password || '') || null,
+      profileIds: csvIds(values.profileIds),
+      permissionSetIds: csvIds(values.permissionSetIds),
     };
     const result = id ? await admin.updateUser(id, body, user) : await admin.createUser(body, user);
     revalidatePath('/admin/users');
+    revalidatePath('/', 'layout');
     return result;
+  });
+}
+
+/* -------------------------------------------------------- role centre profiles */
+export async function saveProfileRequest(id: number | null, values: FormValues): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_PROFILES_MANAGE');
+    const res = await profiles.saveProfile({
+      id,
+      code: String(values.code || ''),
+      name: String(values.name || ''),
+      description: String(values.description || ''),
+      roleCentre: String(values.roleCentre || 'SUPER'),
+      icon: String(values.icon || ''),
+      sort: Number(values.sort) || 0,
+    }, user);
+    revalidatePath('/admin/pool/general/profiles');
+    revalidatePath('/', 'layout');
+    return res;
+  });
+}
+
+export async function deleteProfileRequest(code: string): Promise<ActionResult<null>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_PROFILES_MANAGE');
+    await profiles.deleteProfile(code, user);
+    revalidatePath('/admin/pool/general/profiles');
+    revalidatePath('/', 'layout');
+    return null;
   });
 }
 
@@ -84,6 +124,8 @@ export async function saveRole(
     };
     const result = id ? await admin.updateRole(id, body, user) : await admin.createRole(body, user);
     revalidatePath('/admin/roles');
+    // Editing a permission set changes the sidebar and access of everyone holding it.
+    revalidatePath('/', 'layout');
     return result;
   });
 }
@@ -92,6 +134,36 @@ export async function listPermissionTablesAction(): Promise<ActionResult<Permiss
   return actionResult(async () => {
     await requireAction('ADMIN_ROLE_MANAGE');
     return admin.listPermissionTables();
+  });
+}
+
+/* --------------------------------------------------- per-user permission overrides */
+export async function fetchUserPermissionMatrix(userId: number): Promise<ActionResult<UserPermissionMatrix>> {
+  return actionResult(async () => {
+    await requireAction('ADMIN_USER_MANAGE');
+    return userPerms.getUserPermissionMatrix(userId);
+  });
+}
+
+export async function saveUserPermissionsRequest(
+  userId: number, rows: DesiredPermissionRow[],
+): Promise<ActionResult<{ overrides: number }>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_USER_MANAGE');
+    const res = await userPerms.setUserPermissions(userId, rows, user);
+    revalidatePath('/admin/users');
+    revalidatePath('/', 'layout');
+    return res;
+  });
+}
+
+export async function resetUserPermissionsRequest(userId: number): Promise<ActionResult<null>> {
+  return actionResult(async () => {
+    const user = await requireAction('ADMIN_USER_MANAGE');
+    await userPerms.resetUserPermissions(userId, user);
+    revalidatePath('/admin/users');
+    revalidatePath('/', 'layout');
+    return null;
   });
 }
 

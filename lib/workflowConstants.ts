@@ -46,6 +46,15 @@ export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
   INTER_ACCOUNT_TRANSFER: 'inter_account_transfer',
   BANKERS_CHEQUE: 'bankers_cheque',
   CHEQUE_DEPOSIT: 'cheque_deposit',
+  ITEM_JOURNAL: 'item_journal_line',
+  FA_JOURNAL: 'fa_journal_line',
+  SALES_DOCUMENT: 'sales_header',
+  CASH_RECEIPT: 'cash_receipt_header',
+  REMINDER: 'reminder_header',
+  PURCHASE_DOCUMENT: 'purchase_header',
+  PAYMENT_JOURNAL: 'payment_journal_header',
+  RECEIPT: 'receipt_header',
+  PAYMENT_VOUCHER: 'payment_voucher_header',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
@@ -71,6 +80,15 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   INTER_ACCOUNT_TRANSFER: 'Inter Account Transfer',
   BANKERS_CHEQUE: 'Banker’s Cheque',
   CHEQUE_DEPOSIT: 'Cheque Deposit',
+  ITEM_JOURNAL: 'Item Journal',
+  FA_JOURNAL: 'Fixed Asset Journal',
+  SALES_DOCUMENT: 'Sales Document',
+  CASH_RECEIPT: 'Cash Receipt',
+  REMINDER: 'Reminder / Finance Charge',
+  PURCHASE_DOCUMENT: 'Purchase Document',
+  PAYMENT_JOURNAL: 'Payment Journal',
+  RECEIPT: 'Receipt',
+  PAYMENT_VOUCHER: 'Payment Voucher',
 };
 
 const humanizeIdentifier = (identifier: string): string => identifier
@@ -117,12 +135,21 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   MEMBER_EXIT: (id) => `/member-exits/view/${id}`,
   CHECKOFF_BATCH: (id) => `/checkoff-batches/view/${id}`,
   FIXED_DEPOSIT: (id) => `/fixed-deposits/view/${id}`,
-  FOSA_TRANSACTION: (id) => `/cash-management/view/${id}`,
+  FOSA_TRANSACTION: (id) => `/branch-cash/view/${id}`,
   TELLER_TRANSACTION: (id) => `/teller-transactions/view/${id}`,
   MEMBER_LIEN: (id) => `/liens/view/${id}`,
   INTER_ACCOUNT_TRANSFER: (id) => `/inter-account-transfers/view/${id}`,
   BANKERS_CHEQUE: (id) => `/bankers-cheques/view/${id}`,
   CHEQUE_DEPOSIT: (id) => `/cheque-deposits/view/${id}`,
+  ITEM_JOURNAL: () => '/inventory/item-journal',
+  FA_JOURNAL: () => '/fixed-assets/journal',
+  SALES_DOCUMENT: () => '/receivables/sales-invoices',
+  CASH_RECEIPT: () => '/receivables/cash-receipts',
+  REMINDER: () => '/receivables/reminders',
+  PURCHASE_DOCUMENT: () => '/payables/purchase-invoices',
+  PAYMENT_JOURNAL: () => '/payables/payment-journal',
+  RECEIPT: (id) => `/cash-management/receipts/${id}`,
+  PAYMENT_VOUCHER: (id) => `/cash-management/payment-vouchers/${id}`,
 };
 
 export function documentLabel(documentType: WorkflowDocumentType, entityId: string): string {

@@ -13,10 +13,10 @@ import { tellerSetupForUser } from '@/lib/tellerSetup';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import type { ActionResult, BankAccountType, FormValues, FosaDocumentType } from '@/lib/types';
 
-const REVALIDATE = ['/cash-management', '/approvals', '/accounting'];
+const REVALIDATE = ['/branch-cash', '/approvals', '/accounting'];
 const revalidate = (no?: string) => {
   for (const p of REVALIDATE) revalidatePath(p);
-  if (no) revalidatePath(`/cash-management/view/${no}`);
+  if (no) revalidatePath(`/branch-cash/view/${no}`);
 };
 
 const toInput = (values: FormValues): FosaTransactionInput => ({

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { initials } from '@/lib/format';
-import { NAV, isSubMenu, type NavItem } from '@/lib/nav';
+import { NAV, isSubMenu, groupInRoleCentre, type NavItem } from '@/lib/nav';
 import { useNav } from './nav-context';
 import type { OrgBrand, SessionUser } from '@/lib/types';
 
@@ -23,6 +23,12 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
   const pathname = usePathname();
   const { open, close, hideDesktop } = useNav();
   const name = org.short_name || org.name || 'SACCO';
+
+  // Business Central: the active Profile / Role Centre defines the navigation. The Super Role
+  // Centre shows every group; a specialised one shows only its own area (plus the groups every
+  // centre gets). Permission filtering below still applies on top.
+  const centre = user.activeProfile.role_centre;
+  const visibleGroups = NAV.filter((g) => groupInRoleCentre(g, centre));
 
   // The header button hides the permanent column on desktop; on the mobile
   // drawer it simply closes it (the hamburger in the top bar reopens either).
@@ -115,8 +121,19 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
           </button>
         </div>
 
+        {user.profiles.length > 1 ? (
+          <Link href="/my-settings" className="nav-role-centre" onClick={close}>
+            <span className="ico" aria-hidden="true">{user.activeProfile.icon || '▤'}</span>
+            <span>
+              <span className="tiny muted-cell" style={{ display: 'block' }}>Role Centre</span>
+              {user.activeProfile.name}
+            </span>
+            <span className="chev" aria-hidden="true">›</span>
+          </Link>
+        ) : null}
+
         <nav className="nav">
-          {NAV.map((group) => {
+          {visibleGroups.map((group) => {
             // Keep an entry only if it (or, for a sub-menu, one of its children) is allowed.
             const entries = group.items
               .map((e) => (isSubMenu(e) ? { ...e, items: e.items.filter((c) => allowedPaths.includes(c.path)) } : e))

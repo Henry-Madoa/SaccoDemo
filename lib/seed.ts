@@ -11,6 +11,16 @@ import * as loanSvc from './loanService.ts';
 import { addMonths } from './loans.ts';
 import { expandActionsToLines, type ActionKey } from './permissions.ts';
 import { NO_SERIES_DOCUMENTS } from './noSeries.ts';
+import * as faLib from './fixedAssets.ts';
+import * as faJournalLib from './faJournal.ts';
+import * as faDeprLib from './fixedAssetDepreciation.ts';
+import * as custLib from './customers.ts';
+import * as salesLib from './salesDocuments.ts';
+import * as cashReceiptLib from './cashReceipts.ts';
+import * as reminderLib from './reminders.ts';
+import * as vendorLib from './vendors.ts';
+import * as purchaseLib from './purchaseDocuments.ts';
+import * as paymentJournalLib from './paymentJournal.ts';
 import type {
   Actor, Cents, Channel, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member,
 } from './types.ts';
@@ -43,7 +53,15 @@ const CHART: ChartRow[] = [
   ['1190', 'Provision for Loan Losses', 'ASSET', '1100', 1],
   ['1200', 'OTHER ASSETS', 'ASSET', null, 0],
   ['1210', 'Prepayments and Deposits', 'ASSET', '1200', 1],
+  ['1240', 'TRADE AND OTHER RECEIVABLES', 'ASSET', null, 0],
+  ['1250', 'Trade Receivables — Customers', 'ASSET', '1240', 1],
   ['1300', 'Property and Equipment', 'ASSET', null, 1],
+  ['1400', 'PROPERTY, PLANT AND EQUIPMENT', 'ASSET', null, 0],
+  ['1410', 'Land and Buildings at Cost', 'ASSET', '1400', 1],
+  ['1420', 'Furniture, Fittings & Equipment at Cost', 'ASSET', '1400', 1],
+  ['1425', 'Accum. Depreciation — Furniture, Fittings & Equipment', 'ASSET', '1400', 1],
+  ['1430', 'Motor Vehicles at Cost', 'ASSET', '1400', 1],
+  ['1435', 'Accum. Depreciation — Motor Vehicles', 'ASSET', '1400', 1],
   ['2000', 'MEMBER DEPOSITS', 'LIABILITY', null, 0],
   ['2010', 'BOSA Member Deposits', 'LIABILITY', '2000', 1],
   ['2020', 'FOSA Savings Accounts', 'LIABILITY', '2000', 1],
@@ -54,6 +72,9 @@ const CHART: ChartRow[] = [
   ['2120', 'Interest Payable on Deposits', 'LIABILITY', '2100', 1],
   ['2130', 'Unallocated Receipts (Suspense)', 'LIABILITY', '2100', 1],
   ['2140', 'Bankers Cheques Payable', 'LIABILITY', '2100', 1],
+  ['2145', 'TRADE AND OTHER PAYABLES', 'LIABILITY', null, 0],
+  ['2150', 'Trade Payables — Vendors', 'LIABILITY', '2145', 1],
+  ['2160', 'Goods Received Not Invoiced', 'LIABILITY', '2145', 1],
   ['3000', 'CAPITAL AND RESERVES', 'EQUITY', null, 0],
   ['3010', 'Member Share Capital', 'EQUITY', '3000', 1],
   ['3020', 'Statutory Reserve Fund', 'EQUITY', '3000', 1],
@@ -64,12 +85,32 @@ const CHART: ChartRow[] = [
   ['4030', 'Penalty and Default Income', 'INCOME', '4000', 1],
   ['4040', 'FOSA Commissions and Charges', 'INCOME', '4000', 1],
   ['4050', 'Other Operating Income', 'INCOME', '4000', 1],
+  ['4060', 'Gain on Disposal of Property & Equipment', 'INCOME', '4000', 1],
+  ['4090', 'SALES AND SERVICE INCOME', 'INCOME', null, 0],
+  ['4092', 'Rental Income', 'INCOME', '4090', 1],
+  ['4094', 'Service and Sundry Income', 'INCOME', '4090', 1],
+  ['4096', 'Merchandise Sales', 'INCOME', '4090', 1],
+  ['4098', 'Interest on Overdue Receivables', 'INCOME', '4090', 1],
+  ['4099', 'Late Payment and Reminder Fees', 'INCOME', '4090', 1],
   ['5000', 'EXPENDITURE', 'EXPENSE', null, 0],
   ['5010', 'Interest on Member Deposits', 'EXPENSE', '5000', 1],
   ['5020', 'Staff Costs', 'EXPENSE', '5000', 1],
   ['5030', 'Administrative Expenses', 'EXPENSE', '5000', 1],
   ['5040', 'Loan Loss Provision Expense', 'EXPENSE', '5000', 1],
   ['5050', 'Governance and Board Expenses', 'EXPENSE', '5000', 1],
+  ['5060', 'Depreciation Expense', 'EXPENSE', '5000', 1],
+  ['5070', 'Repairs and Maintenance', 'EXPENSE', '5000', 1],
+  ['5080', 'Loss on Disposal of Property & Equipment', 'EXPENSE', '5000', 1],
+  ['5090', 'Cost of Goods Sold', 'EXPENSE', '5000', 1],
+  // Cash Management + multi-currency + VAT/WHT
+  ['1260', 'Input VAT (Recoverable)', 'ASSET', '1240', 1],
+  ['2170', 'Cheques Not Presented', 'LIABILITY', '2145', 1],
+  ['2190', 'Withholding Tax Payable', 'LIABILITY', '2100', 1],
+  ['2195', 'Withholding VAT Payable', 'LIABILITY', '2100', 1],
+  ['4070', 'Realized Exchange Gain', 'INCOME', '4000', 1],
+  ['4072', 'Unrealized Exchange Gain', 'INCOME', '4000', 1],
+  ['5085', 'Realized Exchange Loss', 'EXPENSE', '5000', 1],
+  ['5087', 'Unrealized Exchange Loss', 'EXPENSE', '5000', 1],
 ];
 
 interface RoleSeed {
@@ -112,6 +153,12 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_STATUS_UPDATE_READ', 'MEMBER_STATUS_UPDATE_RUN', 'ADMIN_JOB_QUEUE_MANAGE',
       'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW',
       'SAVINGS_REVERSE', 'LOAN_READ', 'LOAN_CREATE', 'LOAN_APPROVE', 'LOAN_DISBURSE', 'LOAN_REPAY', 'GL_READ',
+      'INVENTORY_READ', 'INVENTORY_ITEM_MANAGE', 'INVENTORY_SETUP_MANAGE', 'INVENTORY_JOURNAL_CREATE',
+      'INVENTORY_JOURNAL_APPROVE', 'INVENTORY_JOURNAL_POST',
+      'FIXED_ASSETS_READ', 'FIXED_ASSETS_JOURNAL_APPROVE',
+      'RECEIVABLES_READ', 'RECEIVABLES_SALES_APPROVE',
+      'PAYABLES_READ', 'PAYABLES_PURCHASE_APPROVE',
+      'CASH_MGMT_READ', 'CASH_MGMT_RECEIPT_APPROVE', 'CASH_MGMT_PV_APPROVE', 'CASH_MGMT_RECONCILE', 'VAT_REPORT_READ',
       'LOAN_CALCULATOR_READ', 'LOAN_CALCULATOR_CREATE', 'LOAN_CALCULATOR_DELETE', 'LOAN_CALCULATOR_CONVERT',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_APPLICATIONS_APPROVE',
       'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE',
@@ -122,6 +169,7 @@ export const ROLES: RoleSeed[] = [
       'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE', 'MEMBER_EXITS_APPROVE',
       'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE', 'CHECKOFF_BATCHES_APPROVE', 'EMPLOYERS_MANAGE',
       'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE', 'FIXED_DEPOSITS_APPROVE', 'ADMIN_PRODUCTS_FD_MANAGE',
+      'FINANCIAL_REPORTS_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW', 'ADMIN_CHANGE_LOG_MANAGE',
     ],
   },
@@ -139,6 +187,7 @@ export const ROLES: RoleSeed[] = [
       'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE',
       'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE',
       'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE',
+      'FINANCIAL_REPORTS_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -190,9 +239,25 @@ export const ROLES: RoleSeed[] = [
       'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE',
       'GL_ACCOUNT_MANAGE', 'GL_BANK_RECONCILE',
+      'INVENTORY_READ', 'INVENTORY_ITEM_MANAGE', 'INVENTORY_SETUP_MANAGE', 'INVENTORY_JOURNAL_CREATE',
+      'INVENTORY_JOURNAL_APPROVE', 'INVENTORY_JOURNAL_POST',
+      'FIXED_ASSETS_READ', 'FIXED_ASSETS_ASSET_MANAGE', 'FIXED_ASSETS_SETUP_MANAGE', 'FIXED_ASSETS_JOURNAL_CREATE',
+      'FIXED_ASSETS_JOURNAL_APPROVE', 'FIXED_ASSETS_JOURNAL_POST', 'FIXED_ASSETS_DEPRECIATION_RUN',
+      'RECEIVABLES_READ', 'RECEIVABLES_CUSTOMER_MANAGE', 'RECEIVABLES_SETUP_MANAGE', 'RECEIVABLES_SALES_CREATE',
+      'RECEIVABLES_SALES_APPROVE', 'RECEIVABLES_SALES_POST', 'RECEIVABLES_CASH_RECEIPT_CREATE',
+      'RECEIVABLES_CASH_RECEIPT_POST', 'RECEIVABLES_REMINDER_MANAGE', 'RECEIVABLES_APPLY_ENTRIES',
+      'PAYABLES_READ', 'PAYABLES_VENDOR_MANAGE', 'PAYABLES_SETUP_MANAGE', 'PAYABLES_PURCHASE_CREATE',
+      'PAYABLES_PURCHASE_APPROVE', 'PAYABLES_PURCHASE_POST', 'PAYABLES_PAYMENT_CREATE',
+      'PAYABLES_PAYMENT_POST', 'PAYABLES_APPLY_ENTRIES',
+      'CASH_MGMT_READ', 'CASH_MGMT_BANK_MANAGE', 'CASH_MGMT_SETUP_MANAGE', 'CASH_MGMT_CURRENCY_MANAGE',
+      'CASH_MGMT_RECONCILE', 'CASH_MGMT_FX_ADJUST', 'CASH_MGMT_RECEIPT_CREATE', 'CASH_MGMT_RECEIPT_APPROVE',
+      'CASH_MGMT_RECEIPT_POST', 'CASH_MGMT_PV_CREATE', 'CASH_MGMT_PV_APPROVE', 'CASH_MGMT_PV_POST',
+      'CASH_MGMT_APPLY_ENTRIES', 'WHT_CERTIFICATE_PRINT',
+      'VAT_REPORT_READ', 'VAT_SETUP_MANAGE', 'WHT_MARK_REMITTED', 'CURRENCY_SETUP_MANAGE',
       'ADMIN_CHARGES_MASTER_MANAGE', 'ADMIN_CHARGES_TRANSACTION_MANAGE',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
       'FIXED_DEPOSITS_READ',
+      'FINANCIAL_REPORTS_READ', 'FINANCIAL_REPORTS_MANAGE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
     ],
   },
@@ -210,8 +275,140 @@ export const ROLES: RoleSeed[] = [
       'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
       'GUARANTOR_CHANGES_READ',
-      'FIXED_DEPOSITS_READ',
+      'FIXED_DEPOSITS_READ', 'INVENTORY_READ', 'FIXED_ASSETS_READ', 'RECEIVABLES_READ', 'PAYABLES_READ',
+      'CASH_MGMT_READ', 'VAT_REPORT_READ', 'FINANCIAL_REPORTS_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
+    ],
+  },
+
+  /* ---------------------------------------------------------------------------------------------
+   * Role-centre permission sets. Independent of the Profile catalogue — an admin pairs a matching
+   * permission set with a Profile, but either can be used without the other. The migration
+   * backfills the identical lines for an already-seeded DB (scripts/gen-role-center-perms.ts).
+   * ------------------------------------------------------------------------------------------- */
+  {
+    name: 'Super Role Centre',
+    description: 'Broad cross-society access — pairs with the Super role centre.',
+    actions: [
+      'MEMBERS_READ', 'MEMBERS_UPDATE', 'MEMBER_STATEMENTS_READ',
+      'MEMBER_APPLICATIONS_READ', 'MEMBER_APPLICATIONS_CREATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_APPLICATIONS_APPROVE',
+      'MEMBER_EDITS_READ', 'MEMBER_EDITS_UPDATE', 'MEMBER_EDITS_APPROVE',
+      'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE', 'MEMBER_EXITS_APPROVE',
+      'MEMBER_ACTIVATIONS_READ', 'MEMBER_ACTIVATIONS_CREATE', 'MEMBER_ACTIVATIONS_APPROVE',
+      'MEMBER_READMISSIONS_READ', 'MEMBER_READMISSIONS_CREATE', 'MEMBER_READMISSIONS_APPROVE',
+      'ACCOUNT_OPENING_READ', 'ACCOUNT_OPENING_CREATE', 'ACCOUNT_OPENING_APPROVE',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE', 'ACCOUNT_DEACTIVATION_APPROVE',
+      'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE', 'ACCOUNT_ACTIVATION_APPROVE',
+      'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
+      'STANDING_ORDERS_READ', 'STANDING_ORDERS_CREATE', 'STANDING_ORDERS_APPROVE', 'STANDING_ORDERS_RUN',
+      'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE', 'CHECKOFF_BATCHES_APPROVE',
+      'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE', 'FIXED_DEPOSITS_APPROVE',
+      'CASH_MANAGEMENT_READ', 'CASH_MANAGEMENT_CREATE', 'CASH_MANAGEMENT_APPROVE', 'CASH_MANAGEMENT_POST',
+      'TELLER_TRANSACTIONS_READ', 'TELLER_TRANSACTIONS_CREATE', 'TELLER_TRANSACTIONS_APPROVE', 'TELLER_TRANSACTIONS_POST',
+      'LIENS_READ', 'LIENS_CREATE', 'LIENS_APPROVE', 'LIENS_POST',
+      'INTER_ACCOUNT_TRANSFERS_READ', 'INTER_ACCOUNT_TRANSFERS_CREATE', 'INTER_ACCOUNT_TRANSFERS_APPROVE',
+      'INTER_ACCOUNT_TRANSFERS_POST', 'INTER_ACCOUNT_TRANSFERS_CROSS_MEMBER',
+      'BANKERS_CHEQUES_READ', 'BANKERS_CHEQUES_CREATE', 'BANKERS_CHEQUES_APPROVE', 'BANKERS_CHEQUES_POST',
+      'CHEQUE_DEPOSITS_READ', 'CHEQUE_DEPOSITS_CREATE', 'CHEQUE_DEPOSITS_APPROVE', 'CHEQUE_DEPOSITS_CLEAR',
+      'ENTRANCE_FEE_RECOVERY_READ', 'ENTRANCE_FEE_RECOVERY_RUN', 'MEMBER_STATUS_UPDATE_READ', 'MEMBER_STATUS_UPDATE_RUN',
+      'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW', 'SAVINGS_REVERSE',
+      'LOAN_READ', 'LOAN_CREATE', 'LOAN_APPROVE', 'LOAN_DISBURSE', 'LOAN_REPAY',
+      'LOAN_CALCULATOR_READ', 'LOAN_CALCULATOR_CREATE', 'LOAN_CALCULATOR_DELETE', 'LOAN_CALCULATOR_CONVERT',
+      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_APPLICATIONS_APPROVE',
+      'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE', 'COLLATERAL_RELEASES_APPROVE',
+      'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE', 'GUARANTOR_CHANGES_APPROVE',
+      'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE',
+      'INVENTORY_READ', 'FIXED_ASSETS_READ', 'RECEIVABLES_READ', 'PAYABLES_READ', 'CASH_MGMT_READ',
+      'VAT_REPORT_READ', 'FINANCIAL_REPORTS_READ',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW', 'ADMIN_PROFILES_READ',
+    ],
+  },
+  {
+    name: 'CRM Officer',
+    description: 'Membership, applications and member care — pairs with the CRM role centre.',
+    actions: [
+      'MEMBERS_READ', 'MEMBERS_UPDATE', 'MEMBER_STATEMENTS_READ',
+      'MEMBER_APPLICATIONS_READ', 'MEMBER_APPLICATIONS_CREATE', 'MEMBER_APPLICATIONS_UPDATE', 'MEMBER_APPLICATIONS_APPROVE',
+      'MEMBER_EDITS_READ', 'MEMBER_EDITS_UPDATE', 'MEMBER_EDITS_APPROVE',
+      'MEMBER_EXITS_READ', 'MEMBER_EXITS_CREATE', 'MEMBER_EXITS_APPROVE',
+      'MEMBER_ACTIVATIONS_READ', 'MEMBER_ACTIVATIONS_CREATE', 'MEMBER_ACTIVATIONS_APPROVE',
+      'MEMBER_READMISSIONS_READ', 'MEMBER_READMISSIONS_CREATE', 'MEMBER_READMISSIONS_APPROVE',
+      'ACCOUNT_OPENING_READ', 'ACCOUNT_OPENING_CREATE', 'ACCOUNT_OPENING_APPROVE',
+      'ACCOUNT_DEACTIVATION_READ', 'ACCOUNT_DEACTIVATION_CREATE',
+      'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE',
+      'MEMBER_CHARGING_READ', 'STANDING_ORDERS_READ', 'MEMBER_STATUS_UPDATE_READ', 'ENTRANCE_FEE_RECOVERY_READ',
+      'SAVINGS_READ', 'LOAN_READ', 'FIXED_DEPOSITS_READ',
+      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
+    ],
+  },
+  {
+    name: 'Credit Officer',
+    description: 'Loans, collateral and guarantors — pairs with the Credit role centre.',
+    actions: [
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'SAVINGS_READ',
+      'LOAN_READ', 'LOAN_CREATE', 'LOAN_APPROVE', 'LOAN_DISBURSE', 'LOAN_REPAY',
+      'LOAN_CALCULATOR_READ', 'LOAN_CALCULATOR_CREATE', 'LOAN_CALCULATOR_DELETE', 'LOAN_CALCULATOR_CONVERT',
+      'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_APPLICATIONS_CREATE', 'COLLATERAL_APPLICATIONS_APPROVE',
+      'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'COLLATERAL_RELEASES_CREATE', 'COLLATERAL_RELEASES_APPROVE',
+      'GUARANTOR_CHANGES_READ', 'GUARANTOR_CHANGES_CREATE', 'GUARANTOR_CHANGES_APPROVE',
+      'CHECKOFF_BATCHES_READ', 'CHECKOFF_BATCHES_CREATE', 'CHECKOFF_BATCHES_APPROVE',
+      'FIXED_DEPOSITS_READ', 'GL_READ',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'FINANCIAL_REPORTS_READ',
+    ],
+  },
+  {
+    name: 'FOSA Officer',
+    description: 'Teller and front-office operations — pairs with the FOSA role centre.',
+    actions: [
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ',
+      'SAVINGS_READ', 'SAVINGS_DEPOSIT', 'SAVINGS_WITHDRAW',
+      'TELLER_TRANSACTIONS_READ', 'TELLER_TRANSACTIONS_CREATE', 'TELLER_TRANSACTIONS_POST',
+      'CASH_MANAGEMENT_READ', 'CASH_MANAGEMENT_CREATE', 'CASH_MANAGEMENT_POST',
+      'LIENS_READ', 'LIENS_CREATE', 'LIENS_POST',
+      'INTER_ACCOUNT_TRANSFERS_READ', 'INTER_ACCOUNT_TRANSFERS_CREATE', 'INTER_ACCOUNT_TRANSFERS_POST', 'INTER_ACCOUNT_TRANSFERS_CROSS_MEMBER',
+      'BANKERS_CHEQUES_READ', 'BANKERS_CHEQUES_CREATE', 'BANKERS_CHEQUES_POST',
+      'CHEQUE_DEPOSITS_READ', 'CHEQUE_DEPOSITS_CREATE', 'CHEQUE_DEPOSITS_CLEAR',
+      'STANDING_ORDERS_READ', 'STANDING_ORDERS_CREATE',
+      'FIXED_DEPOSITS_READ', 'FIXED_DEPOSITS_CREATE',
+      'MEMBER_CHARGING_READ', 'MEMBER_CHARGING_CREATE', 'MEMBER_CHARGING_POST',
+      'ENTRANCE_FEE_RECOVERY_READ', 'ENTRANCE_FEE_RECOVERY_RUN', 'MEMBER_STATUS_UPDATE_READ', 'MEMBER_STATUS_UPDATE_RUN',
+      'ACCOUNT_OPENING_READ', 'ACCOUNT_OPENING_CREATE', 'ACCOUNT_ACTIVATION_READ', 'ACCOUNT_ACTIVATION_CREATE',
+      'DENOMINATIONS_READ', 'TELLER_SETUP_READ', 'LOAN_READ', 'LOAN_REPAY',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
+    ],
+  },
+  {
+    name: 'Finance Manager',
+    description: 'Reporting, approvals and oversight — pairs with the Finance Manager role centre.',
+    actions: [
+      'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'SAVINGS_READ', 'LOAN_READ', 'MEMBER_EXITS_READ', 'CHECKOFF_BATCHES_READ',
+      'GL_READ', 'GL_JOURNAL_APPROVE', 'GL_PERIOD_CLOSE', 'GL_BANK_RECONCILE',
+      'FINANCIAL_REPORTS_READ', 'FINANCIAL_REPORTS_MANAGE', 'REPORTS_VIEW', 'DASHBOARD_VIEW', 'APPROVALS_VIEW',
+      'RECEIVABLES_READ', 'PAYABLES_READ', 'CASH_MGMT_READ', 'CASH_MGMT_RECONCILE',
+      'INVENTORY_READ', 'FIXED_ASSETS_READ', 'VAT_REPORT_READ',
+      'TELLER_TRANSACTIONS_READ', 'TELLER_TRANSACTIONS_APPROVE',
+      'CASH_MANAGEMENT_READ', 'CASH_MANAGEMENT_APPROVE',
+      'LIENS_READ', 'LIENS_APPROVE', 'INTER_ACCOUNT_TRANSFERS_READ', 'INTER_ACCOUNT_TRANSFERS_APPROVE',
+      'BANKERS_CHEQUES_READ', 'BANKERS_CHEQUES_APPROVE', 'CHEQUE_DEPOSITS_READ', 'CHEQUE_DEPOSITS_APPROVE',
+      'CASH_MGMT_RECEIPT_APPROVE', 'CASH_MGMT_PV_APPROVE', 'ADMIN_AUDIT_VIEW',
+    ],
+  },
+  {
+    name: 'Accountant',
+    description: 'General ledger, journals, reconciliation and tax — pairs with the Accountant role centre.',
+    actions: [
+      'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_ACCOUNT_MANAGE',
+      'GL_BANK_RECONCILE', 'GL_PERIOD_CLOSE',
+      'FINANCIAL_REPORTS_READ', 'FINANCIAL_REPORTS_MANAGE', 'REPORTS_VIEW', 'DASHBOARD_VIEW', 'APPROVALS_VIEW',
+      'RECEIVABLES_READ', 'RECEIVABLES_APPLY_ENTRIES', 'RECEIVABLES_CASH_RECEIPT_CREATE', 'RECEIVABLES_CASH_RECEIPT_POST',
+      'PAYABLES_READ', 'PAYABLES_APPLY_ENTRIES', 'PAYABLES_PAYMENT_CREATE', 'PAYABLES_PAYMENT_POST',
+      'CASH_MGMT_READ', 'CASH_MGMT_RECONCILE', 'CASH_MGMT_RECEIPT_CREATE', 'CASH_MGMT_RECEIPT_POST',
+      'CASH_MGMT_PV_CREATE', 'CASH_MGMT_PV_POST', 'CASH_MGMT_APPLY_ENTRIES', 'CASH_MGMT_FX_ADJUST',
+      'VAT_REPORT_READ', 'VAT_SETUP_MANAGE', 'WHT_CERTIFICATE_PRINT', 'WHT_MARK_REMITTED',
+      'INVENTORY_READ', 'INVENTORY_JOURNAL_CREATE', 'INVENTORY_JOURNAL_POST',
+      'FIXED_ASSETS_READ', 'FIXED_ASSETS_JOURNAL_CREATE', 'FIXED_ASSETS_JOURNAL_POST', 'FIXED_ASSETS_DEPRECIATION_RUN',
+      'SAVINGS_READ', 'LOAN_READ', 'MEMBERS_READ',
     ],
   },
 ];
@@ -237,6 +434,36 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   await run(INS_SEQ, 'INTER_ACCOUNT_TRANSFER', 'IAT', 1, 6);
   await run(INS_SEQ, 'BANKERS_CHEQUE', 'BCQ', 1, 6);
   await run(INS_SEQ, 'CHEQUE_DEPOSIT', 'CHQ', 1, 6);
+  await run(INS_SEQ, 'ITEM', 'ITM', 1, 6);
+  await run(INS_SEQ, 'ITEM_JOURNAL', 'IJL', 1, 6);
+  await run(INS_SEQ, 'FIXED_ASSET', 'FA', 1, 6);
+  await run(INS_SEQ, 'FA_JOURNAL', 'FAJ', 1, 6);
+  await run(INS_SEQ, 'CUSTOMER', 'C', 1001, 5);
+  await run(INS_SEQ, 'SALES_QUOTE', 'SQ', 1, 6);
+  await run(INS_SEQ, 'SALES_ORDER', 'SO', 1, 6);
+  await run(INS_SEQ, 'SALES_INVOICE', 'SI', 1, 6);
+  await run(INS_SEQ, 'SALES_CREDIT_MEMO', 'SM', 1, 6);
+  await run(INS_SEQ, 'POSTED_SALES_SHIPMENT', 'PSHP', 1, 6);
+  await run(INS_SEQ, 'POSTED_SALES_INVOICE', 'PSI', 1, 6);
+  await run(INS_SEQ, 'POSTED_SALES_CREDIT_MEMO', 'PSM', 1, 6);
+  await run(INS_SEQ, 'CASH_RECEIPT', 'CR', 1, 6);
+  await run(INS_SEQ, 'REMINDER', 'REM', 1, 6);
+  await run(INS_SEQ, 'FIN_CHARGE_MEMO', 'FCM', 1, 6);
+  await run(INS_SEQ, 'VENDOR', 'V', 1001, 5);
+  await run(INS_SEQ, 'PURCHASE_QUOTE', 'PQ', 1, 6);
+  await run(INS_SEQ, 'PURCHASE_ORDER', 'PO', 1, 6);
+  await run(INS_SEQ, 'PURCHASE_INVOICE', 'PI', 1, 6);
+  await run(INS_SEQ, 'PURCHASE_CREDIT_MEMO', 'PM', 1, 6);
+  await run(INS_SEQ, 'POSTED_PURCHASE_RECEIPT', 'PRCP', 1, 6);
+  await run(INS_SEQ, 'POSTED_PURCHASE_INVOICE', 'PPI', 1, 6);
+  await run(INS_SEQ, 'POSTED_PURCHASE_CREDIT_MEMO', 'PPM', 1, 6);
+  await run(INS_SEQ, 'PAYMENT_JOURNAL', 'PAY', 1, 6);
+  await run(INS_SEQ, 'RECEIPT', 'RCT', 1, 6);
+  await run(INS_SEQ, 'POSTED_RECEIPT', 'PRCT', 1, 6);
+  await run(INS_SEQ, 'PAYMENT_VOUCHER', 'PV', 1, 6);
+  await run(INS_SEQ, 'POSTED_PAYMENT_VOUCHER', 'PPV', 1, 6);
+  await run(INS_SEQ, 'BANK_RECONCILIATION', 'BREC', 1, 6);
+  await run(INS_SEQ, 'WHT_CERTIFICATE', 'WHT', 1, 6);
 
   // Business Central No. Series — mirror every flat counter into a managed series (code ==
   // document code) plus its Admin Centre → No. Series assignment row. From here on the services'
@@ -348,6 +575,44 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   const financeId = await one<{ id: number }>('SELECT id FROM app_user WHERE username = ?', 'finance');
   if (financeId) {
     await run('INSERT INTO approval_user_setup (user_id, can_reverse_journal) VALUES (?,1)', financeId.id);
+  }
+
+  // Role Centre Profiles (Business Central "Profile") — a landing-page selector, independent of
+  // permissions. The 20260910000000_add_role_centers migration seeds the identical rows for a
+  // database that was already migrated before this feature landed.
+  const INS_PROFILE = `INSERT INTO profile (code, name, description, role_centre, icon, sort, is_default, is_system, created_at, created_by)
+    VALUES (?,?,?,?,?,?,?,1,?,'system')`;
+  const PROFILES: [string, string, string, string, number, 0 | 1][] = [
+    ['SUPER', 'Super Role Centre', 'Full cross-society overview — the original dashboard.', '▤', 10, 1],
+    ['CRM', 'Client Relationship Management', 'Membership growth, the application pipeline and member care.', '👥', 20, 0],
+    ['CREDIT', 'Credit Role Centre', 'Loan portfolio, disbursements, arrears and sectorial lending.', '💳', 30, 0],
+    ['FOSA', 'FOSA Role Centre', 'Teller cash, deposits and withdrawals, cheques and standing orders.', '💵', 40, 0],
+    ['FINANCE_MANAGER', 'Finance Manager Role Centre', 'Profitability, the balance sheet, capital adequacy and approvals.', '📈', 50, 0],
+    ['ACCOUNTANT', 'Accountant Role Centre', 'Journals, the trial balance, reconciliations and tax.', '📒', 60, 0],
+  ];
+  for (const [code, name, description, icon, sort, isDefault] of PROFILES) {
+    await run(INS_PROFILE, code, name, description, code, icon, sort, isDefault, now);
+  }
+  const profileId = async (code: string): Promise<number> =>
+    (await one<{ id: number }>('SELECT id FROM profile WHERE code = ?', code))!.id;
+
+  // Assign the demo logins a sensible spread of profiles + an active one, so every Role Centre is
+  // reachable on first run.
+  const assign: Record<string, string[]> = {
+    admin: ['SUPER', 'CRM', 'CREDIT', 'FOSA', 'FINANCE_MANAGER', 'ACCOUNTANT'],
+    manager: ['SUPER', 'CRM', 'CREDIT', 'FOSA'],
+    loans: ['CREDIT', 'CRM'],
+    teller: ['FOSA', 'CRM'],
+    finance: ['FINANCE_MANAGER', 'ACCOUNTANT', 'SUPER'],
+    auditor: ['SUPER', 'FINANCE_MANAGER', 'ACCOUNTANT'],
+  };
+  for (const [un, codes] of Object.entries(assign)) {
+    const uid = (await one<{ id: number }>('SELECT id FROM app_user WHERE username = ?', un))?.id;
+    if (!uid) continue;
+    for (const code of codes) {
+      await run('INSERT INTO user_profile (user_id, profile_id) VALUES (?,?)', uid, await profileId(code));
+    }
+    await run('UPDATE app_user SET active_profile_id = ? WHERE id = ?', await profileId(codes[0]), uid);
   }
 
   // accounting periods (25 months back through 2 ahead, all open)
@@ -697,8 +962,553 @@ export async function seedIfEmpty(): Promise<SeedResult> {
    */
   const counts = await tx(async () => {
     await seedReferenceData(now, todayIso);
-    return seedMembersAndHistory(now, todayIso);
+    const result = await seedMembersAndHistory(now, todayIso);
+    await seedFixedAssets(now, todayIso);
+    await seedReceivables(now, todayIso);
+    await seedPayables(now, todayIso);
+    await seedCashAndTax(now, todayIso);
+    await seedFinancialReports(now, todayIso);
+    return result;
   });
 
   return { seeded: true, ...counts };
+}
+
+/**
+ * A small Fixed Assets demo — one depreciation book, FA classes / a location / posting groups
+ * pointing at the new 1400-range G/L accounts, plus three assets (one in the Motor Vehicles
+ * class) with their acquisition posted and ~a year of depreciation run, so every FA screen is
+ * on first run. Mirrors how the migration backfills the same masters for an already-seeded DB.
+ */
+async function seedFixedAssets(now: IsoDateTime, todayIso: IsoDate): Promise<void> {
+  const sys: Actor = { id: 1, username: 'system' };
+  const acctId = async (code: string): Promise<number> =>
+    (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;
+
+  await run(
+    `INSERT INTO depreciation_book (code, description, g_l_integration, default_final_rounding_amount, created_at, created_by)
+     VALUES ('COMPANY', 'Company Book', 1, 100, ?, 'system')`,
+    now,
+  );
+  const INS_FA_CLASS = 'INSERT INTO fa_class (code, description, created_at, created_by) VALUES (?,?,?,?)';
+  for (const [code, desc] of [['EQUIPMENT', 'Equipment'], ['VEHICLES', 'Motor Vehicles'], ['BUILDINGS', 'Land and Buildings']]) {
+    await run(INS_FA_CLASS, code, desc, now, 'system');
+  }
+  const INS_FA_SUBCLASS = 'INSERT INTO fa_subclass (code, description, fa_class_code, created_at, created_by) VALUES (?,?,?,?,?)';
+  for (const [code, desc, cls] of [
+    ['OFFICE-EQUIP', 'Office Equipment', 'EQUIPMENT'],
+    ['COMPUTERS', 'Computers and IT Equipment', 'EQUIPMENT'],
+    ['SALOON', 'Saloon Vehicles', 'VEHICLES'],
+  ]) {
+    await run(INS_FA_SUBCLASS, code, desc, cls, now, 'system');
+  }
+  await run('INSERT INTO fa_location (code, description, created_at, created_by) VALUES (?,?,?,?)', 'HQ', 'Head Office', now, 'system');
+  for (const [code, desc] of [['SERVICE', 'Routine Service'], ['REPAIR', 'Repair'], ['INSPECTION', 'Inspection']]) {
+    await run('INSERT INTO maintenance (code, description, created_at, created_by) VALUES (?,?,?,?)', code, desc, now, 'system');
+  }
+
+  const [a1420, a1425, a1430, a1435, a5060, a5070, a4060, a5080] = await Promise.all([
+    acctId('1420'), acctId('1425'), acctId('1430'), acctId('1435'),
+    acctId('5060'), acctId('5070'), acctId('4060'), acctId('5080'),
+  ]);
+  const INS_FAPG = `INSERT INTO fa_posting_group
+    (code, description, acquisition_cost_account_id, accum_depreciation_account_id, depreciation_expense_account_id,
+     write_down_expense_account_id, appreciation_account_id, maintenance_expense_account_id,
+     gains_acc_on_disposal_id, losses_acc_on_disposal_id, created_at, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,'system')`;
+  await run(INS_FAPG, 'EQUIPMENT', 'Furniture, Fittings & Equipment', a1420, a1425, a5060, a5060, a1420, a5070, a4060, a5080, now);
+  await run(INS_FAPG, 'VEHICLES', 'Motor Vehicles', a1430, a1435, a5060, a5060, a1430, a5070, a4060, a5080, now);
+
+  await run(
+    `INSERT INTO fa_setup (id, default_depreciation_book_code, default_fa_posting_group_code, updated_at, updated_by)
+     VALUES (1, 'COMPANY', 'EQUIPMENT', ?, 'system')`,
+    now,
+  );
+
+  const bankId = await acctId('1020');
+  const startDate = addMonths(todayIso, -14).slice(0, 10);
+  // Last day of the previous month — the depreciation batch's FA posting date.
+  const firstOfThisMonth = `${todayIso.slice(0, 8)}01`;
+  const lastMonthEnd = new Date(new Date(`${firstOfThisMonth}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10);
+
+  const demo: {
+    input: Parameters<typeof faLib.createFixedAsset>[0]; group: string; life: number; cost: number; salvage: number;
+  }[] = [
+    {
+      input: {
+        description: 'HP ProLiant Server', faClassCode: 'EQUIPMENT',
+        faSubclassCode: 'COMPUTERS', faLocationCode: 'HQ', responsibleEmployee: 'Samuel Otieno',
+        serialNo: 'SGH1234ABC', vendorName: 'Copy Cat Ltd', assetTag: 'IT-0001', blocked: false, inactive: false,
+      },
+      group: 'EQUIPMENT', life: 4, cost: K(850000), salvage: K(50000),
+    },
+    {
+      input: {
+        description: 'Boardroom Furniture Set', faClassCode: 'EQUIPMENT',
+        faSubclassCode: 'OFFICE-EQUIP', faLocationCode: 'HQ', responsibleEmployee: 'Beatrice Njeri',
+        vendorName: 'Victoria Furnitures', assetTag: 'FF-0007', blocked: false, inactive: false,
+      },
+      group: 'EQUIPMENT', life: 8, cost: K(420000), salvage: 0,
+    },
+    {
+      input: {
+        description: 'Toyota Hilux Double Cab', faClassCode: 'VEHICLES',
+        faSubclassCode: 'SALOON', faLocationCode: 'HQ', responsibleEmployee: 'Purity Wanjiku',
+        vendorName: 'Toyota Kenya', assetTag: 'MV-0003', serialNo: 'AHTFR22G000112233', blocked: false, inactive: false,
+      },
+      group: 'VEHICLES', life: 5, cost: K(4200000), salvage: K(600000),
+    },
+  ];
+
+  for (const d of demo) {
+    const { no } = await faLib.createFixedAsset(d.input, sys);
+    const asset = (await one<{ id: number }>('SELECT id FROM fixed_asset WHERE no = ?', no))!;
+    await faLib.setFaDepreciationBook(asset.id, {
+      depreciationBookCode: 'COMPANY', faPostingGroupCode: d.group, depreciationMethod: 'Straight-Line',
+      depreciationStartingDate: startDate, depreciationEndingDate: null, noOfDepreciationYears: d.life,
+      straightLinePct: 0, decliningBalancePct: 0, salvageValue: d.salvage, disposalCalculationMethod: 'Net',
+    }, sys);
+
+    // Post the acquisition directly as an Approved line (the maker-checker flow needs an admin
+    // workflow that a fresh install doesn't have yet).
+    const lineNo = await nextSequence('FA_JOURNAL');
+    await run(
+      `INSERT INTO fa_journal_line
+        (no, posting_date, fixed_asset_id, depreciation_book_code, fa_posting_type, amount,
+         balancing_gl_account_id, description, status, created_at, created_by)
+       VALUES (?,?,?,?,'Acquisition Cost',?,?,?, 'Approved', ?, 'system')`,
+      lineNo, startDate, asset.id, 'COMPANY', d.cost, bankId, 'Opening acquisition', now,
+    );
+    await faJournalLib.postFaJournalLine(lineNo, sys);
+  }
+
+  // One year of depreciation, then post every line it drafts.
+  await faDeprLib.calculateDepreciation('COMPANY', lastMonthEnd, sys);
+  const drafted = await all<{ no: string }>(
+    "SELECT no FROM fa_journal_line WHERE fa_posting_type = 'Depreciation' AND status = 'Open'",
+  );
+  for (const l of drafted) {
+    await run("UPDATE fa_journal_line SET status = 'Approved' WHERE no = ?", l.no);
+    await faJournalLib.postFaJournalLine(l.no, sys);
+  }
+
+  // A maintenance entry and a disposal, so those screens have data too.
+  const svcAsset = (await one<{ id: number }>("SELECT id FROM fixed_asset WHERE no = (SELECT no FROM fixed_asset WHERE description = 'Toyota Hilux Double Cab')"))!;
+  const maintNo = await nextSequence('FA_JOURNAL');
+  await run(
+    `INSERT INTO fa_journal_line
+      (no, posting_date, fixed_asset_id, depreciation_book_code, fa_posting_type, amount, balancing_gl_account_id,
+       maintenance_code, description, status, created_at, created_by)
+     VALUES (?,?,?,?,'Maintenance',?,?,?,?, 'Approved', ?, 'system')`,
+    maintNo, lastMonthEnd, svcAsset.id, 'COMPANY', K(18500), bankId, 'SERVICE', '30,000 km service', now,
+  );
+  await faJournalLib.postFaJournalLine(maintNo, sys);
+}
+
+/**
+ * A small Receivables demo — Customer Posting Groups / Payment Terms / Methods / Reminder &
+ * Finance Charge Terms / Sales & Receivables Setup, three customers, a couple of posted sales
+ * invoices billing rent / service income, one part-paid via a Cash Receipt, and one left
+ * overdue with a Reminder created — so every Receivables screen and the Aged AR report are
+ * populated on first run.
+ */
+async function seedReceivables(now: IsoDateTime, todayIso: IsoDate): Promise<void> {
+  const sys: Actor = { id: 1, username: 'system' };
+  const acctId = async (code: string): Promise<number> =>
+    (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;
+
+  const [a1250, a4098, a4099, a5030, a4050, a4096, a5090] = await Promise.all([
+    acctId('1250'), acctId('4098'), acctId('4099'), acctId('5030'), acctId('4050'), acctId('4096'), acctId('5090'),
+  ]);
+  await run('UPDATE gl_account SET no_direct_posting = 1 WHERE id = ?', a1250);
+
+  const INS_PT = 'INSERT INTO payment_terms (code, description, due_date_calculation, discount_date_calculation, discount_pct, created_at, created_by) VALUES (?,?,?,?,?,?,\'system\')';
+  await run(INS_PT, 'COD', 'Cash on Delivery', '0D', '', 0, now);
+  await run(INS_PT, '14 DAYS', 'Net 14 days', '14D', '', 0, now);
+  await run(INS_PT, '30 DAYS', 'Net 30 days', '30D', '', 0, now);
+  await run(INS_PT, '1M(8D)', 'Net 1 month, 2% 8 days', '1M', '8D', 2, now);
+
+  const INS_PM = 'INSERT INTO payment_method (code, description, bal_account_type, bal_account_no, created_at, created_by) VALUES (?,?,?,?,?,\'system\')';
+  await run(INS_PM, 'CASH', 'Cash', 'Bank Account', 'CASH', now);
+  await run(INS_PM, 'BANK', 'Bank Transfer', 'Bank Account', 'BANK', now);
+  await run(INS_PM, 'MPESA', 'M-Pesa', 'Bank Account', 'MPESA', now);
+  await run(INS_PM, 'CHEQUE', 'Cheque', 'None', null, now);
+
+  const INS_CPG = `INSERT INTO customer_posting_group
+    (code, description, receivables_account_id, service_charge_account_id, additional_fee_account_id,
+     payment_disc_debit_account_id, payment_disc_credit_account_id, invoice_rounding_account_id, created_at, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,'system')`;
+  await run(INS_CPG, 'TRADE', 'Trade Debtors', a1250, a4098, a4099, a5030, a4050, a4050, now);
+  await run(INS_CPG, 'TENANT', 'Tenants', a1250, a4098, a4099, a5030, a4050, a4050, now);
+
+  await run(
+    `INSERT INTO reminder_terms (code, description, max_no_of_reminders, post_interest, post_additional_fee, min_amount, created_at, created_by)
+     VALUES ('DOMESTIC', 'Domestic Reminders', 3, 1, 1, ?, ?, 'system')`,
+    K(100), now,
+  );
+  const INS_RL = `INSERT INTO reminder_level (reminder_terms_code, level_no, grace_period, due_date_calculation, calculate_interest, additional_fee, add_fee_per_line, begin_text, end_text)
+    VALUES ('DOMESTIC', ?,?,?,?,?,?,?,?)`;
+  await run(INS_RL, 1, '7D', '7D', 0, 0, 0, 'Our records show the following amounts as overdue. Please arrange payment.', 'If payment has already been made, please disregard this reminder.');
+  await run(INS_RL, 2, '7D', '7D', 1, K(500), 0, 'This is our second reminder. The overdue amounts now attract interest.', 'Please settle immediately to avoid further charges.');
+  await run(INS_RL, 3, '7D', '7D', 1, K(1000), 0, 'FINAL REMINDER. The account will be referred for collection if not settled.', 'Contact us immediately to make arrangements.');
+
+  await run(
+    `INSERT INTO finance_charge_terms (code, description, interest_rate, min_amount, additional_fee, grace_period, due_date_calculation, interest_period_days, post_interest, post_additional_fee, line_description, created_at, created_by)
+     VALUES ('1.5%', '1.5% per month on overdue balances', 18.0, ?, 0, '0D', '14D', 360, 1, 0, 'Finance charge on overdue balance', ?, 'system')`,
+    K(100), now,
+  );
+
+  await run(
+    `INSERT INTO sales_receivables_setup (id, default_customer_posting_group_code, default_payment_terms_code, default_reminder_terms_code, default_fin_charge_terms_code, updated_at, updated_by)
+     VALUES (1, 'TRADE', '30 DAYS', 'DOMESTIC', '1.5%', ?, 'system')`,
+    now,
+  );
+
+  await run(
+    'UPDATE product_posting_group SET sales_gl_account_id = ?, cogs_gl_account_id = ? WHERE sales_gl_account_id IS NULL',
+    a4096, a5090,
+  );
+
+  // Three customers.
+  const demo: { input: Parameters<typeof custLib.createCustomer>[0]; }[] = [
+    { input: { name: 'Rift Valley Traders Ltd', city: 'Nakuru', phone: '+254 720 111 222', email: 'accounts@rvt.co.ke', contact: 'James Kariuki', customerPostingGroupCode: 'TRADE', paymentTermsCode: '30 DAYS', creditLimit: K(2000000), blocked: '' } },
+    { input: { name: 'Lakeview Apartments (Tenant)', city: 'Nakuru', phone: '+254 733 444 555', email: 'lakeview@mail.co.ke', contact: 'Susan Wambui', customerPostingGroupCode: 'TENANT', paymentTermsCode: '14 DAYS', creditLimit: 0, blocked: '' } },
+    { input: { name: 'Mwangi & Sons Hardware', city: 'Naivasha', phone: '+254 711 777 888', email: 'mwangi.hardware@mail.co.ke', contact: 'Peter Mwangi', customerPostingGroupCode: 'TRADE', paymentTermsCode: 'COD', creditLimit: K(500000), blocked: '' } },
+  ];
+  const customerIds: number[] = [];
+  for (const d of demo) {
+    const { no } = await custLib.createCustomer(d.input, sys);
+    customerIds.push((await one<{ id: number }>('SELECT id FROM customer WHERE no = ?', no))!.id);
+  }
+
+  // A helper: create an Invoice with a single G/L-account line, release it, post it.
+  const postInvoice = async (
+    customerId: number, postingDate: IsoDate, glCode: string, description: string, qty: number, unitPrice: number,
+  ): Promise<string> => {
+    const { no } = await salesLib.createSalesDocument(
+      { documentType: 'Invoice', customerId, postingDate, documentDate: postingDate }, sys,
+    );
+    await salesLib.setSalesLines(no, [
+      { type: 'G/L Account', no: glCode, description, quantity: qty, unitPrice, lineDiscountPct: 0 },
+    ], sys);
+    // Bypass the (absent) workflow: mark Released + snapshot sell-to, mirroring approveSalesDocument.
+    const cust = (await one<{ name: string; address: string | null; city: string | null; contact: string | null; payment_terms_code: string | null; document_date: string }>(
+      `SELECT c.name, c.address, c.city, c.contact, sh.payment_terms_code, sh.document_date
+       FROM sales_header sh JOIN customer c ON c.id = sh.customer_id WHERE sh.no = ?`, no,
+    ))!;
+    const pt = cust.payment_terms_code
+      ? await one<{ due_date_calculation: string }>('SELECT due_date_calculation FROM payment_terms WHERE code = ?', cust.payment_terms_code)
+      : null;
+    const dueDate = pt ? applyDateFormulaSeed(cust.document_date, pt.due_date_calculation) : postingDate;
+    await run(
+      `UPDATE sales_header SET status = 'Released', due_date = ?, sell_to_name = ?, sell_to_address = ?, sell_to_city = ?, sell_to_contact = ? WHERE no = ?`,
+      dueDate, cust.name, cust.address, cust.city, cust.contact, no,
+    );
+    const res = await salesLib.postSalesDocument(no, { invoice: true }, sys);
+    return res.invoiceNo!;
+  };
+
+  const twoMonthsAgo = addMonths(todayIso, -2).slice(0, 10);
+  const oneMonthAgo = addMonths(todayIso, -1).slice(0, 10);
+
+  // Customer 1 — two invoices, one part-paid.
+  await postInvoice(customerIds[0], oneMonthAgo, '4094', 'Consultancy — August', 1, K(180000));
+  await postInvoice(customerIds[0], todayIso.slice(0, 8) + '05', '4094', 'Consultancy — September', 1, K(120000));
+  // Customer 2 (tenant) — rent, left overdue.
+  await postInvoice(customerIds[1], twoMonthsAgo, '4092', 'Monthly rent', 1, K(45000));
+  // Customer 3 — a current invoice.
+  await postInvoice(customerIds[2], todayIso.slice(0, 8) + '02', '4094', 'Delivery services', 1, K(32000));
+
+  // A Cash Receipt part-paying customer 1's first invoice.
+  const firstInvoiceDoc = (await one<{ document_no: string }>(
+    "SELECT document_no FROM cust_ledger_entry WHERE customer_id = ? AND document_type = 'Invoice' ORDER BY id LIMIT 1", customerIds[0],
+  ))!;
+  const { no: crNo } = await cashReceiptLib.createCashReceipt({
+    postingDate: todayIso, documentDate: todayIso, bankAccountId: (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id,
+    description: 'Customer receipts',
+    lines: [{ customerId: customerIds[0], amount: K(100000), appliesToDocNo: firstInvoiceDoc.document_no, paymentMethodCode: 'BANK' }],
+  }, sys);
+  await run("UPDATE cash_receipt_header SET status = 'Approved' WHERE no = ?", crNo);
+  await cashReceiptLib.postCashReceipt(crNo, sys);
+
+  // Create a Reminder for the overdue tenant.
+  await reminderLib.createReminders({ customerId: customerIds[1], documentDate: todayIso }, sys);
+}
+
+/**
+ * A small Payables demo — a Vendor Posting Group / Purchases & Payables Setup, three vendors, a
+ * couple of posted purchase invoices (rent, utilities, audit fees on G/L expense lines) and one
+ * Payment Journal paying a vendor — so every Payables screen and the Aged AP report are
+ * populated on first run. Mirrors seedReceivables.
+ */
+async function seedPayables(now: IsoDateTime, todayIso: IsoDate): Promise<void> {
+  const sys: Actor = { id: 1, username: 'system' };
+  const acctId = async (code: string): Promise<number> =>
+    (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;
+
+  const [a2150, a5030, a4050] = await Promise.all([acctId('2150'), acctId('5030'), acctId('4050')]);
+  await run('UPDATE gl_account SET no_direct_posting = 1 WHERE id = ?', a2150);
+
+  const INS_VPG = `INSERT INTO vendor_posting_group
+    (code, description, payables_account_id, service_charge_account_id,
+     payment_disc_debit_account_id, payment_disc_credit_account_id, invoice_rounding_account_id, created_at, created_by)
+    VALUES (?,?,?,?,?,?,?,?,'system')`;
+  await run(INS_VPG, 'TRADE', 'Trade Creditors', a2150, a5030, a5030, a4050, a4050, now);
+  await run(INS_VPG, 'EXPENSE', 'Expense Suppliers', a2150, a5030, a5030, a4050, a4050, now);
+
+  await run(
+    `INSERT INTO purchases_payables_setup (id, default_vendor_posting_group_code, default_payment_terms_code, updated_at, updated_by)
+     VALUES (1, 'TRADE', '30 DAYS', ?, 'system')`,
+    now,
+  );
+
+  const demo: { input: Parameters<typeof vendorLib.createVendor>[0] }[] = [
+    { input: { name: 'Nakuru County Water & Sanitation', city: 'Nakuru', phone: '+254 51 221 3344', email: 'billing@nawassco.co.ke', contact: 'Billing Desk', vendorPostingGroupCode: 'EXPENSE', paymentTermsCode: '14 DAYS', creditLimit: 0, blocked: '' } },
+    { input: { name: 'Lakefront Properties Ltd', city: 'Nakuru', phone: '+254 722 998 877', email: 'leases@lakefront.co.ke', contact: 'Anne Cheruiyot', vendorPostingGroupCode: 'TRADE', paymentTermsCode: '30 DAYS', creditLimit: K(5000000), blocked: '' } },
+    { input: { name: 'Mwenda & Associates CPA', city: 'Nairobi', phone: '+254 733 112 233', email: 'audit@mwendacpa.co.ke', contact: 'CPA Mwenda', vendorPostingGroupCode: 'EXPENSE', paymentTermsCode: '1M(8D)', creditLimit: 0, blocked: '' } },
+  ];
+  const vendorIds: number[] = [];
+  for (const d of demo) {
+    const { no } = await vendorLib.createVendor(d.input, sys);
+    vendorIds.push((await one<{ id: number }>('SELECT id FROM vendor WHERE no = ?', no))!.id);
+  }
+
+  const postInvoice = async (
+    vendorId: number, postingDate: IsoDate, glCode: string, description: string, amount: number, vendorInvoiceNo: string,
+  ): Promise<string> => {
+    const { no } = await purchaseLib.createPurchaseDocument(
+      { documentType: 'Invoice', vendorId, postingDate, documentDate: postingDate, vendorInvoiceNo }, sys,
+    );
+    await purchaseLib.setPurchaseLines(no, [
+      { type: 'G/L Account', no: glCode, description, quantity: 1, directUnitCost: amount, lineDiscountPct: 0 },
+    ], sys);
+    const vend = (await one<{ name: string; address: string | null; city: string | null; contact: string | null; payment_terms_code: string | null; document_date: string }>(
+      `SELECT v.name, v.address, v.city, v.contact, ph.payment_terms_code, ph.document_date
+       FROM purchase_header ph JOIN vendor v ON v.id = ph.vendor_id WHERE ph.no = ?`, no,
+    ))!;
+    const pt = vend.payment_terms_code
+      ? await one<{ due_date_calculation: string }>('SELECT due_date_calculation FROM payment_terms WHERE code = ?', vend.payment_terms_code)
+      : null;
+    const dueDate = pt ? applyDateFormulaSeed(vend.document_date, pt.due_date_calculation) : postingDate;
+    await run(
+      `UPDATE purchase_header SET status = 'Released', due_date = ?, buy_from_name = ?, buy_from_address = ?, buy_from_city = ?, buy_from_contact = ? WHERE no = ?`,
+      dueDate, vend.name, vend.address, vend.city, vend.contact, no,
+    );
+    const res = await purchaseLib.postPurchaseDocument(no, { invoice: true }, sys);
+    return res.invoiceNo!;
+  };
+
+  const twoMonthsAgo = addMonths(todayIso, -2).slice(0, 10);
+  const oneMonthAgo = addMonths(todayIso, -1).slice(0, 10);
+
+  await postInvoice(vendorIds[0], oneMonthAgo, '4040', 'Water & sewerage — August', K(18500), 'NAW-88213');
+  await postInvoice(vendorIds[1], twoMonthsAgo, '5030', 'Office rent — Q3', K(360000), 'LFP-2026-041');
+  await postInvoice(vendorIds[2], oneMonthAgo, '5050', 'Statutory audit fee 2025', K(240000), 'MWA-1187');
+
+  // Pay the water bill in full through a Payment Journal.
+  const waterDoc = (await one<{ document_no: string }>(
+    "SELECT document_no FROM vendor_ledger_entry WHERE vendor_id = ? AND document_type = 'Invoice' ORDER BY id LIMIT 1", vendorIds[0],
+  ))!;
+  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
+  const { no: payNo } = await paymentJournalLib.createPaymentJournal({
+    postingDate: todayIso, documentDate: todayIso, bankAccountId: bankId, description: 'Vendor payments',
+    lines: [{ vendorId: vendorIds[0], amount: K(18500), appliesToDocNo: waterDoc.document_no, paymentMethodCode: 'BANK' }],
+  }, sys);
+  await run("UPDATE payment_journal_header SET status = 'Approved' WHERE no = ?", payNo);
+  await paymentJournalLib.postPaymentJournal(payNo, sys);
+}
+
+/**
+ * Cash Management + multi-currency + VAT/WHT masters — Currencies (KES base + USD/EUR),
+ * Bank Acc. Posting Groups, the Cash Management Setup singleton, and the VAT Posting Setup
+ * (Business Central style, reused for WHT). Back-fills the existing bank accounts + vendors.
+ * Mirrors the guarded backfill blocks in the 20260906 / 20260907 migrations.
+ */
+async function seedCashAndTax(now: IsoDateTime, _todayIso: IsoDate): Promise<void> {
+  const acctId = async (code: string): Promise<number> =>
+    (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;
+  const [a4070, a4072, a5085, a5087, a1260, a2190, a2195, a1010, a1020, a1030, a1040, a5030, a4050] = await Promise.all([
+    acctId('4070'), acctId('4072'), acctId('5085'), acctId('5087'), acctId('1260'), acctId('2190'), acctId('2195'),
+    acctId('1010'), acctId('1020'), acctId('1030'), acctId('1040'), acctId('5030'), acctId('4050'),
+  ]);
+
+  // Currencies (BC T4). Base first, then two foreign with the four FX accounts.
+  await run(
+    `INSERT INTO currency (code, description, symbol, iso_numeric_code, is_base, amount_rounding_precision, created_at, created_by)
+     VALUES ('KES', 'Kenya Shilling', 'KSh', '404', 1, 100, ?, 'system')`, now,
+  );
+  const INS_CCY = `INSERT INTO currency
+    (code, description, symbol, iso_numeric_code, is_base, amount_rounding_precision,
+     realized_gains_account_id, realized_losses_account_id, unrealized_gains_account_id, unrealized_losses_account_id,
+     residual_gains_account_id, residual_losses_account_id, created_at, created_by)
+    VALUES (?,?,?,?,0,1,?,?,?,?,?,?,?,'system')`;
+  await run(INS_CCY, 'USD', 'US Dollar', '$', '840', a4070, a5085, a4072, a5087, a4070, a5085, now);
+  await run(INS_CCY, 'EUR', 'Euro', '€', '978', a4070, a5085, a4072, a5087, a4070, a5085, now);
+
+  // Bank Acc. Posting Groups (BC T277).
+  const INS_BAPG = 'INSERT INTO bank_acc_posting_group (code, description, gl_account_id, created_at, created_by) VALUES (?,?,?,?,\'system\')';
+  await run(INS_BAPG, 'BANK', 'Bank current accounts', a1020, now);
+  await run(INS_BAPG, 'CASH', 'Cash accounts', a1010, now);
+  await run(INS_BAPG, 'MPESA', 'Mobile-money settlement', a1030, now);
+  await run(INS_BAPG, 'CLEARING', 'Clearing accounts', a1040, now);
+
+  // Back-fill the bank accounts created by seedReferenceData.
+  await run("UPDATE bank_account SET currency_code = 'KES', balance_lcy = balance WHERE currency_code IS NULL OR currency_code = ''");
+  await run("UPDATE bank_account SET bank_acc_posting_group_code = 'BANK' WHERE code IN ('BANK')");
+  await run("UPDATE bank_account SET bank_acc_posting_group_code = 'CASH' WHERE code IN ('CASH','TREASURY','TILL-01','TILL-02')");
+  await run("UPDATE bank_account SET bank_acc_posting_group_code = 'MPESA' WHERE code = 'MPESA'");
+  await run("UPDATE bank_account SET bank_acc_posting_group_code = 'CLEARING' WHERE code = 'CHECKOFF'");
+
+  // Cash Management Setup singleton (BC-style limits + Transfer-to-G/L defaults).
+  await run(
+    `INSERT INTO cash_management_setup
+       (id, receipt_approval_limit, pv_approval_limit, default_vat_bus_posting_group_code,
+        bank_charges_account_id, bank_interest_income_account_id, default_receipt_bank_account_id, updated_at, updated_by)
+     VALUES (1, ?, ?, 'STANDARD', ?, ?, (SELECT id FROM bank_account WHERE code = 'BANK'), ?, 'system')`,
+    K(50000), K(20000), a5030, a4050, now,
+  );
+
+  // External bank directory (a handful of Kenyan banks + branches).
+  const INS_EB = "INSERT INTO external_bank (code, name) VALUES (?,?)";
+  for (const [c, n] of [['COOP', 'Co-operative Bank of Kenya'], ['EQUITY', 'Equity Bank'], ['KCB', 'Kenya Commercial Bank'], ['NCBA', 'NCBA Bank'], ['ABSA', 'Absa Bank Kenya'], ['DTB', 'Diamond Trust Bank']] as const) {
+    await run(INS_EB, c, n);
+  }
+  const INS_EBB = "INSERT INTO external_bank_branch (bank_code, branch_code, branch_name) VALUES (?,?,?)";
+  for (const [b, code, name] of [['COOP', '11000', 'Co-op House'], ['COOP', '11151', 'Nakuru'], ['EQUITY', '68000', 'Equity Centre'], ['EQUITY', '68012', 'Nakuru'], ['KCB', '01100', 'Moi Avenue'], ['KCB', '01169', 'Nakuru']] as const) {
+    await run(INS_EBB, b, code, name);
+  }
+
+  // VAT + WHT (BC VAT Posting Setup, reused for WHT the way the AL localization does).
+  await run("INSERT INTO vat_business_posting_group (code, description, created_at, created_by) VALUES ('STANDARD', 'Standard-rated domestic', ?, 'system')", now);
+  const INS_VPPG = "INSERT INTO vat_product_posting_group (code, description, tax_type, created_at, created_by) VALUES (?,?,?,?,'system')";
+  for (const [c, d, t] of [
+    ['VAT16', 'VAT at 16%', 'VAT'], ['VAT0', 'Zero-rated', 'VAT'], ['EXEMPT', 'VAT exempt', 'VAT'],
+    ['WHT-PROF', 'WHT — professional fees (5%)', 'WHT'], ['WHT-RENT', 'WHT — rent (10%)', 'WHT'], ['WHT-VAT', 'Withholding VAT (2%)', 'WHT'],
+  ] as const) await run(INS_VPPG, c, d, t, now);
+  const INS_VPS = `INSERT INTO vat_posting_setup
+    (vat_bus_posting_group_code, vat_prod_posting_group_code, tax_type, vat_pct, vat_calculation_type, tax_account_id, wht_base, created_at, created_by)
+    VALUES ('STANDARD', ?, ?, ?, ?, ?, 'Net', ?, 'system')`;
+  await run(INS_VPS, 'VAT16', 'VAT', 16, 'Normal', a1260, now);
+  await run(INS_VPS, 'VAT0', 'VAT', 0, 'Zero VAT', a1260, now);
+  await run(INS_VPS, 'EXEMPT', 'VAT', 0, 'Exempt', a1260, now);
+  await run(INS_VPS, 'WHT-PROF', 'WHT', 5, 'Normal', a2190, now);
+  await run(INS_VPS, 'WHT-RENT', 'WHT', 10, 'Normal', a2190, now);
+  await run(INS_VPS, 'WHT-VAT', 'WHT', 2, 'Normal', a2195, now);
+
+  await run("UPDATE vendor SET vat_bus_posting_group_code = 'STANDARD' WHERE vat_bus_posting_group_code IS NULL");
+  await run("UPDATE purchases_payables_setup SET default_vat_bus_posting_group_code = 'STANDARD' WHERE id = 1");
+  // Give the CPA and property vendors a KRA PIN so a WHT certificate prints in full.
+  await run("UPDATE vendor SET pin_no = 'P051' || LPAD((id)::text, 6, '0') || 'A' WHERE pin_no IS NULL");
+}
+
+/**
+ * Financial Reports (Account Schedules) — Business Central-style row definitions + column
+ * layouts + report pairings, built from the CHART above so every screen is populated on first
+ * run. The 20260909000000_add_financial_reports migration seeds the identical content for a
+ * database that was already migrated before this feature landed.
+ */
+async function seedFinancialReports(now: IsoDateTime, _todayIso: IsoDate): Promise<void> {
+  const INS_CLN = 'INSERT INTO column_layout_name (name, description, created_at, created_by) VALUES (?,?,?,\'system\')';
+  const INS_CL = `INSERT INTO column_layout
+    (column_layout_name_id, line_no, column_no, column_header, column_type, amount_type, formula, comparison_date_formula, created_at, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,'system')`;
+  const layouts: [string, string, [number, string, string, string, string, string][]][] = [
+    ['DEFAULT', 'Single net-change column', [
+      [10000, 'NET', 'Net Change', 'NET_CHANGE', '', ''],
+    ]],
+    ['BALANCE', 'Single balance-at-date column', [
+      [10000, 'BAL', 'Balance', 'BALANCE_AT_DATE', '', ''],
+    ]],
+    ['THIS-VS-LAST', 'This year, last year and the % change', [
+      [10000, 'TY', 'This Year', 'NET_CHANGE', '', ''],
+      [20000, 'LY', 'Last Year', 'NET_CHANGE', '', '-1Y'],
+      [30000, 'CHG', 'Change %', 'FORMULA', '(TY-LY)/LY*100', ''],
+    ]],
+    ['YTD-BAL', 'Year to date and closing balance', [
+      [10000, 'YTD', 'Year to Date', 'YEAR_TO_DATE', '', ''],
+      [20000, 'BAL', 'Balance', 'BALANCE_AT_DATE', '', ''],
+    ]],
+  ];
+  for (const [name, description, lines] of layouts) {
+    const info = await run(INS_CLN, name, description, now);
+    for (const [lineNo, colNo, header, type, formula, cmp] of lines) {
+      await run(INS_CL, info.lastInsertRowid, lineNo, colNo, header, type, 'NET_AMOUNT', formula, cmp, now);
+    }
+  }
+
+  const INS_ASN = 'INSERT INTO acc_schedule_name (name, description, default_column_layout_name, created_at, created_by) VALUES (?,?,?,?,\'system\')';
+  const INS_ASL = `INSERT INTO acc_schedule_line
+    (acc_schedule_name_id, line_no, row_no, description, totaling_type, totaling, row_type, show, bold, double_underline, indentation, created_at, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'system')`;
+  // [lineNo, rowNo, description, totalingType, totaling, rowType, show, bold, doubleUnderline, indent]
+  type Row = [number, string, string, string, string, string, string, 0 | 1, 0 | 1, number];
+  const schedules: [string, string, string, Row[]][] = [
+    ['SACCO-BS', 'Statement of Financial Position', 'BALANCE', [
+      [10000, 'CA', 'Current assets', 'TOTAL_ACCOUNTS', '1000..1299', 'BALANCE_AT_DATE', 'YES', 0, 0, 1],
+      [20000, 'PPE', 'Property, plant and equipment', 'TOTAL_ACCOUNTS', '1300..1499', 'BALANCE_AT_DATE', 'YES', 0, 0, 1],
+      [30000, 'TA', 'Total assets', 'FORMULA', 'CA+PPE', 'BALANCE_AT_DATE', 'YES', 1, 1, 0],
+      [40000, 'DEP', 'Member deposits', 'TOTAL_ACCOUNTS', '2000..2099', 'BALANCE_AT_DATE', 'YES', 0, 0, 1],
+      [50000, 'OL', 'Other liabilities', 'TOTAL_ACCOUNTS', '2100..2199', 'BALANCE_AT_DATE', 'YES', 0, 0, 1],
+      [60000, 'TL', 'Total liabilities', 'FORMULA', 'DEP+OL', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+      [70000, 'EQ', 'Capital and reserves', 'TOTAL_ACCOUNTS', '3000..3099', 'BALANCE_AT_DATE', 'YES', 0, 0, 1],
+      [80000, 'INC', 'Income (period)', 'TOTAL_ACCOUNTS', '4000..4999', 'BALANCE_AT_DATE', 'NO', 0, 0, 0],
+      [90000, 'EXP', 'Expenditure (period)', 'TOTAL_ACCOUNTS', '5000..5999', 'BALANCE_AT_DATE', 'NO', 0, 0, 0],
+      [100000, 'SURP', 'Surplus for the period', 'FORMULA', 'INC-EXP', 'BALANCE_AT_DATE', 'YES', 0, 0, 1],
+      [110000, 'TE', 'Total equity', 'FORMULA', 'EQ+SURP', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+      [120000, 'TLE', 'Total equity and liabilities', 'FORMULA', 'TL+TE', 'BALANCE_AT_DATE', 'YES', 1, 1, 0],
+      [130000, 'CHK', 'Balance check (assets less equity and liabilities)', 'FORMULA', 'TA-TLE', 'BALANCE_AT_DATE', 'IF_ANY_NOT_ZERO', 0, 0, 0],
+    ]],
+    ['SACCO-PL', 'Statement of Comprehensive Income', 'THIS-VS-LAST', [
+      [10000, 'II', 'Interest on member loans', 'POSTING_ACCOUNTS', '4010', 'NET_CHANGE', 'YES', 0, 0, 1],
+      [20000, 'FEE', 'Fees, commissions and other income', 'TOTAL_ACCOUNTS', '4020..4099', 'NET_CHANGE', 'YES', 0, 0, 1],
+      [30000, 'TINC', 'Total income', 'FORMULA', 'II+FEE', 'NET_CHANGE', 'YES', 1, 0, 0],
+      [40000, 'FIN', 'Interest on member deposits', 'POSTING_ACCOUNTS', '5010', 'NET_CHANGE', 'YES', 0, 0, 1],
+      [50000, 'STAFF', 'Staff costs', 'POSTING_ACCOUNTS', '5020', 'NET_CHANGE', 'YES', 0, 0, 1],
+      [60000, 'ADMIN', 'Administrative and other expenses', 'TOTAL_ACCOUNTS', '5030..5099', 'NET_CHANGE', 'YES', 0, 0, 1],
+      [70000, 'TEXP', 'Total expenditure', 'FORMULA', 'FIN+STAFF+ADMIN', 'NET_CHANGE', 'YES', 1, 0, 0],
+      [80000, 'SURP', 'Surplus for the period', 'FORMULA', 'TINC-TEXP', 'NET_CHANGE', 'YES', 1, 1, 0],
+    ]],
+    ['SASRA-CAP', 'Capital Adequacy ratios (SASRA)', 'DEFAULT', [
+      [10000, 'CORE', 'Core capital', 'TOTAL_ACCOUNTS', '3010..3020', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [20000, 'INST', 'Institutional capital', 'TOTAL_ACCOUNTS', '3020..3030', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [30000, 'TA', 'Total assets', 'TOTAL_ACCOUNTS', '1000..1499', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [40000, 'TD', 'Total deposits', 'TOTAL_ACCOUNTS', '2000..2099', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [50000, 'R1', 'Core capital / total assets (%) — min 10%', 'FORMULA', 'CORE/TA*100', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+      [60000, 'R2', 'Core capital / total deposits (%) — min 8%', 'FORMULA', 'CORE/TD*100', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+      [70000, 'R3', 'Institutional capital / total assets (%) — min 8%', 'FORMULA', 'INST/TA*100', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+    ]],
+    ['SASRA-LIQ', 'Liquidity ratio (SASRA)', 'DEFAULT', [
+      [10000, 'LA', 'Liquid assets', 'TOTAL_ACCOUNTS', '1000..1099', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [20000, 'DEP', 'Member deposits', 'TOTAL_ACCOUNTS', '2000..2099', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [30000, 'PAY', 'Payables and accruals', 'TOTAL_ACCOUNTS', '2100..2199', 'BALANCE_AT_DATE', 'YES', 0, 0, 0],
+      [40000, 'STL', 'Short-term liabilities', 'FORMULA', 'DEP+PAY', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+      [50000, 'RATIO', 'Liquidity ratio (%) — min 15%', 'FORMULA', 'LA/STL*100', 'BALANCE_AT_DATE', 'YES', 1, 0, 0],
+    ]],
+  ];
+  for (const [name, description, dcl, rows] of schedules) {
+    const info = await run(INS_ASN, name, description, dcl, now);
+    for (const [lineNo, rowNo, desc, tType, totaling, rowType, show, bold, dunder, indent] of rows) {
+      await run(INS_ASL, info.lastInsertRowid, lineNo, rowNo, desc, tType, totaling, rowType, show, bold, dunder, indent, now);
+    }
+  }
+
+  const INS_FR = 'INSERT INTO financial_report (name, description, row_group, column_group, created_at, created_by) VALUES (?,?,?,?,?,\'system\')';
+  for (const [name, description, rowGroup, columnGroup] of [
+    ['STMT-FIN-POSITION', 'Statement of Financial Position', 'SACCO-BS', 'BALANCE'],
+    ['STMT-COMPR-INCOME', 'Statement of Comprehensive Income', 'SACCO-PL', 'THIS-VS-LAST'],
+    ['SASRA-CAPITAL-ADEQUACY', 'SASRA Capital Adequacy Return', 'SASRA-CAP', 'DEFAULT'],
+    ['SASRA-LIQUIDITY', 'SASRA Liquidity Return', 'SASRA-LIQ', 'DEFAULT'],
+  ] as const) {
+    await run(INS_FR, name, description, rowGroup, columnGroup, now);
+  }
+}
+
+/** Local copy of applyDateFormula to keep seed.ts's import graph light (it already pulls a lot). */
+function applyDateFormulaSeed(base: IsoDate, formula: string): IsoDate {
+  const f = (formula || '').trim().toUpperCase();
+  const m = f.match(/^(\d+)\s*D$/);
+  if (m) return new Date(new Date(`${base}T00:00:00Z`).getTime() + Number(m[1]) * 86400000).toISOString().slice(0, 10);
+  const mm = f.match(/^(\d+)\s*M$/);
+  if (mm) return addMonths(base, Number(mm[1]));
+  return base;
 }

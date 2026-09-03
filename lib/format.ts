@@ -69,6 +69,32 @@ export const today = (): string => new Date().toISOString().slice(0, 10);
 
 export const startOfYear = (): string => `${new Date().getFullYear()}-01-01`;
 
+/** `iso` shifted by `n` whole days (calendar days, ignoring time). */
+export function addDaysIso(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** First day of the fiscal year that contains `iso`, given the org's FY start (month 1-12, day
+ *  1-31). A FY starting 1 January is the calendar year; one starting in a later month runs into
+ *  the next calendar year, so a date before that month belongs to the FY that opened last year. */
+export function startOfFiscalYear(iso: string, fyStartMonth = 1, fyStartDay = 1): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const y = d.getUTCFullYear();
+  const startThisYear = Date.UTC(y, fyStartMonth - 1, fyStartDay);
+  const year = d.getTime() >= startThisYear ? y : y - 1;
+  return `${year}-${String(fyStartMonth).padStart(2, '0')}-${String(fyStartDay).padStart(2, '0')}`;
+}
+
+/** Last day of the fiscal year that contains `iso` — the day before the next FY starts. */
+export function endOfFiscalYear(iso: string, fyStartMonth = 1, fyStartDay = 1): string {
+  const start = startOfFiscalYear(iso, fyStartMonth, fyStartDay);
+  const startYear = Number(start.slice(0, 4));
+  const nextStart = `${startYear + 1}-${String(fyStartMonth).padStart(2, '0')}-${String(fyStartDay).padStart(2, '0')}`;
+  return addDaysIso(nextStart, -1);
+}
+
 /** One term of a Business-Central-style Date Filter — "T"/"TODAY" (case-insensitive), an ISO
  *  `YYYY-MM-DD`, or a `DD/MM/YYYY`/`DD/MM/YY` date as typed in the BC screenshot this mirrors
  *  ("01/01/26"). Returns null for anything unparseable, so the caller can tell a genuinely

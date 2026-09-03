@@ -13,6 +13,7 @@ import { one, all, run, nextSequence } from './db.ts';
 import { PostingError } from './errors.ts';
 import { canReverseJournal } from './workflow.ts';
 import { assertPostingDateAllowed, resolvePostingDate } from './postingDates.ts';
+import { currentExchangeFactor, isBaseCurrency, baseCurrencyCode } from './currency.ts';
 import type {
   AccountingPeriod, Actor, Cents, GlAccount, GlAccountType, IsoDate, Journal,
   JournalLine, PostJournalOptions, PostedJournal, TrialBalanceRow,
@@ -59,10 +60,21 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
     valueDate, module: sourceModule, eventType, description,
     reference = null, memberId = null, lines = [], user = null, idempotencyKey = null,
     globalDimension1Id = null, globalDimension2Id = null,
+    currencyCode: rawCurrencyCode = null, currencyFactor: rawCurrencyFactor = null,
   } = opts;
 
   if (!valueDate) throw new PostingError('valueDate is required', 'NO_VALUE_DATE');
   if (!lines.length) throw new PostingError('A journal must have at least two lines', 'NO_LINES');
+
+  // Multi-currency: line amounts are in `currencyCode`; `currencyFactor` is LCY per 1 unit of it.
+  // Omitted currency → the base currency (KES) and factor 1, so every existing caller is unchanged.
+  const currencyCode = (await isBaseCurrency(rawCurrencyCode)) ? await baseCurrencyCode() : rawCurrencyCode!;
+  const isFcy = !(await isBaseCurrency(currencyCode));
+  const currencyFactor = !isFcy
+    ? 1
+    : (rawCurrencyFactor && rawCurrencyFactor > 0
+      ? rawCurrencyFactor
+      : await currentExchangeFactor(currencyCode, valueDate));
 
   if (idempotencyKey) {
     const existing = await one<PostedJournal>(
@@ -90,11 +102,13 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
 
   let totalDebit = 0;
   let totalCredit = 0;
+  let totalDebitLcy = 0;
+  let totalCreditLcy = 0;
   // Sequential rather than Promise.all: the line validations must report the
   // first offending line, not whichever lookup happens to reject first.
   const prepared: {
-    lineNo: number; acct: GlAccount; debit: Cents; credit: Cents; narration: string | null;
-    gd1: number | null; gd2: number | null;
+    lineNo: number; acct: GlAccount; debit: Cents; credit: Cents; debitLcy: Cents; creditLcy: Cents;
+    narration: string | null; gd1: number | null; gd2: number | null; line: (typeof lines)[number];
   }[] = [];
   for (const [i, l] of lines.entries()) {
     const acct = await resolveAccount(l.account);
@@ -103,11 +117,15 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
     if (debit < 0 || credit < 0) throw new PostingError('Negative amounts are not permitted in a journal line', 'NEGATIVE_LINE');
     if (debit > 0 && credit > 0) throw new PostingError('A journal line cannot be both debit and credit', 'MIXED_LINE');
     if (debit === 0 && credit === 0) throw new PostingError('A journal line must carry an amount', 'ZERO_LINE');
+    const debitLcy = isFcy ? Math.round(debit * currencyFactor) : debit;
+    const creditLcy = isFcy ? Math.round(credit * currencyFactor) : credit;
     totalDebit += debit;
     totalCredit += credit;
+    totalDebitLcy += debitLcy;
+    totalCreditLcy += creditLcy;
     prepared.push({
-      lineNo: i + 1, acct, debit, credit, narration: l.narration || description || null,
-      gd1: l.globalDimension1Id ?? headerGd1, gd2: l.globalDimension2Id ?? headerGd2,
+      lineNo: i + 1, acct, debit, credit, debitLcy, creditLcy, narration: l.narration || description || null,
+      gd1: l.globalDimension1Id ?? headerGd1, gd2: l.globalDimension2Id ?? headerGd2, line: l,
     });
   }
 
@@ -118,6 +136,25 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
     );
   }
   if (totalDebit === 0) throw new PostingError('Journal total cannot be zero', 'ZERO_JOURNAL');
+
+  // Per-line rounding of `debit * factor` can leave the LCY totals a few cents apart even though
+  // the FCY totals balance exactly. BC absorbs that "Currency Application Rounding" onto a line;
+  // here it is snapped onto the largest-magnitude line of the short side. A larger gap is a real
+  // imbalance and still an error.
+  if (isFcy) {
+    const lcyResidual = totalDebitLcy - totalCreditLcy;
+    if (lcyResidual !== 0) {
+      if (Math.abs(lcyResidual) > prepared.length + 1) {
+        throw new PostingError(`Journal is out of balance in ${await baseCurrencyCode()}: ${lcyResidual}`, 'OUT_OF_BALANCE');
+      }
+      const side = lcyResidual > 0 ? 'creditLcy' : 'debitLcy';
+      let target = prepared[0];
+      for (const p of prepared) if (p[side] > target[side]) target = p;
+      target[side] += Math.abs(lcyResidual);
+      if (lcyResidual > 0) totalCreditLcy += Math.abs(lcyResidual);
+      else totalDebitLcy += Math.abs(lcyResidual);
+    }
+  }
 
   const journalNo = await nextSequence('JOURNAL');
   const now = new Date().toISOString();
@@ -130,18 +167,19 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
   const info = await run(
     `INSERT INTO journal (journal_no, value_date, posted_at, source_module, event_type,
       description, reference, member_id, amount, posted_by, idempotency_key,
-      global_dimension_1_id, global_dimension_2_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      global_dimension_1_id, global_dimension_2_id, currency_code, currency_factor)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     journalNo, valueDate, now, sourceModule, eventType,
-    description || null, effectiveReference, memberId, totalDebit,
+    description || null, effectiveReference, memberId, totalDebitLcy,
     user ? user.username : 'system', idempotencyKey,
-    headerGd1, headerGd2,
+    headerGd1, headerGd2, currencyCode, currencyFactor,
   );
   const journalId = Number(info.lastInsertRowid);
 
   const INS_LINE = `INSERT INTO journal_line
-     (journal_id, line_no, gl_account_id, debit, credit, narration, global_dimension_1_id, global_dimension_2_id)
-     VALUES (?,?,?,?,?,?,?,?)`;
+     (journal_id, line_no, gl_account_id, debit, credit, debit_lcy, credit_lcy, currency_code, currency_factor,
+      narration, global_dimension_1_id, global_dimension_2_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`;
   const UPD_BAL = 'UPDATE gl_account SET balance = balance + ? WHERE id = ?';
 
   // Business-Central-style subledger posting: a line against a Bank Account's control
@@ -149,31 +187,45 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
   // (savings/loan/charge postings and manual journals alike) — see lib/gl.ts's Bank
   // Account CRUD for where these rows come from, and no-direct-posting for the other
   // half of the picture (blocking a manual journal from bypassing the subledger).
-  const bankAccounts = await all<{ id: number; gl_account_id: number }>(
-    "SELECT id, gl_account_id FROM bank_account WHERE status = 'ACTIVE'",
+  const bankAccounts = await all<{ id: number; gl_account_id: number; currency_code: string }>(
+    "SELECT id, gl_account_id, currency_code FROM bank_account WHERE status = 'ACTIVE'",
   );
-  const bankAccountIdByGlAccount = new Map(bankAccounts.map((b) => [b.gl_account_id, b.id]));
+  const bankByGlAccount = new Map(bankAccounts.map((b) => [b.gl_account_id, b]));
   const INS_BANK_ENTRY = `INSERT INTO bank_account_ledger_entry
-     (bank_account_id, journal_id, journal_line_id, posting_date, description, amount, running_balance, created_at)
-     VALUES (?,?,?,?,?,?,?,?)`;
-  const UPD_BANK_BAL = 'UPDATE bank_account SET balance = balance + ? WHERE id = ? RETURNING balance';
+     (bank_account_id, journal_id, journal_line_id, posting_date, description, amount, running_balance,
+      amount_lcy, currency_code, currency_factor, document_type, document_no, external_document_no, open, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`;
+  const UPD_BANK_BAL = 'UPDATE bank_account SET balance = balance + ?, balance_lcy = balance_lcy + ? WHERE id = ? RETURNING balance';
 
   for (const p of prepared) {
-    const lineInfo = await run(INS_LINE, journalId, p.lineNo, p.acct.id, p.debit, p.credit, p.narration, p.gd1, p.gd2);
-    const signed = NATURAL_DEBIT.has(p.acct.type) ? p.debit - p.credit : p.credit - p.debit;
-    await run(UPD_BAL, signed, p.acct.id);
+    const lineInfo = await run(
+      INS_LINE, journalId, p.lineNo, p.acct.id, p.debit, p.credit, p.debitLcy, p.creditLcy,
+      currencyCode, currencyFactor, p.narration, p.gd1, p.gd2,
+    );
+    // gl_account.balance is always LCY.
+    const signedLcy = NATURAL_DEBIT.has(p.acct.type) ? p.debitLcy - p.creditLcy : p.creditLcy - p.debitLcy;
+    await run(UPD_BAL, signedLcy, p.acct.id);
 
-    const bankAccountId = bankAccountIdByGlAccount.get(p.acct.id);
-    if (bankAccountId != null) {
-      const updated = await one<{ balance: Cents }>(UPD_BANK_BAL, signed, bankAccountId);
+    const bank = bankByGlAccount.get(p.acct.id);
+    if (bank != null) {
+      // A bank_account_ledger_entry is denominated in the bank account's own currency.
+      if (isFcy && currencyCode !== bank.currency_code) {
+        throw new PostingError(
+          `This journal is in ${currencyCode} but bank account ${bank.id} is a ${bank.currency_code} account`,
+          'BANK_CURRENCY_MISMATCH',
+        );
+      }
+      const signed = NATURAL_DEBIT.has(p.acct.type) ? p.debit - p.credit : p.credit - p.debit;
+      const updated = await one<{ balance: Cents }>(UPD_BANK_BAL, signed, signedLcy, bank.id);
       await run(
-        INS_BANK_ENTRY, bankAccountId, journalId, lineInfo.lastInsertRowid, valueDate,
-        p.narration, signed, updated!.balance, now,
+        INS_BANK_ENTRY, bank.id, journalId, lineInfo.lastInsertRowid, valueDate,
+        p.narration, signed, updated!.balance, signedLcy, currencyCode, currencyFactor,
+        p.line.bankDocumentType ?? '', p.line.bankDocumentNo ?? null, p.line.bankExternalDocumentNo ?? null, now,
       );
     }
   }
 
-  return { id: journalId, journal_no: journalNo, amount: totalDebit };
+  return { id: journalId, journal_no: journalNo, amount: totalDebitLcy };
 }
 
 /** Reverse a journal with compensating entries. The original is never altered. */
@@ -210,6 +262,8 @@ export async function reverseJournal(
     memberId: original.member_id,
     globalDimension1Id: original.global_dimension_1_id,
     globalDimension2Id: original.global_dimension_2_id,
+    currencyCode: original.currency_code,
+    currencyFactor: original.currency_factor,
     user,
     lines: lines.map((l) => ({
       account: l.gl_account_id,
@@ -252,8 +306,8 @@ export async function trialBalance({
 }: TrialBalanceOptions = {}): Promise<TrialBalanceRow[]> {
   const rows = await all<Omit<TrialBalanceRow, 'net' | 'debit_balance' | 'credit_balance'>>(
     `SELECT a.id, a.code, a.name, a.type,
-            COALESCE(SUM(jl.debit),0)  AS debit,
-            COALESCE(SUM(jl.credit),0) AS credit
+            COALESCE(SUM(jl.debit_lcy),0)  AS debit,
+            COALESCE(SUM(jl.credit_lcy),0) AS credit
      FROM gl_account a
      -- journal_line and journal are joined to each other FIRST, as one unit, and that whole
      -- unit is then LEFT JOINed to the account with every date/dimension condition attached
@@ -291,7 +345,7 @@ export async function trialBalance({
 /** Balance of a single account from posted journal lines (the authoritative read). */
 export async function accountBalance(code: string): Promise<Cents> {
   const row = await one<{ type: GlAccountType; d: Cents; c: Cents }>(
-    `SELECT a.type, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    `SELECT a.type, COALESCE(SUM(jl.debit_lcy),0) d, COALESCE(SUM(jl.credit_lcy),0) c
      FROM gl_account a LEFT JOIN journal_line jl ON jl.gl_account_id = a.id
      WHERE a.code = ? GROUP BY a.id`,
     code,
@@ -310,7 +364,7 @@ export async function accountBalances(codes: readonly string[]): Promise<Record<
   if (!codes.length) return out;
 
   const rows = await all<{ code: string; type: GlAccountType; d: Cents; c: Cents }>(
-    `SELECT a.code, a.type, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    `SELECT a.code, a.type, COALESCE(SUM(jl.debit_lcy),0) d, COALESCE(SUM(jl.credit_lcy),0) c
      FROM gl_account a LEFT JOIN journal_line jl ON jl.gl_account_id = a.id
      WHERE a.code IN (${codes.map(() => '?').join(',')})
      GROUP BY a.id`,
