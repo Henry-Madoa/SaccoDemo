@@ -191,6 +191,37 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    group: 'HR & Payroll',
+    centres: ['HR_PAYROLL'],
+    items: [
+      {
+        submenu: 'Employee Management', icon: '🧑‍💼',
+        items: [
+          { path: '/employees', label: 'Employees', icon: '🧑‍💼', page: 'EMPLOYEES' },
+          { path: '/employee-edits', label: 'Employee Editing', icon: '✏', page: 'EMPLOYEE_EDITS' },
+          { path: '/employee-contract-changes', label: 'Contract / Salary Changes', icon: '📄', page: 'EMPLOYEE_CONTRACT_CHANGES' },
+          { path: '/employee-exits', label: 'Employee Exits', icon: '🚪', page: 'EMPLOYEE_EXITS' },
+        ],
+      },
+      {
+        submenu: 'Leave Management', icon: '🏖',
+        items: [
+          { path: '/leave-applications', label: 'Leave Applications', icon: '🏖', page: 'LEAVE_APPLICATIONS' },
+          { path: '/leave-plans', label: 'Leave Plans', icon: '🗓', page: 'LEAVE_PLANS' },
+          { path: '/leave-recalls', label: 'Leave Recalls', icon: '↩', page: 'LEAVE_RECALLS' },
+          { path: '/leave-adjustments', label: 'Leave Adjustments', icon: '⚖', page: 'LEAVE_ADJUSTMENTS' },
+        ],
+      },
+      {
+        submenu: 'Payroll', icon: '💰',
+        items: [
+          { path: '/payroll', label: 'Payroll', icon: '💰', page: 'PAYROLL' },
+          { path: '/payroll/periods', label: 'Payroll Periods', icon: '🗓', page: 'PAYROLL_PERIODS' },
+        ],
+      },
+    ],
+  },
+  {
     group: 'Administration',
     items: [
       {
@@ -203,6 +234,11 @@ export const NAV: NavGroup[] = [
           'ADMIN_POOL_DIMENSIONS', 'ADMIN_POOL_DENOMINATIONS', 'ADMIN_TELLER_SETUP',
           'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_TABLES',
           'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA', 'ADMIN_JOB_QUEUE',
+          'ADMIN_HR_JOB_GRADES', 'ADMIN_HR_CONTRACT_TYPES',
+          'ADMIN_HR_TERMINATION_REASONS', 'ADMIN_HR_CLEARANCE_SECTIONS',
+          'ADMIN_HR_LEAVE_TYPES', 'ADMIN_HR_LEAVE_CALENDAR', 'ADMIN_HR_HOLIDAYS', 'ADMIN_HR_ACCRUE_MATRIX',
+          'ADMIN_PAYROLL_SETUP', 'ADMIN_PAYROLL_POSTING_GROUPS', 'ADMIN_PAYROLL_PAYE_BANDS',
+          'ADMIN_PAYROLL_NSSF_TIERS', 'ADMIN_PAYROLL_TRANSACTION_CODES',
         ],
       },
     ],

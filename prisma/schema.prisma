@@ -4923,3 +4923,712 @@ model financial_report {
   created_at   String?
   created_by   String?
 }
+
+// ============================================================================================
+// HR & Payroll — Employee Management (ported from "Sacco ERP" AL, object range 52203xxx).
+// See prisma/migrations/20260912000000_add_hr_employee_management for the full SQL + rationale.
+// ============================================================================================
+
+model hr_job_grade {
+  id                            Int     @id @default(autoincrement())
+  code                          String  @unique
+  name                          String
+  notice_period_days            Int     @default(30)
+  probation_notice_period_days  Int     @default(7)
+  leave_allowance_amount        BigInt  @default(0)
+  training_allowance_amount     BigInt  @default(0)
+  overtime_allowance_amount     BigInt  @default(0)
+  status                        String  @default("ACTIVE")
+  created_at                    String?
+  created_by                    String?
+}
+
+model hr_employment_contract_type {
+  id                          Int     @id @default(autoincrement())
+  code                        String  @unique
+  name                        String
+  default_notice_period_days  Int     @default(30)
+  status                      String  @default("ACTIVE")
+  created_at                  String?
+  created_by                  String?
+}
+
+model hr_termination_reason {
+  id           Int     @id @default(autoincrement())
+  code         String  @unique
+  description  String
+  pay_gratuity Boolean @default(false)
+  status       String  @default("ACTIVE")
+  created_at   String?
+  created_by   String?
+}
+
+model hr_clearance_section {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique
+  name        String
+  owner_email String?
+  sort_order  Int     @default(0)
+  status      String  @default("ACTIVE")
+  created_at  String?
+  created_by  String?
+}
+
+model employee {
+  id                       Int     @id @default(autoincrement())
+  employee_no              String  @unique
+  first_name               String
+  middle_name              String?
+  last_name                String
+  gender                   String?
+  date_of_birth            String?
+  national_id              String? @unique(map: "ux_employee_national_id", where: raw("((national_id IS NOT NULL) AND (national_id <> ''::text))"))
+  kra_pin                  String? @unique(map: "ux_employee_kra_pin", where: raw("((kra_pin IS NOT NULL) AND (kra_pin <> ''::text))"))
+  nssf_no                  String? @unique(map: "ux_employee_nssf_no", where: raw("((nssf_no IS NOT NULL) AND (nssf_no <> ''::text))"))
+  shif_no                  String? @unique(map: "ux_employee_shif_no", where: raw("((shif_no IS NOT NULL) AND (shif_no <> ''::text))"))
+  marital_status            String?
+  phone                    String?
+  alt_phone                String?
+  email                    String?
+  physical_address         String?
+  county_id                Int?
+  sub_county_id            Int?
+  job_title                String?
+  job_grade_id             Int?
+  contract_type_id         Int?
+  nature_of_employment     String  @default("PERMANENT")
+  employee_type            String  @default("STAFF")
+  employment_date          String
+  probation_period_months  Int     @default(3)
+  probation_end_date       String?
+  probation_status         String  @default("ON_PROBATION")
+  confirmed_date           String?
+  manager_id               Int?
+  overview_manager_id      Int?
+  bank_code                String?
+  bank_branch              String?
+  bank_account_no          String?
+  posting_group_id         Int?
+  global_dimension_1_id    Int?
+  global_dimension_2_id    Int?
+  member_id                Int?
+  photo_url                String?
+  disabled                 Boolean @default(false)
+  disability_notes         String?
+  status                   String  @default("NEW")
+  decision_reason          String?
+  termination_reason_id    Int?
+  termination_date         String?
+  notes                    String?
+  created_at               String?
+  created_by               String?
+
+  @@index([status], map: "ix_employee_status")
+  @@index([manager_id], map: "ix_employee_manager")
+}
+
+model employee_next_of_kin {
+  id           Int     @id @default(autoincrement())
+  employee_id  Int
+  full_name    String
+  relationship String?
+  id_no        String?
+  phone        String?
+  email        String?
+
+  @@index([employee_id], map: "ix_enok_employee")
+}
+
+model employee_beneficiary {
+  id             Int     @id @default(autoincrement())
+  employee_id    Int
+  full_name      String
+  id_no          String?
+  date_of_birth  String?
+  relationship   String?
+  gender         String?
+  phone          String?
+  email          String?
+  percentage     Float   @default(0)
+  is_minor       Boolean @default(false)
+
+  @@index([employee_id], map: "ix_ebnf_employee")
+}
+
+model employee_dependant {
+  id                  Int     @id @default(autoincrement())
+  employee_id         Int
+  full_name           String
+  id_or_birth_cert_no String?
+  date_of_birth       String?
+  relationship        String?
+  gender              String?
+  is_student          Boolean @default(false)
+  status              String  @default("ACTIVE")
+
+  @@index([employee_id], map: "ix_edep_employee")
+}
+
+model employee_emergency_contact {
+  id           Int     @id @default(autoincrement())
+  employee_id  Int
+  full_name    String
+  relationship String?
+  phone        String?
+  alt_phone    String?
+  email        String?
+
+  @@index([employee_id], map: "ix_eec_employee")
+}
+
+model employee_professional_body {
+  id            Int     @id @default(autoincrement())
+  employee_id   Int
+  body_name     String
+  membership_no String?
+  from_date     String?
+  to_date       String?
+
+  @@index([employee_id], map: "ix_epb_employee")
+}
+
+model employee_work_history {
+  id                 Int     @id @default(autoincrement())
+  employee_id        Int
+  institution        String
+  position_held      String?
+  from_date          String?
+  to_date            String?
+  reason_for_leaving String?
+
+  @@index([employee_id], map: "ix_ewh_employee")
+}
+
+model employee_bank_account {
+  id          Int     @id @default(autoincrement())
+  employee_id Int
+  bank_code   String?
+  branch      String?
+  account_no  String
+  percentage  Float   @default(100)
+
+  @@index([employee_id], map: "ix_eba_employee")
+}
+
+model employee_contract {
+  id                 Int     @id @default(autoincrement())
+  employee_id        Int
+  contract_type_id   Int?
+  start_date         String
+  end_date           String?
+  job_title          String?
+  grade_id           Int?
+  salary_cents       BigInt  @default(0)
+  notice_period_days Int?
+  is_current         Boolean @default(true)
+  status             String  @default("ACTIVE")
+  created_at         String?
+  created_by         String?
+
+  @@index([employee_id], map: "ix_econ_employee")
+}
+
+model employee_edit_request {
+  no                     String  @id
+  employee_id            Int
+  first_name             String?
+  middle_name            String?
+  last_name              String?
+  gender                 String?
+  date_of_birth          String?
+  national_id            String?
+  kra_pin                String?
+  nssf_no                String?
+  shif_no                String?
+  marital_status         String?
+  phone                  String?
+  alt_phone              String?
+  email                  String?
+  physical_address       String?
+  county_id              Int?
+  sub_county_id          Int?
+  job_title              String?
+  job_grade_id           Int?
+  bank_code              String?
+  bank_branch            String?
+  bank_account_no        String?
+  global_dimension_1_id  Int?
+  global_dimension_2_id  Int?
+  status                 String  @default("Open")
+  decision_reason        String?
+  created_at             String?
+  created_by             String?
+
+  @@index([employee_id], map: "ix_eer_employee")
+  @@index([status], map: "ix_eer_status")
+}
+
+model employee_edit_next_of_kin {
+  id           Int     @id @default(autoincrement())
+  edit_no      String
+  full_name    String
+  relationship String?
+  id_no        String?
+  phone        String?
+  email        String?
+
+  @@index([edit_no], map: "ix_eenok_edit")
+}
+
+model employee_edit_beneficiary {
+  id             Int     @id @default(autoincrement())
+  edit_no        String
+  full_name      String
+  id_no          String?
+  date_of_birth  String?
+  relationship   String?
+  gender         String?
+  phone          String?
+  email          String?
+  percentage     Float   @default(0)
+  is_minor       Boolean @default(false)
+
+  @@index([edit_no], map: "ix_eebnf_edit")
+}
+
+model employee_edit_dependant {
+  id                  Int     @id @default(autoincrement())
+  edit_no             String
+  full_name           String
+  id_or_birth_cert_no String?
+  date_of_birth       String?
+  relationship        String?
+  gender              String?
+  is_student          Boolean @default(false)
+
+  @@index([edit_no], map: "ix_eedep_edit")
+}
+
+model employee_edit_emergency_contact {
+  id           Int     @id @default(autoincrement())
+  edit_no      String
+  full_name    String
+  relationship String?
+  phone        String?
+  alt_phone    String?
+  email        String?
+
+  @@index([edit_no], map: "ix_eeec_edit")
+}
+
+model employee_edit_professional_body {
+  id            Int     @id @default(autoincrement())
+  edit_no       String
+  body_name     String
+  membership_no String?
+  from_date     String?
+  to_date       String?
+
+  @@index([edit_no], map: "ix_eepb_edit")
+}
+
+model employee_edit_work_history {
+  id                 Int     @id @default(autoincrement())
+  edit_no            String
+  institution        String
+  position_held      String?
+  from_date          String?
+  to_date            String?
+  reason_for_leaving String?
+
+  @@index([edit_no], map: "ix_eewh_edit")
+}
+
+model employee_edit_bank_account {
+  id         Int     @id @default(autoincrement())
+  edit_no    String
+  bank_code  String?
+  branch     String?
+  account_no String
+  percentage Float   @default(100)
+
+  @@index([edit_no], map: "ix_eeba_edit")
+}
+
+model employee_contract_change {
+  no                     String  @id
+  employee_id            Int
+  nature                 String
+  contract_type_id       Int?
+  proposed_start_date    String?
+  proposed_end_date      String?
+  proposed_salary_cents  BigInt?
+  proposed_grade_id      Int?
+  reason                 String?
+  status                 String  @default("Open")
+  decision_reason        String?
+  created_at             String?
+  created_by             String?
+
+  @@index([employee_id], map: "ix_ecc_employee")
+  @@index([status], map: "ix_ecc_status")
+}
+
+model employee_exit {
+  no                             String   @id
+  employee_id                    Int
+  termination_reason_id          Int?
+  date_of_notice                 String?
+  date_of_exit                   String?
+  notice_period_days             Int?
+  notice_fully_served            Boolean?
+  reasons_for_not_serving_notice String?
+  can_be_reemployed              Boolean?
+  cleared                        Boolean  @default(false)
+  status                         String   @default("Open")
+  decision_reason                String?
+  created_at                     String?
+  created_by                     String?
+
+  @@index([employee_id], map: "ix_eexit_employee")
+  @@index([status], map: "ix_eexit_status")
+}
+
+model employee_exit_final_due_line {
+  id           Int     @id @default(autoincrement())
+  exit_no      String
+  due_type     String
+  description  String?
+  amount_cents BigInt  @default(0)
+
+  @@index([exit_no], map: "ix_eefdl_exit")
+}
+
+model employee_exit_clearance_line {
+  id         Int     @id @default(autoincrement())
+  exit_no    String
+  section_id Int
+  cleared    Boolean @default(false)
+  cleared_by String?
+  cleared_at String?
+  remarks    String?
+
+  @@index([exit_no], map: "ix_eecl_exit")
+}
+
+// ============================================================================================
+// HR & Payroll — Leave Management (ported from "Sacco ERP" AL, object range 52203xxx).
+// See prisma/migrations/20260913000000_add_hr_leave_management for the full SQL + rationale.
+// ============================================================================================
+
+model hr_leave_type {
+  id                                    Int     @id @default(autoincrement())
+  code                                  String  @unique
+  name                                  String
+  standard_days                         Float   @default(0)
+  accrues                               Boolean @default(false)
+  days_to_accrue                        Float   @default(0)
+  unlimited_days                        Boolean @default(false)
+  gender                                String  @default("ANY")
+  balance_treatment                     String  @default("IGNORE")
+  max_carry_forward_days                Float   @default(0)
+  inclusive_of_saturday                 Boolean @default(false)
+  inclusive_of_sunday                   Boolean @default(false)
+  inclusive_of_holidays                 Boolean @default(false)
+  fixed_days                            Boolean @default(false)
+  is_annual                             Boolean @default(false)
+  max_applicable_days                   Float?
+  check_balance                         Boolean @default(true)
+  is_sick_leave                         Boolean @default(false)
+  requires_admin_approval               Boolean @default(false)
+  leave_balance_notification_threshold  Float?
+  disabled                              Boolean @default(false)
+  status                                String  @default("ACTIVE")
+  created_at                            String?
+  created_by                            String?
+}
+
+model hr_leave_calendar {
+  id         Int     @id @default(autoincrement())
+  code       String  @unique
+  start_date String
+  end_date   String
+  is_current Boolean @default(false)
+  closed     Boolean @default(false)
+  closed_at  String?
+  closed_by  String?
+  created_at String?
+  created_by String?
+}
+
+model hr_holiday {
+  id        Int     @id @default(autoincrement())
+  date      String  @unique
+  reason    String
+  recurring Boolean @default(false)
+}
+
+model hr_leave_days_to_accrue {
+  id                    Int    @id @default(autoincrement())
+  leave_type_id         Int
+  job_grade_id          Int
+  days_to_accrue        Float  @default(0)
+  leave_day_worth_cents BigInt @default(0)
+
+  @@unique([leave_type_id, job_grade_id], map: "ux_hldta_type_grade")
+}
+
+model hr_leave_ledger_entry {
+  id                Int     @id @default(autoincrement())
+  employee_id       Int
+  leave_type_id     Int
+  leave_calendar_id Int
+  quantity          Float
+  entry_type        String
+  posting_date      String
+  document_no       String?
+  source_type       String?
+  source_id         String?
+  closed            Boolean @default(false)
+  description       String?
+  created_at        String?
+  created_by        String?
+
+  @@index([employee_id, leave_type_id], map: "ix_hlle_employee_type")
+  @@index([leave_calendar_id], map: "ix_hlle_calendar")
+}
+
+model hr_leave_application {
+  no                      String  @id
+  employee_id             Int
+  leave_type_id           Int
+  nature                  String  @default("APPLICATION")
+  leave_calendar_id       Int
+  start_date              String
+  end_date                String
+  days_applied            Float   @default(0)
+  weekend_days            Float   @default(0)
+  holiday_days            Float   @default(0)
+  total_days              Float   @default(0)
+  reliever_id             Int?
+  status                  String  @default("Open")
+  decision_reason         String?
+  leave_allowance_payable Boolean @default(false)
+  posted                  Boolean @default(false)
+  posting_date            String?
+  days_dropped            Float?
+  days_to_reimburse       Float?
+  justification           String?
+  created_at              String?
+  created_by              String?
+
+  @@index([employee_id], map: "ix_hla_employee")
+  @@index([status], map: "ix_hla_status")
+}
+
+model hr_leave_adjustment {
+  no              String  @id
+  leave_type_id   Int
+  type            String  @default("POSITIVE")
+  description     String?
+  days            Float   @default(0)
+  status          String  @default("Open")
+  decision_reason String?
+  created_at      String?
+  created_by      String?
+
+  @@index([status], map: "ix_hladj_status")
+}
+
+model hr_leave_adjustment_line {
+  id            Int    @id @default(autoincrement())
+  adjustment_no String
+  employee_id   Int
+  days          Float  @default(0)
+
+  @@index([adjustment_no], map: "ix_hladjl_adjustment")
+}
+
+model hr_leave_recall {
+  no              String  @id
+  employee_id     Int
+  application_no  String
+  days_to_recall  Float   @default(0)
+  status          String  @default("Open")
+  decision_reason String?
+  created_at      String?
+  created_by      String?
+
+  @@index([employee_id], map: "ix_hlr_employee")
+  @@index([status], map: "ix_hlr_status")
+}
+
+model hr_leave_plan {
+  no                String  @id
+  employee_id       Int
+  leave_calendar_id Int
+  status            String  @default("Open")
+  decision_reason   String?
+  created_at        String?
+  created_by        String?
+
+  @@index([employee_id], map: "ix_hlp_employee")
+  @@index([status], map: "ix_hlp_status")
+}
+
+model hr_leave_plan_line {
+  id         Int    @id @default(autoincrement())
+  plan_no    String
+  start_date String
+  end_date   String
+  days       Float  @default(0)
+
+  @@index([plan_no], map: "ix_hlpl_plan")
+}
+
+// ============================================================================================
+// HR & Payroll — Payroll (ported from "Sacco ERP" AL, object range 52203xxx). Posts real
+// double-entry journals via postJournal() on period close — see
+// prisma/migrations/20260914000000_add_hr_payroll for the full SQL + rationale.
+// ============================================================================================
+
+model hr_payroll_setup {
+  id                              Int     @id @default(1)
+  personal_relief_cents           BigInt  @default(240000)
+  insurance_relief_pct            Float   @default(15)
+  max_relief_cents                BigInt  @default(6000000)
+  mortgage_relief_cents           BigInt  @default(3000000)
+  shif_pct                        Float   @default(2.75)
+  shif_based_on                   String  @default("GROSS")
+  nssf_employer_factor            Float   @default(1)
+  housing_levy_enabled            Boolean @default(true)
+  housing_levy_pct                Float   @default(1.5)
+  housing_levy_based_on           String  @default("GROSS")
+  minimum_relief_threshold_cents  BigInt  @default(0)
+  secondary_tax_pct               Float   @default(30)
+  monthly_working_days            Int     @default(22)
+  updated_at                      String?
+  updated_by                      String?
+}
+
+model payroll_posting_group {
+  id                                       Int     @id @default(autoincrement())
+  code                                     String  @unique
+  name                                     String
+  salary_expense_account_id                Int
+  paye_payable_account_id                  Int
+  net_pay_payable_account_id               Int
+  nssf_employee_payable_account_id         Int
+  nssf_employer_expense_account_id         Int
+  nssf_employer_payable_account_id         Int
+  shif_payable_account_id                  Int
+  housing_levy_employee_payable_account_id Int
+  housing_levy_employer_expense_account_id Int
+  housing_levy_employer_payable_account_id Int
+  created_at                               String?
+  created_by                               String?
+}
+
+model payroll_paye_band {
+  id                Int    @id @default(autoincrement())
+  sort_order        Int
+  upper_bound_cents BigInt?
+  rate_pct          Float
+}
+
+model payroll_nssf_tier {
+  id                Int    @id @default(autoincrement())
+  tier_no           Int    @unique
+  lower_limit_cents BigInt
+  upper_limit_cents BigInt
+  employee_rate_pct Float
+  employer_rate_pct Float
+}
+
+model payroll_transaction_code {
+  id                      Int     @id @default(autoincrement())
+  code                    String  @unique
+  name                    String
+  type                    String  @default("INCOME")
+  taxable                 Boolean @default(true)
+  is_formula              Boolean @default(false)
+  formula                 String?
+  fixed_amount_cents      BigInt  @default(0)
+  upper_limit_cents       BigInt?
+  balance_type            String  @default("NONE")
+  special_type            String  @default("NONE")
+  gl_account_id           Int?
+  employer_gl_account_id  Int?
+  for_every_employee      Boolean @default(false)
+  status                  String  @default("ACTIVE")
+  created_at              String?
+  created_by              String?
+}
+
+model payroll_period {
+  id              Int     @id @default(autoincrement())
+  period_name     String  @unique
+  start_date      String
+  end_date        String
+  status          String  @default("OPEN")
+  decision_reason String?
+  closed_at       String?
+  closed_by       String?
+  created_at      String?
+  created_by      String?
+}
+
+model employee_payroll_transaction {
+  id                    Int     @id @default(autoincrement())
+  employee_id           Int
+  transaction_code_id   Int
+  payroll_period_id     Int
+  amount_cents          BigInt  @default(0)
+  original_amount_cents BigInt?
+  balance_cents         BigInt?
+  no_of_periods         Int?
+  executed_periods      Int     @default(0)
+  stopped               Boolean @default(false)
+  temporary             Boolean @default(false)
+  notes                 String?
+  created_at            String?
+  created_by            String?
+
+  @@index([employee_id, payroll_period_id], map: "ix_ept_employee_period")
+  @@index([payroll_period_id], map: "ix_ept_period")
+}
+
+model payroll_period_line {
+  id                  Int     @id @default(autoincrement())
+  payroll_period_id   Int
+  employee_id         Int
+  transaction_code_id Int
+  section             String  @default("ALLOWANCE")
+  sort_order          Int     @default(0)
+  amount_cents        BigInt  @default(0)
+  gl_account_id       Int?
+  is_debit            Boolean @default(true)
+
+  @@index([payroll_period_id, employee_id], map: "ix_ppl_period_employee")
+}
+
+model payroll_p9_line {
+  id                     Int     @id @default(autoincrement())
+  employee_id            Int
+  payroll_period_id      Int
+  basic_pay_cents        BigInt  @default(0)
+  gross_pay_cents        BigInt  @default(0)
+  taxable_pay_cents      BigInt  @default(0)
+  tax_charged_cents      BigInt  @default(0)
+  insurance_relief_cents BigInt  @default(0)
+  personal_relief_cents  BigInt  @default(0)
+  paye_cents             BigInt  @default(0)
+  nssf_cents             BigInt  @default(0)
+  shif_cents             BigInt  @default(0)
+  housing_levy_cents     BigInt  @default(0)
+  deductions_cents       BigInt  @default(0)
+  net_pay_cents          BigInt  @default(0)
+  created_at             String?
+
+  @@unique([employee_id, payroll_period_id], map: "ux_p9_employee_period")
+}

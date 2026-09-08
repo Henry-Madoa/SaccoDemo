@@ -32,7 +32,7 @@ import {
   AttachFdSecurityButton, DetachFdSecurityButton,
   AddGuarantorButton, ReleaseGuarantorButton, RunAppraisalButton,
 } from './loan-actions';
-import { EditLoanButton } from '../../application-form';
+import { LoanDetailsCard } from './loan-details-card';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
 import { AppraisalCard, AppraisalHistoryTable, AppraisalMeta, toAppraisal } from '@/components/loans/appraisal-card';
 import { ChargesBreakdownButton } from '@/components/ui/charges-breakdown';
@@ -181,32 +181,7 @@ export default async function LoanDetailPage({ params, searchParams }: {
     });
 
   const facilityDetailsCard = (
-    <CollapsibleCard title="Facility details" sub={<>Status <Pill status={l.status} /></>}>
-      <DefinitionList items={[
-        ['Loan number', <span className="mono" key="no">{l.loan_no}</span>],
-        ['Member', <>{l.first_name} {l.last_name} <span className="mono">({l.member_no})</span></>],
-        ['Product', l.product_name],
-        ['Purpose', l.purpose || '—'],
-        ['Economic sector', l.sector_code ? `${l.sector_code} — ${l.sector_name}` : '—'],
-        ['Sub-sector', l.sub_sector_code ? `${l.sub_sector_code} — ${l.sub_sector_name}` : '—'],
-        ['Sub-subsector', l.sub_subsector_code ? `${l.sub_subsector_code} — ${l.sub_subsector_name}` : '—'],
-        ['Recovery mode', humanise(l.recovery_mode)],
-        ['Applied', `${formatDate(l.applied_date)} by ${l.created_by || '—'}`],
-        ['Approved', l.approved_date ? `${formatDate(l.approved_date)} by ${l.approved_by}` : '—'],
-        l.rejected_reason ? ['Rejected because', l.rejected_reason] : null,
-        ['Disbursed', formatDate(l.disbursed_date)],
-        ['First instalment', formatDate(l.first_due_date)],
-        ['Total interest', <Money cents={l.total_interest} key="ti" />],
-        l.status === 'DISBURSED' || l.status === 'CLOSED'
-          ? ['Charges recovered',
-            <ChargesBreakdownButton key="fees" charges={computedCharges} totalOverride={l.fees_charged}
-              label="Charges recovered at disbursement" />]
-          : ['Estimated charges',
-            <ChargesBreakdownButton key="fees" charges={computedCharges} label="Estimated charges" />],
-        ['Principal repaid', <Money cents={l.principal_paid} key="pp" />],
-        ['Interest repaid', <Money cents={l.interest_paid} key="ip" />],
-      ]} />
-    </CollapsibleCard>
+    <LoanDetailsCard loan={l} members={editMembers} products={editProducts} computedCharges={computedCharges} canEdit={canEdit} />
   );
 
   const salaryCard = l.salary_based ? (
@@ -379,17 +354,6 @@ export default async function LoanDetailPage({ params, searchParams }: {
         <Link href={`/members/${l.member_id}`} className="btn ghost sm">Member 360</Link>
         <Link href={`/loan-documents?loan=${l.id}`} className="btn ghost sm">Loan Documents</Link>
         <Spacer />
-        {canEdit ? (
-          <EditLoanButton
-            members={editMembers} products={editProducts}
-            loan={{
-              id: l.id, loan_no: l.loan_no, member_id: l.member_id, product_id: l.product_id,
-              principal: l.principal, term_months: l.term_months, purpose: l.purpose,
-              sector_code: l.sector_code, sub_sector_code: l.sub_sector_code, sub_subsector_code: l.sub_subsector_code,
-              disburse_to_account_id: l.disburse_to_account_id, recovery_mode: l.recovery_mode,
-            }}
-          />
-        ) : null}
         {l.status === 'OPEN' && canSubmit ? (
           <SubmitButton loanId={l.id} appraisalDecision={latestAppraisal?.decision ?? null} />
         ) : null}

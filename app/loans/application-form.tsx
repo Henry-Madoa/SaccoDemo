@@ -10,14 +10,14 @@ import { useToast } from '@/components/ui/toast';
 import { Card, CardHead, TableWrap } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { AppraisalCard } from '@/components/loans/appraisal-card';
-import { appraiseLoan, applyForLoan, memberDisbursementAccounts, updateLoanApplication } from '@/app/actions/loans';
+import { appraiseLoan, applyForLoan, memberDisbursementAccounts } from '@/app/actions/loans';
 import { sectorsForLoanForm, subsectorsForSector, subsubsectorsForSubsector } from '@/app/actions/economicSectors';
 import { calculateLoanProductCharges } from '@/lib/loans';
+import { toCents } from '@/lib/format';
 import { RECOVERY_MODES } from '@/lib/constants';
-import { toCents, toUnits } from '@/lib/format';
 import type {
-  Appraisal, Cents, EconomicSector, EconomicSubsector, EconomicSubsubsector, LoanProductWithCharges,
-  LoanRecoveryMode, Member, SavingsAccountWithProduct,
+  Appraisal, EconomicSector, EconomicSubsector, EconomicSubsubsector, LoanProductWithCharges,
+  Member, SavingsAccountWithProduct,
 } from '@/lib/types';
 
 export interface ApplicationFormProps {
@@ -27,40 +27,21 @@ export interface ApplicationFormProps {
   onClose: () => void;
 }
 
-/** The loan fields Edit needs pre-filled — a subset of LoanFull, so callers don't have to
- *  assemble a bespoke shape just to open the same form pre-populated. */
-export interface EditableLoan {
-  id: number;
-  loan_no: string;
-  member_id: number;
-  product_id: number;
-  principal: Cents;
-  term_months: number;
-  purpose: string | null;
-  sector_code?: string | null;
-  sub_sector_code?: string | null;
-  sub_subsector_code?: string | null;
-  disburse_to_account_id: number | null;
-  recovery_mode?: LoanRecoveryMode;
-}
-
 interface LoanFormProps {
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
   products: LoanProductWithCharges[];
   presetMemberId?: number | null;
-  /** Present only for Edit — prefills every field and switches the form to updateLoanApplication. */
-  loan?: EditableLoan | null;
   onClose: () => void;
 }
 
-function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanFormProps) {
+function LoanForm({ members, products, presetMemberId, onClose }: LoanFormProps) {
   const toast = useToast();
-  const [memberId, setMemberId] = useState(String(loan?.member_id ?? presetMemberId ?? ''));
-  const [productId, setProductId] = useState(loan ? String(loan.product_id) : '');
-  const [principal, setPrincipal] = useState(loan ? toUnits(loan.principal) : '');
-  const [termMonths, setTermMonths] = useState(loan ? String(loan.term_months) : '24');
+  const [memberId, setMemberId] = useState(String(presetMemberId ?? ''));
+  const [productId, setProductId] = useState('');
+  const [principal, setPrincipal] = useState('');
+  const [termMonths, setTermMonths] = useState('24');
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
-  const [disburseToAccountId, setDisburseToAccountId] = useState(String(loan?.disburse_to_account_id ?? ''));
+  const [disburseToAccountId, setDisburseToAccountId] = useState('');
   const [appraisal, setAppraisal] = useState<Appraisal | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -68,11 +49,11 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
   // Sub-subsector), each level fetched only once its parent is picked, same pattern as the
   // disbursement account above.
   const [sectors, setSectors] = useState<EconomicSector[]>([]);
-  const [sectorCode, setSectorCode] = useState(loan?.sector_code ?? '');
+  const [sectorCode, setSectorCode] = useState('');
   const [subsectors, setSubsectors] = useState<EconomicSubsector[]>([]);
-  const [subSectorCode, setSubSectorCode] = useState(loan?.sub_sector_code ?? '');
+  const [subSectorCode, setSubSectorCode] = useState('');
   const [subsubsectors, setSubsubsectors] = useState<EconomicSubsubsector[]>([]);
-  const [subSubsectorCode, setSubSubsectorCode] = useState(loan?.sub_subsector_code ?? '');
+  const [subSubsectorCode, setSubSubsectorCode] = useState('');
 
   useEffect(() => {
     sectorsForLoanForm().then((res) => { if (res.ok) setSectors(res.data); });
@@ -140,12 +121,12 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
   return (
     <FormModal
       wide
-      title={loan ? `Edit ${loan.loan_no}` : 'New loan application'}
+      title="New loan application"
       onClose={onClose}
-      onSubmit={loan ? (values) => updateLoanApplication(loan.id, values) : applyForLoan}
-      submitLabel={loan ? 'Save changes' : 'Save application'}
-      successTitle={loan ? 'Application updated' : 'Application captured'}
-      successDetail={(l) => (loan ? `${l.loan_no} updated` : `${l.loan_no} saved — send it for approval when you're ready`)}
+      onSubmit={applyForLoan}
+      submitLabel="Save application"
+      successTitle="Application captured"
+      successDetail={(l) => `${l.loan_no} saved — send it for approval when you're ready`}
       extraFooter={
         <button type="button" className="btn ghost" disabled={checking}
           onClick={(e) => runAppraisal(e.currentTarget.closest('.modal')?.querySelector('form') ?? null)}>
@@ -179,7 +160,7 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
           <input id="f_termMonths" name="termMonths" type="number" required
             value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
         </div>
-        <Field name="purpose" label="Purpose" placeholder="e.g. Business expansion" defaultValue={loan?.purpose ?? ''} />
+        <Field name="purpose" label="Purpose" placeholder="e.g. Business expansion" />
 
         <div className="field">
           <label htmlFor="f_sectorCode">Economic sector</label>
@@ -215,7 +196,7 @@ function LoanForm({ members, products, presetMemberId, loan, onClose }: LoanForm
           value={disburseToAccountId} onChange={setDisburseToAccountId}
           placeholder="Pay out through the bank" emptyText="No matching accounts" />
         <Field name="recoveryMode" label="Recovery mode" type="select" options={RECOVERY_MODES}
-          defaultValue={loan?.recovery_mode ?? 'DIRECT'}
+          defaultValue="DIRECT"
           hint="Checkoff is recovered via Checkoff & Salary Processing batches; Standing Order auto-creates a recurring order for the member's own installment the moment this loan is disbursed" />
       </div>
 
@@ -277,23 +258,3 @@ export function NewApplicationButton({ members, products, presetMemberId }: {
   );
 }
 
-/** Opens the same form pre-filled against an existing loan — only meaningful while it's still
- *  OPEN (the same window loan-actions.tsx's SubmitButton offers Send for approval), since once
- *  submitted the terms are what the workflow was routed against. */
-export function EditLoanButton({ members, products, loan, className = 'btn ghost' }: {
-  members: ApplicationFormProps['members'];
-  products: LoanProductWithCharges[];
-  loan: EditableLoan;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <LoanForm members={members} products={products} loan={loan} onClose={() => setOpen(false)} />
-      ) : null}
-    </>
-  );
-}

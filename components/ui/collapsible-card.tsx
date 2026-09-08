@@ -9,6 +9,10 @@ export interface CollapsibleCardProps {
   /** Collapsed on first render — the default is expanded. */
   defaultCollapsed?: boolean;
   className?: string;
+  /** An optional header-right control (e.g. an Edit button) — rendered next to the toggle
+   *  button rather than nested inside it (a button can't nest another button), with its own
+   *  click stopped from bubbling up to the toggle. */
+  actions?: ReactNode;
   children: ReactNode;
 }
 
@@ -27,7 +31,7 @@ export interface CollapsibleCardProps {
  * actually wanted. Every real card here defaults to expanded and is rarely toggled at all, so
  * `settled` starts `true` for the overwhelming majority of cards from the very first paint.
  */
-export function CollapsibleCard({ title, sub, defaultCollapsed = false, className, children }: CollapsibleCardProps) {
+export function CollapsibleCard({ title, sub, defaultCollapsed = false, className, actions, children }: CollapsibleCardProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [settled, setSettled] = useState(!defaultCollapsed);
 
@@ -41,13 +45,16 @@ export function CollapsibleCard({ title, sub, defaultCollapsed = false, classNam
 
   return (
     <Card className={className}>
-      <button type="button" className="card-head card-head-toggle" aria-expanded={!collapsed}
-        onClick={toggle}>
-        <div>
-          <h3>{title}</h3>
-          {sub ? <div className="card-sub">{sub}</div> : null}
-        </div>
-      </button>
+      <div className="card-head">
+        <button type="button" className="card-head-toggle" style={{ flex: 1 }} aria-expanded={!collapsed}
+          onClick={toggle}>
+          <div>
+            <h3>{title}</h3>
+            {sub ? <div className="card-sub">{sub}</div> : null}
+          </div>
+        </button>
+        {actions ? <div onClick={(e) => e.stopPropagation()}>{actions}</div> : null}
+      </div>
       <div className={`collapsible-body ${collapsed ? 'collapsed' : ''}`}
         onTransitionEnd={(e) => { if (e.target === e.currentTarget && !collapsed) setSettled(true); }}>
         <div className={`collapsible-body-inner${settled ? ' settled' : ''}`}>{children}</div>

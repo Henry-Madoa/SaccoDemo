@@ -119,6 +119,29 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'ADMIN_CHANGELOG', label: 'Change Log Management', route: '/admin/security/changelog' },
   { code: 'ADMIN_DATA', label: 'Data Management', route: '/admin/data' },
   { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/pool/general/automation' },
+  { code: 'EMPLOYEES', label: 'Employees', route: '/employees' },
+  { code: 'EMPLOYEE_EDITS', label: 'Employee Editing', route: '/employee-edits' },
+  { code: 'EMPLOYEE_CONTRACT_CHANGES', label: 'Employee Contract / Salary Changes', route: '/employee-contract-changes' },
+  { code: 'EMPLOYEE_EXITS', label: 'Employee Exits', route: '/employee-exits' },
+  { code: 'ADMIN_HR_JOB_GRADES', label: 'Job Grades', route: '/admin/pool/hr-payroll/job-grades' },
+  { code: 'ADMIN_HR_CONTRACT_TYPES', label: 'Employment Contract Types', route: '/admin/pool/hr-payroll/contract-types' },
+  { code: 'ADMIN_HR_TERMINATION_REASONS', label: 'Termination Reasons', route: '/admin/pool/hr-payroll/termination-reasons' },
+  { code: 'ADMIN_HR_CLEARANCE_SECTIONS', label: 'Exit Clearance Sections', route: '/admin/pool/hr-payroll/clearance-sections' },
+  { code: 'LEAVE_APPLICATIONS', label: 'Leave Applications', route: '/leave-applications' },
+  { code: 'LEAVE_ADJUSTMENTS', label: 'Leave Adjustments', route: '/leave-adjustments' },
+  { code: 'LEAVE_RECALLS', label: 'Leave Recalls', route: '/leave-recalls' },
+  { code: 'LEAVE_PLANS', label: 'Leave Plans', route: '/leave-plans' },
+  { code: 'ADMIN_HR_LEAVE_TYPES', label: 'Leave Types', route: '/admin/pool/hr-payroll/leave-types' },
+  { code: 'ADMIN_HR_LEAVE_CALENDAR', label: 'Leave Calendar', route: '/admin/pool/hr-payroll/leave-calendar' },
+  { code: 'ADMIN_HR_HOLIDAYS', label: 'Holidays', route: '/admin/pool/hr-payroll/holidays' },
+  { code: 'ADMIN_HR_ACCRUE_MATRIX', label: 'Leave Accrual Matrix', route: '/admin/pool/hr-payroll/accrue-matrix' },
+  { code: 'PAYROLL', label: 'Payroll', route: '/payroll' },
+  { code: 'PAYROLL_PERIODS', label: 'Payroll Periods', route: '/payroll/periods' },
+  { code: 'ADMIN_PAYROLL_SETUP', label: 'Payroll Setup', route: '/admin/pool/hr-payroll/payroll-setup' },
+  { code: 'ADMIN_PAYROLL_POSTING_GROUPS', label: 'Payroll Posting Groups', route: '/admin/pool/hr-payroll/posting-groups' },
+  { code: 'ADMIN_PAYROLL_PAYE_BANDS', label: 'PAYE Bands', route: '/admin/pool/hr-payroll/paye-bands' },
+  { code: 'ADMIN_PAYROLL_NSSF_TIERS', label: 'NSSF Tiers', route: '/admin/pool/hr-payroll/nssf-tiers' },
+  { code: 'ADMIN_PAYROLL_TRANSACTION_CODES', label: 'Payroll Transaction Codes', route: '/admin/pool/hr-payroll/transaction-codes' },
 ];
 
 export interface ActionGrant {
@@ -1176,6 +1199,233 @@ export const ACTIONS = {
       ['member', 'modify'], ['savings_account', 'modify'],
       ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
     ],
+  },
+
+  // Employee Management (see lib/employees.ts). The staff master itself is maker-checker at
+  // onboarding only (New -> Pending Approval -> Active); once Active, further changes route
+  // through Employee Editing / Employee Contract Change / Employee Exit below instead.
+  EMPLOYEES_READ: {
+    page: 'EMPLOYEES',
+    tables: [
+      ['employee', 'read'], ['employee_next_of_kin', 'read'], ['employee_beneficiary', 'read'],
+      ['employee_dependant', 'read'], ['employee_emergency_contact', 'read'],
+      ['employee_professional_body', 'read'], ['employee_work_history', 'read'],
+      ['employee_bank_account', 'read'], ['employee_contract', 'read'],
+    ],
+  },
+  EMPLOYEES_CREATE: {
+    page: 'EMPLOYEES',
+    tables: [
+      ['employee', 'insert'], ['employee', 'modify'], ['employee', 'delete'],
+      ['employee_next_of_kin', 'insert'], ['employee_next_of_kin', 'delete'],
+      ['employee_beneficiary', 'insert'], ['employee_beneficiary', 'delete'],
+      ['employee_dependant', 'insert'], ['employee_dependant', 'delete'],
+      ['employee_emergency_contact', 'insert'], ['employee_emergency_contact', 'delete'],
+      ['employee_professional_body', 'insert'], ['employee_professional_body', 'delete'],
+      ['employee_work_history', 'insert'], ['employee_work_history', 'delete'],
+      ['employee_bank_account', 'insert'], ['employee_bank_account', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  EMPLOYEES_APPROVE: {
+    page: 'EMPLOYEES',
+    tables: [['employee', 'modify'], ['employee_contract', 'insert'], ['employee_contract', 'modify']],
+  },
+
+  // Employee Editing — mirrors MEMBER_EDITS_READ/_UPDATE/_APPROVE.
+  EMPLOYEE_EDITS_READ: { page: 'EMPLOYEE_EDITS', tables: [['employee_edit_request', 'read']] },
+  EMPLOYEE_EDITS_UPDATE: {
+    page: 'EMPLOYEE_EDITS',
+    tables: [
+      ['employee_edit_request', 'insert'], ['employee_edit_request', 'modify'],
+      ['employee_edit_next_of_kin', 'insert'], ['employee_edit_next_of_kin', 'delete'],
+      ['employee_edit_beneficiary', 'insert'], ['employee_edit_beneficiary', 'delete'],
+      ['employee_edit_dependant', 'insert'], ['employee_edit_dependant', 'delete'],
+      ['employee_edit_emergency_contact', 'insert'], ['employee_edit_emergency_contact', 'delete'],
+      ['employee_edit_professional_body', 'insert'], ['employee_edit_professional_body', 'delete'],
+      ['employee_edit_work_history', 'insert'], ['employee_edit_work_history', 'delete'],
+      ['employee_edit_bank_account', 'insert'], ['employee_edit_bank_account', 'delete'],
+    ],
+  },
+  EMPLOYEE_EDITS_APPROVE: {
+    page: 'EMPLOYEE_EDITS',
+    tables: [
+      ['employee_edit_request', 'modify'], ['employee', 'modify'],
+      ['employee_next_of_kin', 'insert'], ['employee_next_of_kin', 'delete'],
+      ['employee_beneficiary', 'insert'], ['employee_beneficiary', 'delete'],
+      ['employee_dependant', 'insert'], ['employee_dependant', 'delete'],
+      ['employee_emergency_contact', 'insert'], ['employee_emergency_contact', 'delete'],
+      ['employee_professional_body', 'insert'], ['employee_professional_body', 'delete'],
+      ['employee_work_history', 'insert'], ['employee_work_history', 'delete'],
+      ['employee_bank_account', 'insert'], ['employee_bank_account', 'delete'],
+    ],
+  },
+
+  // Employee Contract / Salary Change — New Contract / Renewal / Salary Increment.
+  EMPLOYEE_CONTRACT_CHANGES_READ: { page: 'EMPLOYEE_CONTRACT_CHANGES', tables: [['employee_contract_change', 'read']] },
+  EMPLOYEE_CONTRACT_CHANGES_CREATE: {
+    page: 'EMPLOYEE_CONTRACT_CHANGES',
+    tables: [['employee_contract_change', 'insert'], ['employee_contract_change', 'modify'], ['employee_contract_change', 'delete'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  EMPLOYEE_CONTRACT_CHANGES_APPROVE: {
+    page: 'EMPLOYEE_CONTRACT_CHANGES',
+    tables: [['employee_contract_change', 'modify'], ['employee_contract', 'insert'], ['employee', 'modify']],
+  },
+
+  // Employee Exit — offboarding + independent clearance checklist (see lib/employeeExits.ts).
+  EMPLOYEE_EXITS_READ: {
+    page: 'EMPLOYEE_EXITS',
+    tables: [['employee_exit', 'read'], ['employee_exit_final_due_line', 'read'], ['employee_exit_clearance_line', 'read']],
+  },
+  EMPLOYEE_EXITS_CREATE: {
+    page: 'EMPLOYEE_EXITS',
+    tables: [
+      ['employee_exit', 'insert'], ['employee_exit', 'modify'], ['employee_exit_final_due_line', 'insert'],
+      ['employee_exit_final_due_line', 'delete'], ['employee_exit_clearance_line', 'insert'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  EMPLOYEE_EXITS_APPROVE: { page: 'EMPLOYEE_EXITS', tables: [['employee_exit', 'modify']] },
+  EMPLOYEE_EXITS_CLEAR: {
+    page: 'EMPLOYEE_EXITS',
+    tables: [['employee_exit', 'modify'], ['employee_exit_clearance_line', 'modify'], ['employee', 'modify']],
+  },
+
+  // Employee Management setup masters (Admin Centre -> Setup Pool -> HR & Payroll). Department is
+  // Global Dimension 2 (Admin Centre -> Setup Pool -> General -> Global Dimensions), not a
+  // bespoke master here.
+  HR_JOB_GRADES_READ: { page: 'ADMIN_HR_JOB_GRADES', tables: [['hr_job_grade', 'read']] },
+  HR_JOB_GRADES_MANAGE: {
+    page: 'ADMIN_HR_JOB_GRADES',
+    tables: [['hr_job_grade', 'insert'], ['hr_job_grade', 'modify'], ['hr_job_grade', 'delete']],
+  },
+  HR_CONTRACT_TYPES_READ: { page: 'ADMIN_HR_CONTRACT_TYPES', tables: [['hr_employment_contract_type', 'read']] },
+  HR_CONTRACT_TYPES_MANAGE: {
+    page: 'ADMIN_HR_CONTRACT_TYPES',
+    tables: [['hr_employment_contract_type', 'insert'], ['hr_employment_contract_type', 'modify'], ['hr_employment_contract_type', 'delete']],
+  },
+  HR_TERMINATION_REASONS_READ: { page: 'ADMIN_HR_TERMINATION_REASONS', tables: [['hr_termination_reason', 'read']] },
+  HR_TERMINATION_REASONS_MANAGE: {
+    page: 'ADMIN_HR_TERMINATION_REASONS',
+    tables: [['hr_termination_reason', 'insert'], ['hr_termination_reason', 'modify'], ['hr_termination_reason', 'delete']],
+  },
+  HR_CLEARANCE_SECTIONS_READ: { page: 'ADMIN_HR_CLEARANCE_SECTIONS', tables: [['hr_clearance_section', 'read']] },
+  HR_CLEARANCE_SECTIONS_MANAGE: {
+    page: 'ADMIN_HR_CLEARANCE_SECTIONS',
+    tables: [['hr_clearance_section', 'insert'], ['hr_clearance_section', 'modify'], ['hr_clearance_section', 'delete']],
+  },
+
+  // Leave Management (see lib/leaveManagement.ts).
+  LEAVE_APPLICATIONS_READ: {
+    page: 'LEAVE_APPLICATIONS',
+    tables: [['hr_leave_application', 'read'], ['hr_leave_ledger_entry', 'read']],
+  },
+  LEAVE_APPLICATIONS_CREATE: {
+    page: 'LEAVE_APPLICATIONS',
+    tables: [['hr_leave_application', 'insert'], ['hr_leave_application', 'modify'], ['hr_leave_application', 'delete'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  LEAVE_APPLICATIONS_APPROVE: {
+    page: 'LEAVE_APPLICATIONS',
+    tables: [['hr_leave_application', 'modify'], ['hr_leave_ledger_entry', 'insert']],
+  },
+  LEAVE_ADJUSTMENTS_READ: { page: 'LEAVE_ADJUSTMENTS', tables: [['hr_leave_adjustment', 'read'], ['hr_leave_adjustment_line', 'read']] },
+  LEAVE_ADJUSTMENTS_CREATE: {
+    page: 'LEAVE_ADJUSTMENTS',
+    tables: [
+      ['hr_leave_adjustment', 'insert'], ['hr_leave_adjustment', 'modify'], ['hr_leave_adjustment', 'delete'],
+      ['hr_leave_adjustment_line', 'insert'], ['hr_leave_adjustment_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  LEAVE_ADJUSTMENTS_APPROVE: {
+    page: 'LEAVE_ADJUSTMENTS',
+    tables: [['hr_leave_adjustment', 'modify'], ['hr_leave_ledger_entry', 'insert']],
+  },
+  LEAVE_RECALLS_READ: { page: 'LEAVE_RECALLS', tables: [['hr_leave_recall', 'read']] },
+  LEAVE_RECALLS_CREATE: {
+    page: 'LEAVE_RECALLS',
+    tables: [['hr_leave_recall', 'insert'], ['hr_leave_recall', 'modify'], ['hr_leave_recall', 'delete'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  LEAVE_RECALLS_APPROVE: { page: 'LEAVE_RECALLS', tables: [['hr_leave_recall', 'modify'], ['hr_leave_ledger_entry', 'insert']] },
+  LEAVE_PLANS_READ: { page: 'LEAVE_PLANS', tables: [['hr_leave_plan', 'read'], ['hr_leave_plan_line', 'read']] },
+  LEAVE_PLANS_CREATE: {
+    page: 'LEAVE_PLANS',
+    tables: [
+      ['hr_leave_plan', 'insert'], ['hr_leave_plan', 'modify'], ['hr_leave_plan', 'delete'],
+      ['hr_leave_plan_line', 'insert'], ['hr_leave_plan_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  LEAVE_PLANS_APPROVE: { page: 'LEAVE_PLANS', tables: [['hr_leave_plan', 'modify']] },
+
+  // Leave Management setup masters + periodic runs.
+  HR_LEAVE_TYPES_READ: { page: 'ADMIN_HR_LEAVE_TYPES', tables: [['hr_leave_type', 'read']] },
+  HR_LEAVE_TYPES_MANAGE: {
+    page: 'ADMIN_HR_LEAVE_TYPES',
+    tables: [['hr_leave_type', 'insert'], ['hr_leave_type', 'modify'], ['hr_leave_type', 'delete']],
+  },
+  HR_LEAVE_CALENDAR_READ: { page: 'ADMIN_HR_LEAVE_CALENDAR', tables: [['hr_leave_calendar', 'read']] },
+  HR_LEAVE_CALENDAR_MANAGE: {
+    page: 'ADMIN_HR_LEAVE_CALENDAR',
+    tables: [['hr_leave_calendar', 'insert'], ['hr_leave_calendar', 'modify'], ['hr_leave_ledger_entry', 'insert'], ['hr_leave_ledger_entry', 'modify']],
+  },
+  HR_HOLIDAYS_READ: { page: 'ADMIN_HR_HOLIDAYS', tables: [['hr_holiday', 'read']] },
+  HR_HOLIDAYS_MANAGE: { page: 'ADMIN_HR_HOLIDAYS', tables: [['hr_holiday', 'insert'], ['hr_holiday', 'modify'], ['hr_holiday', 'delete']] },
+  HR_ACCRUE_MATRIX_READ: { page: 'ADMIN_HR_ACCRUE_MATRIX', tables: [['hr_leave_days_to_accrue', 'read']] },
+  HR_ACCRUE_MATRIX_MANAGE: {
+    page: 'ADMIN_HR_ACCRUE_MATRIX',
+    tables: [['hr_leave_days_to_accrue', 'insert'], ['hr_leave_days_to_accrue', 'modify'], ['hr_leave_days_to_accrue', 'delete']],
+  },
+  HR_LEAVE_ACCRUAL_RUN: { page: 'ADMIN_HR_ACCRUE_MATRIX', tables: [['hr_leave_ledger_entry', 'insert']] },
+
+  // Payroll (see lib/payroll.ts). _RUN computes/re-computes a period's payslip lines (no G/L
+  // effect yet); _APPROVE decides the period; _CLOSE posts the journal and rolls recurring
+  // transactions into the next period — the same tier CASH_MANAGEMENT_POST/LOAN_DISBURSE carry.
+  PAYROLL_READ: {
+    page: 'PAYROLL',
+    tables: [['employee_payroll_transaction', 'read'], ['payroll_period_line', 'read'], ['payroll_p9_line', 'read']],
+  },
+  PAYROLL_MANAGE_TRANSACTIONS: {
+    page: 'PAYROLL',
+    tables: [['employee_payroll_transaction', 'insert'], ['employee_payroll_transaction', 'modify'], ['employee_payroll_transaction', 'delete']],
+  },
+  PAYROLL_PERIODS_READ: { page: 'PAYROLL_PERIODS', tables: [['payroll_period', 'read']] },
+  PAYROLL_PERIODS_CREATE: { page: 'PAYROLL_PERIODS', tables: [['payroll_period', 'insert'], ['workflow_task', 'insert'], ['workflow_task', 'modify']] },
+  PAYROLL_PERIODS_RUN: {
+    page: 'PAYROLL_PERIODS',
+    tables: [['payroll_period_line', 'insert'], ['payroll_period_line', 'modify'], ['payroll_p9_line', 'insert'], ['employee_payroll_transaction', 'modify']],
+  },
+  PAYROLL_PERIODS_APPROVE: { page: 'PAYROLL_PERIODS', tables: [['payroll_period', 'modify']] },
+  PAYROLL_PERIODS_CLOSE: {
+    page: 'PAYROLL_PERIODS',
+    tables: [
+      ['payroll_period', 'insert'], ['payroll_period', 'modify'], ['employee_payroll_transaction', 'insert'],
+      ['journal', 'insert'], ['journal_line', 'insert'],
+    ],
+  },
+
+  // Payroll setup masters.
+  PAYROLL_SETUP_READ: { page: 'ADMIN_PAYROLL_SETUP', tables: [['hr_payroll_setup', 'read']] },
+  PAYROLL_SETUP_MANAGE: { page: 'ADMIN_PAYROLL_SETUP', tables: [['hr_payroll_setup', 'modify']] },
+  PAYROLL_POSTING_GROUPS_READ: { page: 'ADMIN_PAYROLL_POSTING_GROUPS', tables: [['payroll_posting_group', 'read']] },
+  PAYROLL_POSTING_GROUPS_MANAGE: {
+    page: 'ADMIN_PAYROLL_POSTING_GROUPS',
+    tables: [['payroll_posting_group', 'insert'], ['payroll_posting_group', 'modify'], ['payroll_posting_group', 'delete']],
+  },
+  PAYROLL_PAYE_BANDS_READ: { page: 'ADMIN_PAYROLL_PAYE_BANDS', tables: [['payroll_paye_band', 'read']] },
+  PAYROLL_PAYE_BANDS_MANAGE: {
+    page: 'ADMIN_PAYROLL_PAYE_BANDS',
+    tables: [['payroll_paye_band', 'insert'], ['payroll_paye_band', 'modify'], ['payroll_paye_band', 'delete']],
+  },
+  PAYROLL_NSSF_TIERS_READ: { page: 'ADMIN_PAYROLL_NSSF_TIERS', tables: [['payroll_nssf_tier', 'read']] },
+  PAYROLL_NSSF_TIERS_MANAGE: {
+    page: 'ADMIN_PAYROLL_NSSF_TIERS',
+    tables: [['payroll_nssf_tier', 'insert'], ['payroll_nssf_tier', 'modify'], ['payroll_nssf_tier', 'delete']],
+  },
+  PAYROLL_TRANSACTION_CODES_READ: { page: 'ADMIN_PAYROLL_TRANSACTION_CODES', tables: [['payroll_transaction_code', 'read']] },
+  PAYROLL_TRANSACTION_CODES_MANAGE: {
+    page: 'ADMIN_PAYROLL_TRANSACTION_CODES',
+    tables: [['payroll_transaction_code', 'insert'], ['payroll_transaction_code', 'modify'], ['payroll_transaction_code', 'delete']],
   },
 } as const satisfies Record<string, ActionGrant>;
 

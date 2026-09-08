@@ -55,6 +55,15 @@ export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
   PAYMENT_JOURNAL: 'payment_journal_header',
   RECEIPT: 'receipt_header',
   PAYMENT_VOUCHER: 'payment_voucher_header',
+  EMPLOYEE_ONBOARDING: 'employee',
+  EMPLOYEE_EDIT: 'employee_edit_request',
+  EMPLOYEE_CONTRACT_CHANGE: 'employee_contract_change',
+  EMPLOYEE_EXIT: 'employee_exit',
+  LEAVE_APPLICATION: 'hr_leave_application',
+  LEAVE_ADJUSTMENT: 'hr_leave_adjustment',
+  LEAVE_RECALL: 'hr_leave_recall',
+  LEAVE_PLAN: 'hr_leave_plan',
+  PAYROLL_PERIOD: 'payroll_period',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
@@ -89,6 +98,15 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   PAYMENT_JOURNAL: 'Payment Journal',
   RECEIPT: 'Receipt',
   PAYMENT_VOUCHER: 'Payment Voucher',
+  EMPLOYEE_ONBOARDING: 'Employee Onboarding',
+  EMPLOYEE_EDIT: 'Employee Detail Edit',
+  EMPLOYEE_CONTRACT_CHANGE: 'Employee Contract / Salary Change',
+  EMPLOYEE_EXIT: 'Employee Exit',
+  LEAVE_APPLICATION: 'Leave Application',
+  LEAVE_ADJUSTMENT: 'Leave Adjustment',
+  LEAVE_RECALL: 'Leave Recall',
+  LEAVE_PLAN: 'Leave Plan',
+  PAYROLL_PERIOD: 'Payroll Period',
 };
 
 const humanizeIdentifier = (identifier: string): string => identifier
@@ -150,6 +168,15 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   PAYMENT_JOURNAL: () => '/payables/payment-journal',
   RECEIPT: (id) => `/cash-management/receipts/${id}`,
   PAYMENT_VOUCHER: (id) => `/cash-management/payment-vouchers/${id}`,
+  EMPLOYEE_ONBOARDING: (id) => `/employees/view/${id}`,
+  EMPLOYEE_EDIT: (id) => `/employee-edits/view/${id}`,
+  EMPLOYEE_CONTRACT_CHANGE: (id) => `/employee-contract-changes/view/${id}`,
+  EMPLOYEE_EXIT: (id) => `/employee-exits/view/${id}`,
+  LEAVE_APPLICATION: (id) => `/leave-applications/view/${id}`,
+  LEAVE_ADJUSTMENT: (id) => `/leave-adjustments/view/${id}`,
+  LEAVE_RECALL: (id) => `/leave-recalls/view/${id}`,
+  LEAVE_PLAN: (id) => `/leave-plans/view/${id}`,
+  PAYROLL_PERIOD: (id) => `/payroll/periods/view/${id}`,
 };
 
 export function documentLabel(documentType: WorkflowDocumentType, entityId: string): string {

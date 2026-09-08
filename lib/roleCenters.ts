@@ -427,3 +427,90 @@ function sumAgedBalance(report: unknown): Cents {
   if (!Array.isArray(r?.rows)) return 0;
   return r.rows.reduce((a, x) => a + (Number(x.balance) || 0), 0);
 }
+
+/* -------------------------------------------------------------------- HR & Payroll */
+
+export interface HrPayrollRoleCenter {
+  kpi: {
+    headcountActive: number; headcountNew: number; headcountPendingApproval: number;
+    pendingApprovals: number; leaveApplicationsPending: number; payrollPeriodStatus: string | null;
+    lastNetPay: Cents;
+  };
+  headcountByDepartment: { name: string; count: number }[];
+  upcomingLeave: { employeeName: string; leaveType: string; startDate: IsoDate }[];
+  probationEnding: { employeeName: string; endDate: IsoDate }[];
+  contractsExpiring: { employeeName: string; endDate: IsoDate }[];
+}
+
+export async function getHrPayrollRoleCenter(): Promise<HrPayrollRoleCenter> {
+  const t = today();
+  const in30 = addMonths(t, 1);
+  const [
+    active, newCount, pendingApprovalCount, byDept, pendingApprovalsTotal, leaveApps, openPeriod,
+    lastPeriodNetPay, probation, contracts, upcomingLeave,
+  ] = await Promise.all([
+    one<{ n: number }>("SELECT COUNT(*) n FROM employee WHERE status IN ('ACTIVE','ON_LEAVE')").catch(() => ({ n: 0 })),
+    one<{ n: number }>("SELECT COUNT(*) n FROM employee WHERE status = 'NEW'").catch(() => ({ n: 0 })),
+    one<{ n: number }>("SELECT COUNT(*) n FROM employee WHERE status = 'PENDING_APPROVAL'").catch(() => ({ n: 0 })),
+    all<{ name: string; n: number }>(
+      `SELECT COALESCE(gd2.name, 'Unassigned') AS name, COUNT(*) AS n FROM employee e
+       LEFT JOIN global_dimension_2_value gd2 ON gd2.id = e.global_dimension_2_id
+       WHERE e.status IN ('ACTIVE','ON_LEAVE') GROUP BY gd2.name ORDER BY n DESC LIMIT 8`,
+    ).catch(() => []),
+    one<{ n: number }>(
+      `SELECT
+         (SELECT COUNT(*) FROM employee WHERE status = 'PENDING_APPROVAL')
+         + (SELECT COUNT(*) FROM employee_edit_request WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM employee_exit WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM employee_contract_change WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM hr_leave_application WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM hr_leave_adjustment WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM hr_leave_recall WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM hr_leave_plan WHERE status = 'Pending Approval')
+         + (SELECT COUNT(*) FROM payroll_period WHERE status = 'PENDING_APPROVAL')
+         AS n`,
+    ).catch(() => ({ n: 0 })),
+    one<{ n: number }>("SELECT COUNT(*) n FROM hr_leave_application WHERE status = 'Pending Approval'").catch(() => ({ n: 0 })),
+    one<{ status: string }>("SELECT status FROM payroll_period WHERE status IN ('OPEN','PENDING_APPROVAL','APPROVED') ORDER BY start_date DESC LIMIT 1").catch(() => undefined),
+    one<{ v: number }>(
+      `SELECT COALESCE(SUM(l.amount_cents), 0) AS v FROM payroll_period_line l
+       JOIN payroll_transaction_code c ON c.id = l.transaction_code_id
+       WHERE c.code = 'NETPAY' AND l.payroll_period_id = (SELECT id FROM payroll_period ORDER BY start_date DESC LIMIT 1)`,
+    ).catch(() => ({ v: 0 })),
+    all<{ name: string; probation_end_date: string }>(
+      `SELECT (first_name || ' ' || last_name) AS name, probation_end_date FROM employee
+       WHERE status IN ('ACTIVE') AND probation_status = 'ON_PROBATION' AND probation_end_date IS NOT NULL AND probation_end_date <= @d
+       ORDER BY probation_end_date LIMIT 8`,
+      { d: in30 },
+    ).catch(() => []),
+    all<{ name: string; end_date: string }>(
+      `SELECT (e.first_name || ' ' || e.last_name) AS name, c.end_date FROM employee_contract c
+       JOIN employee e ON e.id = c.employee_id
+       WHERE c.is_current = true AND c.end_date IS NOT NULL AND c.end_date <= @d AND e.status IN ('ACTIVE','ON_LEAVE')
+       ORDER BY c.end_date LIMIT 8`,
+      { d: in30 },
+    ).catch(() => []),
+    all<{ name: string; leave_type: string; start_date: string }>(
+      `SELECT (e.first_name || ' ' || e.last_name) AS name, lt.name AS leave_type, a.start_date FROM hr_leave_application a
+       JOIN employee e ON e.id = a.employee_id JOIN hr_leave_type lt ON lt.id = a.leave_type_id
+       WHERE a.status = 'Approved' AND a.start_date >= @t AND a.start_date <= @d
+       ORDER BY a.start_date LIMIT 8`,
+      { t, d: in30 },
+    ).catch(() => []),
+  ]);
+
+  return {
+    kpi: {
+      headcountActive: Number(active?.n ?? 0), headcountNew: Number(newCount?.n ?? 0),
+      headcountPendingApproval: Number(pendingApprovalCount?.n ?? 0),
+      pendingApprovals: Number(pendingApprovalsTotal?.n ?? 0),
+      leaveApplicationsPending: Number(leaveApps?.n ?? 0),
+      payrollPeriodStatus: openPeriod?.status ?? null,
+      lastNetPay: Number(lastPeriodNetPay?.v ?? 0),
+    },
+    headcountByDepartment: byDept.map((d) => ({ name: d.name, count: Number(d.n) })),
+    upcomingLeave: upcomingLeave.map((r) => ({ employeeName: r.name, leaveType: r.leave_type, startDate: r.start_date })),
+    probationEnding: probation.map((r) => ({ employeeName: r.name, endDate: r.probation_end_date })),
+    contractsExpiring: contracts.map((r) => ({ employeeName: r.name, endDate: r.end_date })),
+  };
+}

@@ -5,6 +5,7 @@ import { CreditRoleCentre } from './centres/credit';
 import { FosaRoleCentre } from './centres/fosa';
 import { FinanceManagerRoleCentre } from './centres/finance-manager';
 import { AccountantRoleCentre } from './centres/accountant';
+import { HrPayrollRoleCentre } from './centres/hr-payroll';
 
 /**
  * The dashboard is a Role Centre dispatcher (Business Central "Role Center"). Which one renders is
@@ -20,6 +21,7 @@ export default async function DashboardPage() {
     case 'FOSA': return <FosaRoleCentre user={user} />;
     case 'FINANCE_MANAGER': return <FinanceManagerRoleCentre user={user} />;
     case 'ACCOUNTANT': return <AccountantRoleCentre user={user} />;
+    case 'HR_PAYROLL': return <HrPayrollRoleCentre user={user} />;
     default: return <SuperRoleCentre user={user} />;
   }
 }

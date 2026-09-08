@@ -411,6 +411,23 @@ export const ROLES: RoleSeed[] = [
       'SAVINGS_READ', 'LOAN_READ', 'MEMBERS_READ',
     ],
   },
+  {
+    name: 'HR Payroll Officer',
+    description: 'Employee records, leave and payroll — pairs with the HR & Payroll role centre.',
+    actions: [
+      'EMPLOYEES_READ', 'EMPLOYEES_CREATE', 'EMPLOYEES_APPROVE',
+      'EMPLOYEE_EDITS_READ', 'EMPLOYEE_EDITS_UPDATE', 'EMPLOYEE_EDITS_APPROVE',
+      'EMPLOYEE_CONTRACT_CHANGES_READ', 'EMPLOYEE_CONTRACT_CHANGES_CREATE', 'EMPLOYEE_CONTRACT_CHANGES_APPROVE',
+      'EMPLOYEE_EXITS_READ', 'EMPLOYEE_EXITS_CREATE', 'EMPLOYEE_EXITS_APPROVE', 'EMPLOYEE_EXITS_CLEAR',
+      'LEAVE_APPLICATIONS_READ', 'LEAVE_APPLICATIONS_CREATE', 'LEAVE_APPLICATIONS_APPROVE',
+      'LEAVE_ADJUSTMENTS_READ', 'LEAVE_ADJUSTMENTS_CREATE', 'LEAVE_ADJUSTMENTS_APPROVE',
+      'LEAVE_RECALLS_READ', 'LEAVE_RECALLS_CREATE', 'LEAVE_RECALLS_APPROVE',
+      'LEAVE_PLANS_READ', 'LEAVE_PLANS_CREATE', 'LEAVE_PLANS_APPROVE',
+      'PAYROLL_READ', 'PAYROLL_MANAGE_TRANSACTIONS',
+      'PAYROLL_PERIODS_READ', 'PAYROLL_PERIODS_CREATE', 'PAYROLL_PERIODS_RUN', 'PAYROLL_PERIODS_APPROVE', 'PAYROLL_PERIODS_CLOSE',
+      'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
+    ],
+  },
 ];
 
 const FIRST_M = ['John', 'Peter', 'James', 'Samuel', 'Daniel', 'Joseph', 'David', 'Brian', 'Kevin', 'Dennis', 'Collins', 'Elias', 'Victor', 'Anthony'];
@@ -589,6 +606,7 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     ['FOSA', 'FOSA Role Centre', 'Teller cash, deposits and withdrawals, cheques and standing orders.', '💵', 40, 0],
     ['FINANCE_MANAGER', 'Finance Manager Role Centre', 'Profitability, the balance sheet, capital adequacy and approvals.', '📈', 50, 0],
     ['ACCOUNTANT', 'Accountant Role Centre', 'Journals, the trial balance, reconciliations and tax.', '📒', 60, 0],
+    ['HR_PAYROLL', 'HR & Payroll Role Centre', 'Employee records, leave and payroll processing.', '🧑‍💼', 70, 0],
   ];
   for (const [code, name, description, icon, sort, isDefault] of PROFILES) {
     await run(INS_PROFILE, code, name, description, code, icon, sort, isDefault, now);
@@ -599,7 +617,7 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   // Assign the demo logins a sensible spread of profiles + an active one, so every Role Centre is
   // reachable on first run.
   const assign: Record<string, string[]> = {
-    admin: ['SUPER', 'CRM', 'CREDIT', 'FOSA', 'FINANCE_MANAGER', 'ACCOUNTANT'],
+    admin: ['SUPER', 'CRM', 'CREDIT', 'FOSA', 'FINANCE_MANAGER', 'ACCOUNTANT', 'HR_PAYROLL'],
     manager: ['SUPER', 'CRM', 'CREDIT', 'FOSA'],
     loans: ['CREDIT', 'CRM'],
     teller: ['FOSA', 'CRM'],

@@ -57,7 +57,7 @@ const client = (): RawClient => txStore.getStore() ?? db;
 
 /* ------------------------------------------------------------- translation */
 
-const NO_IDENTITY = /\binto\s+"?(session|sequence|member_application|member_edit_request|change_log_setup|account_opening_request|account_deactivation_request|account_activation_request|member_activation_request|member_readmission_request|standing_order|member_charging|collateral_application|collateral_register|collateral_release|loan_guarantor_change|member_exit|checkoff_batch|member_fixed_deposit|fosa_transaction|teller_transaction|member_lien|inter_account_transfer|bankers_cheque|cheque_deposit|economic_sector|no_series|no_series_setup)"?\b/i;
+const NO_IDENTITY = /\binto\s+"?(session|sequence|member_application|member_edit_request|change_log_setup|account_opening_request|account_deactivation_request|account_activation_request|member_activation_request|member_readmission_request|standing_order|member_charging|collateral_application|collateral_register|collateral_release|loan_guarantor_change|member_exit|checkoff_batch|member_fixed_deposit|fosa_transaction|teller_transaction|member_lien|inter_account_transfer|bankers_cheque|cheque_deposit|economic_sector|no_series|no_series_setup|employee_edit_request|employee_contract_change|employee_exit|hr_leave_application|hr_leave_adjustment|hr_leave_recall|hr_leave_plan)"?\b/i;
 
 /**
  * Rewrite the legacy `?` and `@named` placeholders into PostgreSQL's positional form.
