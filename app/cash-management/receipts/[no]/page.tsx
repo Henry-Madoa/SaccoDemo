@@ -8,6 +8,8 @@ import { formatDate } from '@/lib/format';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ReopenButton, DeleteButton, PostReceiptButton,
 } from '../../document-actions';
+import { EditReceiptButton } from '../../receipt-form';
+import { docFormProps } from '../../doc-form-props';
 
 export default async function ReceiptDetailPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('CASH_MGMT_READ');
@@ -18,6 +20,10 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
     currentCanAction('CASH_MGMT_RECEIPT_CREATE'), currentCanAction('CASH_MGMT_RECEIPT_APPROVE'), currentCanAction('CASH_MGMT_RECEIPT_POST'),
   ]);
   const isOwn = r.created_by === user.username;
+  // An Open receipt is still the creator's draft, so it is edited here on its own card rather
+  // than only from the list — the lookups the line editor needs are loaded only when it can be.
+  const editable = !r.posted && r.status === 'Open' && canCreate && isOwn;
+  const formProps = editable ? await docFormProps() : null;
 
   return (
     <Page title={`Receipt ${r.no}`} crumb="Cash Management → Receipts" user={user}>
@@ -38,24 +44,44 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
         </TableWrap>
       </Card>
       <Card>
-        <CardHead title="Lines" />
+        <CardHead title="Lines" sub={`${r.lines.length} line${r.lines.length === 1 ? '' : 's'}`} />
         <TableWrap>
-          <thead><tr><th>Type</th><th>Account</th><th>Description</th><th className="num">Amount</th><th>Applies to</th></tr></thead>
+          <thead>
+            <tr>
+              <th style={{ width: 110 }}>Type</th>
+              <th style={{ width: '26%' }}>Account</th>
+              <th>Description</th>
+              <th style={{ width: '20%' }}>Applies to Doc. No.</th>
+              <th className="num" style={{ width: 140 }}>Amount</th>
+            </tr>
+          </thead>
           <tbody>
             {r.lines.map((l) => (
               <tr key={l.id}>
                 <td>{l.line_type}</td>
-                <td className="mono">{l.account_no} <span className="tiny muted-cell">{l.account_name}</span></td>
-                <td>{l.description ?? '—'}</td>
+                {/* Account no. and its name stack rather than run together — a G/L name is long. */}
+                <td>
+                  <span className="mono">{l.account_no}</span>
+                  {l.account_name ? <div className="tiny muted-cell">{l.account_name}</div> : null}
+                </td>
+                <td>{l.description || <span className="muted-cell">—</span>}</td>
+                <td>
+                  {l.applies_to_doc_no
+                    ? (<><span className="mono">{l.applies_to_doc_no}</span><div className="tiny muted-cell">Settles this invoice</div></>)
+                    : <span className="muted-cell">— on account</span>}
+                </td>
                 <td className="num"><Money cents={l.amount} /></td>
-                <td className="mono muted-cell">{l.applies_to_doc_no ?? '—'}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr><td colSpan={4}>Total</td><td className="num"><b><Money cents={r.amount} /></b></td></tr>
+          </tfoot>
         </TableWrap>
       </Card>
       <div className="inline" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {!r.posted && r.status === 'Open' && canCreate && isOwn ? (<><SubmitButton no={r.no} kind="receipt" /><DeleteButton no={r.no} kind="receipt" /></>) : null}
+        {editable && formProps ? <EditReceiptButton receipt={r} p={formProps} className="btn" /> : null}
+        {editable ? (<><SubmitButton no={r.no} kind="receipt" /><DeleteButton no={r.no} kind="receipt" /></>) : null}
         {r.status === 'Pending Approval' && canCreate && isOwn ? <CancelApprovalButton no={r.no} kind="receipt" /> : null}
         {r.status === 'Pending Approval' && canApprove ? (<><ApproveButton no={r.no} kind="receipt" /><RejectButton no={r.no} kind="receipt" /></>) : null}
         {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="receipt" /> : null}

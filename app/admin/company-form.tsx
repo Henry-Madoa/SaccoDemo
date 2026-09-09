@@ -4,26 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/primitives';
 import { Field, readForm } from '@/components/ui/field';
-import { SearchableSelect } from '@/components/ui/searchable-select';
 import { DefinitionList } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { saveOrganisation } from '@/app/actions/admin';
 import { saveOrgLogo } from '@/app/actions/media';
 import { FilePicker } from '@/components/ui/uploader';
-import { SOCIETY_TYPES, MONTH_NAMES } from '@/lib/constants';
+import { SOCIETY_TYPES } from '@/lib/constants';
 import { formatDateTime, initials } from '@/lib/format';
-import type { Organisation, TransactionCharge } from '@/lib/types';
+import type { Organisation } from '@/lib/types';
 
 export interface CompanyFormProps {
   org: Organisation;
-  /** The 'General' Transaction Charge pool — same list Member Exit's Charge Code picks from. */
-  charges: TransactionCharge[];
   /** Resolved server-side: a Cloudinary delivery URL, or a legacy data URL. */
   logoSrc: string | null;
   mediaEnabled: boolean;
 }
 
-export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyFormProps) {
+export function CompanyForm({ org, logoSrc, mediaEnabled }: CompanyFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   const toast = useToast();
@@ -36,8 +33,6 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
   useEffect(() => setPreview(logoSrc), [logoSrc]);
   const [name, setName] = useState(org.name ?? '');
   const [shortName, setShortName] = useState(org.short_name ?? '');
-  const [instantWithdrawalChargeId, setInstantWithdrawalChargeId] = useState(String(org.instant_withdrawal_charge_id ?? ''));
-  const [interAccountTransferChargeId, setInterAccountTransferChargeId] = useState(String(org.inter_account_transfer_charge_id ?? ''));
 
   const previewName = shortName || name || 'SACCO';
 
@@ -132,89 +127,10 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
               <Field name="bank_name" label="Bank" defaultValue={org.bank_name} />
               <Field name="bank_account_no" label="Bank account number" defaultValue={org.bank_account_no} />
             </div>
-          </Card>
-
-          <Card>
-            <h3>Locale and financial year</h3>
-            <div className="card-sub">Controls how money and dates are displayed across the system.</div>
-            <div className="grid g3">
-              <Field name="currency_code" label="Currency code" defaultValue={org.currency_code} />
-              <Field name="currency_symbol" label="Currency symbol" defaultValue={org.currency_symbol} />
-              <Field name="locale" label="Number locale" defaultValue={org.locale} hint="e.g. en-KE" />
-              <Field name="timezone" label="Timezone" defaultValue={org.timezone} />
-              <Field name="fy_start_month" label="Financial year starts" type="select"
-                defaultValue={org.fy_start_month}
-                options={MONTH_NAMES.map((m, i) => ({ value: i + 1, label: m }))} />
-              <Field name="fy_start_day" label="on day" type="number" min={1} defaultValue={org.fy_start_day} />
-            </div>
             <Field name="statement_footer" label="Statement footer text" type="textarea"
               defaultValue={org.statement_footer} />
           </Card>
 
-          <Card>
-            <h3>Guarantorship</h3>
-            <div className="card-sub">
-              How much of their own deposits a member can put up as security — for other
-              members' loans, and for their own.
-            </div>
-            <div className="grid g2">
-              <Field name="guarantor_multiplier" label="Guarantor multiplier" type="number" step="0.1"
-                defaultValue={org.guarantor_multiplier ?? 1}
-                hint="Deposits × this = how much of OTHER members' loans a member qualifies to guarantee" />
-              <Field name="self_guarantor_multiplier" label="Self guarantor multiplier" type="number" step="0.1"
-                defaultValue={org.self_guarantor_multiplier ?? 1}
-                hint="Deposits × this = how much of a member's OWN loan their own deposits can secure" />
-            </div>
-          </Card>
-
-          <Card>
-            <h3>Membership</h3>
-            <div className="card-sub">Member Exit's notice period, and when an inactive member is marked Dormant.</div>
-            <div className="grid g2">
-              <Field name="member_exit_notice_days" label="Exit notice period (days)" type="number" step="1"
-                defaultValue={org.member_exit_notice_days ?? 30}
-                hint="A member exit cannot be processed before this many days after it was opened" />
-              <Field name="dormancy_days" label="Dormancy period (days)" type="number" step="1"
-                defaultValue={org.dormancy_days ?? 90}
-                hint="No money in a member's Non-Withdrawable Deposit account for this many days flips them Active → Dormant (Admin Centre → System Automation)" />
-            </div>
-            <SearchableSelect name="instant_withdrawal_charge_id" label="Instant withdrawal charge"
-              items={charges} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
-              value={instantWithdrawalChargeId} onChange={setInstantWithdrawalChargeId}
-              placeholder="Search charge code or description…" emptyText="No matching charges"
-              hint="Auto-applied on Member Exit when Instant Withdrawal is checked" />
-            <SearchableSelect name="inter_account_transfer_charge_id" label="Inter-account transfer charge"
-              items={charges} getValue={(c) => String(c.id)} getLabel={(c) => `${c.code} — ${c.description}`}
-              value={interAccountTransferChargeId} onChange={setInterAccountTransferChargeId}
-              placeholder="Search charge code or description…" emptyText="No matching charges"
-              hint="Auto-applied to every inter-account transfer, deducted from the source account. Leave blank to fall back to the charge configured for type ‘Acc. Transfer’." />
-          </Card>
-
-          <Card>
-            <h3>Posting Dates</h3>
-            <div className="card-sub">
-              The company-wide window a posting's own value date must fall within (Business
-              Central's own General Ledger Setup) — blank means unrestricted. A user's own
-              Posting Setup, if configured (Admin Centre → Workflow Management → User Setup),
-              overrides this for that one user.
-            </div>
-            <div className="grid g2">
-              <Field name="allow_posting_from" label="Allow posting from" type="date"
-                defaultValue={org.allow_posting_from ?? ''} />
-              <Field name="allow_posting_to" label="Allow posting to" type="date"
-                defaultValue={org.allow_posting_to ?? ''} />
-            </div>
-          </Card>
-
-          <Card>
-            <h3>Cash &amp; Tellering</h3>
-            <div className="card-sub">
-              Business Central&apos;s General Ledger Setup &ldquo;Validate Cash Denomination&rdquo;.
-            </div>
-            <Field name="validate_cash_denomination" label="Validate cash denomination" type="checkbox"
-              defaultValue={org.validate_cash_denomination ? 1 : 0}
-              hint="When on, a Cash Management movement or a teller deposit/withdrawal cannot be submitted or posted unless its denomination breakdown totals exactly the amount" />
-          </Card>
         </div>
 
         <div>

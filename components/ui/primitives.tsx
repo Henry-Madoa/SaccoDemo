@@ -6,10 +6,12 @@ import { statusTone, humanise, type Tone } from '@/lib/format';
  * they carry no 'use client' directive and stay out of the browser bundle when
  * a Server Component uses them. */
 
-export function Card({ children, className = '', style }: {
+export function Card({ children, className = '', style, id }: {
   children: ReactNode; className?: string; style?: CSSProperties;
+  /** Anchor target, so a stat tile or a toolbar button can jump straight to this card. */
+  id?: string;
 }) {
-  return <div className={`card ${className}`} style={style}>{children}</div>;
+  return <div id={id} className={`card ${className}`} style={style}>{children}</div>;
 }
 
 export function CardHead({ title, sub, children }: {

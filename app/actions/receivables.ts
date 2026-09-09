@@ -24,11 +24,6 @@ import {
   type SalesHeaderInput, type SalesLineInput,
 } from '@/lib/salesDocuments';
 import {
-  listCashReceipts, getCashReceipt, createCashReceipt, updateCashReceipt, deleteCashReceipt, submitCashReceipt,
-  cancelCashReceiptApproval, approveCashReceipt, rejectCashReceipt, reopenCashReceipt, postCashReceipt,
-  type CashReceiptInput,
-} from '@/lib/cashReceipts';
-import {
   listReminders, getReminder, createReminders, createFinanceChargeMemos, deleteReminder, issueReminder,
 } from '@/lib/reminders';
 import { applyCustomerEntries, unapplyCustomerEntry } from '@/lib/custLedger';
@@ -273,59 +268,6 @@ export async function postSalesDocumentRequest(no: string, ship: boolean, invoic
 }
 
 /* --------------------------------------------------------------- cash receipts */
-
-export async function listCashReceiptsRequest(opts: Parameters<typeof listCashReceipts>[0]) {
-  return actionResult(async () => { await requireAction('RECEIVABLES_READ'); return listCashReceipts(opts); });
-}
-export async function getCashReceiptRequest(no: string) {
-  return actionResult(async () => { await requireAction('RECEIVABLES_READ'); return getCashReceipt(no); });
-}
-export interface CashReceiptLineDraft { customerId: string; amount: string; paymentMethodCode: string; appliesToDocNo: string; externalDocumentNo: string; description: string }
-const toCashReceiptInput = (v: FormValues, lines: CashReceiptLineDraft[]): CashReceiptInput => ({
-  postingDate: str(v.postingDate), documentDate: str(v.documentDate || v.postingDate),
-  bankAccountId: Number(v.bankAccountId), description: opt(v.description),
-  lines: lines.filter((l) => l.customerId && l.amount).map((l) => ({
-    customerId: Number(l.customerId), amount: toCents(l.amount), paymentMethodCode: l.paymentMethodCode || null,
-    appliesToDocNo: l.appliesToDocNo || null, externalDocumentNo: l.externalDocumentNo || null, description: l.description || null,
-  })),
-});
-export async function requestCashReceipt(v: FormValues, lines: CashReceiptLineDraft[]): Promise<ActionResult<{ no: string }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_CREATE'); const r = await createCashReceipt(toCashReceiptInput(v, lines), u); revalidate(); return r; });
-}
-export async function saveCashReceipt(no: string, v: FormValues, lines: CashReceiptLineDraft[]): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_CREATE'); await updateCashReceipt(no, toCashReceiptInput(v, lines), u); revalidate(); return { updated: true }; });
-}
-export async function deleteCashReceiptRequest(no: string): Promise<ActionResult<{ deleted: true }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_CREATE'); await deleteCashReceipt(no, u); revalidate(); return { deleted: true }; });
-}
-export async function submitCashReceiptRequest(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_CREATE'); const { autoApproved } = await submitCashReceipt(no, u); revalidate(); return { updated: true, autoApproved }; });
-}
-export async function cancelCashReceiptApprovalRequest(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_CREATE'); await cancelCashReceiptApproval(no, u); revalidate(); return { updated: true }; });
-}
-export async function approveCashReceiptRequest(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => {
-    const routed = await findPendingRoutedTask('CASH_RECEIPT', no);
-    if (routed) { const u = await requireUser(); await decideWorkflowTask(routed.id, true, null, u); }
-    else { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_POST'); await approveCashReceipt(no, u); }
-    revalidate(); return { updated: true };
-  });
-}
-export async function rejectCashReceiptRequest(no: string, reason: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => {
-    const routed = await findPendingRoutedTask('CASH_RECEIPT', no);
-    if (routed) { const u = await requireUser(); await decideWorkflowTask(routed.id, false, reason || null, u); }
-    else { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_POST'); await rejectCashReceipt(no, reason || null, u); }
-    revalidate(); return { updated: true };
-  });
-}
-export async function reopenCashReceiptRequest(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_POST'); await reopenCashReceipt(no, u); revalidate(); return { updated: true }; });
-}
-export async function postCashReceiptRequest(no: string): Promise<ActionResult<{ journalNo: string | null; applied: number }>> {
-  return actionResult(async () => { const u = await requireAction('RECEIVABLES_CASH_RECEIPT_POST'); const r = await postCashReceipt(no, u); revalidate(); return r; });
-}
 
 /* ---------------------------------------------------------------- reminders */
 

@@ -8,7 +8,6 @@ import {
   deleteEmployeeRequest, submitEmployeeRequest, cancelEmployeeApprovalRequest,
   approveEmployeeRequest, rejectEmployeeRequest,
 } from '@/app/actions/employees';
-import { delegateMyTask } from '@/app/actions/workflows';
 import type {
   County, SubCounty, DimensionValue, EmployeeView, HrJobGrade, HrEmploymentContractType,
 } from '@/lib/types';
@@ -65,18 +64,7 @@ export function CancelApprovalButton({ id, className = 'btn sm ghost' }: { id: n
   );
 }
 
-export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId: number; className?: string }) {
-  const { run, busy } = useRunAction();
-  return (
-    <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => delegateMyTask(taskId), {
-        confirm: { title: 'Delegate to your substitute?', message: 'Your configured substitute decides this instead of you.', confirmLabel: 'Delegate' },
-        successTitle: 'Delegated to your substitute',
-      })}>
-      {busy ? 'Working…' : 'Delegate'}
-    </button>
-  );
-}
+export { DelegateButton } from '@/components/ui/delegate-button';
 
 export function ApproveButton({ id, className = 'btn sm' }: { id: number; className?: string }) {
   const { run, busy } = useRunAction();

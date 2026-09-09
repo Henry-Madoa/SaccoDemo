@@ -55,13 +55,11 @@ const faLib = await import('../lib/fixedAssets.ts');
 const dateFormula = await import('../lib/dateFormula.ts');
 const custLib = await import('../lib/customers.ts');
 const salesLib = await import('../lib/salesDocuments.ts');
-const cashReceiptLib = await import('../lib/cashReceipts.ts');
 const reminderLib = await import('../lib/reminders.ts');
 const custLedgerLib = await import('../lib/custLedger.ts');
 const arReports = await import('../lib/receivablesReports.ts');
 const vendorLib = await import('../lib/vendors.ts');
 const purchaseLib = await import('../lib/purchaseDocuments.ts');
-const paymentJournalLib = await import('../lib/paymentJournal.ts');
 const vendLedgerLib = await import('../lib/vendLedger.ts');
 const apReports = await import('../lib/payablesReports.ts');
 const receiptsLib = await import('../lib/receipts.ts');
@@ -2173,33 +2171,6 @@ await test('posting a sales invoice creates an open Cust. Ledger Entry, moves th
   assert.strictEqual((await custLib.getCustomerById(cust.id))!.balance, before + 50_000_00);
 });
 
-await test('a cash receipt applies to an open invoice, closing it and moving bank + AR', async () => {
-  const sys: Actor = { id: 1, username: 'system' };
-  const inv = (await all<{ id: number; customer_id: number; document_no: string; remaining_amount: number }>(
-    "SELECT id, customer_id, document_no, remaining_amount FROM cust_ledger_entry WHERE document_type = 'Invoice' AND open = 1 ORDER BY id DESC LIMIT 1",
-  ))[0];
-  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
-  const arBefore = await accounting.accountBalance('1250');
-
-  const { no } = await cashReceiptLib.createCashReceipt({
-    postingDate: '2026-08-05', documentDate: '2026-08-05', bankAccountId: bankId, description: 'Test receipt',
-    lines: [{ customerId: inv.customer_id, amount: inv.remaining_amount, appliesToDocNo: inv.document_no }],
-  }, sys);
-  await run("UPDATE cash_receipt_header SET status = 'Approved' WHERE no = ?", no);
-  const res = await cashReceiptLib.postCashReceipt(no, sys);
-  assert.ok(res.journalNo, 'no journal posted');
-
-  const after = (await one<{ open: number; remaining_amount: number; closed_by_entry_no: number | null }>(
-    'SELECT open, remaining_amount, closed_by_entry_no FROM cust_ledger_entry WHERE id = ?', inv.id,
-  ))!;
-  assert.strictEqual(after.open, 0, 'invoice not closed by a full payment');
-  assert.strictEqual(after.remaining_amount, 0);
-  assert.ok(after.closed_by_entry_no, 'closed_by_entry_no not stamped');
-  assert.strictEqual(await accounting.accountBalance('1250'), arBefore - inv.remaining_amount);
-  const bale = (await one<{ n: number }>("SELECT COUNT(*) n FROM bank_account_ledger_entry WHERE description LIKE ?", `Cash Receipt ${no}%`))!;
-  assert.ok(Number(bale.n) >= 1, 'no bank_account_ledger_entry for the receipt');
-});
-
 await test('createReminders picks up an overdue entry and computes interest + fee', async () => {
   const sys: Actor = { id: 1, username: 'system' };
   // The seeded tenant (14 DAYS terms) has an invoice from two months ago — overdue.
@@ -2328,48 +2299,6 @@ await test('a purchase invoice with a Fixed Asset line posts an FA acquisition',
   assert.strictEqual(book.book_value, 250_000_00);
   const stamped = (await one<{ acquisition_date: string | null }>('SELECT acquisition_date FROM fixed_asset WHERE id = ?', asset.id))!;
   assert.ok(stamped.acquisition_date, 'acquisition_date not stamped');
-});
-
-await test('a payment journal pays a vendor invoice, closing it and moving bank + AP', async () => {
-  const sys: Actor = { id: 1, username: 'system' };
-  const inv = (await all<{ id: number; vendor_id: number; document_no: string; remaining_amount: number }>(
-    "SELECT id, vendor_id, document_no, remaining_amount FROM vendor_ledger_entry WHERE document_type = 'Invoice' AND open = 1 ORDER BY id DESC LIMIT 1",
-  ))[0];
-  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
-  const apBefore = await accounting.accountBalance('2150');
-
-  const { no } = await paymentJournalLib.createPaymentJournal({
-    postingDate: '2026-08-06', documentDate: '2026-08-06', bankAccountId: bankId, description: 'Test payment',
-    lines: [{ vendorId: inv.vendor_id, amount: inv.remaining_amount, appliesToDocNo: inv.document_no }],
-  }, sys);
-  await run("UPDATE payment_journal_header SET status = 'Approved' WHERE no = ?", no);
-  const res = await paymentJournalLib.postPaymentJournal(no, sys);
-  assert.ok(res.journalNo, 'no journal posted');
-
-  const after = (await one<{ open: number; remaining_amount: number; closed_by_entry_no: number | null }>(
-    'SELECT open, remaining_amount, closed_by_entry_no FROM vendor_ledger_entry WHERE id = ?', inv.id,
-  ))!;
-  assert.strictEqual(after.open, 0, 'invoice not closed by a full payment');
-  assert.strictEqual(after.remaining_amount, 0);
-  assert.ok(after.closed_by_entry_no, 'closed_by_entry_no not stamped');
-  assert.strictEqual(await accounting.accountBalance('2150'), apBefore - inv.remaining_amount);
-  const bale = (await one<{ n: number }>("SELECT COUNT(*) n FROM bank_account_ledger_entry WHERE description LIKE ?", `Payment Journal ${no}%`))!;
-  assert.ok(Number(bale.n) >= 1, 'no bank_account_ledger_entry for the payment');
-});
-
-await test('suggestVendorPayments drafts a payment journal from overdue vendor invoices', async () => {
-  const sys: Actor = { id: 1, username: 'system' };
-  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
-  const openBefore = (await one<{ n: number }>("SELECT COUNT(*) n FROM vendor_ledger_entry WHERE open = 1 AND positive = 1 AND due_date <= ?", '2026-12-31'))!;
-  if (Number(openBefore.n) >= 1) {
-    const res = await paymentJournalLib.suggestVendorPayments(
-      { lastPaymentDate: '2026-12-31', findPaymentDiscounts: true, bankAccountId: bankId }, sys,
-    );
-    assert.ok(res.lineCount >= 1, 'expected at least one suggested payment line');
-    const hdr = (await one<{ total_amount: number; status: string }>('SELECT total_amount, status FROM payment_journal_header WHERE no = ?', res.no))!;
-    assert.strictEqual(hdr.status, 'Open');
-    assert.ok(hdr.total_amount > 0);
-  }
 });
 
 await test('the Aged AP report buckets an overdue entry and its total ties to 2150', async () => {

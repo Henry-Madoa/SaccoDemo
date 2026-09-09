@@ -7,8 +7,6 @@ import { useRunAction } from '@/components/ui/run-action';
 import {
   makeOrderRequest, submitSalesDocumentRequest, cancelSalesDocumentApprovalRequest, approveSalesDocumentRequest,
   rejectSalesDocumentRequest, reopenSalesDocumentRequest, postSalesDocumentRequest, deleteSalesDocumentRequest,
-  submitCashReceiptRequest, cancelCashReceiptApprovalRequest, approveCashReceiptRequest, rejectCashReceiptRequest,
-  reopenCashReceiptRequest, postCashReceiptRequest, deleteCashReceiptRequest,
   issueReminderRequest, deleteReminderRequest,
 } from '@/app/actions/receivables';
 
@@ -27,35 +25,33 @@ export function MakeOrderButton({ no }: { no: string }) {
   })} className="btn sm" />;
 }
 
-export function SubmitDocButton({ no, kind }: { no: string; kind: 'sales' | 'cash' }) {
+export function SubmitDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'sales' ? submitSalesDocumentRequest : submitCashReceiptRequest;
-  return <A label="Send for approval" onClick={() => run(() => fn(no), {
+  return <A label="Send for approval" onClick={() => run(() => submitSalesDocumentRequest(no), {
     confirm: { title: 'Send for approval?', message: 'It can no longer be edited while pending.', confirmLabel: 'Send' },
-    successTitle: (d) => (d.autoApproved ? (kind === 'sales' ? 'Released — ready to post' : 'Approved — ready to post') : 'Sent for approval'),
+    successTitle: (d) => (d.autoApproved ? 'Released — ready to post' : 'Sent for approval'),
   })} />;
 }
 
-export function CancelApprovalButton({ no, kind }: { no: string; kind: 'sales' | 'cash' }) {
+export function CancelApprovalButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'sales' ? cancelSalesDocumentApprovalRequest : cancelCashReceiptApprovalRequest;
+  const fn = cancelSalesDocumentApprovalRequest;
   return <A label="Cancel approval" onClick={() => run(() => fn(no), {
     confirm: { title: 'Recall this document?', message: 'It goes back to Open.', confirmLabel: 'Recall' }, successTitle: 'Recalled — back to Open',
   })} />;
 }
 
-export function ApproveDocButton({ no, kind }: { no: string; kind: 'sales' | 'cash' }) {
+export function ApproveDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'sales' ? approveSalesDocumentRequest : approveCashReceiptRequest;
-  return <A label={kind === 'sales' ? 'Release' : 'Approve'} className="btn sm" onClick={() => run(() => fn(no), {
-    confirm: { title: kind === 'sales' ? 'Release this document?' : 'Approve this cash receipt?', message: 'Nothing moves until it is posted.', confirmLabel: 'OK' },
-    successTitle: kind === 'sales' ? 'Released — ready to post' : 'Approved — ready to post',
+  return <A label="Release" className="btn sm" onClick={() => run(() => approveSalesDocumentRequest(no), {
+    confirm: { title: 'Release this document?', message: 'Nothing moves until it is posted.', confirmLabel: 'OK' },
+    successTitle: 'Released — ready to post',
   })} />;
 }
 
-export function RejectDocButton({ no, kind }: { no: string; kind: 'sales' | 'cash' }) {
+export function RejectDocButton({ no }: { no: string }) {
   const [open, setOpen] = useState(false);
-  const fn = kind === 'sales' ? rejectSalesDocumentRequest : rejectCashReceiptRequest;
+  const fn = rejectSalesDocumentRequest;
   return (
     <>
       <button type="button" className="btn sm ghost" onClick={() => setOpen(true)}>Reject</button>
@@ -69,21 +65,26 @@ export function RejectDocButton({ no, kind }: { no: string; kind: 'sales' | 'cas
   );
 }
 
-export function ReopenDocButton({ no, kind }: { no: string; kind: 'sales' | 'cash' }) {
+export function ReopenDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'sales' ? reopenSalesDocumentRequest : reopenCashReceiptRequest;
+  const fn = reopenSalesDocumentRequest;
   return <A label="Reopen" onClick={() => run(() => fn(no), {
     confirm: { title: 'Reopen this document?', message: 'It goes back to Open for amendment.', confirmLabel: 'Reopen' }, successTitle: 'Reopened',
   })} />;
 }
 
-export function DeleteDocButton({ no, kind }: { no: string; kind: 'sales' | 'cash' | 'reminder' }) {
+export function DeleteDocButton({ no, kind }: { no: string; kind: 'sales' | 'reminder' }) {
   const { run } = useRunAction();
-  const fn = kind === 'sales' ? deleteSalesDocumentRequest : kind === 'cash' ? deleteCashReceiptRequest : deleteReminderRequest;
+  const fn = kind === 'sales' ? deleteSalesDocumentRequest : deleteReminderRequest;
   return <A label="Delete" onClick={() => run(() => fn(no), {
     confirm: { title: 'Delete this document?', message: 'It is removed permanently.', confirmLabel: 'Delete' }, successTitle: 'Deleted',
   })} />;
 }
+
+/** Where a posting lands: the posted document it created, or the Posted list if it made none.
+ *  Posting deletes the source sales_header, so staying on the document page would 404. */
+const postedLink = (no: string | null | undefined): string =>
+  (no ? `/receivables/posted/${encodeURIComponent(no)}` : '/receivables/posted-documents');
 
 export function PostSalesDocButton({ no, isOrder }: { no: string; isOrder: boolean }) {
   const [open, setOpen] = useState(false);
@@ -91,12 +92,15 @@ export function PostSalesDocButton({ no, isOrder }: { no: string; isOrder: boole
   const post = (ship: boolean, invoice: boolean) => run(() => postSalesDocumentRequest(no, ship, invoice), {
     successTitle: 'Sales document posted',
     successDetail: (d) => [d.shipmentNo && `Shipment ${d.shipmentNo}`, d.invoiceNo && `Invoice ${d.invoiceNo}`, d.journalNo && `Journal ${d.journalNo}`].filter(Boolean).join(' · ') || 'Posted',
+    // The invoice is the document the user wants to see; a receive/ship-only run has only the shipment.
+    redirectTo: (d) => postedLink(d.invoiceNo ?? d.shipmentNo),
   });
   if (!isOrder) {
     return <A label="Post" className="btn sm" onClick={() => run(() => postSalesDocumentRequest(no, false, true), {
       confirm: { title: 'Post this document?', message: 'The customer ledger and the G/L move immediately.', confirmLabel: 'Post' },
       successTitle: 'Posted',
       successDetail: (d) => (d.invoiceNo ? `Invoice ${d.invoiceNo}` : d.journalNo ? `Journal ${d.journalNo}` : 'Posted'),
+      redirectTo: (d) => postedLink(d.invoiceNo),
     })} />;
   }
   return (
@@ -116,15 +120,6 @@ export function PostSalesDocButton({ no, isOrder }: { no: string; isOrder: boole
   );
 }
 
-export function PostCashReceiptButton({ no }: { no: string }) {
-  const { run } = useRunAction();
-  return <A label="Post" className="btn sm" onClick={() => run(() => postCashReceiptRequest(no), {
-    confirm: { title: 'Post this cash receipt?', message: 'The bank, the customer ledger and the G/L move immediately.', confirmLabel: 'Post' },
-    successTitle: (d) => `Posted — ${d.applied} invoice(s) settled`,
-    successDetail: (d) => (d.journalNo ? `Journal ${d.journalNo}` : undefined),
-  })} />;
-}
-
 export function IssueReminderButton({ no }: { no: string }) {
   const { run } = useRunAction();
   return <A label="Issue" className="btn sm" onClick={() => run(() => issueReminderRequest(no), {
@@ -133,3 +128,5 @@ export function IssueReminderButton({ no }: { no: string }) {
     successDetail: (d) => (d.journalNo ? `Journal ${d.journalNo}` : 'Issued (no charge posted)'),
   })} />;
 }
+
+export { DelegateButton } from '@/components/ui/delegate-button';

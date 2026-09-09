@@ -33,20 +33,27 @@ export function ProfileSwitcher({ profiles, activeId }: { profiles: Profile[]; a
   const current = profiles.find((p) => String(p.id) === choice);
 
   return (
-    <div className="inline" style={{ marginTop: 'calc(var(--sp)*1.5)', alignItems: 'end', flexWrap: 'wrap' }}>
-      <div className="field" style={{ marginBottom: 0, minWidth: 280 }}>
-        <label htmlFor="f_activeProfile">Active Role Centre</label>
-        <select id="f_activeProfile" value={choice} disabled={busy}
-          onChange={(e) => setChoice(e.target.value)}>
-          {profiles.map((p) => (
-            <option key={p.id} value={String(p.id)}>{p.icon ? `${p.icon}  ` : ''}{p.name}</option>
-          ))}
-        </select>
-        {current?.description ? <div className="hint">{current.description}</div> : null}
+    // The picked Role Centre's description sits under the whole row, not inside the field — kept
+    // there it made the field taller than the select, and the bottom-aligned button dropped with
+    // it instead of lining up with the control it acts on.
+    <div style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+      <div className="inline" style={{ alignItems: 'end', flexWrap: 'wrap' }}>
+        <div className="field" style={{ marginBottom: 0, minWidth: 280 }}>
+          <label htmlFor="f_activeProfile">Active Role Centre</label>
+          <select id="f_activeProfile" value={choice} disabled={busy}
+            onChange={(e) => setChoice(e.target.value)}>
+            {profiles.map((p) => (
+              <option key={p.id} value={String(p.id)}>{p.icon ? `${p.icon}  ` : ''}{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <button type="button" className="btn" disabled={busy || choice === String(activeId)} onClick={save}>
+          {busy ? 'Switching…' : 'Switch Role Centre'}
+        </button>
       </div>
-      <button type="button" className="btn" disabled={busy || choice === String(activeId)} onClick={save}>
-        {busy ? 'Switching…' : 'Switch Role Centre'}
-      </button>
+      {current?.description ? (
+        <div className="hint" style={{ marginTop: 'calc(var(--sp)*0.75)' }}>{current.description}</div>
+      ) : null}
     </div>
   );
 }

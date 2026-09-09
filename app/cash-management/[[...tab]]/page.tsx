@@ -2,8 +2,6 @@ import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { all } from '@/lib/db';
 import { listPostableAccounts } from '@/lib/gl';
-import { listActivePaymentMethods } from '@/lib/receivablesSetup';
-import { listActiveVendors } from '@/lib/vendors';
 import {
   listBankAccounts, hasAnyBankAccounts, listBankAccountLedgerEntries, listBankReconciliations,
 } from '@/lib/bankMgmt';
@@ -13,7 +11,6 @@ import {
 } from '@/lib/cashMgmtSetup';
 import { listReceipts, hasAnyReceipts } from '@/lib/receipts';
 import { listPaymentVouchers, hasAnyPaymentVouchers } from '@/lib/paymentVouchers';
-import { listVatProductPostingGroups } from '@/lib/vatSetup';
 import { findPendingRoutedTask } from '@/lib/workflow';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition } from '@/components/ui/primitives';
@@ -25,6 +22,7 @@ import {
   BankAccountFormButton, CurrencyFormButton, ExchangeRateFormButton, DeleteRateButton, CashMgmtSetupButton,
   BankAccPostingGroupButton, AdjustFxPanel,
 } from '../cash-mgmt-forms';
+import { docFormProps } from '../doc-form-props';
 import { NewReceiptButton } from '../receipt-form';
 import { NewPvButton } from '../payment-voucher-form';
 import { StartReconciliationButton } from '../reconciliation-actions';
@@ -71,25 +69,6 @@ export default async function CashManagementPage({ params, searchParams }: {
       {tab === 'setup' ? <SetupTab /> : null}
     </Page>
   );
-}
-
-async function docFormProps() {
-  const [banks, accounts, vendors, currencies, payMethods, vatGroups, extBanks] = await Promise.all([
-    listBankAccounts(), listPostableAccounts(), listActiveVendors(), listActiveCurrencies(),
-    listActivePaymentMethods(), listVatProductPostingGroups(), listExternalBanks(),
-  ]);
-  const customers = await all<{ no: string; name: string }>("SELECT no, name FROM customer ORDER BY no LIMIT 500");
-  return {
-    banks: banks.map((b) => ({ id: b.id, code: b.code, name: b.name, currency_code: b.currency_code })),
-    accounts: accounts.map((a) => ({ code: a.code, name: a.name })),
-    vendors: vendors.map((v) => ({ no: v.no, name: v.name })),
-    customers,
-    currencies: currencies.map((c) => ({ code: c.code })),
-    payMethods: payMethods.map((m) => ({ code: m.code })),
-    vatCodes: vatGroups.filter((g) => g.tax_type === 'VAT').map((g) => ({ code: g.code, description: g.description })),
-    whtCodes: vatGroups.filter((g) => g.tax_type === 'WHT').map((g) => ({ code: g.code, description: g.description })),
-    externalBanks: extBanks.map((b) => ({ code: b.code, name: b.name })),
-  };
 }
 
 /* ---------------------------------------------------------------- Bank Accounts */

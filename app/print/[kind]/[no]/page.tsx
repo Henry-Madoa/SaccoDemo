@@ -1,12 +1,8 @@
 import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
 import { renderDocument } from '@/lib/documentPrint';
-import {
-  buildSalesDocumentPrint, buildPostedSalesDocumentPrint, buildCashReceiptPrint,
-} from '@/lib/salesDocumentPrint';
-import {
-  buildPurchaseDocumentPrint, buildPostedPurchaseDocumentPrint, buildPaymentJournalPrint,
-} from '@/lib/purchaseDocumentPrint';
+import { buildSalesDocumentPrint, buildPostedSalesDocumentPrint } from '@/lib/salesDocumentPrint';
+import { buildPurchaseDocumentPrint, buildPostedPurchaseDocumentPrint } from '@/lib/purchaseDocumentPrint';
 import { buildPaymentVoucherDocument } from '@/lib/paymentVoucherSlip';
 import { buildReceiptDocument } from '@/lib/receiptSlip';
 import { Printable } from '@/components/ui/printable';
@@ -26,10 +22,8 @@ export const dynamic = 'force-dynamic';
 const KINDS: Record<string, { action: ActionKey; build: (no: string) => Promise<PrintDocument | null> }> = {
   sales: { action: 'RECEIVABLES_READ', build: buildSalesDocumentPrint },
   'posted-sales': { action: 'RECEIVABLES_READ', build: buildPostedSalesDocumentPrint },
-  'cash-receipt': { action: 'RECEIVABLES_READ', build: buildCashReceiptPrint },
   purchase: { action: 'PAYABLES_READ', build: buildPurchaseDocumentPrint },
   'posted-purchase': { action: 'PAYABLES_READ', build: buildPostedPurchaseDocumentPrint },
-  'payment-journal': { action: 'PAYABLES_READ', build: buildPaymentJournalPrint },
   'payment-voucher': { action: 'CASH_MGMT_READ', build: buildPaymentVoucherDocument },
   receipt: { action: 'CASH_MGMT_READ', build: buildReceiptDocument },
 };

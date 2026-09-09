@@ -14,15 +14,14 @@ import {
   listSalesDocuments, hasAnySalesDocuments, salesDocCounts, SALES_DOC_FILTER_FIELDS,
   SALES_DOC_VIEWS, type SalesDocView,
 } from '@/lib/salesDocuments';
-import { listCashReceipts, hasAnyCashReceipts } from '@/lib/cashReceipts';
 import { listReminders, hasAnyReminders } from '@/lib/reminders';
 import {
   listCustomerPostingGroups, listPaymentTerms, listPaymentMethods, listActivePaymentTerms, listActivePaymentMethods,
-  listReminderTerms, listReminderLevels, listFinanceChargeTerms, listActiveReminderTerms, listActiveFinanceChargeTerms,
-  getSalesReceivablesSetup,
+  listReminderTerms, listReminderLevels, listFinanceChargeTerms,
 } from '@/lib/receivablesSetup';
 import { getAgedAccountsReceivable, AGED_AR_FILTER_FIELDS } from '@/lib/receivablesReports';
-import { findPendingRoutedTask } from '@/lib/workflow';
+import { findPendingRoutedTask, isEligibleApprover } from '@/lib/workflow';
+import { SalesReceivablesSetupCard } from '@/components/admin/module-setup-cards';
 import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
@@ -36,14 +35,13 @@ import { formatDate } from '@/lib/format';
 import type { SalesDocumentType } from '@/lib/types';
 import {
   NewCustomerButton, CustomerPostingGroupFormButton, PaymentTermsFormButton, PaymentMethodFormButton,
-  FinanceChargeTermsFormButton, ReminderTermsFormButton, SalesReceivablesSetupButton,
+  FinanceChargeTermsFormButton, ReminderTermsFormButton,
 } from '../receivables-forms';
 import { NewSalesDocumentButton } from '../sales-document-form';
 import {
   MakeOrderButton, SubmitDocButton, CancelApprovalButton, ApproveDocButton, RejectDocButton, ReopenDocButton,
-  DeleteDocButton, PostSalesDocButton, PostCashReceiptButton, IssueReminderButton,
+  DeleteDocButton, PostSalesDocButton, IssueReminderButton,
 } from '../document-actions';
-import { NewCashReceiptButton } from '../cash-receipt-form';
 import { ReminderBatchPanel } from '../reminder-batch';
 import { ApplyEntriesButton, UnapplyButton } from '../apply-entries';
 import { CustomerStatementPanel } from '../statement-panel';
@@ -62,7 +60,6 @@ const TABS: TabDefinition[] = [
   { key: 'sales-invoices', label: 'Sales Invoices' },
   { key: 'credit-memos', label: 'Credit Memos' },
   { key: 'posted-documents', label: 'Posted' },
-  { key: 'cash-receipts', label: 'Cash Receipts' },
   { key: 'reminders', label: 'Reminders' },
   { key: 'finance-charges', label: 'Finance Charges' },
   { key: 'ledger-entries', label: 'Cust. Ledger' },
@@ -89,12 +86,11 @@ export default async function ReceivablesPage({ params, searchParams }: {
     <Page title="Receivables" crumb="Customers, sales invoices, cash receipts, reminders and aging" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/receivables/${k === 'customers' ? '' : k}`} />
       {tab === 'customers' ? <CustomersTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
-      {tab === 'quotes' ? <SalesDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'orders' ? <SalesDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'sales-invoices' ? <SalesDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'credit-memos' ? <SalesDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'quotes' ? <SalesDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
+      {tab === 'orders' ? <SalesDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
+      {tab === 'sales-invoices' ? <SalesDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
+      {tab === 'credit-memos' ? <SalesDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} /> : null}
-      {tab === 'cash-receipts' ? <CashReceiptsTab search={sp.q ?? ''} username={user.username} /> : null}
       {tab === 'reminders' ? <RemindersTab kind="Reminder" search={sp.q ?? ''} /> : null}
       {tab === 'finance-charges' ? <RemindersTab kind="Finance Charge Memo" search={sp.q ?? ''} /> : null}
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
@@ -184,9 +180,9 @@ async function CustomersTab({ search, filtersRaw, sortRaw }: { search: string; f
 
 /* ------------------------------------------------------------ Sales Documents */
 
-async function SalesDocTab({ documentType, tab, view: viewRaw, search, filtersRaw, sortRaw, username }: {
+async function SalesDocTab({ documentType, tab, view: viewRaw, search, filtersRaw, sortRaw, username, userId }: {
   documentType: SalesDocumentType; tab: string; view?: string;
-  search: string; filtersRaw?: string; sortRaw?: string; username: string;
+  search: string; filtersRaw?: string; sortRaw?: string; username: string; userId: number;
 }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
@@ -207,8 +203,15 @@ async function SalesDocTab({ documentType, tab, view: viewRaw, search, filtersRa
     listActivePaymentMethods(),
     salesDocCounts(documentType),
   ]);
-  const routed = new Map(await Promise.all(
-    rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('SALES_DOCUMENT', r.no).then((t) => [r.no, !!t] as const)),
+  // Release / Reject belong to whoever each document is sitting with: the approver its workflow
+  // routed it to, or — when no workflow matched — anyone holding the approve permission.
+  const routedTasks = new Map(await Promise.all(
+    rows.filter((r) => r.status === 'Pending Approval')
+      .map((r) => findPendingRoutedTask('SALES_DOCUMENT', r.no).then((t) => [r.no, t] as const)),
+  ));
+  const canDecide = new Map(await Promise.all(
+    [...routedTasks].map(async ([no, task]) =>
+      [no, task ? await isEligibleApprover(task, userId) : canApprove] as const),
   ));
   const fields = SALES_DOC_FILTER_FIELDS.map((f) =>
     (f.key === 'customer_id' ? { ...f, options: customers.map((c) => ({ value: c.id, label: `${c.no} — ${c.name}` })) } : f));
@@ -274,9 +277,9 @@ async function SalesDocTab({ documentType, tab, view: viewRaw, search, filtersRa
                     <td className="num">
                       <div className="inline" style={{ justifyContent: 'flex-end' }}>
                         {documentType === 'Quote' && d.status === 'Open' && canCreate ? <MakeOrderButton no={d.no} /> : null}
-                        {d.status === 'Pending Approval' && canCreate && isOwn && !routed.get(d.no) ? <CancelApprovalButton no={d.no} kind="sales" /> : null}
-                        {d.status === 'Pending Approval' && (canApprove || routed.get(d.no)) ? (<><ApproveDocButton no={d.no} kind="sales" /><RejectDocButton no={d.no} kind="sales" /></>) : null}
-                        {d.status === 'Released' && canApprove ? <ReopenDocButton no={d.no} kind="sales" /> : null}
+                        {d.status === 'Pending Approval' && canCreate && isOwn && !routedTasks.get(d.no) ? <CancelApprovalButton no={d.no} /> : null}
+                        {d.status === 'Pending Approval' && canDecide.get(d.no) ? (<><ApproveDocButton no={d.no} /><RejectDocButton no={d.no} /></>) : null}
+                        {d.status === 'Released' && canApprove ? <ReopenDocButton no={d.no} /> : null}
                         {d.status === 'Released' && canPost ? <PostSalesDocButton no={d.no} isOrder={documentType === 'Order'} /> : null}
                       </div>
                     </td>
@@ -321,7 +324,7 @@ async function PostedDocsTab({ search }: { search: string }) {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="mono">{r.no}</td>
+                  <td className="mono"><Link href={`/receivables/posted/${encodeURIComponent(r.no)}`}>{r.no}</Link></td>
                   <td>{r.document_type}</td>
                   <td>{r.customer_no} <span className="tiny muted-cell">{r.customer_name}</span></td>
                   <td className="mono muted-cell">{r.order_no ?? '—'}</td>
@@ -341,61 +344,6 @@ async function PostedDocsTab({ search }: { search: string }) {
 }
 
 /* ------------------------------------------------------------- Cash Receipts */
-
-async function CashReceiptsTab({ search, username }: { search: string; username: string }) {
-  const [rows, empty, canCreate, canPost, banks, customers, paymentMethods] = await Promise.all([
-    listCashReceipts({ search }),
-    hasAnyCashReceipts().then((a) => !a),
-    currentCanAction('RECEIVABLES_CASH_RECEIPT_CREATE'),
-    currentCanAction('RECEIVABLES_CASH_RECEIPT_POST'),
-    listActiveBankAccounts(),
-    listActiveCustomers(),
-    listActivePaymentMethods(),
-  ]);
-  const routed = new Map(await Promise.all(
-    rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('CASH_RECEIPT', r.no).then((t) => [r.no, !!t] as const)),
-  ));
-  return (
-    <>
-      <Toolbar>
-        <SearchInput placeholder="Search receipt no. or description…" disabled={empty} />
-        <Spacer />
-        {canCreate ? <NewCashReceiptButton banks={banks.map((b) => ({ id: b.id, code: b.code, name: b.name }))} customers={customers} paymentMethods={paymentMethods} /> : null}
-      </Toolbar>
-      <Card>
-        {rows.length ? (
-          <TableWrap>
-            <thead><tr><th>No.</th><th>Bank</th><th className="num">Total</th><th>Lines</th><th>Posting date</th><th>Status</th><th className="num" /></tr></thead>
-            <tbody>
-              {rows.map((r) => {
-                const isOwn = r.created_by === username;
-                return (
-                  <tr key={r.no} className={r.status === 'Processed' ? 'muted' : undefined}>
-                    <td className="mono">{r.no}</td>
-                    <td className="mono muted-cell">{r.bank_account_code}</td>
-                    <td className="num"><Money cents={r.total_amount} /></td>
-                    <td>{r.line_count}</td>
-                    <td>{formatDate(r.posting_date)}</td>
-                    <td><Pill status={r.status} /></td>
-                    <td className="num">
-                      <div className="inline" style={{ justifyContent: 'flex-end' }}>
-                        {r.status === 'Open' && canCreate && isOwn ? (<><SubmitDocButton no={r.no} kind="cash" /><DeleteDocButton no={r.no} kind="cash" /></>) : null}
-                        {r.status === 'Pending Approval' && canCreate && isOwn && !routed.get(r.no) ? <CancelApprovalButton no={r.no} kind="cash" /> : null}
-                        {r.status === 'Pending Approval' && (canPost || routed.get(r.no)) ? (<><ApproveDocButton no={r.no} kind="cash" /><RejectDocButton no={r.no} kind="cash" /></>) : null}
-                        {r.status === 'Approved' && !r.posted && canPost ? (<><ReopenDocButton no={r.no} kind="cash" /><PostCashReceiptButton no={r.no} /></>) : null}
-                        <a className="btn sm ghost" href={`/print/cash-receipt/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print</a>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </TableWrap>
-        ) : <EmptyState icon="💰" title={empty ? 'No cash receipts yet' : 'No receipts match'} />}
-      </Card>
-    </>
-  );
-}
 
 /* -------------------------------------------------------------- Reminders */
 
@@ -690,25 +638,5 @@ async function ReminderTermsTab() {
 }
 
 async function SetupTab() {
-  const [setup, postingGroups, paymentTerms, reminderTerms, finChargeTerms, canManage] = await Promise.all([
-    getSalesReceivablesSetup(), listCustomerPostingGroups(), listPaymentTerms(),
-    listActiveReminderTerms(), listActiveFinanceChargeTerms(), currentCanAction('RECEIVABLES_SETUP_MANAGE'),
-  ]);
-  return (
-    <Card>
-      <CardHead title="Sales & Receivables Setup" sub="Business Central Table 311 — module-wide defaults and the receivables posting-date window">
-        {canManage ? <SalesReceivablesSetupButton setup={setup} postingGroups={postingGroups} paymentTerms={paymentTerms} reminderTerms={reminderTerms} finChargeTerms={finChargeTerms}>Edit setup</SalesReceivablesSetupButton> : null}
-      </CardHead>
-      <TableWrap>
-        <tbody>
-          <tr><td>Default customer posting group</td><td className="mono">{setup.default_customer_posting_group_code ?? '—'}</td></tr>
-          <tr><td>Default payment terms</td><td className="mono">{setup.default_payment_terms_code ?? '—'}</td></tr>
-          <tr><td>Default reminder terms</td><td className="mono">{setup.default_reminder_terms_code ?? '—'}</td></tr>
-          <tr><td>Default fin. charge terms</td><td className="mono">{setup.default_fin_charge_terms_code ?? '—'}</td></tr>
-          <tr><td>Credit warnings</td><td>{setup.credit_warnings}</td></tr>
-          <tr><td>Allow posting from / to</td><td>{setup.allow_receivables_posting_from ?? '—'} / {setup.allow_receivables_posting_to ?? '—'}</td></tr>
-        </tbody>
-      </TableWrap>
-    </Card>
-  );
+  return <SalesReceivablesSetupCard />;
 }

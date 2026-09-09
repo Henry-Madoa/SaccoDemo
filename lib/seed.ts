@@ -16,11 +16,9 @@ import * as faJournalLib from './faJournal.ts';
 import * as faDeprLib from './fixedAssetDepreciation.ts';
 import * as custLib from './customers.ts';
 import * as salesLib from './salesDocuments.ts';
-import * as cashReceiptLib from './cashReceipts.ts';
 import * as reminderLib from './reminders.ts';
 import * as vendorLib from './vendors.ts';
 import * as purchaseLib from './purchaseDocuments.ts';
-import * as paymentJournalLib from './paymentJournal.ts';
 import type {
   Actor, Cents, Channel, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member,
 } from './types.ts';
@@ -244,11 +242,10 @@ export const ROLES: RoleSeed[] = [
       'FIXED_ASSETS_READ', 'FIXED_ASSETS_ASSET_MANAGE', 'FIXED_ASSETS_SETUP_MANAGE', 'FIXED_ASSETS_JOURNAL_CREATE',
       'FIXED_ASSETS_JOURNAL_APPROVE', 'FIXED_ASSETS_JOURNAL_POST', 'FIXED_ASSETS_DEPRECIATION_RUN',
       'RECEIVABLES_READ', 'RECEIVABLES_CUSTOMER_MANAGE', 'RECEIVABLES_SETUP_MANAGE', 'RECEIVABLES_SALES_CREATE',
-      'RECEIVABLES_SALES_APPROVE', 'RECEIVABLES_SALES_POST', 'RECEIVABLES_CASH_RECEIPT_CREATE',
-      'RECEIVABLES_CASH_RECEIPT_POST', 'RECEIVABLES_REMINDER_MANAGE', 'RECEIVABLES_APPLY_ENTRIES',
+      'RECEIVABLES_SALES_APPROVE', 'RECEIVABLES_SALES_POST',
+      'RECEIVABLES_REMINDER_MANAGE', 'RECEIVABLES_APPLY_ENTRIES',
       'PAYABLES_READ', 'PAYABLES_VENDOR_MANAGE', 'PAYABLES_SETUP_MANAGE', 'PAYABLES_PURCHASE_CREATE',
-      'PAYABLES_PURCHASE_APPROVE', 'PAYABLES_PURCHASE_POST', 'PAYABLES_PAYMENT_CREATE',
-      'PAYABLES_PAYMENT_POST', 'PAYABLES_APPLY_ENTRIES',
+      'PAYABLES_PURCHASE_APPROVE', 'PAYABLES_PURCHASE_POST', 'PAYABLES_APPLY_ENTRIES',
       'CASH_MGMT_READ', 'CASH_MGMT_BANK_MANAGE', 'CASH_MGMT_SETUP_MANAGE', 'CASH_MGMT_CURRENCY_MANAGE',
       'CASH_MGMT_RECONCILE', 'CASH_MGMT_FX_ADJUST', 'CASH_MGMT_RECEIPT_CREATE', 'CASH_MGMT_RECEIPT_APPROVE',
       'CASH_MGMT_RECEIPT_POST', 'CASH_MGMT_PV_CREATE', 'CASH_MGMT_PV_APPROVE', 'CASH_MGMT_PV_POST',
@@ -401,8 +398,8 @@ export const ROLES: RoleSeed[] = [
       'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_ACCOUNT_MANAGE',
       'GL_BANK_RECONCILE', 'GL_PERIOD_CLOSE',
       'FINANCIAL_REPORTS_READ', 'FINANCIAL_REPORTS_MANAGE', 'REPORTS_VIEW', 'DASHBOARD_VIEW', 'APPROVALS_VIEW',
-      'RECEIVABLES_READ', 'RECEIVABLES_APPLY_ENTRIES', 'RECEIVABLES_CASH_RECEIPT_CREATE', 'RECEIVABLES_CASH_RECEIPT_POST',
-      'PAYABLES_READ', 'PAYABLES_APPLY_ENTRIES', 'PAYABLES_PAYMENT_CREATE', 'PAYABLES_PAYMENT_POST',
+      'RECEIVABLES_READ', 'RECEIVABLES_APPLY_ENTRIES',
+      'PAYABLES_READ', 'PAYABLES_APPLY_ENTRIES',
       'CASH_MGMT_READ', 'CASH_MGMT_RECONCILE', 'CASH_MGMT_RECEIPT_CREATE', 'CASH_MGMT_RECEIPT_POST',
       'CASH_MGMT_PV_CREATE', 'CASH_MGMT_PV_POST', 'CASH_MGMT_APPLY_ENTRIES', 'CASH_MGMT_FX_ADJUST',
       'VAT_REPORT_READ', 'VAT_SETUP_MANAGE', 'WHT_CERTIFICATE_PRINT', 'WHT_MARK_REMITTED',
@@ -463,7 +460,6 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   await run(INS_SEQ, 'POSTED_SALES_SHIPMENT', 'PSHP', 1, 6);
   await run(INS_SEQ, 'POSTED_SALES_INVOICE', 'PSI', 1, 6);
   await run(INS_SEQ, 'POSTED_SALES_CREDIT_MEMO', 'PSM', 1, 6);
-  await run(INS_SEQ, 'CASH_RECEIPT', 'CR', 1, 6);
   await run(INS_SEQ, 'REMINDER', 'REM', 1, 6);
   await run(INS_SEQ, 'FIN_CHARGE_MEMO', 'FCM', 1, 6);
   await run(INS_SEQ, 'VENDOR', 'V', 1001, 5);
@@ -474,7 +470,6 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   await run(INS_SEQ, 'POSTED_PURCHASE_RECEIPT', 'PRCP', 1, 6);
   await run(INS_SEQ, 'POSTED_PURCHASE_INVOICE', 'PPI', 1, 6);
   await run(INS_SEQ, 'POSTED_PURCHASE_CREDIT_MEMO', 'PPM', 1, 6);
-  await run(INS_SEQ, 'PAYMENT_JOURNAL', 'PAY', 1, 6);
   await run(INS_SEQ, 'RECEIPT', 'RCT', 1, 6);
   await run(INS_SEQ, 'POSTED_RECEIPT', 'PRCT', 1, 6);
   await run(INS_SEQ, 'PAYMENT_VOUCHER', 'PV', 1, 6);
@@ -1237,18 +1232,6 @@ async function seedReceivables(now: IsoDateTime, todayIso: IsoDate): Promise<voi
   // Customer 3 — a current invoice.
   await postInvoice(customerIds[2], todayIso.slice(0, 8) + '02', '4094', 'Delivery services', 1, K(32000));
 
-  // A Cash Receipt part-paying customer 1's first invoice.
-  const firstInvoiceDoc = (await one<{ document_no: string }>(
-    "SELECT document_no FROM cust_ledger_entry WHERE customer_id = ? AND document_type = 'Invoice' ORDER BY id LIMIT 1", customerIds[0],
-  ))!;
-  const { no: crNo } = await cashReceiptLib.createCashReceipt({
-    postingDate: todayIso, documentDate: todayIso, bankAccountId: (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id,
-    description: 'Customer receipts',
-    lines: [{ customerId: customerIds[0], amount: K(100000), appliesToDocNo: firstInvoiceDoc.document_no, paymentMethodCode: 'BANK' }],
-  }, sys);
-  await run("UPDATE cash_receipt_header SET status = 'Approved' WHERE no = ?", crNo);
-  await cashReceiptLib.postCashReceipt(crNo, sys);
-
   // Create a Reminder for the overdue tenant.
   await reminderLib.createReminders({ customerId: customerIds[1], documentDate: todayIso }, sys);
 }
@@ -1324,16 +1307,6 @@ async function seedPayables(now: IsoDateTime, todayIso: IsoDate): Promise<void> 
   await postInvoice(vendorIds[2], oneMonthAgo, '5050', 'Statutory audit fee 2025', K(240000), 'MWA-1187');
 
   // Pay the water bill in full through a Payment Journal.
-  const waterDoc = (await one<{ document_no: string }>(
-    "SELECT document_no FROM vendor_ledger_entry WHERE vendor_id = ? AND document_type = 'Invoice' ORDER BY id LIMIT 1", vendorIds[0],
-  ))!;
-  const bankId = (await one<{ id: number }>("SELECT id FROM bank_account WHERE code = 'BANK'"))!.id;
-  const { no: payNo } = await paymentJournalLib.createPaymentJournal({
-    postingDate: todayIso, documentDate: todayIso, bankAccountId: bankId, description: 'Vendor payments',
-    lines: [{ vendorId: vendorIds[0], amount: K(18500), appliesToDocNo: waterDoc.document_no, paymentMethodCode: 'BANK' }],
-  }, sys);
-  await run("UPDATE payment_journal_header SET status = 'Approved' WHERE no = ?", payNo);
-  await paymentJournalLib.postPaymentJournal(payNo, sys);
 }
 
 /**

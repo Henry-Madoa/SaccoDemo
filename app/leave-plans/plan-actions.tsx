@@ -11,7 +11,6 @@ import {
   requestLeavePlan, setPlanLinesRequest, deleteLeavePlanRequest, submitLeavePlanRequest,
   cancelLeavePlanApprovalRequest, approveLeavePlanRequest, rejectLeavePlanRequest,
 } from '@/app/actions/leavePlans';
-import { delegateMyTask } from '@/app/actions/workflows';
 import type { EmployeeView, HrLeavePlanLine } from '@/lib/types';
 
 type EmployeeLite = Pick<EmployeeView, 'id' | 'employee_no' | 'first_name' | 'last_name'>;
@@ -105,17 +104,7 @@ export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: s
   );
 }
 
-export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId: number; className?: string }) {
-  const { run, busy } = useRunAction();
-  return (
-    <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => delegateMyTask(taskId), {
-        confirm: { title: 'Delegate to your substitute?', confirmLabel: 'Delegate' }, successTitle: 'Delegated to your substitute',
-      })}>
-      {busy ? 'Working…' : 'Delegate'}
-    </button>
-  );
-}
+export { DelegateButton } from '@/components/ui/delegate-button';
 
 export function ApproveButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();

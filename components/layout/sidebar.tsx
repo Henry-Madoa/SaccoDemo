@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { initials } from '@/lib/format';
@@ -58,7 +58,19 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
     });
   };
 
-  const isActive = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
+  /**
+   * Only the most specific entry lights up. A prefix match alone would leave "Customers"
+   * (/receivables) highlighted on every one of its siblings (/receivables/quotes, …), so an
+   * entry that is merely an ancestor of a longer matching entry stands down.
+   */
+  const bestMatch = useMemo(() => {
+    const paths = visibleGroups.flatMap((g) => g.items.flatMap((e) => (isSubMenu(e) ? e.items : [e])))
+      .map((i) => i.path)
+      .filter((p) => pathname === p || pathname.startsWith(`${p}/`));
+    return paths.sort((a, b) => b.length - a.length)[0] ?? null;
+  }, [pathname, visibleGroups]);
+
+  const isActive = (path: string) => path === bestMatch;
 
   const renderLink = (item: NavItem) => {
     const active = isActive(item.path);

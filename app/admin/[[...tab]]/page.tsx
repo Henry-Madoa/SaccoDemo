@@ -62,6 +62,9 @@ import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { ExportButton } from '@/components/ui/export-button';
+import { SaccoSetupForm } from '../sacco-setup-form';
+import { GeneralLedgerSetupForm } from '../gl-setup-form';
+import { SalesReceivablesSetupCard, PurchasesPayablesSetupCard } from '@/components/admin/module-setup-cards';
 import { CompanyForm } from '../company-form';
 import { AppearanceEditor } from '../appearance-editor';
 import { UserFormButton } from '../user-form';
@@ -137,11 +140,11 @@ interface PoolGroup { key: string; label: string; screens: AdminTab[] }
 const POOL_GROUPS: PoolGroup[] = [
   {
     key: 'general', label: 'General', screens: [
+      { key: 'sacco-setup', label: 'Sacco Setup', page: 'ADMIN_COMPANY' },
       { key: 'counties', label: 'Counties', page: 'ADMIN_POOL_COUNTIES' },
       { key: 'dimensions', label: 'Global Dimensions', page: 'ADMIN_POOL_DIMENSIONS' },
       { key: 'document-no-series', label: 'Document No. Series', page: 'ADMIN_NO_SERIES' },
       { key: 'no-series', label: 'No. Series', page: 'ADMIN_NO_SERIES' },
-      { key: 'profiles', label: 'Role Centre Profiles', page: 'ADMIN_PROFILES' },
       { key: 'automation', label: 'System Automation', page: 'ADMIN_JOB_QUEUE' },
     ],
   },
@@ -172,6 +175,9 @@ const POOL_GROUPS: PoolGroup[] = [
   },
   {
     key: 'finance', label: 'Finance', screens: [
+      { key: 'gl-setup', label: 'General Ledger Setup', page: 'ADMIN_COMPANY' },
+      { key: 'sales-receivables-setup', label: 'Sales & Receivables Setup', page: 'RECEIVABLES' },
+      { key: 'purchases-payables-setup', label: 'Purchases & Payables Setup', page: 'PAYABLES' },
       { key: 'charge-codes', label: 'Charge Codes', page: 'ADMIN_CHARGES_MASTER' },
       { key: 'transaction-charges', label: 'Transaction Charges', page: 'ADMIN_CHARGES_TRANSACTION' },
       { key: 'currencies', label: 'Currencies', page: 'ADMIN_POOL_CURRENCIES' },
@@ -210,7 +216,7 @@ const TABS: AdminTab[] = [
   },
   {
     key: 'security', label: 'System Security',
-    page: ['ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
+    page: ['ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES', 'ADMIN_PROFILES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
   },
   { key: 'data', label: 'Data Management', page: 'ADMIN_DATA' },
 ];
@@ -227,6 +233,7 @@ const SECURITY_TABS: AdminTab[] = [
   { key: 'users', label: 'Users', page: 'ADMIN_USERS' },
   { key: 'setup', label: 'User Setup', page: 'ADMIN_WORKFLOWS_SETUP' },
   { key: 'roles', label: 'Permission Sets', page: 'ADMIN_ROLES' },
+  { key: 'profiles', label: 'Role Centre Profiles', page: 'ADMIN_PROFILES' },
   { key: 'audit', label: 'Audit Trail', page: 'ADMIN_AUDIT' },
   { key: 'changelog', label: 'Change Log Management', page: 'ADMIN_CHANGELOG' },
 ];
@@ -296,11 +303,14 @@ export default async function AdminPage({ params, searchParams }: {
             hrefFor={(k) => `/admin/pool/${k}`} />
           <Tabs tabs={poolGroup.screens} active={poolScreen.key}
             hrefFor={(k) => `/admin/pool/${poolGroup.key}/${k}`} />
+          {poolScreen.key === 'sacco-setup' ? <SaccoSetupTab /> : null}
+          {poolScreen.key === 'gl-setup' ? <GeneralLedgerSetupTab /> : null}
+          {poolScreen.key === 'sales-receivables-setup' ? <SalesReceivablesSetupCard /> : null}
+          {poolScreen.key === 'purchases-payables-setup' ? <PurchasesPayablesSetupCard /> : null}
           {poolScreen.key === 'counties' ? <CountiesTab /> : null}
           {poolScreen.key === 'dimensions' ? <DimensionsTab /> : null}
           {poolScreen.key === 'document-no-series' ? <DocumentNoSeriesTab /> : null}
           {poolScreen.key === 'no-series' ? <NoSeriesTab /> : null}
-          {poolScreen.key === 'profiles' ? <ProfilesTab /> : null}
           {poolScreen.key === 'automation' ? <JobQueueTab /> : null}
           {poolScreen.key === 'member-categories' ? <MemberCategoriesTab /> : null}
           {poolScreen.key === 'account-instructions' ? <AccountInstructionsTab /> : null}
@@ -348,6 +358,7 @@ export default async function AdminPage({ params, searchParams }: {
           {securityTab === 'users' ? <UsersTab /> : null}
           {securityTab === 'setup' ? <ApprovalUserSetupTab /> : null}
           {securityTab === 'roles' ? <RolesTab /> : null}
+          {securityTab === 'profiles' ? <ProfilesTab /> : null}
           {securityTab === 'audit' ? <AuditTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
           {securityTab === 'changelog' ? <ChangeLogTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
         </>
@@ -357,18 +368,22 @@ export default async function AdminPage({ params, searchParams }: {
   );
 }
 
+async function SaccoSetupTab() {
+  const [org, charges] = await Promise.all([getOrg(), listTransactionChargesByType('General')]);
+  return <SaccoSetupForm org={org!} charges={charges} />;
+}
+
+async function GeneralLedgerSetupTab() {
+  return <GeneralLedgerSetupForm org={(await getOrg())!} />;
+}
+
 async function CompanyTab() {
-  const [orgOrUndefined, charges] = await Promise.all([
-    getOrg(),
-    listTransactionChargesByType('General'),
-  ]);
-  const org = orgOrUndefined!;
+  const org = (await getOrg())!;
   // The delivery URL is built server-side so the browser never needs the
   // Cloudinary cloud name, and legacy data-URL logos still resolve.
   return (
     <CompanyForm
       org={org}
-      charges={charges}
       logoSrc={imageSrc(org.logo, { width: 128, height: 128, crop: 'fit' })}
       mediaEnabled={isConfigured()}
     />

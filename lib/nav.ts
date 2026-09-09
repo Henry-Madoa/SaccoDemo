@@ -118,31 +118,55 @@ export const NAV: NavGroup[] = [
     group: 'Finance',
     centres: ['FINANCE_MANAGER', 'ACCOUNTANT'],
     items: [
-      { path: '/accounting', label: 'General Ledger', icon: '⚖', page: 'GL' },
       {
-        submenu: 'Receivables', icon: '🧾',
+        // The ledger's own screens, Chart of Accounts first. Customer / Vendor / Bank ledger
+        // entries are deliberately absent: each is on its own party card, where you arrive with
+        // the party already chosen instead of filtering a system-wide list.
+        submenu: 'General Ledger', icon: '⚖',
         items: [
-          { path: '/receivables', label: 'Customers', icon: '👤', page: 'RECEIVABLES' },
-          { path: '/receivables/sales-invoices', label: 'Sales Documents', icon: '📄', page: 'RECEIVABLES' },
-          { path: '/receivables/cash-receipts', label: 'Cash Receipts', icon: '💰', page: 'RECEIVABLES' },
-          { path: '/receivables/reminders', label: 'Reminders', icon: '⏰', page: 'RECEIVABLES' },
-          { path: '/receivables/aged-ar', label: 'Aged Receivables', icon: '📊', page: 'RECEIVABLES' },
+          { path: '/accounting/accounts', label: 'Chart of Accounts', icon: '🗂', page: 'GL' },
+          { path: '/accounting/journals', label: 'Journals', icon: '📓', page: 'GL' },
+          { path: '/accounting/periods', label: 'Accounting Periods', icon: '📅', page: 'GL' },
         ],
       },
       {
+        // Each of Receivables' documents is its own sidebar entry rather than a tab reached
+        // through a generic "Sales Documents" link — the tabs still exist on the page, but a
+        // credit memo is no longer three clicks and a guess away. Setup screens are deliberately
+        // absent: they live in Admin Centre → Setup Pool.
+        submenu: 'Receivables', icon: '🧾',
+        items: [
+          { path: '/receivables', label: 'Customers', icon: '👤', page: 'RECEIVABLES' },
+          { path: '/receivables/quotes', label: 'Sales Quotes', icon: '📝', page: 'RECEIVABLES' },
+          { path: '/receivables/orders', label: 'Sales Orders', icon: '📋', page: 'RECEIVABLES' },
+          { path: '/receivables/sales-invoices', label: 'Sales Invoices', icon: '📄', page: 'RECEIVABLES' },
+          { path: '/receivables/credit-memos', label: 'Sales Credit Memos', icon: '↩', page: 'RECEIVABLES' },
+          { path: '/receivables/posted-documents', label: 'Posted Documents', icon: '🗄', page: 'RECEIVABLES' },
+          { path: '/receivables/reminders', label: 'Reminders', icon: '⏰', page: 'RECEIVABLES' },
+          { path: '/receivables/finance-charges', label: 'Finance Charge Memos', icon: '💢', page: 'RECEIVABLES' },
+          { path: '/receivables/aged-ar', label: 'Aged Receivables', icon: '📊', page: 'RECEIVABLES' },
+          { path: '/receivables/statement', label: 'Customer Statement', icon: '🧾', page: 'RECEIVABLES' },
+        ],
+      },
+      {
+        // Broken out the same way Receivables is — one entry per document, setup screens left to
+        // Admin Centre → Setup Pool.
         submenu: 'Payables', icon: '📥',
         items: [
           { path: '/payables', label: 'Vendors', icon: '🏭', page: 'PAYABLES' },
-          { path: '/payables/purchase-invoices', label: 'Purchase Documents', icon: '📄', page: 'PAYABLES' },
-          { path: '/payables/payment-journal', label: 'Payment Journal', icon: '💸', page: 'PAYABLES' },
+          { path: '/payables/quotes', label: 'Purchase Quotes', icon: '📝', page: 'PAYABLES' },
+          { path: '/payables/orders', label: 'Purchase Orders', icon: '📋', page: 'PAYABLES' },
+          { path: '/payables/purchase-invoices', label: 'Purchase Invoices', icon: '📄', page: 'PAYABLES' },
+          { path: '/payables/credit-memos', label: 'Purchase Credit Memos', icon: '↩', page: 'PAYABLES' },
+          { path: '/payables/posted-documents', label: 'Posted Documents', icon: '🗄', page: 'PAYABLES' },
           { path: '/payables/aged-ap', label: 'Aged Payables', icon: '📊', page: 'PAYABLES' },
+          { path: '/payables/statement', label: 'Vendor Statement', icon: '🧾', page: 'PAYABLES' },
         ],
       },
       {
         submenu: 'Cash Management', icon: '🏦',
         items: [
           { path: '/cash-management', label: 'Bank Accounts', icon: '🏦', page: 'CASH_MGMT' },
-          { path: '/cash-management/ledger-entries', label: 'Bank Ledger Entries', icon: '📓', page: 'CASH_MGMT' },
           { path: '/cash-management/reconciliations', label: 'Bank Reconciliation', icon: '✔', page: 'CASH_MGMT' },
           { path: '/cash-management/receipts', label: 'Receipts', icon: '🧾', page: 'CASH_MGMT' },
           { path: '/cash-management/payment-vouchers', label: 'Payment Vouchers', icon: '💸', page: 'CASH_MGMT' },
@@ -177,6 +201,7 @@ export const NAV: NavGroup[] = [
       {
         submenu: 'Financial Reports', icon: '🧾',
         items: [
+          { path: '/accounting/trial-balance', label: 'Trial Balance', icon: '⚖', page: 'GL' },
           { path: '/finance/financial-reports', label: 'Reports', icon: '📄', page: 'FINANCIAL_REPORTS' },
           { path: '/finance/financial-reports/row-definitions', label: 'Row Definitions', icon: '↔', page: 'FINANCIAL_REPORTS' },
           { path: '/finance/financial-reports/column-layouts', label: 'Column Layouts', icon: '⋮', page: 'FINANCIAL_REPORTS' },

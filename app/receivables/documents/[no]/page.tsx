@@ -8,7 +8,9 @@ import { listActiveLocations } from '@/lib/inventorySetup';
 import { listFixedAssets } from '@/lib/fixedAssets';
 import { listActivePaymentTerms, listActivePaymentMethods } from '@/lib/receivablesSetup';
 import { listActiveCustomers } from '@/lib/customers';
-import { findPendingRoutedTask, listWorkflowTasksForDocument } from '@/lib/workflow';
+import {
+  canDelegateTask, findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument,
+} from '@/lib/workflow';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, DefinitionList, Stat, Toolbar, Spacer } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
@@ -17,7 +19,7 @@ import { ApprovalDetailsCard } from '@/components/ui/approval-details';
 import { SalesDocumentCard } from '../../sales-document-card';
 import {
   MakeOrderButton, SubmitDocButton, CancelApprovalButton, ApproveDocButton, RejectDocButton, ReopenDocButton,
-  DeleteDocButton, PostSalesDocButton,
+  DeleteDocButton, PostSalesDocButton, DelegateButton,
 } from '../../document-actions';
 
 /** The tab each document type lists under, for the card's "back to the list" link. */
@@ -45,9 +47,15 @@ export default async function SalesDocumentPage({ params }: { params: Promise<{ 
       listActivePaymentMethods(),
       listWorkflowTasksForDocument('SALES_DOCUMENT', doc.no),
     ]);
-  const routed = doc.status === 'Pending Approval'
-    ? !!(await findPendingRoutedTask('SALES_DOCUMENT', doc.no))
-    : false;
+  // Release / Reject belong to whoever the document is actually sitting with: the approver the
+  // workflow routed it to, or — when no workflow matched — anyone holding the approve permission.
+  const routedTask = doc.status === 'Pending Approval'
+    ? await findPendingRoutedTask('SALES_DOCUMENT', doc.no)
+    : null;
+  const routed = !!routedTask;
+  const canDecideThis = routedTask ? await isEligibleApprover(routedTask, user.id) : canApprove;
+  // Delegate is open to the approver it sits with and to an Approval Administrator, as in BC.
+  const canDelegateThis = routedTask ? await canDelegateTask(routedTask, user.id) : false;
 
   const lookups = {
     customers, paymentTerms, paymentMethods,
@@ -67,12 +75,13 @@ export default async function SalesDocumentPage({ params }: { params: Promise<{ 
         <a className="btn ghost sm" href={`/print/sales/${encodeURIComponent(doc.no)}`} target="_blank" rel="noreferrer">Print</a>
         <Spacer />
         {doc.document_type === 'Quote' && open && canCreate ? <MakeOrderButton no={doc.no} /> : null}
-        {open && canCreate && isOwn && doc.document_type !== 'Quote' ? <SubmitDocButton no={doc.no} kind="sales" /> : null}
+        {open && canCreate && isOwn && doc.document_type !== 'Quote' ? <SubmitDocButton no={doc.no} /> : null}
         {open && canCreate && isOwn ? <DeleteDocButton no={doc.no} kind="sales" /> : null}
-        {doc.status === 'Pending Approval' && canCreate && isOwn && !routed ? <CancelApprovalButton no={doc.no} kind="sales" /> : null}
-        {doc.status === 'Pending Approval' && (canApprove || routed)
-          ? (<><ApproveDocButton no={doc.no} kind="sales" /><RejectDocButton no={doc.no} kind="sales" /></>) : null}
-        {doc.status === 'Released' && canApprove ? <ReopenDocButton no={doc.no} kind="sales" /> : null}
+        {doc.status === 'Pending Approval' && canCreate && isOwn && !routed ? <CancelApprovalButton no={doc.no} /> : null}
+        {routedTask && canDelegateThis ? <DelegateButton taskId={routedTask.id} className="btn sm ghost" /> : null}
+        {doc.status === 'Pending Approval' && canDecideThis
+          ? (<><ApproveDocButton no={doc.no} /><RejectDocButton no={doc.no} /></>) : null}
+        {doc.status === 'Released' && canApprove ? <ReopenDocButton no={doc.no} /> : null}
         {doc.status === 'Released' && canPost ? <PostSalesDocButton no={doc.no} isOrder={doc.document_type === 'Order'} /> : null}
       </Toolbar>
 

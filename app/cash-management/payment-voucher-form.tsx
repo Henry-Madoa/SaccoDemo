@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { today } from '@/lib/format';
 import { createPvRequest, updatePvRequest, type PvLineDraft } from '@/app/actions/cashMgmt';
 import type { PaymentVoucherDetail } from '@/lib/types';
@@ -64,7 +65,14 @@ function Body({ p, initial, lines, setLines }: { p: PvFormProps; initial?: Payme
               <td><select value={l.lineType} onChange={(e) => set(i, 'lineType', e.target.value)} aria-label="Line type">{LINE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></td>
               <td>{picker(l, i)}</td>
               <td><input type="number" step="0.01" min={0} value={l.amount} onChange={(e) => set(i, 'amount', e.target.value)} aria-label="Amount" /></td>
-              <td><input value={l.appliesToDocNo} onChange={(e) => set(i, 'appliesToDocNo', e.target.value)} aria-label="Applies to" placeholder="Invoice no." disabled={l.lineType !== 'Vendor'} /></td>
+              <td>
+                <AppliesToPicker
+                  partyType={l.lineType === 'Vendor' ? 'Vendor' : null}
+                  partyNo={l.accountNo} value={l.appliesToDocNo ?? ""}
+                  onChange={(v) => set(i, 'appliesToDocNo', v)}
+                  onPickAmount={(amt) => set(i, 'amount', amt)}
+                />
+              </td>
               <td><select value={l.vatProdPostingGroupCode} onChange={(e) => set(i, 'vatProdPostingGroupCode', e.target.value)} aria-label="VAT code" disabled={!!l.appliesToDocNo}><option value="">—</option>{p.vatCodes.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}</select></td>
               <td><select value={l.whtCodeOne} onChange={(e) => set(i, 'whtCodeOne', e.target.value)} aria-label="WHT one"><option value="">—</option>{p.whtCodes.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}</select></td>
               <td><select value={l.whtCodeTwo} onChange={(e) => set(i, 'whtCodeTwo', e.target.value)} aria-label="WHT two"><option value="">—</option>{p.whtCodes.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}</select></td>

@@ -12,7 +12,6 @@
  */
 import { one, all } from './db.ts';
 import { getSalesDocument } from './salesDocuments.ts';
-import { getCashReceipt } from './cashReceipts.ts';
 import { formatDate } from './format.ts';
 import { amountInWords } from './numberToWords.ts';
 import {
@@ -227,67 +226,6 @@ export async function buildPostedSalesDocumentPrint(no: string): Promise<PrintDo
   };
 }
 
-/* ------------------------------------------------------------------- cash receipts */
-
-/**
- * The acknowledgement a customer gets for money paid in — AL Rep52203513 "Customer Receipts".
- *
- * A Receivables cash receipt banks one deposit against several customers at once, so each line
- * names its own customer and the invoice it settles; the "received from" block therefore holds
- * the bank it was paid into rather than a single payer.
- */
-export async function buildCashReceiptPrint(no: string): Promise<PrintDocument | null> {
-  const doc = await getCashReceipt(no);
-  if (!doc) return null;
-  const brand = await printBrand();
-  if (!brand) return null;
-  const money = documentMoney(brand, brand.currency_code);
-
-  return {
-    brand,
-    title: 'Cash Receipt',
-    subtitle: doc.posted ? 'Posted document' : null,
-    watermark: doc.posted ? null : doc.status === 'Pending Approval' ? 'Pending Approval' : 'Draft',
-    status: doc.posted
-      ? { label: 'Posted', tone: 'ok' }
-      : { label: doc.status, tone: doc.status === 'Approved' ? 'ok' : doc.status === 'Pending Approval' ? 'warn' : 'info' },
-    parties: [{
-      heading: 'Received from',
-      name: doc.lines.length === 1 ? doc.lines[0].customer_name : `${doc.lines.length} customers`,
-      lines: [doc.description || '', `Banked to ${doc.bank_account_code} — ${doc.bank_account_name}`].filter(Boolean),
-    }],
-    meta: [
-      { label: 'Receipt No.', value: doc.no },
-      { label: 'Document Date', value: formatDate(doc.document_date) },
-      { label: 'Posting Date', value: formatDate(doc.posting_date) },
-      ...(doc.journal_no ? [{ label: 'Journal No.', value: doc.journal_no }] : []),
-      { label: 'Amount Received', value: money(doc.total_amount), strong: true },
-    ],
-    columns: [
-      { key: 'customer', label: 'Customer', width: '30%' },
-      { key: 'description', label: 'Being payment for' },
-      { key: 'reference', label: 'Ref. / Applied To', width: '18%' },
-      { key: 'amount', label: 'Amount', align: 'right', width: '17%' },
-    ],
-    rows: doc.lines.map((l): PrintRow => ({
-      cells: {
-        customer: `${l.customer_no} — ${l.customer_name}`,
-        description: l.description ?? '',
-        reference: l.applies_to_doc_no || l.external_document_no || '—',
-        amount: money(l.amount),
-      },
-    })),
-    totals: [{ label: 'Total received', value: money(doc.total_amount), grand: true }],
-    amount_words: amountInWords(doc.total_amount, currencyLabel(brand.currency_code)),
-    signatures: [
-      ...(await documentSignatories('CASH_RECEIPT', doc.no, doc.created_by, {
-        prepared: 'Received by', approved: 'Approved by',
-      })),
-      { label: 'Customer acknowledgement', block: null },
-    ],
-    footnote: doc.posted ? 'This is a computer-generated receipt and is valid without a rubber stamp.' : null,
-  };
-}
 
 /** Where to pay — the AL Sales Invoice layout's bank block, from Company Information. A credit
  *  memo asks for nothing, so it prints none. */

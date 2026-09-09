@@ -33,7 +33,7 @@ import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, Cents, IsoDate, PurchaseDocumentDetail, PurchaseDocumentType, PurchaseHeader, PurchaseHeaderView,
-  PurchaseLine, PurchaseLineType,
+  PurchaseLine, PurchaseLineType, PostedPurchaseDocumentView, PostedPurchaseLine,
 } from './types.ts';
 
 /**
@@ -774,4 +774,26 @@ async function writePostedDocument(
     );
     lineNo += 10000;
   }
+}
+
+/* -------------------------------------------------------------- posted documents */
+
+export interface PostedPurchaseDocumentDetail extends PostedPurchaseDocumentView {
+  lines: PostedPurchaseLine[];
+}
+
+/**
+ * One posted Receipt (GRN) / Invoice / Credit Memo with its lines — the mirror of
+ * getPostedSalesDocument(), and the record that outlives the purchase_header posting deletes.
+ */
+export async function getPostedPurchaseDocument(no: string): Promise<PostedPurchaseDocumentDetail | undefined> {
+  const header = await one<PostedPurchaseDocumentView>(
+    `SELECT d.*, v.no AS vendor_no, v.name AS vendor_name
+     FROM posted_purchase_document d JOIN vendor v ON v.id = d.vendor_id WHERE d.no = ?`, no,
+  );
+  if (!header) return undefined;
+  const lines = await all<PostedPurchaseLine>(
+    'SELECT * FROM posted_purchase_line WHERE posted_purchase_document_id = ? ORDER BY line_no', header.id,
+  );
+  return { ...header, lines };
 }

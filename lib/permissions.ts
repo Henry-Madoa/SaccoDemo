@@ -786,8 +786,8 @@ export const ACTIONS = {
       ['customer', 'read'], ['customer_posting_group', 'read'], ['payment_terms', 'read'], ['payment_method', 'read'],
       ['reminder_terms', 'read'], ['reminder_level', 'read'], ['finance_charge_terms', 'read'], ['sales_receivables_setup', 'read'],
       ['sales_header', 'read'], ['sales_line', 'read'], ['posted_sales_document', 'read'], ['posted_sales_line', 'read'],
-      ['cust_ledger_entry', 'read'], ['detailed_cust_ledger_entry', 'read'], ['cash_receipt_header', 'read'],
-      ['cash_receipt_line', 'read'], ['reminder_header', 'read'], ['reminder_line', 'read'], ['gl_account', 'read'],
+      ['cust_ledger_entry', 'read'], ['detailed_cust_ledger_entry', 'read'],
+      ['reminder_header', 'read'], ['reminder_line', 'read'], ['gl_account', 'read'],
     ],
   },
   RECEIVABLES_CUSTOMER_MANAGE: {
@@ -828,21 +828,6 @@ export const ACTIONS = {
       ['journal', 'insert'], ['journal_line', 'insert'],
     ],
   },
-  RECEIVABLES_CASH_RECEIPT_CREATE: {
-    page: 'RECEIVABLES',
-    tables: [
-      ['cash_receipt_header', 'insert'], ['cash_receipt_header', 'modify'], ['cash_receipt_header', 'delete'],
-      ['cash_receipt_line', 'insert'], ['cash_receipt_line', 'modify'], ['cash_receipt_line', 'delete'],
-      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
-    ],
-  },
-  RECEIVABLES_CASH_RECEIPT_POST: {
-    page: 'RECEIVABLES',
-    tables: [
-      ['cash_receipt_header', 'modify'], ['cust_ledger_entry', 'insert'], ['cust_ledger_entry', 'modify'],
-      ['detailed_cust_ledger_entry', 'insert'], ['customer', 'modify'], ['journal', 'insert'], ['journal_line', 'insert'],
-    ],
-  },
   /** Create Reminders / Finance Charge Memos and Issue them. */
   RECEIVABLES_REMINDER_MANAGE: {
     page: 'RECEIVABLES',
@@ -872,8 +857,7 @@ export const ACTIONS = {
       ['vendor', 'read'], ['vendor_posting_group', 'read'], ['payment_terms', 'read'], ['payment_method', 'read'],
       ['purchases_payables_setup', 'read'], ['purchase_header', 'read'], ['purchase_line', 'read'],
       ['posted_purchase_document', 'read'], ['posted_purchase_line', 'read'],
-      ['vendor_ledger_entry', 'read'], ['detailed_vendor_ledger_entry', 'read'], ['payment_journal_header', 'read'],
-      ['payment_journal_line', 'read'], ['gl_account', 'read'],
+      ['vendor_ledger_entry', 'read'], ['detailed_vendor_ledger_entry', 'read'], ['gl_account', 'read'],
       ['vat_posting_setup', 'read'], ['vat_product_posting_group', 'read'], ['vat_business_posting_group', 'read'],
       ['vat_entry', 'read'],
     ],
@@ -909,21 +893,6 @@ export const ACTIONS = {
       ['stockkeeping_unit', 'insert'], ['stockkeeping_unit', 'modify'],
       ['fixed_asset', 'modify'], ['fa_depreciation_book', 'modify'], ['fa_ledger_entry', 'insert'],
       ['journal', 'insert'], ['journal_line', 'insert'], ['vat_entry', 'insert'],
-    ],
-  },
-  PAYABLES_PAYMENT_CREATE: {
-    page: 'PAYABLES',
-    tables: [
-      ['payment_journal_header', 'insert'], ['payment_journal_header', 'modify'], ['payment_journal_header', 'delete'],
-      ['payment_journal_line', 'insert'], ['payment_journal_line', 'modify'], ['payment_journal_line', 'delete'],
-      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
-    ],
-  },
-  PAYABLES_PAYMENT_POST: {
-    page: 'PAYABLES',
-    tables: [
-      ['payment_journal_header', 'modify'], ['vendor_ledger_entry', 'insert'], ['vendor_ledger_entry', 'modify'],
-      ['detailed_vendor_ledger_entry', 'insert'], ['vendor', 'modify'], ['journal', 'insert'], ['journal_line', 'insert'],
     ],
   },
   /** Apply / unapply Vendor Ledger Entries from the ledger screen. */

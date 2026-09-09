@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import * as workflow from '@/lib/workflow';
-import { decideWorkflowTask, delegateWorkflowTask } from '@/lib/workflow';
+import { decideWorkflowTask, delegateWorkflowTask, type DelegateTarget } from '@/lib/workflow';
 import type { ActionResult, DocumentTypeOption, FormValues, Workflow, WorkflowUserGroup } from '@/lib/types';
 
 export async function saveWorkflow(
@@ -127,15 +127,20 @@ export async function decideMyTask(
   });
 }
 
-/** Hand a task I'm currently eligible to decide off to my own configured substitute. */
-export async function delegateMyTask(taskId: number): Promise<ActionResult<{ delegated: true }>> {
+/**
+ * Hand a pending task off to the current approver's substitute — Business Central's Delegate
+ * action. Returns who it went to so the confirmation can name them.
+ */
+export async function delegateMyTask(taskId: number): Promise<ActionResult<DelegateTarget>> {
   return actionResult(async () => {
     const user = await requireUser();
-    await delegateWorkflowTask(taskId, user);
+    const target = await delegateWorkflowTask(taskId, user);
     revalidatePath('/approvals');
     revalidatePath('/member-applications');
     revalidatePath('/loans');
     revalidatePath('/accounting');
-    return { delegated: true };
+    revalidatePath('/receivables');
+    revalidatePath('/payables');
+    return target;
   });
 }

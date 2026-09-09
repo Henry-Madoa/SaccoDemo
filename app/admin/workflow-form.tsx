@@ -72,7 +72,10 @@ export function WorkflowFormButton({
   );
   const [open, setOpen] = useState(false);
   const w = workflow ?? null;
-  const [documentType, setDocumentType] = useState<string>(w?.document_type || documentTypes[0]?.documentType || '');
+  // A new workflow starts with no document type chosen — defaulting to the first of the list
+  // (Member Application) silently attaches the workflow to the wrong document when the author
+  // moves straight on to the conditions. The field is required, so submit blocks until picked.
+  const [documentType, setDocumentType] = useState<string>(w?.document_type || '');
   const [fields, setFields] = useState<DocumentFieldDef[]>([]);
   const [loadingFields, setLoadingFields] = useState(false);
   const [conditions, setConditions] = useState<ConditionRow[]>(() =>
@@ -228,10 +231,13 @@ export function WorkflowFormButton({
             </tbody>
           </table>
           <div className="inline" style={{ marginTop: 10 }}>
-            <button type="button" className="btn ghost sm" disabled={loadingFields}
+            {/* Until a document type is chosen there are no fields to condition on, so a new
+                row would only ever be an empty one. */}
+            <button type="button" className="btn ghost sm" disabled={loadingFields || !fields.length}
               onClick={() => setConditions((c) => [...c, emptyCondition(fields)])}>
               {loadingFields ? 'Loading fields…' : 'Add condition'}
             </button>
+            {!documentType ? <span className="tiny">Select a document type first.</span> : null}
           </div>
 
           <h4 className="section-title">Approval steps</h4>

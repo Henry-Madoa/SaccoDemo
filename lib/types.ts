@@ -3341,8 +3341,8 @@ export type WorkflowDocumentType =
   | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER'
   | 'FOSA_TRANSACTION' | 'TELLER_TRANSACTION' | 'MEMBER_LIEN' | 'INTER_ACCOUNT_TRANSFER' | 'BANKERS_CHEQUE'
   | 'CHEQUE_DEPOSIT' | 'ITEM_JOURNAL' | 'FA_JOURNAL'
-  | 'SALES_DOCUMENT' | 'CASH_RECEIPT' | 'REMINDER'
-  | 'PURCHASE_DOCUMENT' | 'PAYMENT_JOURNAL'
+  | 'SALES_DOCUMENT' | 'REMINDER'
+  | 'PURCHASE_DOCUMENT'
   | 'RECEIPT' | 'PAYMENT_VOUCHER'
   | 'EMPLOYEE_ONBOARDING' | 'EMPLOYEE_EDIT' | 'EMPLOYEE_CONTRACT_CHANGE' | 'EMPLOYEE_EXIT'
   | 'LEAVE_APPLICATION' | 'LEAVE_ADJUSTMENT' | 'LEAVE_RECALL' | 'LEAVE_PLAN' | 'PAYROLL_PERIOD';
@@ -4296,7 +4296,6 @@ export type DetailedCustLedgerEntryType =
 export type ReminderDocumentType = 'Reminder' | 'Finance Charge Memo';
 export type ReminderStatus = 'Open' | 'Issued';
 export type ReminderLineType = '' | 'Reminder Line' | 'G/L Account' | 'Line Fee';
-export type CashReceiptStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Processed';
 export type CreditWarnings = 'Both' | 'Credit Limit' | 'Overdue Balance' | 'No Warning';
 export type FinChargeInterestMethod = 'Average Daily Balance' | 'Balance Due';
 
@@ -4621,53 +4620,6 @@ export interface DetailedCustLedgerEntry {
   created_at: IsoDateTime | null;
 }
 
-export interface CashReceiptHeader {
-  id: number;
-  no: string;
-  posting_date: IsoDate;
-  document_date: IsoDate;
-  bank_account_id: number;
-  description: string | null;
-  status: CashReceiptStatus;
-  total_amount: Cents;
-  decision_reason: string | null;
-  posted: boolean;
-  journal_id: number | null;
-  created_at: IsoDateTime | null;
-  created_by: string | null;
-  posted_at: IsoDateTime | null;
-  posted_by: string | null;
-}
-
-export interface CashReceiptHeaderView extends CashReceiptHeader {
-  bank_account_code: string;
-  bank_account_name: string;
-  line_count: number;
-  journal_no: string | null;
-}
-
-export interface CashReceiptLine {
-  id: number;
-  cash_receipt_header_id: number;
-  line_no: number;
-  customer_id: number;
-  amount: Cents;
-  payment_method_code: string | null;
-  document_no: string | null;
-  applies_to_doc_no: string | null;
-  external_document_no: string | null;
-  description: string | null;
-}
-
-export interface CashReceiptLineView extends CashReceiptLine {
-  customer_no: string;
-  customer_name: string;
-}
-
-export interface CashReceiptDetail extends CashReceiptHeaderView {
-  lines: CashReceiptLineView[];
-}
-
 export interface ReminderHeader {
   id: number;
   document_type: ReminderDocumentType;
@@ -4781,8 +4733,6 @@ export type VendorLedgerDocumentType =
 export type DetailedVendorLedgerEntryType =
   | 'Initial Entry' | 'Application' | 'Payment Discount' | 'Correction' | 'Unapplied'
   | 'Realized Gain' | 'Realized Loss' | 'Unrealized Gain' | 'Unrealized Loss';
-export type PaymentJournalStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Processed';
-
 export interface VendorPostingGroup {
   id: number;
   code: string;
@@ -5039,54 +4989,6 @@ export interface DetailedVendorLedgerEntry {
   unapplied: Flag;
   unapplied_by_entry_id: number | null;
   created_at: IsoDateTime | null;
-}
-
-export interface PaymentJournalHeader {
-  id: number;
-  no: string;
-  posting_date: IsoDate;
-  document_date: IsoDate;
-  bank_account_id: number;
-  description: string | null;
-  status: PaymentJournalStatus;
-  total_amount: Cents;
-  decision_reason: string | null;
-  posted: boolean;
-  journal_id: number | null;
-  created_at: IsoDateTime | null;
-  created_by: string | null;
-  posted_at: IsoDateTime | null;
-  posted_by: string | null;
-}
-
-export interface PaymentJournalHeaderView extends PaymentJournalHeader {
-  bank_account_code: string;
-  bank_account_name: string;
-  line_count: number;
-  journal_no: string | null;
-}
-
-export interface PaymentJournalLine {
-  id: number;
-  payment_journal_header_id: number;
-  line_no: number;
-  vendor_id: number;
-  amount: Cents;
-  payment_method_code: string | null;
-  document_no: string | null;
-  applies_to_doc_no: string | null;
-  external_document_no: string | null;
-  description: string | null;
-  take_pmt_discount: Flag;
-}
-
-export interface PaymentJournalLineView extends PaymentJournalLine {
-  vendor_no: string;
-  vendor_name: string;
-}
-
-export interface PaymentJournalDetail extends PaymentJournalHeaderView {
-  lines: PaymentJournalLineView[];
 }
 
 /** One row of the Aged Accounts Payable report (BC Report 322). */

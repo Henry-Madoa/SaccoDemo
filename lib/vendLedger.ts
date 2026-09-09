@@ -20,6 +20,7 @@
  */
 import { one, all, run, audit } from './db.ts';
 import { AppError } from './errors.ts';
+import type { OpenLedgerEntryOption } from './custLedger.ts';
 import { postJournal } from './accounting.ts';
 import { today } from './format.ts';
 import type { Actor, Cents, IsoDate, VendorLedgerDocumentType } from './types.ts';
@@ -313,3 +314,17 @@ export async function recomputeVendorBalance(vendorId: number): Promise<Cents> {
   await run('UPDATE vendor SET balance = ? WHERE id = ?', total, vendorId);
   return total;
 }
+
+/**
+ * The vendor's still-open invoices, oldest due first — what the Applies-to picker on a Payment
+ * Voucher line offers, and where its Remaining Amount comes from. Mirrors
+ * lib/custLedger.ts's listOpenCustomerEntries().
+ */
+export const listOpenVendorEntries = (vendorNo: string): Promise<OpenLedgerEntryOption[]> =>
+  all<OpenLedgerEntryOption>(
+    `SELECT e.document_no, e.document_type, e.posting_date, e.due_date, e.remaining_amount
+     FROM vendor_ledger_entry e JOIN vendor v ON v.id = e.vendor_id
+     WHERE v.no = ? AND e.open = 1 AND e.positive = 1 AND e.remaining_amount <> 0
+     ORDER BY e.due_date, e.id`,
+    vendorNo,
+  );

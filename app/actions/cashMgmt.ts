@@ -23,6 +23,8 @@ import {
   postPaymentVoucher, type PaymentVoucherInput, type PaymentVoucherLineInput,
 } from '@/lib/paymentVouchers';
 import { markWhtCertificateRemitted } from '@/lib/whtCertificate';
+import { listOpenCustomerEntries, type OpenLedgerEntryOption } from '@/lib/custLedger';
+import { listOpenVendorEntries } from '@/lib/vendLedger';
 import {
   createVatBusinessPostingGroup, updateVatBusinessPostingGroup, createVatProductPostingGroup,
   updateVatProductPostingGroup, saveVatPostingSetup, deleteVatPostingSetup,
@@ -340,4 +342,20 @@ export async function deleteVatPostingSetupRequest(busCode: string, prodCode: st
 }
 export async function markWhtRemittedRequest(no: string, ref: string): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => { const u = await requireAction('WHT_MARK_REMITTED'); await markWhtCertificateRemitted(no, ref, u); revalidate(); return { no }; });
+}
+
+/**
+ * The open invoices a Receipt or Payment Voucher line may be applied to, for the Applies-to
+ * picker. Read-only and scoped to one customer/vendor, so CASH_MGMT_READ is the right gate.
+ */
+export async function listOpenEntriesForApplication(
+  partyType: 'Customer' | 'Vendor', partyNo: string,
+): Promise<ActionResult<OpenLedgerEntryOption[]>> {
+  return actionResult(async () => {
+    await requireAction('CASH_MGMT_READ');
+    if (!partyNo.trim()) return [];
+    return partyType === 'Customer'
+      ? listOpenCustomerEntries(partyNo.trim())
+      : listOpenVendorEntries(partyNo.trim());
+  });
 }

@@ -46,11 +46,12 @@ export default async function CustomerCardPage({ params }: { params: Promise<{ n
       <Toolbar>
         <Link href="/receivables" className="btn ghost sm">← All customers</Link>
         <Link href={`/receivables/statement?customer=${encodeURIComponent(customer.no)}`} className="btn ghost sm">Statement</Link>
+        <a href="#ledger-entries" className="btn ghost sm">Entries</a>
         <Spacer />
       </Toolbar>
 
       <div className="grid g4 stack-2">
-        <Stat label="Balance" value={<Money cents={stats.balance} decimals={0} />}
+        <Stat label="Balance" value={<a href="#ledger-entries"><Money cents={stats.balance} decimals={0} /></a>}
           foot={`${stats.ledger_entry_count} ledger entr${stats.ledger_entry_count === 1 ? 'y' : 'ies'}`} />
         <Stat label="Overdue" value={<Money cents={stats.balance_due} decimals={0} />}
           foot={`${stats.overdue_entries} entr${stats.overdue_entries === 1 ? 'y' : 'ies'} past due`} />
@@ -62,7 +63,7 @@ export default async function CustomerCardPage({ params }: { params: Promise<{ n
 
       <CustomerCard customer={customer} lookups={lookups} canEdit={canManage} />
 
-      <Card>
+      <Card id="ledger-entries">
         <CardHead title="Customer ledger entries" sub="Every invoice, credit memo and receipt posted against this customer" />
         {entries.length ? (
           <TableWrap>

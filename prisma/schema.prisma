@@ -658,8 +658,6 @@ model bank_account {
   teller_transaction           teller_transaction[]
   fosa_transaction_source      fosa_transaction[]          @relation("ft_source")
   fosa_transaction_destination fosa_transaction[]          @relation("ft_destination")
-  cash_receipt_header          cash_receipt_header[]
-  payment_journal_header       payment_journal_header[]
   receipt_header               receipt_header[]
   posted_receipt               posted_receipt[]
   payment_voucher_header       payment_voucher_header[]
@@ -3800,7 +3798,6 @@ model customer {
   sales_header                sales_header[]
   posted_sales_document       posted_sales_document[]
   cust_ledger_entry           cust_ledger_entry[]
-  cash_receipt_line           cash_receipt_line[]
   reminder_header             reminder_header[]
 
   @@index([customer_posting_group_code], map: "ix_customer_posting_group")
@@ -3983,46 +3980,6 @@ model detailed_cust_ledger_entry {
 }
 
 /// A maker-checker Cash Receipt Journal batch (BC General Journal, customer payment lines).
-model cash_receipt_header {
-  id                Int                 @id @default(autoincrement())
-  no                String              @unique
-  posting_date      String
-  document_date     String
-  bank_account_id   Int
-  description       String?
-  status            String              @default("Open")
-  total_amount      BigInt              @default(0)
-  decision_reason   String?
-  posted            Boolean             @default(false)
-  journal_id        Int?
-  created_at        String?
-  created_by        String?
-  posted_at         String?
-  posted_by         String?
-  bank_account      bank_account        @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  cash_receipt_line cash_receipt_line[]
-
-  @@index([status], map: "ix_crh_status")
-  @@index([created_by], map: "ix_crh_created_by")
-}
-
-model cash_receipt_line {
-  id                     Int                 @id @default(autoincrement())
-  cash_receipt_header_id Int
-  line_no                Int
-  customer_id            Int
-  amount                 BigInt              @default(0)
-  payment_method_code    String?
-  document_no            String?
-  applies_to_doc_no      String?
-  external_document_no   String?
-  description            String?
-  cash_receipt_header    cash_receipt_header @relation(fields: [cash_receipt_header_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  customer               customer            @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([cash_receipt_header_id, line_no], map: "cash_receipt_line_header_lineno_key")
-}
-
 /// Reminder / Finance Charge Memo header (BC Tables 295 / 302, consolidated — flips Open ->
 /// Issued in place). See lib/reminders.ts.
 model reminder_header {
@@ -4158,7 +4115,6 @@ model vendor {
   purchase_header            purchase_header[]
   posted_purchase_document   posted_purchase_document[]
   vendor_ledger_entry        vendor_ledger_entry[]
-  payment_journal_line       payment_journal_line[]
   wht_certificate            wht_certificate[]
 
   @@index([vendor_posting_group_code], map: "ix_vendor_posting_group")
@@ -4352,47 +4308,6 @@ model detailed_vendor_ledger_entry {
 }
 
 /// A maker-checker Payment Journal batch (BC General Journal, vendor payment lines).
-model payment_journal_header {
-  id                   Int                    @id @default(autoincrement())
-  no                   String                 @unique
-  posting_date         String
-  document_date        String
-  bank_account_id      Int
-  description          String?
-  status               String                 @default("Open")
-  total_amount         BigInt                 @default(0)
-  decision_reason      String?
-  posted               Boolean                @default(false)
-  journal_id           Int?
-  created_at           String?
-  created_by           String?
-  posted_at            String?
-  posted_by            String?
-  bank_account         bank_account           @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  payment_journal_line payment_journal_line[]
-
-  @@index([status], map: "ix_pjh_status")
-  @@index([created_by], map: "ix_pjh_created_by")
-}
-
-model payment_journal_line {
-  id                        Int                    @id @default(autoincrement())
-  payment_journal_header_id Int
-  line_no                   Int
-  vendor_id                 Int
-  amount                    BigInt                 @default(0)
-  payment_method_code       String?
-  document_no               String?
-  applies_to_doc_no         String?
-  external_document_no      String?
-  description               String?
-  take_pmt_discount         Int                    @default(0)
-  payment_journal_header    payment_journal_header @relation(fields: [payment_journal_header_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  vendor                    vendor                 @relation(fields: [vendor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([payment_journal_header_id, line_no], map: "payment_journal_line_header_lineno_key")
-}
-
 /**
  * ============================================================================================
  * Cash Management (Business Central) + multi-currency. See lib/bankMgmt.ts, lib/cashMgmtSetup.ts,

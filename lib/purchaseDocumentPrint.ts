@@ -14,7 +14,6 @@
  */
 import { one, all } from './db.ts';
 import { getPurchaseDocument } from './purchaseDocuments.ts';
-import { getPaymentJournal } from './paymentJournal.ts';
 import { formatDate } from './format.ts';
 import { amountInWords } from './numberToWords.ts';
 import {
@@ -98,64 +97,6 @@ function deliverToParty(brand: NonNullable<Awaited<ReturnType<typeof printBrand>
   };
 }
 
-/* ---------------------------------------------------------------- payment journals */
-
-/**
- * The remittance advice behind a Payables payment run — AL Rep52203512 "Payment Vouchers".
- *
- * One bank payment settles several vendors at once, so the lines name the vendor and the
- * invoice each amount clears, and the "paid to" block holds the paying bank instead.
- */
-export async function buildPaymentJournalPrint(no: string): Promise<PrintDocument | null> {
-  const doc = await getPaymentJournal(no);
-  if (!doc) return null;
-  const brand = await printBrand();
-  if (!brand) return null;
-  const money = documentMoney(brand, brand.currency_code);
-
-  return {
-    brand,
-    title: 'Payment Advice',
-    subtitle: doc.posted ? 'Posted payment journal' : null,
-    watermark: doc.posted ? null : doc.status === 'Pending Approval' ? 'Pending Approval' : 'Draft',
-    status: doc.posted
-      ? { label: 'Posted', tone: 'ok' }
-      : { label: doc.status, tone: doc.status === 'Approved' ? 'ok' : doc.status === 'Pending Approval' ? 'warn' : 'info' },
-    parties: [{
-      heading: 'Paid from',
-      name: `${doc.bank_account_code} — ${doc.bank_account_name}`,
-      lines: [doc.description || ''].filter(Boolean),
-    }],
-    meta: [
-      { label: 'Journal No.', value: doc.no },
-      { label: 'Document Date', value: formatDate(doc.document_date) },
-      { label: 'Posting Date', value: formatDate(doc.posting_date) },
-      ...(doc.journal_no ? [{ label: 'G/L Journal No.', value: doc.journal_no }] : []),
-      { label: 'Amount Paid', value: money(doc.total_amount), strong: true },
-    ],
-    columns: [
-      { key: 'vendor', label: 'Vendor', width: '28%' },
-      { key: 'description', label: 'Payment for' },
-      { key: 'reference', label: 'Applied To / Ref.', width: '17%' },
-      { key: 'method', label: 'Method', width: '12%' },
-      { key: 'amount', label: 'Amount', align: 'right', width: '16%' },
-    ],
-    rows: doc.lines.map((l): PrintRow => ({
-      cells: {
-        vendor: `${l.vendor_no} — ${l.vendor_name}`,
-        description: l.description ?? '',
-        reference: l.applies_to_doc_no || l.external_document_no || '—',
-        method: l.payment_method_code ?? '—',
-        amount: money(l.amount),
-      },
-    })),
-    totals: [{ label: 'Total paid', value: money(doc.total_amount), grand: true }],
-    amount_words: amountInWords(doc.total_amount, currencyLabel(brand.currency_code)),
-    signatures: await documentSignatories('PAYMENT_JOURNAL', doc.no, doc.created_by, {
-      prepared: 'Prepared by', approved: 'Approved by',
-    }),
-  };
-}
 
 /* --------------------------------------------------------------- working documents */
 

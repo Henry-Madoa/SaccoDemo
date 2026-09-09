@@ -7,7 +7,7 @@ import { listPostableAccounts, listActiveBankAccounts } from '@/lib/gl';
 import { listItems } from '@/lib/items';
 import { listActiveLocations } from '@/lib/inventorySetup';
 import { listFixedAssets } from '@/lib/fixedAssets';
-import { listActivePaymentTerms, listActivePaymentMethods, listPaymentTerms } from '@/lib/receivablesSetup';
+import { listActivePaymentTerms, listActivePaymentMethods } from '@/lib/receivablesSetup';
 import {
   listVendors, hasAnyVendors, VENDOR_FILTER_FIELDS, listActiveVendors, getVendorLedgerEntries,
 } from '@/lib/vendors';
@@ -15,11 +15,11 @@ import {
   listPurchaseDocuments, hasAnyPurchaseDocuments, purchaseDocCounts, PURCHASE_DOC_FILTER_FIELDS,
   PURCHASE_DOC_VIEWS, type PurchaseDocView,
 } from '@/lib/purchaseDocuments';
-import { listPaymentJournals, hasAnyPaymentJournals } from '@/lib/paymentJournal';
 import { listVendorPostingGroups, getPurchasesPayablesSetup } from '@/lib/payablesSetup';
 import { vatRateMatrix } from '@/lib/vatSetup';
 import { getAgedAccountsPayable, AGED_AP_FILTER_FIELDS } from '@/lib/payablesReports';
-import { findPendingRoutedTask } from '@/lib/workflow';
+import { findPendingRoutedTask, isEligibleApprover } from '@/lib/workflow';
+import { PurchasesPayablesSetupCard } from '@/components/admin/module-setup-cards';
 import { Page } from '@/components/layout/page';
 import {
   Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition,
@@ -32,14 +32,13 @@ import { ExportButton } from '@/components/ui/export-button';
 import { formatDate } from '@/lib/format';
 import type { PurchaseDocumentType } from '@/lib/types';
 import {
-  NewVendorButton, VendorPostingGroupFormButton, PurchasesPayablesSetupButton,
+  NewVendorButton, VendorPostingGroupFormButton,
 } from '../payables-forms';
 import { NewPurchaseDocumentButton } from '../purchase-document-form';
 import {
   MakeOrderButton, SubmitDocButton, CancelApprovalButton, ApproveDocButton, RejectDocButton, ReopenDocButton,
-  DeleteDocButton, PostPurchaseDocButton, PostPaymentJournalButton,
+  DeleteDocButton, PostPurchaseDocButton,
 } from '../document-actions';
-import { NewPaymentJournalButton, SuggestVendorPaymentsPanel } from '../payment-journal-form';
 import { ApplyEntriesButton, UnapplyButton } from '../apply-entries';
 import { VendorStatementPanel } from '../statement-panel';
 
@@ -57,7 +56,6 @@ const TABS: TabDefinition[] = [
   { key: 'purchase-invoices', label: 'Purchase Invoices' },
   { key: 'credit-memos', label: 'Credit Memos' },
   { key: 'posted-documents', label: 'Posted' },
-  { key: 'payment-journal', label: 'Payment Journal' },
   { key: 'ledger-entries', label: 'Vendor Ledger' },
   { key: 'aged-ap', label: 'Aged AP' },
   { key: 'statement', label: 'Statement' },
@@ -79,12 +77,11 @@ export default async function PayablesPage({ params, searchParams }: {
     <Page title="Payables" crumb="Vendors, purchase invoices, payments and aging" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/payables/${k === 'vendors' ? '' : k}`} />
       {tab === 'vendors' ? <VendorsTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
-      {tab === 'quotes' ? <PurchaseDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'orders' ? <PurchaseDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'purchase-invoices' ? <PurchaseDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'credit-memos' ? <PurchaseDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'quotes' ? <PurchaseDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
+      {tab === 'orders' ? <PurchaseDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
+      {tab === 'purchase-invoices' ? <PurchaseDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
+      {tab === 'credit-memos' ? <PurchaseDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} /> : null}
-      {tab === 'payment-journal' ? <PaymentJournalTab search={sp.q ?? ''} username={user.username} /> : null}
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
       {tab === 'aged-ap' ? <AgedApTab asOf={sp.asOf} filtersRaw={sp.filters} /> : null}
       {tab === 'statement' ? <StatementTab vendorNo={sp.vendor} from={sp.from} to={sp.to} /> : null}
@@ -165,9 +162,9 @@ async function VendorsTab({ search, filtersRaw, sortRaw }: { search: string; fil
 
 /* ----------------------------------------------------------- Purchase Documents */
 
-async function PurchaseDocTab({ documentType, tab, view: viewRaw, search, filtersRaw, sortRaw, username }: {
+async function PurchaseDocTab({ documentType, tab, view: viewRaw, search, filtersRaw, sortRaw, username, userId }: {
   documentType: PurchaseDocumentType; tab: string; view?: string;
-  search: string; filtersRaw?: string; sortRaw?: string; username: string;
+  search: string; filtersRaw?: string; sortRaw?: string; username: string; userId: number;
 }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
@@ -190,8 +187,15 @@ async function PurchaseDocTab({ documentType, tab, view: viewRaw, search, filter
     getPurchasesPayablesSetup(),
     purchaseDocCounts(documentType),
   ]);
-  const routed = new Map(await Promise.all(
-    rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('PURCHASE_DOCUMENT', r.no).then((t) => [r.no, !!t] as const)),
+  // Release / Reject belong to whoever each document is sitting with: the approver its workflow
+  // routed it to, or — when no workflow matched — anyone holding the approve permission.
+  const routedTasks = new Map(await Promise.all(
+    rows.filter((r) => r.status === 'Pending Approval')
+      .map((r) => findPendingRoutedTask('PURCHASE_DOCUMENT', r.no).then((t) => [r.no, t] as const)),
+  ));
+  const canDecide = new Map(await Promise.all(
+    [...routedTasks].map(async ([no, task]) =>
+      [no, task ? await isEligibleApprover(task, userId) : canApprove] as const),
   ));
   const fields = PURCHASE_DOC_FILTER_FIELDS.map((f) =>
     (f.key === 'vendor_id' ? { ...f, options: vendors.map((v) => ({ value: v.id, label: `${v.no} — ${v.name}` })) } : f));
@@ -265,9 +269,9 @@ async function PurchaseDocTab({ documentType, tab, view: viewRaw, search, filter
                     <td className="num">
                       <div className="inline" style={{ justifyContent: 'flex-end' }}>
                         {documentType === 'Quote' && d.status === 'Open' && canCreate ? <MakeOrderButton no={d.no} /> : null}
-                        {d.status === 'Pending Approval' && canCreate && isOwn && !routed.get(d.no) ? <CancelApprovalButton no={d.no} kind="purchase" /> : null}
-                        {d.status === 'Pending Approval' && (canApprove || routed.get(d.no)) ? (<><ApproveDocButton no={d.no} kind="purchase" /><RejectDocButton no={d.no} kind="purchase" /></>) : null}
-                        {d.status === 'Released' && canApprove ? <ReopenDocButton no={d.no} kind="purchase" /> : null}
+                        {d.status === 'Pending Approval' && canCreate && isOwn && !routedTasks.get(d.no) ? <CancelApprovalButton no={d.no} /> : null}
+                        {d.status === 'Pending Approval' && canDecide.get(d.no) ? (<><ApproveDocButton no={d.no} /><RejectDocButton no={d.no} /></>) : null}
+                        {d.status === 'Released' && canApprove ? <ReopenDocButton no={d.no} /> : null}
                         {d.status === 'Released' && canPost ? <PostPurchaseDocButton no={d.no} isOrder={documentType === 'Order'} /> : null}
                       </div>
                     </td>
@@ -313,7 +317,7 @@ async function PostedDocsTab({ search }: { search: string }) {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="mono">{r.no}</td>
+                  <td className="mono"><Link href={`/payables/posted/${encodeURIComponent(r.no)}`}>{r.no}</Link></td>
                   <td>{r.document_type}</td>
                   <td>{r.vendor_no} <span className="tiny muted-cell">{r.vendor_name}</span></td>
                   <td className="mono muted-cell">{r.vendor_invoice_no ?? '—'}</td>
@@ -334,68 +338,6 @@ async function PostedDocsTab({ search }: { search: string }) {
 }
 
 /* -------------------------------------------------------------- Payment Journal */
-
-async function PaymentJournalTab({ search, username }: { search: string; username: string }) {
-  const [rows, empty, canCreate, canPost, banks, vendors, paymentMethods] = await Promise.all([
-    listPaymentJournals({ search }),
-    hasAnyPaymentJournals().then((a) => !a),
-    currentCanAction('PAYABLES_PAYMENT_CREATE'),
-    currentCanAction('PAYABLES_PAYMENT_POST'),
-    listActiveBankAccounts(),
-    listActiveVendors(),
-    listActivePaymentMethods(),
-  ]);
-  const routed = new Map(await Promise.all(
-    rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('PAYMENT_JOURNAL', r.no).then((t) => [r.no, !!t] as const)),
-  ));
-  const bankList = banks.map((b) => ({ id: b.id, code: b.code, name: b.name }));
-  return (
-    <>
-      {canCreate ? (
-        <Card>
-          <CardHead title="Suggest Vendor Payments" sub="Business Central Report 393 — fills a payment journal from open, not-on-hold vendor invoices due on or before a date" />
-          <SuggestVendorPaymentsPanel banks={bankList} vendors={vendors} />
-        </Card>
-      ) : null}
-      <Toolbar>
-        <SearchInput placeholder="Search journal no. or description…" disabled={empty} />
-        <Spacer />
-        {canCreate ? <NewPaymentJournalButton banks={bankList} vendors={vendors} paymentMethods={paymentMethods} /> : null}
-      </Toolbar>
-      <Card>
-        {rows.length ? (
-          <TableWrap>
-            <thead><tr><th>No.</th><th>Bank</th><th className="num">Total</th><th>Lines</th><th>Posting date</th><th>Status</th><th className="num" /></tr></thead>
-            <tbody>
-              {rows.map((r) => {
-                const isOwn = r.created_by === username;
-                return (
-                  <tr key={r.no} className={r.status === 'Processed' ? 'muted' : undefined}>
-                    <td className="mono">{r.no}</td>
-                    <td className="mono muted-cell">{r.bank_account_code}</td>
-                    <td className="num"><Money cents={r.total_amount} /></td>
-                    <td>{r.line_count}</td>
-                    <td>{formatDate(r.posting_date)}</td>
-                    <td><Pill status={r.status} /></td>
-                    <td className="num">
-                      <div className="inline" style={{ justifyContent: 'flex-end' }}>
-                        {r.status === 'Open' && canCreate && isOwn ? (<><SubmitDocButton no={r.no} kind="payment" /><DeleteDocButton no={r.no} kind="payment" /></>) : null}
-                        {r.status === 'Pending Approval' && canCreate && isOwn && !routed.get(r.no) ? <CancelApprovalButton no={r.no} kind="payment" /> : null}
-                        {r.status === 'Pending Approval' && (canPost || routed.get(r.no)) ? (<><ApproveDocButton no={r.no} kind="payment" /><RejectDocButton no={r.no} kind="payment" /></>) : null}
-                        {r.status === 'Approved' && !r.posted && canPost ? (<><ReopenDocButton no={r.no} kind="payment" /><PostPaymentJournalButton no={r.no} /></>) : null}
-                        <a className="btn sm ghost" href={`/print/payment-journal/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print</a>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </TableWrap>
-        ) : <EmptyState icon="💸" title={empty ? 'No payment journals yet' : 'Nothing matches'} />}
-      </Card>
-    </>
-  );
-}
 
 /* -------------------------------------------------------------- Vendor Ledger */
 
@@ -542,22 +484,5 @@ async function PostingGroupsTab() {
 }
 
 async function SetupTab() {
-  const [setup, postingGroups, paymentTerms, canManage] = await Promise.all([
-    getPurchasesPayablesSetup(), listVendorPostingGroups(), listPaymentTerms(), currentCanAction('PAYABLES_SETUP_MANAGE'),
-  ]);
-  return (
-    <Card>
-      <CardHead title="Purchases & Payables Setup" sub="Business Central Table 312 — module-wide defaults and the payables posting-date window">
-        {canManage ? <PurchasesPayablesSetupButton setup={setup} postingGroups={postingGroups} paymentTerms={paymentTerms}>Edit setup</PurchasesPayablesSetupButton> : null}
-      </CardHead>
-      <TableWrap>
-        <tbody>
-          <tr><td>Default vendor posting group</td><td className="mono">{setup.default_vendor_posting_group_code ?? '—'}</td></tr>
-          <tr><td>Default payment terms</td><td className="mono">{setup.default_payment_terms_code ?? '—'}</td></tr>
-          <tr><td>Receipt on Invoice</td><td>{setup.receipt_on_invoice ? 'Yes' : 'No'}</td></tr>
-          <tr><td>Allow posting from / to</td><td>{setup.allow_payables_posting_from ?? '—'} / {setup.allow_payables_posting_to ?? '—'}</td></tr>
-        </tbody>
-      </TableWrap>
-    </Card>
-  );
+  return <PurchasesPayablesSetupCard />;
 }

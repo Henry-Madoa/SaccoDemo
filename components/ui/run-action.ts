@@ -11,6 +11,11 @@ export interface RunActionOptions<T> {
   confirm?: ConfirmOptions;
   successTitle: string | ((data: T) => string);
   successDetail?: string | ((data: T) => string | undefined);
+  /** Where to go once the action succeeds. Needed when the action leaves the current page with
+   *  nothing to show — posting a sales document deletes the source header, so refreshing in
+   *  place would 404; the posted document is what the user should land on instead. Return
+   *  null/undefined to stay put and just refresh. */
+  redirectTo?: string | ((data: T) => string | null | undefined);
 }
 
 /**
@@ -47,7 +52,9 @@ export function useRunAction() {
       const title = typeof opts.successTitle === 'function' ? opts.successTitle(data) : opts.successTitle;
       const detail = typeof opts.successDetail === 'function' ? opts.successDetail(data) : opts.successDetail;
       showResult(title, detail, 'ok');
-      router.refresh();
+      const to = typeof opts.redirectTo === 'function' ? opts.redirectTo(data) : opts.redirectTo;
+      if (to) router.push(to);
+      else router.refresh();
     } finally {
       setBusy(false);
     }

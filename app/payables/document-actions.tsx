@@ -7,8 +7,6 @@ import { useRunAction } from '@/components/ui/run-action';
 import {
   makeOrderRequest, submitPurchaseDocumentRequest, cancelPurchaseDocumentApprovalRequest, approvePurchaseDocumentRequest,
   rejectPurchaseDocumentRequest, reopenPurchaseDocumentRequest, postPurchaseDocumentRequest, deletePurchaseDocumentRequest,
-  submitPaymentJournalRequest, cancelPaymentJournalApprovalRequest, approvePaymentJournalRequest, rejectPaymentJournalRequest,
-  reopenPaymentJournalRequest, postPaymentJournalRequest, deletePaymentJournalRequest,
 } from '@/app/actions/payables';
 
 function A({ label, busyLabel, onClick, className = 'btn sm ghost' }: { label: string; busyLabel?: string; onClick: () => void; className?: string }) {
@@ -26,35 +24,33 @@ export function MakeOrderButton({ no }: { no: string }) {
   })} className="btn sm" />;
 }
 
-export function SubmitDocButton({ no, kind }: { no: string; kind: 'purchase' | 'payment' }) {
+export function SubmitDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'purchase' ? submitPurchaseDocumentRequest : submitPaymentJournalRequest;
-  return <A label="Send for approval" onClick={() => run(() => fn(no), {
+  return <A label="Send for approval" onClick={() => run(() => submitPurchaseDocumentRequest(no), {
     confirm: { title: 'Send for approval?', message: 'It can no longer be edited while pending.', confirmLabel: 'Send' },
-    successTitle: (d) => (d.autoApproved ? (kind === 'purchase' ? 'Released — ready to post' : 'Approved — ready to post') : 'Sent for approval'),
+    successTitle: (d) => (d.autoApproved ? 'Released — ready to post' : 'Sent for approval'),
   })} />;
 }
 
-export function CancelApprovalButton({ no, kind }: { no: string; kind: 'purchase' | 'payment' }) {
+export function CancelApprovalButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'purchase' ? cancelPurchaseDocumentApprovalRequest : cancelPaymentJournalApprovalRequest;
+  const fn = cancelPurchaseDocumentApprovalRequest;
   return <A label="Cancel approval" onClick={() => run(() => fn(no), {
     confirm: { title: 'Recall this document?', message: 'It goes back to Open.', confirmLabel: 'Recall' }, successTitle: 'Recalled — back to Open',
   })} />;
 }
 
-export function ApproveDocButton({ no, kind }: { no: string; kind: 'purchase' | 'payment' }) {
+export function ApproveDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'purchase' ? approvePurchaseDocumentRequest : approvePaymentJournalRequest;
-  return <A label={kind === 'purchase' ? 'Release' : 'Approve'} className="btn sm" onClick={() => run(() => fn(no), {
-    confirm: { title: kind === 'purchase' ? 'Release this document?' : 'Approve this payment journal?', message: 'Nothing moves until it is posted.', confirmLabel: 'OK' },
-    successTitle: kind === 'purchase' ? 'Released — ready to post' : 'Approved — ready to post',
+  return <A label="Release" className="btn sm" onClick={() => run(() => approvePurchaseDocumentRequest(no), {
+    confirm: { title: 'Release this document?', message: 'Nothing moves until it is posted.', confirmLabel: 'OK' },
+    successTitle: 'Released — ready to post',
   })} />;
 }
 
-export function RejectDocButton({ no, kind }: { no: string; kind: 'purchase' | 'payment' }) {
+export function RejectDocButton({ no }: { no: string }) {
   const [open, setOpen] = useState(false);
-  const fn = kind === 'purchase' ? rejectPurchaseDocumentRequest : rejectPaymentJournalRequest;
+  const fn = rejectPurchaseDocumentRequest;
   return (
     <>
       <button type="button" className="btn sm ghost" onClick={() => setOpen(true)}>Reject</button>
@@ -68,21 +64,26 @@ export function RejectDocButton({ no, kind }: { no: string; kind: 'purchase' | '
   );
 }
 
-export function ReopenDocButton({ no, kind }: { no: string; kind: 'purchase' | 'payment' }) {
+export function ReopenDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'purchase' ? reopenPurchaseDocumentRequest : reopenPaymentJournalRequest;
+  const fn = reopenPurchaseDocumentRequest;
   return <A label="Reopen" onClick={() => run(() => fn(no), {
     confirm: { title: 'Reopen this document?', message: 'It goes back to Open for amendment.', confirmLabel: 'Reopen' }, successTitle: 'Reopened',
   })} />;
 }
 
-export function DeleteDocButton({ no, kind }: { no: string; kind: 'purchase' | 'payment' }) {
+export function DeleteDocButton({ no }: { no: string }) {
   const { run } = useRunAction();
-  const fn = kind === 'purchase' ? deletePurchaseDocumentRequest : deletePaymentJournalRequest;
+  const fn = deletePurchaseDocumentRequest;
   return <A label="Delete" onClick={() => run(() => fn(no), {
     confirm: { title: 'Delete this document?', message: 'It is removed permanently.', confirmLabel: 'Delete' }, successTitle: 'Deleted',
   })} />;
 }
+
+/** Where a posting lands: the posted document it created, or the Posted list if it made none.
+ *  Posting deletes the source purchase_header, so staying on the document page would 404. */
+const postedLink = (no: string | null | undefined): string =>
+  (no ? `/payables/posted/${encodeURIComponent(no)}` : '/payables/posted-documents');
 
 export function PostPurchaseDocButton({ no, isOrder }: { no: string; isOrder: boolean }) {
   const [open, setOpen] = useState(false);
@@ -90,12 +91,15 @@ export function PostPurchaseDocButton({ no, isOrder }: { no: string; isOrder: bo
   const post = (receive: boolean, invoice: boolean) => run(() => postPurchaseDocumentRequest(no, receive, invoice), {
     successTitle: 'Purchase document posted',
     successDetail: (d) => [d.receiptNo && `Receipt ${d.receiptNo}`, d.invoiceNo && `Invoice ${d.invoiceNo}`, d.journalNo && `Journal ${d.journalNo}`].filter(Boolean).join(' · ') || 'Posted',
+    // The invoice is the document the user wants to see; a receive-only run has only the GRN.
+    redirectTo: (d) => postedLink(d.invoiceNo ?? d.receiptNo),
   });
   if (!isOrder) {
     return <A label="Post" className="btn sm" onClick={() => run(() => postPurchaseDocumentRequest(no, false, true), {
       confirm: { title: 'Post this document?', message: 'The vendor ledger and the G/L move immediately.', confirmLabel: 'Post' },
       successTitle: 'Posted',
       successDetail: (d) => (d.invoiceNo ? `Invoice ${d.invoiceNo}` : d.journalNo ? `Journal ${d.journalNo}` : 'Posted'),
+      redirectTo: (d) => postedLink(d.invoiceNo),
     })} />;
   }
   return (
@@ -115,11 +119,4 @@ export function PostPurchaseDocButton({ no, isOrder }: { no: string; isOrder: bo
   );
 }
 
-export function PostPaymentJournalButton({ no }: { no: string }) {
-  const { run } = useRunAction();
-  return <A label="Post" className="btn sm" onClick={() => run(() => postPaymentJournalRequest(no), {
-    confirm: { title: 'Post this payment journal?', message: 'The bank, the vendor ledger and the G/L move immediately.', confirmLabel: 'Post' },
-    successTitle: (d) => `Posted — ${d.applied} invoice(s) settled`,
-    successDetail: (d) => (d.journalNo ? `Journal ${d.journalNo}` : undefined),
-  })} />;
-}
+export { DelegateButton } from '@/components/ui/delegate-button';

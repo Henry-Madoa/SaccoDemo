@@ -403,10 +403,14 @@ async function requesterClearsLevel(
 const AUTO_APPROVE_COMMENT = 'Auto-approved — the requester is the assigned approver at this level.';
 
 /**
- * Every user who may currently act on a task: the assignee, their substitute, or —
- * for a group assigned by sequence — only the members sitting at the task's current
- * (lowest still-pending) sequence level, not the whole group. A user this task was
- * explicitly delegated away from loses eligibility; whoever it was delegated to gains it.
+ * Every user who may currently act on a task: the assignee, or — for a group assigned by
+ * sequence — only the members sitting at the task's current (lowest still-pending) sequence
+ * level, not the whole group. A user this task was explicitly delegated away from loses
+ * eligibility; whoever it was delegated to gains it.
+ *
+ * A substitute is NOT eligible merely by being someone's substitute — as in Business Central,
+ * the request has to be delegated to them first (delegateWorkflowTask()), which is what makes
+ * delegation an auditable hand-off rather than a standing second key.
  */
 async function eligibleUserIds(
   task: Pick<
@@ -416,13 +420,7 @@ async function eligibleUserIds(
   >,
 ): Promise<number[]> {
   const ids: number[] = [];
-  if (task.assigned_to_user_id) {
-    ids.push(task.assigned_to_user_id);
-    const setup = await one<{ substitute_id: number | null }>(
-      'SELECT substitute_id FROM approval_user_setup WHERE user_id = ?', task.assigned_to_user_id,
-    );
-    if (setup?.substitute_id) ids.push(setup.substitute_id);
-  }
+  if (task.assigned_to_user_id) ids.push(task.assigned_to_user_id);
   if (task.assigned_to_group_id && task.current_sequence != null) {
     const members = await all<{ user_id: number }>(
       'SELECT user_id FROM workflow_user_group_member WHERE group_id = ? AND sequence = ?',
@@ -722,6 +720,14 @@ async function describePendingWith(task: WorkflowTask): Promise<string | null> {
     `SELECT username, full_name FROM app_user WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids,
   );
   const names = users.map((u) => u.full_name || u.username);
+  // A delegated task is with one person for a reason the requester should be able to see.
+  if (task.delegated_to_user_id != null && task.delegated_by_user_id != null) {
+    const from = await one<{ username: string; full_name: string | null }>(
+      'SELECT username, full_name FROM app_user WHERE id = ?', task.delegated_by_user_id,
+    );
+    const fromName = from?.full_name || from?.username;
+    return fromName ? `${names.join(', ')} (delegated by ${fromName})` : names.join(', ');
+  }
   if (task.assigned_to_group_id) {
     const group = await one<{ name: string }>('SELECT name FROM workflow_user_group WHERE id = ?', task.assigned_to_group_id);
     return group ? `${group.name} — ${names.join(', ')}` : names.join(', ');
@@ -864,40 +870,107 @@ export async function decideWorkflowTask(
   });
 }
 
+/** Who a delegation would hand the task to, and how that person was arrived at. */
+export interface DelegateTarget {
+  userId: number;
+  username: string;
+  name: string;
+  /** Which link of the chain produced them — surfaced so the acting user isn't guessing. */
+  via: 'substitute' | 'approver' | 'administrator';
+}
+
 /**
- * Hands a pending task off from the current approver to their own configured
- * substitute (User Setup). Only someone currently eligible to decide the
- * task may delegate it, and only to their own substitute — not anyone else's.
- * The delegator loses eligibility on this task; the substitute gains it, until the
- * task is decided or (for a sequenced group) its level moves on.
+ * Who a pending task hands off to, resolved the way Business Central's
+ * `SubstituteUserIdForApprovalEntry` does: the current approver's **Substitute**, failing that
+ * their **Approver**, failing that any **Approval Administrator**. Null when the whole chain
+ * yields nobody — BC errors at that point too, and so does delegateWorkflowTask() below.
+ *
+ * Only active users qualify: delegating to a disabled account would strand the document.
  */
-export async function delegateWorkflowTask(taskId: number, actingUser: Actor): Promise<void> {
+export async function resolveDelegateTarget(currentApproverId: number): Promise<DelegateTarget | null> {
+  const named = async (id: number | null | undefined, via: DelegateTarget['via']): Promise<DelegateTarget | null> => {
+    if (!id || id === currentApproverId) return null;
+    const u = await one<{ id: number; username: string; full_name: string | null }>(
+      "SELECT id, username, full_name FROM app_user WHERE id = ? AND status = 'ACTIVE'", id,
+    );
+    return u ? { userId: u.id, username: u.username, name: u.full_name || u.username, via } : null;
+  };
+
+  const setup = await one<{ substitute_id: number | null; approver_id: number | null }>(
+    'SELECT substitute_id, approver_id FROM approval_user_setup WHERE user_id = ?', currentApproverId,
+  );
+  return (await named(setup?.substitute_id, 'substitute'))
+    ?? (await named(setup?.approver_id, 'approver'))
+    ?? (await named(
+      (await one<{ user_id: number }>(
+        `SELECT s.user_id FROM approval_user_setup s JOIN app_user u ON u.id = s.user_id
+         WHERE s.is_approval_administrator = 1 AND s.user_id <> ? AND u.status = 'ACTIVE'
+         ORDER BY s.user_id LIMIT 1`,
+        currentApproverId,
+      ))?.user_id,
+      'administrator',
+    ));
+}
+
+/** The user a pending task currently sits with — the person a delegation resolves from. */
+const currentApproverOf = (task: WorkflowTask, actingUserId: number): number =>
+  task.delegated_to_user_id ?? task.assigned_to_user_id ?? actingUserId;
+
+/**
+ * Whether `userId` may delegate this task — mirrors Business Central, where the Delegate action
+ * on Requests to Approve is open to the approver the request sits with AND to an approval
+ * administrator (who is how a request gets moving again when its approver is away and set no
+ * substitute of their own).
+ */
+export async function canDelegateTask(task: WorkflowTask, userId: number): Promise<boolean> {
+  if (task.status !== 'PENDING' || !task.workflow_id) return false;
+  if (await isEligibleApprover(task, userId)) return true;
+  const admin = await one<{ user_id: number }>(
+    'SELECT user_id FROM approval_user_setup WHERE user_id = ? AND is_approval_administrator = 1', userId,
+  );
+  return !!admin;
+}
+
+/**
+ * Hands a pending task off to the current approver's substitute — Business Central's Delegate
+ * action, including its fallback chain (see resolveDelegateTarget()).
+ *
+ * The delegator loses eligibility on this task; the delegate gains it, until the task is decided
+ * or (for a sequenced group) its level moves on. Returns who it went to, so the caller can say so
+ * rather than leaving the user to go and look.
+ */
+export async function delegateWorkflowTask(taskId: number, actingUser: Actor): Promise<DelegateTarget> {
   const task = await one<WorkflowTask>('SELECT * FROM workflow_task WHERE id = ?', taskId);
   if (!task) throw new AppError('Approval task not found', 'NOT_FOUND');
   if (task.status !== 'PENDING') throw new AppError('This item has already been decided', 'BAD_STATUS');
   if (!task.workflow_id) throw new AppError('This item is not routed through a workflow', 'NOT_ROUTED');
-  if (!(await isEligibleApprover(task, actingUser.id))) {
-    throw new AppError('You are not the assigned approver for this item', 'NOT_ASSIGNED');
+  if (!(await canDelegateTask(task, actingUser.id))) {
+    throw new AppError(
+      'Only the approver this item is with — or an Approval Administrator — can delegate it.',
+      'NOT_ASSIGNED',
+    );
   }
 
-  const setup = await one<{ substitute_id: number | null }>(
-    'SELECT substitute_id FROM approval_user_setup WHERE user_id = ?', actingUser.id,
-  );
-  if (!setup?.substitute_id) {
+  const from = currentApproverOf(task, actingUser.id);
+  const target = await resolveDelegateTarget(from);
+  if (!target) {
     throw new AppError(
-      'No substitute is configured for you. Ask an administrator to set one up in User Setup.',
+      'There is no one to delegate this to. Set a Substitute or an Approver for the current '
+      + 'approver in Admin Centre → System Security → User Setup, or flag someone as an '
+      + 'Approval Administrator.',
       'NO_SUBSTITUTE',
     );
   }
 
   await run(
     'UPDATE workflow_task SET delegated_by_user_id = ?, delegated_to_user_id = ? WHERE id = ?',
-    actingUser.id, setup.substitute_id, taskId,
+    from, target.userId, taskId,
   );
-  await audit(
-    actingUser, 'WORKFLOW_TASK_DELEGATE', task.document_type, task.entity_id, { to: setup.substitute_id },
-  );
-  await notifyApprovers(task.document_type, task.entity_id, actingUser.username, [setup.substitute_id], true);
+  await audit(actingUser, 'WORKFLOW_TASK_DELEGATE', task.document_type, task.entity_id, {
+    taskId, from, to: target.userId, via: target.via,
+  });
+  await notifyApprovers(task.document_type, task.entity_id, actingUser.username, [target.userId], true);
+  return target;
 }
 
 /* --------------------------------------------------------------- worklists */

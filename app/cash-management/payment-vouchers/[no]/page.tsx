@@ -9,6 +9,8 @@ import { formatDate } from '@/lib/format';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ReopenButton, DeleteButton, PostPvButton,
 } from '../../document-actions';
+import { EditPvButton } from '../../payment-voucher-form';
+import { docFormProps } from '../../doc-form-props';
 
 export default async function PvDetailPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('CASH_MGMT_READ');
@@ -22,6 +24,10 @@ export default async function PvDetailPage({ params }: { params: Promise<{ no: s
   const isOwn = r.created_by === user.username;
   const vatTotal = r.lines.reduce((s, l) => s + l.vat_amount, 0);
   const whtTotal = r.lines.reduce((s, l) => s + l.wht_amount_one + l.wht_amount_two, 0);
+  // An Open voucher is still the creator's draft, so it is edited here on its own card — the
+  // line editor's lookups are only fetched when it actually can be.
+  const editable = !r.posted && r.status === 'Open' && canCreate && isOwn;
+  const formProps = editable ? await docFormProps() : null;
 
   return (
     <Page title={`Payment Voucher ${r.no}`} crumb="Cash Management → Payment Vouchers" user={user}>
@@ -46,12 +52,29 @@ export default async function PvDetailPage({ params }: { params: Promise<{ no: s
       <Card>
         <CardHead title="Lines" />
         <TableWrap>
-          <thead><tr><th>Type</th><th>Account</th><th className="num">Gross</th><th className="num">VAT</th><th>WHT 1</th><th className="num">WHT 1 amt</th><th>WHT 2</th><th className="num">WHT 2 amt</th><th className="num">Net</th></tr></thead>
+          <thead>
+            <tr>
+              <th style={{ width: 90 }}>Type</th><th style={{ width: '20%' }}>Account</th>
+              <th>Description</th><th style={{ width: '15%' }}>Applies to Doc. No.</th>
+              <th className="num">Gross</th><th className="num">VAT</th><th>WHT 1</th>
+              <th className="num">WHT 1 amt</th><th>WHT 2</th><th className="num">WHT 2 amt</th>
+              <th className="num">Net</th>
+            </tr>
+          </thead>
           <tbody>
             {r.lines.map((l) => (
               <tr key={l.id}>
                 <td>{l.line_type}</td>
-                <td className="mono">{l.account_no} <span className="tiny muted-cell">{l.account_name}</span></td>
+                <td>
+                  <span className="mono">{l.account_no}</span>
+                  {l.account_name ? <div className="tiny muted-cell">{l.account_name}</div> : null}
+                </td>
+                <td>{l.description || <span className="muted-cell">—</span>}</td>
+                <td>
+                  {l.applies_to_doc_no
+                    ? (<><span className="mono">{l.applies_to_doc_no}</span><div className="tiny muted-cell">Settles this invoice</div></>)
+                    : <span className="muted-cell">— on account</span>}
+                </td>
                 <td className="num"><Money cents={l.amount} /></td>
                 <td className="num"><Money cents={l.vat_amount} /></td>
                 <td className="mono muted-cell">{l.wht_code_one ?? '—'}</td>
@@ -84,7 +107,8 @@ export default async function PvDetailPage({ params }: { params: Promise<{ no: s
         </Card>
       ) : null}
       <div className="inline" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {!r.posted && r.status === 'Open' && canCreate && isOwn ? (<><SubmitButton no={r.no} kind="pv" /><DeleteButton no={r.no} kind="pv" /></>) : null}
+        {editable && formProps ? <EditPvButton pv={r} p={formProps} className="btn" /> : null}
+        {editable ? (<><SubmitButton no={r.no} kind="pv" /><DeleteButton no={r.no} kind="pv" /></>) : null}
         {r.status === 'Pending Approval' && canCreate && isOwn ? <CancelApprovalButton no={r.no} kind="pv" /> : null}
         {r.status === 'Pending Approval' && canApprove ? (<><ApproveButton no={r.no} kind="pv" /><RejectButton no={r.no} kind="pv" /></>) : null}
         {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="pv" /> : null}

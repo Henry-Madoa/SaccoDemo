@@ -18,11 +18,6 @@ import {
   rejectPurchaseDocument, reopenPurchaseDocument, postPurchaseDocument,
   type PurchaseHeaderInput, type PurchaseLineInput,
 } from '@/lib/purchaseDocuments';
-import {
-  listPaymentJournals, getPaymentJournal, createPaymentJournal, updatePaymentJournal, deletePaymentJournal,
-  submitPaymentJournal, cancelPaymentJournalApproval, approvePaymentJournal, rejectPaymentJournal, reopenPaymentJournal,
-  postPaymentJournal, suggestVendorPayments, type PaymentJournalInput,
-} from '@/lib/paymentJournal';
 import { applyVendorEntries, unapplyVendorEntry } from '@/lib/vendLedger';
 import { getAgedAccountsPayable, getVendorStatement } from '@/lib/payablesReports';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
@@ -189,71 +184,6 @@ export async function postPurchaseDocumentRequest(no: string, receive: boolean, 
 }
 
 /* --------------------------------------------------------------- payment journal */
-
-export async function listPaymentJournalsRequest(opts: Parameters<typeof listPaymentJournals>[0]) {
-  return actionResult(async () => { await requireAction('PAYABLES_READ'); return listPaymentJournals(opts); });
-}
-export async function getPaymentJournalRequest(no: string) {
-  return actionResult(async () => { await requireAction('PAYABLES_READ'); return getPaymentJournal(no); });
-}
-export interface PaymentJournalLineDraft { vendorId: string; amount: string; paymentMethodCode: string; appliesToDocNo: string; externalDocumentNo: string; description: string }
-const toPaymentJournalInput = (v: FormValues, lines: PaymentJournalLineDraft[]): PaymentJournalInput => ({
-  postingDate: str(v.postingDate), documentDate: str(v.documentDate || v.postingDate),
-  bankAccountId: Number(v.bankAccountId), description: opt(v.description),
-  lines: lines.filter((l) => l.vendorId && l.amount).map((l) => ({
-    vendorId: Number(l.vendorId), amount: toCents(l.amount), paymentMethodCode: l.paymentMethodCode || null,
-    appliesToDocNo: l.appliesToDocNo || null, externalDocumentNo: l.externalDocumentNo || null, description: l.description || null,
-  })),
-});
-export async function requestPaymentJournal(v: FormValues, lines: PaymentJournalLineDraft[]): Promise<ActionResult<{ no: string }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_CREATE'); const r = await createPaymentJournal(toPaymentJournalInput(v, lines), u); revalidate(); return r; });
-}
-export async function savePaymentJournal(no: string, v: FormValues, lines: PaymentJournalLineDraft[]): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_CREATE'); await updatePaymentJournal(no, toPaymentJournalInput(v, lines), u); revalidate(); return { updated: true }; });
-}
-export async function deletePaymentJournalRequest(no: string): Promise<ActionResult<{ deleted: true }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_CREATE'); await deletePaymentJournal(no, u); revalidate(); return { deleted: true }; });
-}
-export async function suggestVendorPaymentsRequest(v: FormValues): Promise<ActionResult<{ no: string; lineCount: number }>> {
-  return actionResult(async () => {
-    const u = await requireAction('PAYABLES_PAYMENT_CREATE');
-    const r = await suggestVendorPayments({
-      lastPaymentDate: str(v.lastPaymentDate), findPaymentDiscounts: bool(v.findPaymentDiscounts),
-      bankAccountId: Number(v.bankAccountId), postingDate: opt(v.postingDate) ?? undefined,
-      onlyVendorId: numOrNull(v.onlyVendorId),
-    }, u);
-    revalidate();
-    return r;
-  });
-}
-export async function submitPaymentJournalRequest(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_CREATE'); const { autoApproved } = await submitPaymentJournal(no, u); revalidate(); return { updated: true, autoApproved }; });
-}
-export async function cancelPaymentJournalApprovalRequest(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_CREATE'); await cancelPaymentJournalApproval(no, u); revalidate(); return { updated: true }; });
-}
-export async function approvePaymentJournalRequest(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => {
-    const routed = await findPendingRoutedTask('PAYMENT_JOURNAL', no);
-    if (routed) { const u = await requireUser(); await decideWorkflowTask(routed.id, true, null, u); }
-    else { const u = await requireAction('PAYABLES_PAYMENT_POST'); await approvePaymentJournal(no, u); }
-    revalidate(); return { updated: true };
-  });
-}
-export async function rejectPaymentJournalRequest(no: string, reason: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => {
-    const routed = await findPendingRoutedTask('PAYMENT_JOURNAL', no);
-    if (routed) { const u = await requireUser(); await decideWorkflowTask(routed.id, false, reason || null, u); }
-    else { const u = await requireAction('PAYABLES_PAYMENT_POST'); await rejectPaymentJournal(no, reason || null, u); }
-    revalidate(); return { updated: true };
-  });
-}
-export async function reopenPaymentJournalRequest(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_POST'); await reopenPaymentJournal(no, u); revalidate(); return { updated: true }; });
-}
-export async function postPaymentJournalRequest(no: string): Promise<ActionResult<{ journalNo: string | null; applied: number }>> {
-  return actionResult(async () => { const u = await requireAction('PAYABLES_PAYMENT_POST'); const r = await postPaymentJournal(no, u); revalidate(); return r; });
-}
 
 /* -------------------------------------------------------------- apply entries */
 

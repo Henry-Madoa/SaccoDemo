@@ -12,7 +12,6 @@ import {
   cancelTellerTransactionApprovalRequest, approveTellerTransactionRequest, rejectTellerTransactionRequest,
   postTellerTransactionRequest, deleteTellerTransactionRequest, resendTellerSlip, accountsForTellerTransaction,
 } from '@/app/actions/tellerTransactions';
-import { delegateMyTask } from '@/app/actions/workflows';
 import { AccountInstructionsList } from '@/components/members/account-instructions';
 import type {
   AccountInstructionLine, Member, SavingsAccountForDebit, TellerTransactionType, TellerTransactionView,
@@ -201,18 +200,7 @@ export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: s
   );
 }
 
-export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId: number; className?: string }) {
-  const { run, busy } = useRunAction();
-  return (
-    <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => delegateMyTask(taskId), {
-        confirm: { title: 'Delegate to your substitute?', message: 'Your configured substitute decides this instead of you.', confirmLabel: 'Delegate' },
-        successTitle: 'Delegated to your substitute',
-      })}>
-      {busy ? 'Working…' : 'Delegate'}
-    </button>
-  );
-}
+export { DelegateButton } from '@/components/ui/delegate-button';
 
 export function ApproveButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();

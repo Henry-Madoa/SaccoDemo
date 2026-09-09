@@ -15,7 +15,6 @@ import {
   approveCollateralApplicationRequest, rejectCollateralApplicationRequest, postCollateralApplicationRequest,
   eligibleCollateralTypesForCategory,
 } from '@/app/actions/collateralApplications';
-import { delegateMyTask } from '@/app/actions/workflows';
 import { COLLATERAL_CATEGORIES } from '@/lib/constants';
 import { toUnits } from '@/lib/format';
 import type {
@@ -61,22 +60,7 @@ export function CancelApprovalButton({ no, className = 'btn sm ghost' }: { no: s
   );
 }
 
-export function DelegateButton({ taskId, className = 'btn sm ghost' }: { taskId: number; className?: string }) {
-  const { run, busy } = useRunAction();
-  return (
-    <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => delegateMyTask(taskId), {
-        confirm: {
-          title: 'Delegate to your substitute?',
-          message: 'Your configured substitute will be asked to decide this instead of you.',
-          confirmLabel: 'Delegate',
-        },
-        successTitle: 'Delegated to your substitute',
-      })}>
-      {busy ? 'Working…' : 'Delegate'}
-    </button>
-  );
-}
+export { DelegateButton } from '@/components/ui/delegate-button';
 
 export function ApproveButton({ no, className = 'btn sm' }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();

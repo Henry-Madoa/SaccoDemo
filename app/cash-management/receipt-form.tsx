@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { today } from '@/lib/format';
 import { createReceiptRequest, updateReceiptRequest, type ReceiptLineDraft } from '@/app/actions/cashMgmt';
 import type { ReceiptDetail } from '@/lib/types';
@@ -57,7 +58,14 @@ function Body({ p, initial, lines, setLines }: { p: ReceiptFormProps; initial?: 
               <td>{picker(l, i)}</td>
               <td><input value={l.description} onChange={(e) => set(i, 'description', e.target.value)} aria-label="Description" /></td>
               <td><input type="number" step="0.01" min={0} value={l.amount} onChange={(e) => set(i, 'amount', e.target.value)} aria-label="Amount" /></td>
-              <td><input value={l.appliesToDocNo} onChange={(e) => set(i, 'appliesToDocNo', e.target.value)} aria-label="Applies to doc" placeholder="Open invoice no." disabled={l.lineType !== 'Customer' && l.lineType !== 'Vendor'} /></td>
+              <td>
+                <AppliesToPicker
+                  partyType={l.lineType === 'Customer' ? 'Customer' : l.lineType === 'Vendor' ? 'Vendor' : null}
+                  partyNo={l.accountNo} value={l.appliesToDocNo ?? ""}
+                  onChange={(v) => set(i, 'appliesToDocNo', v)}
+                  onPickAmount={(amt) => set(i, 'amount', amt)}
+                />
+              </td>
               <td><button type="button" className="btn sm ghost" onClick={() => setLines(lines.filter((_, idx) => idx !== i))} aria-label="Remove">×</button></td>
             </tr>
           ))}

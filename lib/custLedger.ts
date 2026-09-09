@@ -324,3 +324,28 @@ export async function recomputeCustomerBalance(customerId: number): Promise<Cent
   await run('UPDATE customer SET balance = ? WHERE id = ?', total, customerId);
   return total;
 }
+
+/** One open entry a receipt or payment line can be applied to. */
+export interface OpenLedgerEntryOption {
+  document_no: string;
+  document_type: string;
+  posting_date: IsoDate;
+  due_date: IsoDate | null;
+  remaining_amount: Cents;
+}
+
+/**
+ * The customer's still-open invoices / charges, newest first — what the Applies-to picker on a
+ * Cash Management Receipt line offers, and where its Remaining Amount comes from.
+ *
+ * Only `positive` entries qualify: an open credit memo or an unapplied payment is money owed the
+ * OTHER way, and applying a receipt to one would be nonsense.
+ */
+export const listOpenCustomerEntries = (customerNo: string): Promise<OpenLedgerEntryOption[]> =>
+  all<OpenLedgerEntryOption>(
+    `SELECT e.document_no, e.document_type, e.posting_date, e.due_date, e.remaining_amount
+     FROM cust_ledger_entry e JOIN customer c ON c.id = e.customer_id
+     WHERE c.no = ? AND e.open = 1 AND e.positive = 1 AND e.remaining_amount <> 0
+     ORDER BY e.due_date, e.id`,
+    customerNo,
+  );

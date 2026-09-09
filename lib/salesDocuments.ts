@@ -30,7 +30,7 @@ import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, Cents, IsoDate, SalesDocumentDetail, SalesDocumentType, SalesHeader, SalesHeaderView,
-  SalesLine, SalesLineType,
+  SalesLine, SalesLineType, PostedSalesDocumentView, PostedSalesLine,
 } from './types.ts';
 
 /**
@@ -689,4 +689,28 @@ async function writePostedDocument(
     );
     lineNo += 10000;
   }
+}
+
+/* -------------------------------------------------------------- posted documents */
+
+export interface PostedSalesDocumentDetail extends PostedSalesDocumentView {
+  lines: PostedSalesLine[];
+}
+
+/**
+ * One posted Shipment / Invoice / Credit Memo with its lines.
+ *
+ * Posting deletes the source sales_header (Business Central does the same), so this is the only
+ * record of the document afterwards — and what the poster is sent to once the posting succeeds.
+ */
+export async function getPostedSalesDocument(no: string): Promise<PostedSalesDocumentDetail | undefined> {
+  const header = await one<PostedSalesDocumentView>(
+    `SELECT d.*, c.no AS customer_no, c.name AS customer_name
+     FROM posted_sales_document d JOIN customer c ON c.id = d.customer_id WHERE d.no = ?`, no,
+  );
+  if (!header) return undefined;
+  const lines = await all<PostedSalesLine>(
+    'SELECT * FROM posted_sales_line WHERE posted_sales_document_id = ? ORDER BY line_no', header.id,
+  );
+  return { ...header, lines };
 }
