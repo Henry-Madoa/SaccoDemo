@@ -215,7 +215,7 @@ function CollateralFields({ defaults, category, setCategory, counties }: {
         <Field name="ownerName" label="Owner name" defaultValue={defaults?.owner_name ?? ''}
           hint="May differ from the member — see Joint Ownership" />
         <Field name="ownerIdNo" label="Owner ID no." defaultValue={defaults?.owner_id_no ?? ''} />
-        <Field name="ownerPhoneNo" label="Owner phone no." defaultValue={defaults?.owner_phone_no ?? ''} />
+        <Field name="ownerPhoneNo" label="Owner phone no." defaultValue={defaults?.owner_phone_no ?? ''} type="phone" />
         <Field name="lastValuationDate" label="Last valuation date" type="date"
           defaultValue={defaults?.last_valuation_date ?? ''} />
         <Field name="chequeNo" label="Cheque no." defaultValue={defaults?.cheque_no ?? ''} />

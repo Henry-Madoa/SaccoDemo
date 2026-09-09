@@ -89,7 +89,7 @@ export default async function PvDetailPage({ params }: { params: Promise<{ no: s
         {r.status === 'Pending Approval' && canApprove ? (<><ApproveButton no={r.no} kind="pv" /><RejectButton no={r.no} kind="pv" /></>) : null}
         {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="pv" /> : null}
         {!r.posted && (r.status === 'Approved' || r.status === 'Open') && canPost ? <PostPvButton no={r.no} /> : null}
-        {r.posted ? <a className="btn" href={`/pv-slip/${r.no}`} target="_blank" rel="noreferrer">Print voucher slip</a> : null}
+        {r.posted ? <a className="btn" href={`/print/payment-voucher/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print voucher slip</a> : null}
       </div>
     </Page>
   );

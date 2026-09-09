@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
@@ -10,7 +11,8 @@ import {
   listCustomers, hasAnyCustomers, CUSTOMER_FILTER_FIELDS, listActiveCustomers, getCustomerLedgerEntries,
 } from '@/lib/customers';
 import {
-  listSalesDocuments, hasAnySalesDocuments, SALES_DOC_FILTER_FIELDS,
+  listSalesDocuments, hasAnySalesDocuments, salesDocCounts, SALES_DOC_FILTER_FIELDS,
+  SALES_DOC_VIEWS, type SalesDocView,
 } from '@/lib/salesDocuments';
 import { listCashReceipts, hasAnyCashReceipts } from '@/lib/cashReceipts';
 import { listReminders, hasAnyReminders } from '@/lib/reminders';
@@ -33,7 +35,7 @@ import { ExportButton } from '@/components/ui/export-button';
 import { formatDate } from '@/lib/format';
 import type { SalesDocumentType } from '@/lib/types';
 import {
-  CustomerFormButton, CustomerPostingGroupFormButton, PaymentTermsFormButton, PaymentMethodFormButton,
+  NewCustomerButton, CustomerPostingGroupFormButton, PaymentTermsFormButton, PaymentMethodFormButton,
   FinanceChargeTermsFormButton, ReminderTermsFormButton, SalesReceivablesSetupButton,
 } from '../receivables-forms';
 import { NewSalesDocumentButton } from '../sales-document-form';
@@ -45,6 +47,13 @@ import { NewCashReceiptButton } from '../cash-receipt-form';
 import { ReminderBatchPanel } from '../reminder-batch';
 import { ApplyEntriesButton, UnapplyButton } from '../apply-entries';
 import { CustomerStatementPanel } from '../statement-panel';
+
+/** Business Central splits a document list by where it stands in approval. "Approved" is BC's
+ *  Released, and "Rejected" is the Open documents an approver sent back (see lib/salesDocuments
+ *  .ts's VIEW_CLAUSE) — the four buckets are disjoint, so All is their sum. */
+const VIEW_LABELS: Record<SalesDocView, string> = {
+  all: 'All', open: 'Open', pending: 'Pending Approval', released: 'Approved', rejected: 'Rejected',
+};
 
 const TABS: TabDefinition[] = [
   { key: 'customers', label: 'Customers' },
@@ -80,10 +89,10 @@ export default async function ReceivablesPage({ params, searchParams }: {
     <Page title="Receivables" crumb="Customers, sales invoices, cash receipts, reminders and aging" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/receivables/${k === 'customers' ? '' : k}`} />
       {tab === 'customers' ? <CustomersTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
-      {tab === 'quotes' ? <SalesDocTab documentType="Quote" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'orders' ? <SalesDocTab documentType="Order" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'sales-invoices' ? <SalesDocTab documentType="Invoice" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'credit-memos' ? <SalesDocTab documentType="Credit Memo" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'quotes' ? <SalesDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'orders' ? <SalesDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'sales-invoices' ? <SalesDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'credit-memos' ? <SalesDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
       {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} /> : null}
       {tab === 'cash-receipts' ? <CashReceiptsTab search={sp.q ?? ''} username={user.username} /> : null}
       {tab === 'reminders' ? <RemindersTab kind="Reminder" search={sp.q ?? ''} /> : null}
@@ -127,7 +136,7 @@ async function CustomersTab({ search, filtersRaw, sortRaw }: { search: string; f
         <SearchInput placeholder="Search customer no., name, city…" disabled={empty} />
         <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
-        {canManage ? <CustomerFormButton {...fp}>New customer</CustomerFormButton> : null}
+        {canManage ? <NewCustomerButton {...fp}>New customer</NewCustomerButton> : null}
       </Toolbar>
       <Card>
         {rows.length ? (
@@ -148,7 +157,7 @@ async function CustomersTab({ search, filtersRaw, sortRaw }: { search: string; f
             <tbody>
               {rows.map((c) => (
                 <tr key={c.id}>
-                  <td className="mono">{c.no}</td>
+                  <td className="mono"><Link href={`/receivables/customers/${encodeURIComponent(c.no)}`}>{c.no}</Link></td>
                   <td>{c.name}</td>
                   <td className="muted-cell">{c.city ?? '—'}</td>
                   <td className="mono muted-cell">{c.customer_posting_group_code ?? '—'}</td>
@@ -160,7 +169,9 @@ async function CustomersTab({ search, filtersRaw, sortRaw }: { search: string; f
                       : c.credit_limit_exceeded ? <Pill tone="warn">Over limit</Pill>
                         : <Pill status="ok">Active</Pill>}
                   </td>
-                  <td className="num">{canManage ? <CustomerFormButton customer={c} {...fp} className="btn sm ghost">Edit</CustomerFormButton> : null}</td>
+                  <td className="num">
+                    <Link href={`/receivables/customers/${encodeURIComponent(c.no)}`} className="btn sm ghost">View card</Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -173,13 +184,16 @@ async function CustomersTab({ search, filtersRaw, sortRaw }: { search: string; f
 
 /* ------------------------------------------------------------ Sales Documents */
 
-async function SalesDocTab({ documentType, search, filtersRaw, sortRaw, username }: {
-  documentType: SalesDocumentType; search: string; filtersRaw?: string; sortRaw?: string; username: string;
+async function SalesDocTab({ documentType, tab, view: viewRaw, search, filtersRaw, sortRaw, username }: {
+  documentType: SalesDocumentType; tab: string; view?: string;
+  search: string; filtersRaw?: string; sortRaw?: string; username: string;
 }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, empty, canCreate, canApprove, canPost, customers, accounts, items, fixedAssets, locations, paymentTerms, paymentMethods] = await Promise.all([
-    listSalesDocuments({ documentType, search, filters, sort }),
+  const view: SalesDocView = SALES_DOC_VIEWS.includes(viewRaw as SalesDocView)
+    ? (viewRaw as SalesDocView) : 'all';
+  const [rows, empty, canCreate, canApprove, canPost, customers, accounts, items, fixedAssets, locations, paymentTerms, paymentMethods, counts] = await Promise.all([
+    listSalesDocuments({ documentType, view, search, filters, sort }),
     hasAnySalesDocuments(documentType).then((a) => !a),
     currentCanAction('RECEIVABLES_SALES_CREATE'),
     currentCanAction('RECEIVABLES_SALES_APPROVE'),
@@ -191,6 +205,7 @@ async function SalesDocTab({ documentType, search, filtersRaw, sortRaw, username
     listActiveLocations(),
     listActivePaymentTerms(),
     listActivePaymentMethods(),
+    salesDocCounts(documentType),
   ]);
   const routed = new Map(await Promise.all(
     rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('SALES_DOCUMENT', r.no).then((t) => [r.no, !!t] as const)),
@@ -205,8 +220,22 @@ async function SalesDocTab({ documentType, search, filtersRaw, sortRaw, username
     locations: locations.map((l) => ({ code: l.code, name: l.name })),
   };
 
+  const viewHref = (key: string) => {
+    const params = new URLSearchParams();
+    if (key !== 'all') params.set('view', key);
+    if (search) params.set('q', search);
+    if (filtersRaw) params.set('filters', filtersRaw);
+    if (sortRaw) params.set('sort', sortRaw);
+    const qs = params.toString();
+    return `/receivables/${tab}${qs ? `?${qs}` : ''}`;
+  };
+
   return (
     <>
+      <Tabs
+        tabs={SALES_DOC_VIEWS.map((v) => ({ key: v, label: `${VIEW_LABELS[v]} (${counts[v]})` }))}
+        active={view} hrefFor={viewHref}
+      />
       <Toolbar>
         <SearchInput placeholder="Search no., customer, reference…" disabled={empty} />
         <DynamicFilterBar fields={fields} disabled={empty} />
@@ -232,17 +261,19 @@ async function SalesDocTab({ documentType, search, filtersRaw, sortRaw, username
                 const isOwn = d.created_by === username;
                 return (
                   <tr key={d.no}>
-                    <td className="mono">{d.no}</td>
+                    <td className="mono"><Link href={`/receivables/documents/${encodeURIComponent(d.no)}`}>{d.no}</Link></td>
                     <td>{d.customer_no} <span className="tiny muted-cell">{d.customer_name}</span></td>
                     <td className="num"><Money cents={d.amount} /></td>
                     <td>{formatDate(d.posting_date)}</td>
                     <td>{d.due_date ? formatDate(d.due_date) : '—'}</td>
-                    <td><Pill status={d.status} /></td>
+                    <td>
+                      {d.status === 'Open' && d.decision_reason
+                        ? <Pill tone="bad">Rejected</Pill>
+                        : <Pill status={d.status} />}
+                    </td>
                     <td className="num">
                       <div className="inline" style={{ justifyContent: 'flex-end' }}>
                         {documentType === 'Quote' && d.status === 'Open' && canCreate ? <MakeOrderButton no={d.no} /> : null}
-                        {d.status === 'Open' && canCreate && isOwn && documentType !== 'Quote' ? <SubmitDocButton no={d.no} kind="sales" /> : null}
-                        {d.status === 'Open' && canCreate && isOwn ? <DeleteDocButton no={d.no} kind="sales" /> : null}
                         {d.status === 'Pending Approval' && canCreate && isOwn && !routed.get(d.no) ? <CancelApprovalButton no={d.no} kind="sales" /> : null}
                         {d.status === 'Pending Approval' && (canApprove || routed.get(d.no)) ? (<><ApproveDocButton no={d.no} kind="sales" /><RejectDocButton no={d.no} kind="sales" /></>) : null}
                         {d.status === 'Released' && canApprove ? <ReopenDocButton no={d.no} kind="sales" /> : null}
@@ -254,7 +285,14 @@ async function SalesDocTab({ documentType, search, filtersRaw, sortRaw, username
               })}
             </tbody>
           </TableWrap>
-        ) : <EmptyState icon="📄" title={empty ? `No sales ${documentType.toLowerCase()}s yet` : 'No documents match'} />}
+        ) : (
+          <EmptyState
+            icon="📄"
+            title={empty ? `No sales ${documentType.toLowerCase()}s yet`
+              : view === 'all' ? 'No documents match'
+                : `No ${VIEW_LABELS[view].toLowerCase()} ${documentType.toLowerCase()}s`}
+          />
+        )}
       </Card>
     </>
   );
@@ -279,7 +317,7 @@ async function PostedDocsTab({ search }: { search: string }) {
         <CardHead title="Posted Sales Documents" sub="Shipments, invoices and credit memos — the immutable record behind the customer ledger" />
         {rows.length ? (
           <TableWrap>
-            <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Order</th><th>Date</th><th className="num">Amount</th></tr></thead>
+            <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Order</th><th>Date</th><th className="num">Amount</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -289,6 +327,9 @@ async function PostedDocsTab({ search }: { search: string }) {
                   <td className="mono muted-cell">{r.order_no ?? '—'}</td>
                   <td>{formatDate(r.posting_date)}</td>
                   <td className="num"><Money cents={r.amount} /></td>
+                  <td className="num">
+                    <a className="btn sm ghost" href={`/print/posted-sales/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print</a>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -342,6 +383,7 @@ async function CashReceiptsTab({ search, username }: { search: string; username:
                         {r.status === 'Pending Approval' && canCreate && isOwn && !routed.get(r.no) ? <CancelApprovalButton no={r.no} kind="cash" /> : null}
                         {r.status === 'Pending Approval' && (canPost || routed.get(r.no)) ? (<><ApproveDocButton no={r.no} kind="cash" /><RejectDocButton no={r.no} kind="cash" /></>) : null}
                         {r.status === 'Approved' && !r.posted && canPost ? (<><ReopenDocButton no={r.no} kind="cash" /><PostCashReceiptButton no={r.no} /></>) : null}
+                        <a className="btn sm ghost" href={`/print/cash-receipt/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print</a>
                       </div>
                     </td>
                   </tr>

@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormValues } from '@/lib/types';
+import {
+  EMAIL_PATTERN, EMAIL_TITLE, PHONE_PATTERN, PHONE_TITLE, isEmail, isPhone, phoneDigits,
+} from '@/lib/validate';
 
 export type FieldType =
-  | 'text' | 'password' | 'number' | 'date' | 'time' | 'email' | 'select' | 'textarea' | 'checkbox' | 'currency';
+  | 'text' | 'password' | 'number' | 'date' | 'time' | 'email' | 'phone' | 'select' | 'textarea'
+  | 'checkbox' | 'currency';
 
 export type SelectOption = string | { value: string | number | null; label: string };
 
@@ -76,6 +80,16 @@ export function Field({
       <textarea id={id} name={name} rows={rows || 3} defaultValue={defaultValue ?? ''}
         placeholder={placeholder} maxLength={maxLength} disabled={disabled} />
     );
+  } else if (type === 'phone' || type === 'email') {
+    // 'phone' is the Field-level name for a telephone number: a tel input the browser keys a
+    // numeric pad for, checked against the same shape lib/validate.ts enforces server-side. Both
+    // types carry their Business Central action — write to the address, dial the number.
+    control = (
+      <ContactField
+        id={id} name={name} kind={type} defaultValue={defaultValue} required={required} disabled={disabled}
+        placeholder={placeholder} maxLength={maxLength} onChange={onChange}
+      />
+    );
   } else {
     control = (
       <input id={id} name={name} type={type} defaultValue={defaultValue ?? ''} required={required}
@@ -90,6 +104,53 @@ export function Field({
       <label htmlFor={id}>{label}{required ? <span className="req"> *</span> : null}</label>
       {control}
       {hint ? <div className="hint">{hint}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * A phone or email input with its action beside it: the value stays editable, and the button
+ * hands the current value to the mail client or the dialler — the same thing clicking the value
+ * on a read-only card does (components/ui/contact-link.tsx). The button is disabled until what
+ * has been typed is actually reachable, so it never opens a composer addressed to nothing.
+ */
+function ContactField({
+  id, name, kind, defaultValue, required, disabled, placeholder, maxLength, onChange,
+}: {
+  id: string; name: string; kind: 'phone' | 'email';
+  defaultValue?: string | number | null;
+  required?: boolean; disabled?: boolean; placeholder?: string; maxLength?: number;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+}) {
+  const phone = kind === 'phone';
+  const [value, setValue] = useState(String(defaultValue ?? ''));
+  const usable = phone ? isPhone(value) : isEmail(value);
+  const href = !usable ? undefined
+    : phone ? `tel:${value.trim().startsWith('+') ? '+' : ''}${phoneDigits(value)}`
+      : `mailto:${encodeURIComponent(value.trim())}`;
+
+  return (
+    <div className="input-with-action">
+      <input
+        id={id} name={name} type={phone ? 'tel' : 'email'} value={value} required={required} disabled={disabled}
+        placeholder={placeholder} maxLength={maxLength}
+        inputMode={phone ? 'tel' : undefined}
+        pattern={phone ? PHONE_PATTERN : EMAIL_PATTERN}
+        title={phone ? PHONE_TITLE : EMAIL_TITLE}
+        autoComplete={phone ? 'tel' : 'email'}
+        onChange={(e) => { setValue(e.target.value); onChange?.(e); }}
+      />
+      <a
+        className={`btn sm ghost${usable ? '' : ' disabled'}`}
+        href={href} aria-disabled={!usable} tabIndex={usable ? undefined : -1}
+        title={usable
+          ? (phone ? `Call ${value}` : `Write to ${value}`)
+          : (phone ? 'Enter a number to dial it' : 'Enter an address to write to it')}
+        aria-label={phone ? 'Dial this number' : 'Write to this address'}
+        onClick={(e) => { if (!usable) e.preventDefault(); }}
+      >
+        {phone ? '📞' : '✉'}
+      </a>
     </div>
   );
 }

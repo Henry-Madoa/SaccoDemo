@@ -17,6 +17,7 @@ import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import { JournalLink } from '@/app/accounting/drill-downs';
 import { ReverseButton } from './reverse-button';
+import { PhoneLink } from '@/components/ui/contact-link';
 
 export default async function SavingsAccountPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
@@ -126,7 +127,7 @@ export default async function SavingsAccountPage({ params, searchParams }: {
             ['Business name', a.business_name || '—'],
             ['Business location', a.business_location || '—'],
             ['Paybill / Till No.', a.business_paybill_till_no || '—'],
-            ['Business phone no.', a.business_phone_no || '—'],
+            ['Business phone no.', <PhoneLink value={a.business_phone_no} key="business-phone-no" />],
           ]} />
         </Card>
       ) : null}

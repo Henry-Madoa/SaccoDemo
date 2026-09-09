@@ -1,4 +1,5 @@
 import { one, run, audit } from './db.ts';
+import { assertContactColumns } from './validate.ts';
 import { PRESETS, ALL_KEYS, TOKEN_GROUPS } from './themes.ts';
 import { AppError } from './errors.ts';
 import { imageSrc } from './cloudinary.ts';
@@ -69,6 +70,7 @@ export const themePresets = (): ThemePreset[] =>
   Object.entries(PRESETS).map(([key, v]) => ({ key, label: v.label, tokens: v.tokens }));
 
 export async function updateOrg(body: OrgUpdate, user: Actor): Promise<Organisation> {
+  assertContactColumns(body as Record<string, unknown>);
   if (body.name !== undefined && !String(body.name).trim()) {
     throw new AppError('Society name is required', 'VALIDATION');
   }

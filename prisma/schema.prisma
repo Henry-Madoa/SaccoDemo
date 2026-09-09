@@ -26,6 +26,10 @@ model app_user {
   status                     String                       @default("ACTIVE")
   last_login_at              String?
   created_at                 String?
+  /// The user's own scanned signature (a Cloudinary public_id, or a legacy data URL), uploaded by
+  /// an administrator on Admin Centre -> System Security -> User Setup. Stamped onto a document
+  /// printout wherever this user prepared, approved or issued it - see lib/userSignatures.ts.
+  signature_image            String?
   /// BC-style "Work Date" (My Settings) — the date this user's own new documents suggest instead
   /// of the real system date, self-service via the My Settings page (lib/postingDates.ts's
   /// getWorkDate()). Must fall within this user's own effective Allow Posting range

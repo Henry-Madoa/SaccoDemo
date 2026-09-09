@@ -14,6 +14,7 @@ import type {
   Actor, GuarantorshipRow, LoanWithProductName, Member, MemberDetail, MemberListRow,
   MemberStatus, MemberWithDimensions, SavingsAccountWithProduct, Txn,
 } from './types.ts';
+import { assertContactColumns } from './validate.ts';
 
 export const MEMBER_FIELDS = [
   'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'identification_no', 'kra_pin',
@@ -241,6 +242,7 @@ export async function getMemberDetail(id: number): Promise<MemberDetail | null> 
 }
 
 export async function createMember(body: MemberInput, user: Actor): Promise<MemberWithDimensions> {
+  assertContactColumns(body as Record<string, unknown>);
   if (!body.first_name || !body.last_name) {
     throw new AppError('First and last name are required', 'VALIDATION');
   }
@@ -268,6 +270,7 @@ export async function createMember(body: MemberInput, user: Actor): Promise<Memb
 }
 
 export async function updateMember(id: number, body: MemberInput, user: Actor): Promise<MemberWithDimensions> {
+  assertContactColumns(body as Record<string, unknown>);
   const cols = MEMBER_FIELDS.filter((f) => body[f] !== undefined);
   if (cols.length) {
     await run(

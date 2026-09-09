@@ -61,7 +61,7 @@ export function UserFormButton({ user, roles, profiles, className = 'btn', child
             <Field name="username" label="Username" defaultValue={u?.username} required disabled={!!u}
               onChange={(e) => setUsername(e.target.value)} />
             <Field name="email" label="Email" type="email" defaultValue={u?.email} />
-            <Field name="phone" label="Phone" defaultValue={u?.phone} />
+            <Field name="phone" label="Phone" defaultValue={u?.phone} type="phone" />
             <SearchableSelect name="role_id" label="Primary role (permission set)" required
               items={roles} getValue={(r) => String(r.id)} getLabel={(r) => r.name}
               value={roleId} onChange={setRoleId} placeholder="Search role…" emptyText="No matching roles" />

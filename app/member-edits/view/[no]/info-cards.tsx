@@ -16,6 +16,7 @@ import {
 import type {
   County, DimensionValue, Member, MemberCategory, MemberEditRequestWithDimensions, SubCounty,
 } from '@/lib/types';
+import { EmailLink, PhoneLink } from '@/components/ui/contact-link';
 
 /** Shared edit-toggle plumbing for an inline-editable request card. Registers with the
  *  tab bar so its Next button saves a card mid-edit before advancing, instead of discarding it. */
@@ -300,10 +301,10 @@ export function ContactInfoCard({
       {!editing ? (
         <DefinitionList items={[
           !isIndividual ? ['Contact person', a.contact_person_name || '—'] : null,
-          !isIndividual ? ['Contact phone', a.contact_person_phone || '—'] : null,
-          !isIndividual ? ['Contact email', a.contact_person_email || '—'] : null,
-          ['Phone', a.phone || '—'],
-          ['Email', a.email || '—'],
+          !isIndividual ? ['Contact phone', <PhoneLink value={a.contact_person_phone} key="contact-phone" />] : null,
+          !isIndividual ? ['Contact email', <EmailLink value={a.contact_person_email} key="contact-email" />] : null,
+          ['Phone', <PhoneLink value={a.phone} key="phone" />],
+          ['Email', <EmailLink value={a.email} key="email" />],
           isIndividual ? ['Postal address', a.postal_address || '—'] : null,
           ['Physical address', a.physical_address || '—'],
           ['County', a.county_name || '—'],
@@ -316,12 +317,12 @@ export function ContactInfoCard({
               {!isIndividual ? (
                 <>
                   <Field name="contact_person_name" label="Contact person" defaultValue={a.contact_person_name} />
-                  <Field name="contact_person_phone" label="Contact phone" defaultValue={a.contact_person_phone} />
+                  <Field name="contact_person_phone" label="Contact phone" defaultValue={a.contact_person_phone} type="phone" />
                   <Field name="contact_person_email" label="Contact email" type="email"
                     defaultValue={a.contact_person_email} />
                 </>
               ) : null}
-              <Field name="phone" label="Phone" defaultValue={a.phone} required />
+              <Field name="phone" label="Phone" defaultValue={a.phone} required type="phone" />
               <Field name="email" label="Email" type="email" defaultValue={a.email} />
               {isIndividual ? (
                 <Field name="postal_address" label="Postal address" defaultValue={a.postal_address} />

@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { EMAIL_PATTERN, EMAIL_TITLE, PHONE_PATTERN, PHONE_TITLE } from '@/lib/validate';
 import { FormModal } from '@/components/ui/form-modal';
 import { Card, CardHead, EmptyState, TableWrap } from '@/components/ui/primitives';
 import { saveEditSignatories } from '@/app/actions/editSignatories';
 import { SIGNATORY_DESIGNATIONS } from '@/lib/constants';
 import { formatDate } from '@/lib/format';
 import type { MemberEditSignatory } from '@/lib/types';
+import { EmailLink, PhoneLink } from '@/components/ui/contact-link';
 
 interface SignatoryRow {
   identification_no: string;
@@ -93,11 +95,11 @@ export function EditSignatoryFormButton({ editNo, signatories, className = 'btn'
                       onChange={(e) => update(i, { date_of_birth: e.target.value })} />
                   </td>
                   <td>
-                    <input type="email" value={row.email} aria-label="Email"
+                    <input type="email" pattern={EMAIL_PATTERN} title={EMAIL_TITLE} value={row.email} aria-label="Email"
                       onChange={(e) => update(i, { email: e.target.value })} />
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="tel" inputMode="tel" pattern={PHONE_PATTERN} title={PHONE_TITLE} value={row.phone} aria-label="Phone"
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>
@@ -153,8 +155,8 @@ export function EditSignatoryPanel({ editNo, signatories, canManage, onSaved }: 
                 <td><b>{s.name}</b></td>
                 <td>{s.designation || '—'}</td>
                 <td>{formatDate(s.date_of_birth)}</td>
-                <td>{s.email || '—'}</td>
-                <td>{s.phone || '—'}</td>
+                <td><EmailLink value={s.email} /></td>
+                <td><PhoneLink value={s.phone} /></td>
               </tr>
             ))}
           </tbody>

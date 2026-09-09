@@ -36,13 +36,23 @@ import type {
   PurchaseLine, PurchaseLineType,
 } from './types.ts';
 
-export type PurchaseDocView = 'open' | 'pending' | 'released';
+/**
+ * The status buckets a document list is split into. Business Central keeps a document's own
+ * Status at Open | Pending Approval | Released and records the rejection against the approval
+ * entry — rejecting sends the document back to Open with the reason on it (see
+ * rejectPurchaseDocument below). "Rejected" is therefore a view over Open, not a fourth status,
+ * and the two are kept disjoint so every document sits in exactly one bucket.
+ */
+export type PurchaseDocView = 'all' | 'open' | 'pending' | 'released' | 'rejected';
 
-const VIEW_CLAUSE: Record<PurchaseDocView, string> = {
-  open: "ph.status = 'Open'",
+const VIEW_CLAUSE: Record<Exclude<PurchaseDocView, 'all'>, string> = {
+  open: "ph.status = 'Open' AND ph.decision_reason IS NULL",
   pending: "ph.status = 'Pending Approval'",
   released: "ph.status = 'Released'",
+  rejected: "ph.status = 'Open' AND ph.decision_reason IS NOT NULL",
 };
+
+export const PURCHASE_DOC_VIEWS: PurchaseDocView[] = ['all', 'open', 'pending', 'released', 'rejected'];
 
 const DOCUMENT_TYPES: PurchaseDocumentType[] = ['Quote', 'Order', 'Invoice', 'Credit Memo'];
 const LINE_TYPES: PurchaseLineType[] = ['Comment', 'G/L Account', 'Item', 'Fixed Asset'];
@@ -87,12 +97,31 @@ export const listPurchaseDocuments = (
     `${SELECT_ROW}
      WHERE ph.document_type = @docType
        AND (ph.no LIKE @like OR v.no LIKE @like OR v.name LIKE @like OR ph.vendor_invoice_no LIKE @like)
-       ${view ? `AND ${VIEW_CLAUSE[view]}` : ''}
+       ${view && view !== 'all' ? `AND ${VIEW_CLAUSE[view]}` : ''}
        ${clause}
      ${orderBy}`,
     { docType: documentType, like: `%${String(search).trim()}%`, ...params },
   );
 };
+
+/** How many documents sit in each status bucket — the counts on the list's view tabs. */
+export async function purchaseDocCounts(documentType: PurchaseDocumentType): Promise<Record<PurchaseDocView, number>> {
+  const rows = await all<{ status: string; rejected: number; n: number }>(
+    `SELECT ph.status, CASE WHEN ph.decision_reason IS NULL THEN 0 ELSE 1 END AS rejected, COUNT(*) AS n
+     FROM purchase_header ph WHERE ph.document_type = ? GROUP BY ph.status, rejected`,
+    documentType,
+  );
+  const counts: Record<PurchaseDocView, number> = { all: 0, open: 0, pending: 0, released: 0, rejected: 0 };
+  for (const r of rows) {
+    const n = Number(r.n);
+    counts.all += n;
+    if (r.status === 'Pending Approval') counts.pending += n;
+    else if (r.status === 'Released') counts.released += n;
+    else if (Number(r.rejected)) counts.rejected += n;
+    else counts.open += n;
+  }
+  return counts;
+}
 
 export async function getPurchaseDocument(no: string): Promise<PurchaseDocumentDetail | undefined> {
   const header = await one<PurchaseHeaderView>(`${SELECT_ROW} WHERE ph.no = ?`, no);
@@ -378,7 +407,8 @@ export async function submitPurchaseDocument(no: string, user: Actor): Promise<{
   if (!matched) throw new AppError('There is no enabled workflow for this document', 'NO_WORKFLOW');
 
   await tx(async () => {
-    await run("UPDATE purchase_header SET status = 'Pending Approval' WHERE no = ?", no);
+    // Re-submitting clears the previous rejection: the document leaves the Rejected bucket.
+    await run("UPDATE purchase_header SET status = 'Pending Approval', decision_reason = NULL WHERE no = ?", no);
     await startWorkflow(matched.workflow, matched.steps, {
       documentType: 'PURCHASE_DOCUMENT', entityId: no, requestedBy: user.username, amount: Number(req.amount),
     });
@@ -439,7 +469,7 @@ export async function reopenPurchaseDocument(no: string, user: Actor): Promise<v
   if (req.status !== 'Released') throw new AppError('Only a released document can be reopened', 'VALIDATION');
   const received = await hasAnyRow('purchase_line', 'purchase_header_id = ? AND qty_received > 0', req.id);
   if (received) throw new AppError('This order has already been partly received and cannot be reopened', 'VALIDATION');
-  await run("UPDATE purchase_header SET status = 'Open' WHERE no = ?", no);
+  await run("UPDATE purchase_header SET status = 'Open', decision_reason = NULL WHERE no = ?", no);
   await audit(user, 'PURCHASE_DOCUMENT_REOPEN', 'purchase_header', no, {});
 }
 

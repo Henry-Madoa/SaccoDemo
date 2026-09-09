@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { PHONE_PATTERN, PHONE_TITLE } from '@/lib/validate';
 import { FormModal } from '@/components/ui/form-modal';
 import { Card, CardHead, EmptyState, Pill, TableWrap } from '@/components/ui/primitives';
 import { saveEditNextOfKin, saveEditNominees } from '@/app/actions/editNominees';
 import { lookupMemberByIdentificationNo } from '@/app/actions/members';
 import { RELATIONSHIPS } from '@/lib/constants';
 import type { MemberEditNextOfKin, MemberEditNominee } from '@/lib/types';
+import { PhoneLink } from '@/components/ui/contact-link';
 
 /** Looks up whichever member (if any) already carries this Identification No. and, when found,
  *  fills in the row's Name and Phone from that member's own record instead of asking the
@@ -113,7 +115,7 @@ export function EditNomineeFormButton({ editNo, nominees, className = 'btn', chi
                     </select>
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="tel" inputMode="tel" pattern={PHONE_PATTERN} title={PHONE_TITLE} value={row.phone} aria-label="Phone"
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>
@@ -242,7 +244,7 @@ export function EditNextOfKinFormButton({ editNo, nextOfKin, className = 'btn', 
                     </select>
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="tel" inputMode="tel" pattern={PHONE_PATTERN} title={PHONE_TITLE} value={row.phone} aria-label="Phone"
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>
@@ -306,7 +308,7 @@ export function EditNomineePanel({ editNo, nominees, canManage, onSaved }: {
               <tr key={n.id}>
                 <td><b>{n.name}</b></td>
                 <td>{n.relationship || '—'}</td>
-                <td>{n.phone || '—'}</td>
+                <td><PhoneLink value={n.phone} /></td>
                 <td className="mono">{n.identification_no || '—'}</td>
                 <td className="num">{n.percentage}%</td>
                 <td>{n.is_next_of_kin ? <Pill tone="info">YES</Pill> : '—'}</td>
@@ -345,7 +347,7 @@ export function EditNextOfKinPanel({ editNo, nextOfKin, canManage, onSaved }: {
               <tr key={n.id}>
                 <td><b>{n.name}</b></td>
                 <td>{n.relationship || '—'}</td>
-                <td>{n.phone || '—'}</td>
+                <td><PhoneLink value={n.phone} /></td>
                 <td className="mono">{n.identification_no || '—'}</td>
               </tr>
             ))}

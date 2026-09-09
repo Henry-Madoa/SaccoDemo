@@ -6,10 +6,10 @@ import { Field } from '@/components/ui/field';
 import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import {
   createVpgRequest, updateVpgRequest,
-  requestVendor, saveVendor, savePurchasesPayablesSetupRequest,
+  requestVendor, savePurchasesPayablesSetupRequest,
 } from '@/app/actions/payables';
 import type {
-  GlAccount, PaymentMethod, PaymentTerms, PurchasesPayablesSetup, VendorListRow, VendorPostingGroup,
+  GlAccount, PaymentMethod, PaymentTerms, PurchasesPayablesSetup, VendorPostingGroup,
   VendorPostingGroupView,
 } from '@/lib/types';
 
@@ -20,13 +20,13 @@ const BLOCKED = [
 
 /* ------------------------------------------------------------------- Vendor */
 
-export function VendorFormButton({ vendor, postingGroups, paymentTerms, paymentMethods, className = 'btn', children }: {
-  vendor?: VendorListRow | null;
+/** Registering a vendor. Everything after registration is edited on the vendor's own card
+ *  (app/payables/vendor-card.tsx), so this modal only ever creates. */
+export function NewVendorButton({ postingGroups, paymentTerms, paymentMethods, className = 'btn', children }: {
   postingGroups: VendorPostingGroupView[]; paymentTerms: PaymentTerms[]; paymentMethods: PaymentMethod[];
   className?: string; children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const v = vendor ?? null;
   const opts = (rows: { code: string; description: string }[], none = '(none)') =>
     [{ value: '', label: none }, ...rows.map((r) => ({ value: r.code, label: `${r.code} — ${r.description}` }))];
   return (
@@ -34,37 +34,38 @@ export function VendorFormButton({ vendor, postingGroups, paymentTerms, paymentM
       <button type="button" className={className} onClick={() => setOpen(true)}>{children}</button>
       {open ? (
         <FormModal
-          title={v ? `Edit ${v.no}` : 'New vendor'} wide
+          title="New vendor" wide
           onClose={() => setOpen(false)}
-          onSubmit={(vals) => (v ? saveVendor(v.no, vals) : requestVendor(vals))}
-          submitLabel={v ? 'Save changes' : 'Create'}
-          successTitle={v ? 'Vendor updated' : 'Vendor created'}
+          onSubmit={requestVendor}
+          submitLabel="Create"
+          successTitle="Vendor created"
+          successDetail={(d) => `${d.no} registered — open its card to fill in the rest`}
         >
           <div className="grid g2">
-            <Field name="name" label="Name" required defaultValue={v?.name} />
-            <Field name="name2" label="Name 2" defaultValue={v?.name_2 ?? ''} placeholder="Optional" />
+            <Field name="name" label="Name" required />
+            <Field name="name2" label="Name 2" defaultValue="" placeholder="Optional" />
           </div>
           <div className="grid g2">
-            <Field name="address" label="Address" defaultValue={v?.address ?? ''} />
-            <Field name="city" label="City" defaultValue={v?.city ?? ''} />
+            <Field name="address" label="Address" defaultValue="" />
+            <Field name="city" label="City" defaultValue="" />
           </div>
           <div className="grid g3">
-            <Field name="contact" label="Contact" defaultValue={v?.contact ?? ''} />
-            <Field name="phone" label="Phone" defaultValue={v?.phone ?? ''} />
-            <Field name="email" label="Email" type="email" defaultValue={v?.email ?? ''} />
+            <Field name="contact" label="Contact" defaultValue="" />
+            <Field name="phone" label="Phone" defaultValue="" type="phone" />
+            <Field name="email" label="Email" type="email" defaultValue="" />
           </div>
           <div className="grid g2">
-            <Field name="vendorPostingGroupCode" label="Vendor posting group" type="select" defaultValue={v?.vendor_posting_group_code ?? ''} options={opts(postingGroups)} />
-            <Field name="paymentTermsCode" label="Payment terms" type="select" defaultValue={v?.payment_terms_code ?? ''} options={opts(paymentTerms)} />
+            <Field name="vendorPostingGroupCode" label="Vendor posting group" type="select" defaultValue="" options={opts(postingGroups)} />
+            <Field name="paymentTermsCode" label="Payment terms" type="select" defaultValue="" options={opts(paymentTerms)} />
           </div>
           <div className="grid g2">
-            <Field name="paymentMethodCode" label="Payment method" type="select" defaultValue={v?.payment_method_code ?? ''} options={opts(paymentMethods)} />
-            <Field name="purchaser" label="Purchaser" defaultValue={v?.purchaser ?? ''} placeholder="Optional" />
+            <Field name="paymentMethodCode" label="Payment method" type="select" defaultValue="" options={opts(paymentMethods)} />
+            <Field name="purchaser" label="Purchaser" defaultValue="" placeholder="Optional" />
           </div>
           <div className="grid g3">
-            <Field name="ourAccountNo" label="Our Account No." defaultValue={v?.our_account_no ?? ''} placeholder="Our account with the vendor" />
-            <Field name="creditLimit" label="Credit limit" type="currency" defaultValue={v ? String(v.credit_limit / 100) : '0'} />
-            <Field name="blocked" label="Blocked" type="select" defaultValue={v?.blocked ?? ''} options={BLOCKED} />
+            <Field name="ourAccountNo" label="Our Account No." defaultValue="" placeholder="Our account with the vendor" />
+            <Field name="creditLimit" label="Credit limit" type="currency" defaultValue="0" />
+            <Field name="blocked" label="Blocked" type="select" defaultValue="" options={BLOCKED} />
           </div>
         </FormModal>
       ) : null}

@@ -16,6 +16,7 @@ import {
 import { JuniorPhotoPanel } from './junior-photo-panel';
 import { CardNav } from '@/components/ui/card-nav';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
+import { PhoneLink } from '@/components/ui/contact-link';
 
 const ACCOUNT_OPENING_VIEWS: AccountOpeningView[] = ['open', 'pending', 'approved', 'processed'];
 
@@ -113,7 +114,7 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
             ['Business name', request.business_name || '—'],
             ['Business location', request.business_location || '—'],
             ['Paybill / Till No.', request.business_paybill_till_no || '—'],
-            ['Business phone no.', request.business_phone_no || '—'],
+            ['Business phone no.', <PhoneLink value={request.business_phone_no} key="business-phone-no" />],
           ]} />
         </Card>
       ) : null}

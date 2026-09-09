@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
@@ -11,10 +12,12 @@ import {
   listVendors, hasAnyVendors, VENDOR_FILTER_FIELDS, listActiveVendors, getVendorLedgerEntries,
 } from '@/lib/vendors';
 import {
-  listPurchaseDocuments, hasAnyPurchaseDocuments, PURCHASE_DOC_FILTER_FIELDS,
+  listPurchaseDocuments, hasAnyPurchaseDocuments, purchaseDocCounts, PURCHASE_DOC_FILTER_FIELDS,
+  PURCHASE_DOC_VIEWS, type PurchaseDocView,
 } from '@/lib/purchaseDocuments';
 import { listPaymentJournals, hasAnyPaymentJournals } from '@/lib/paymentJournal';
 import { listVendorPostingGroups, getPurchasesPayablesSetup } from '@/lib/payablesSetup';
+import { vatRateMatrix } from '@/lib/vatSetup';
 import { getAgedAccountsPayable, AGED_AP_FILTER_FIELDS } from '@/lib/payablesReports';
 import { findPendingRoutedTask } from '@/lib/workflow';
 import { Page } from '@/components/layout/page';
@@ -29,7 +32,7 @@ import { ExportButton } from '@/components/ui/export-button';
 import { formatDate } from '@/lib/format';
 import type { PurchaseDocumentType } from '@/lib/types';
 import {
-  VendorFormButton, VendorPostingGroupFormButton, PurchasesPayablesSetupButton,
+  NewVendorButton, VendorPostingGroupFormButton, PurchasesPayablesSetupButton,
 } from '../payables-forms';
 import { NewPurchaseDocumentButton } from '../purchase-document-form';
 import {
@@ -39,6 +42,13 @@ import {
 import { NewPaymentJournalButton, SuggestVendorPaymentsPanel } from '../payment-journal-form';
 import { ApplyEntriesButton, UnapplyButton } from '../apply-entries';
 import { VendorStatementPanel } from '../statement-panel';
+
+/** Business Central splits a document list by where it stands in approval. "Approved" is BC's
+ *  Released, and "Rejected" is the Open documents an approver sent back (see lib/purchaseDocuments
+ *  .ts's VIEW_CLAUSE) — the four buckets are disjoint, so All is their sum. */
+const VIEW_LABELS: Record<PurchaseDocView, string> = {
+  all: 'All', open: 'Open', pending: 'Pending Approval', released: 'Approved', rejected: 'Rejected',
+};
 
 const TABS: TabDefinition[] = [
   { key: 'vendors', label: 'Vendors' },
@@ -69,10 +79,10 @@ export default async function PayablesPage({ params, searchParams }: {
     <Page title="Payables" crumb="Vendors, purchase invoices, payments and aging" user={user}>
       <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/payables/${k === 'vendors' ? '' : k}`} />
       {tab === 'vendors' ? <VendorsTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
-      {tab === 'quotes' ? <PurchaseDocTab documentType="Quote" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'orders' ? <PurchaseDocTab documentType="Order" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'purchase-invoices' ? <PurchaseDocTab documentType="Invoice" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
-      {tab === 'credit-memos' ? <PurchaseDocTab documentType="Credit Memo" search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'quotes' ? <PurchaseDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'orders' ? <PurchaseDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'purchase-invoices' ? <PurchaseDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
+      {tab === 'credit-memos' ? <PurchaseDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
       {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} /> : null}
       {tab === 'payment-journal' ? <PaymentJournalTab search={sp.q ?? ''} username={user.username} /> : null}
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
@@ -111,7 +121,7 @@ async function VendorsTab({ search, filtersRaw, sortRaw }: { search: string; fil
         <SearchInput placeholder="Search vendor no., name, city…" disabled={empty} />
         <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
-        {canManage ? <VendorFormButton {...fp}>New vendor</VendorFormButton> : null}
+        {canManage ? <NewVendorButton {...fp}>New vendor</NewVendorButton> : null}
       </Toolbar>
       <Card>
         {rows.length ? (
@@ -132,7 +142,7 @@ async function VendorsTab({ search, filtersRaw, sortRaw }: { search: string; fil
             <tbody>
               {rows.map((v) => (
                 <tr key={v.id}>
-                  <td className="mono">{v.no}</td>
+                  <td className="mono"><Link href={`/payables/vendors/${encodeURIComponent(v.no)}`}>{v.no}</Link></td>
                   <td>{v.name}</td>
                   <td className="muted-cell">{v.city ?? '—'}</td>
                   <td className="mono muted-cell">{v.vendor_posting_group_code ?? '—'}</td>
@@ -140,7 +150,9 @@ async function VendorsTab({ search, filtersRaw, sortRaw }: { search: string; fil
                   <td className="num"><Money cents={v.balance} /></td>
                   <td className="num">{v.balance_due > 0 ? <span className="bad"><Money cents={v.balance_due} /></span> : <Money cents={0} />}</td>
                   <td>{v.blocked ? <Pill tone="bad">Blocked: {v.blocked}</Pill> : <Pill status="ok">Active</Pill>}</td>
-                  <td className="num">{canManage ? <VendorFormButton vendor={v} {...fp} className="btn sm ghost">Edit</VendorFormButton> : null}</td>
+                  <td className="num">
+                    <Link href={`/payables/vendors/${encodeURIComponent(v.no)}`} className="btn sm ghost">View card</Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -153,13 +165,16 @@ async function VendorsTab({ search, filtersRaw, sortRaw }: { search: string; fil
 
 /* ----------------------------------------------------------- Purchase Documents */
 
-async function PurchaseDocTab({ documentType, search, filtersRaw, sortRaw, username }: {
-  documentType: PurchaseDocumentType; search: string; filtersRaw?: string; sortRaw?: string; username: string;
+async function PurchaseDocTab({ documentType, tab, view: viewRaw, search, filtersRaw, sortRaw, username }: {
+  documentType: PurchaseDocumentType; tab: string; view?: string;
+  search: string; filtersRaw?: string; sortRaw?: string; username: string;
 }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, empty, canCreate, canApprove, canPost, vendors, accounts, items, fixedAssets, locations, paymentTerms, paymentMethods] = await Promise.all([
-    listPurchaseDocuments({ documentType, search, filters, sort }),
+  const view: PurchaseDocView = PURCHASE_DOC_VIEWS.includes(viewRaw as PurchaseDocView)
+    ? (viewRaw as PurchaseDocView) : 'all';
+  const [rows, empty, canCreate, canApprove, canPost, vendors, accounts, items, fixedAssets, locations, paymentTerms, paymentMethods, vatRates, setup, counts] = await Promise.all([
+    listPurchaseDocuments({ documentType, view, search, filters, sort }),
     hasAnyPurchaseDocuments(documentType).then((a) => !a),
     currentCanAction('PAYABLES_PURCHASE_CREATE'),
     currentCanAction('PAYABLES_PURCHASE_APPROVE'),
@@ -171,6 +186,9 @@ async function PurchaseDocTab({ documentType, search, filtersRaw, sortRaw, usern
     listActiveLocations(),
     listActivePaymentTerms(),
     listActivePaymentMethods(),
+    vatRateMatrix(),
+    getPurchasesPayablesSetup(),
+    purchaseDocCounts(documentType),
   ]);
   const routed = new Map(await Promise.all(
     rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('PURCHASE_DOCUMENT', r.no).then((t) => [r.no, !!t] as const)),
@@ -183,10 +201,30 @@ async function PurchaseDocTab({ documentType, search, filtersRaw, sortRaw, usern
     items: items.map((i) => ({ no: i.no, description: i.description })),
     fixedAssets: fixedAssets.filter((a) => !a.disposed && !a.acquisition_cost).map((a) => ({ no: a.no, description: a.description })),
     locations: locations.map((l) => ({ code: l.code, name: l.name })),
+    vatPreview: {
+      rates: vatRates,
+      accountVatProd: Object.fromEntries(accounts.map((a) => [a.code, a.vat_prod_posting_group_code ?? null])),
+      defaultVatBus: setup.default_vat_bus_posting_group_code ?? null,
+      pricesInclVat: !!setup.prices_incl_vat,
+    },
+  };
+
+  const viewHref = (key: string) => {
+    const params = new URLSearchParams();
+    if (key !== 'all') params.set('view', key);
+    if (search) params.set('q', search);
+    if (filtersRaw) params.set('filters', filtersRaw);
+    if (sortRaw) params.set('sort', sortRaw);
+    const qs = params.toString();
+    return `/payables/${tab}${qs ? `?${qs}` : ''}`;
   };
 
   return (
     <>
+      <Tabs
+        tabs={PURCHASE_DOC_VIEWS.map((v) => ({ key: v, label: `${VIEW_LABELS[v]} (${counts[v]})` }))}
+        active={view} hrefFor={viewHref}
+      />
       <Toolbar>
         <SearchInput placeholder="Search no., vendor, invoice no.…" disabled={empty} />
         <DynamicFilterBar fields={fields} disabled={empty} />
@@ -213,18 +251,20 @@ async function PurchaseDocTab({ documentType, search, filtersRaw, sortRaw, usern
                 const isOwn = d.created_by === username;
                 return (
                   <tr key={d.no}>
-                    <td className="mono">{d.no}</td>
+                    <td className="mono"><Link href={`/payables/documents/${encodeURIComponent(d.no)}`}>{d.no}</Link></td>
                     <td>{d.vendor_no} <span className="tiny muted-cell">{d.vendor_name}</span></td>
                     <td className="mono muted-cell">{d.vendor_invoice_no ?? '—'}</td>
                     <td className="num"><Money cents={d.amount} /></td>
                     <td>{formatDate(d.posting_date)}</td>
                     <td>{d.due_date ? formatDate(d.due_date) : '—'}</td>
-                    <td><Pill status={d.status} /></td>
+                    <td>
+                      {d.status === 'Open' && d.decision_reason
+                        ? <Pill tone="bad">Rejected</Pill>
+                        : <Pill status={d.status} />}
+                    </td>
                     <td className="num">
                       <div className="inline" style={{ justifyContent: 'flex-end' }}>
                         {documentType === 'Quote' && d.status === 'Open' && canCreate ? <MakeOrderButton no={d.no} /> : null}
-                        {d.status === 'Open' && canCreate && isOwn && documentType !== 'Quote' ? <SubmitDocButton no={d.no} kind="purchase" /> : null}
-                        {d.status === 'Open' && canCreate && isOwn ? <DeleteDocButton no={d.no} kind="purchase" /> : null}
                         {d.status === 'Pending Approval' && canCreate && isOwn && !routed.get(d.no) ? <CancelApprovalButton no={d.no} kind="purchase" /> : null}
                         {d.status === 'Pending Approval' && (canApprove || routed.get(d.no)) ? (<><ApproveDocButton no={d.no} kind="purchase" /><RejectDocButton no={d.no} kind="purchase" /></>) : null}
                         {d.status === 'Released' && canApprove ? <ReopenDocButton no={d.no} kind="purchase" /> : null}
@@ -236,7 +276,14 @@ async function PurchaseDocTab({ documentType, search, filtersRaw, sortRaw, usern
               })}
             </tbody>
           </TableWrap>
-        ) : <EmptyState icon="📄" title={empty ? `No purchase ${documentType.toLowerCase()}s yet` : 'No documents match'} />}
+        ) : (
+          <EmptyState
+            icon="📄"
+            title={empty ? `No purchase ${documentType.toLowerCase()}s yet`
+              : view === 'all' ? 'No documents match'
+                : `No ${VIEW_LABELS[view].toLowerCase()} ${documentType.toLowerCase()}s`}
+          />
+        )}
       </Card>
     </>
   );
@@ -262,7 +309,7 @@ async function PostedDocsTab({ search }: { search: string }) {
         <CardHead title="Posted Purchase Documents" sub="Receipts, invoices and credit memos — the immutable record behind the vendor ledger" />
         {rows.length ? (
           <TableWrap>
-            <thead><tr><th>No.</th><th>Type</th><th>Vendor</th><th>Vendor Inv.</th><th>Order</th><th>Date</th><th className="num">Amount</th></tr></thead>
+            <thead><tr><th>No.</th><th>Type</th><th>Vendor</th><th>Vendor Inv.</th><th>Order</th><th>Date</th><th className="num">Amount</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -273,6 +320,9 @@ async function PostedDocsTab({ search }: { search: string }) {
                   <td className="mono muted-cell">{r.order_no ?? '—'}</td>
                   <td>{formatDate(r.posting_date)}</td>
                   <td className="num"><Money cents={r.amount} /></td>
+                  <td className="num">
+                    <a className="btn sm ghost" href={`/print/posted-purchase/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print</a>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -333,6 +383,7 @@ async function PaymentJournalTab({ search, username }: { search: string; usernam
                         {r.status === 'Pending Approval' && canCreate && isOwn && !routed.get(r.no) ? <CancelApprovalButton no={r.no} kind="payment" /> : null}
                         {r.status === 'Pending Approval' && (canPost || routed.get(r.no)) ? (<><ApproveDocButton no={r.no} kind="payment" /><RejectDocButton no={r.no} kind="payment" /></>) : null}
                         {r.status === 'Approved' && !r.posted && canPost ? (<><ReopenDocButton no={r.no} kind="payment" /><PostPaymentJournalButton no={r.no} /></>) : null}
+                        <a className="btn sm ghost" href={`/print/payment-journal/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print</a>
                       </div>
                     </td>
                   </tr>

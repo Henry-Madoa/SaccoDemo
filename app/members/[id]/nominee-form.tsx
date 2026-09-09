@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { PHONE_PATTERN, PHONE_TITLE } from '@/lib/validate';
 import { FormModal } from '@/components/ui/form-modal';
 import { saveNextOfKin, saveNominees } from '@/app/actions/nominees';
 import { lookupMemberByIdentificationNo } from '@/app/actions/members';
@@ -106,7 +107,7 @@ export function NomineeFormButton({ memberId, nominees, className = 'btn', child
                     </select>
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="tel" inputMode="tel" pattern={PHONE_PATTERN} title={PHONE_TITLE} value={row.phone} aria-label="Phone"
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>
@@ -229,7 +230,7 @@ export function NextOfKinFormButton({ memberId, nextOfKin, className = 'btn', ch
                     </select>
                   </td>
                   <td>
-                    <input type="text" value={row.phone} aria-label="Phone"
+                    <input type="tel" inputMode="tel" pattern={PHONE_PATTERN} title={PHONE_TITLE} value={row.phone} aria-label="Phone"
                       onChange={(e) => update(i, { phone: e.target.value })} />
                   </td>
                   <td>

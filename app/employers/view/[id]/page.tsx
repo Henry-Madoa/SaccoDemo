@@ -7,6 +7,7 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, Stat, TableWrap, Toolbar,
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
+import { EmailLink, PhoneLink } from '@/components/ui/contact-link';
 
 export default async function EmployerViewPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireAction('EMPLOYERS_MANAGE');
@@ -24,7 +25,7 @@ export default async function EmployerViewPage({ params }: { params: Promise<{ i
   return (
     <Page title={employer.name} crumb={`Employer ${employer.code} · ${employer.status}`} user={user}>
       <Toolbar>
-        <Link href="/admin/pool/hr-payroll/employers" className="btn ghost sm">← All employers</Link>
+        <Link href="/admin/pool/finance/employers" className="btn ghost sm">← All employers</Link>
         <Link href="/checkoff-batches" className="btn ghost sm">Checkoff & Salary batches</Link>
       </Toolbar>
 
@@ -48,8 +49,8 @@ export default async function EmployerViewPage({ params }: { params: Promise<{ i
             <DefinitionList items={[
               ['Code', <span className="mono" key="code">{employer.code}</span>],
               ['Name', employer.name],
-              ['Phone', employer.phone || '—'],
-              ['Email', employer.email || '—'],
+              ['Phone', <PhoneLink value={employer.phone} key="phone" />],
+              ['Email', <EmailLink value={employer.email} key="email" />],
               ['Payroll No. mandatory', employer.payroll_no_mandatory ? 'Yes' : 'No'],
               ['Status', <Pill status={employer.status} key="status" />],
             ]} />

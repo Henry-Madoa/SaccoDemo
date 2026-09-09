@@ -22,6 +22,7 @@ import {
 import { CollateralAttachmentPanel } from './attachment-panel';
 import { CardNav } from '@/components/ui/card-nav';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
+import { PhoneLink } from '@/components/ui/contact-link';
 
 const VIEWS: CollateralApplicationView[] = ['open', 'pending', 'approved', 'processed'];
 
@@ -123,7 +124,7 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
             <DefinitionList items={[
               ['Owner name', application.owner_name || '—'],
               ['Owner ID no.', application.owner_id_no || '—'],
-              ['Owner phone no.', application.owner_phone_no || '—'],
+              ['Owner phone no.', <PhoneLink value={application.owner_phone_no} key="owner-phone-no" />],
               ['Joint ownership', application.joint_ownership ? <Pill tone="info" key="jo">YES</Pill> : '—'],
             ]} />
           </Card>

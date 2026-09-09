@@ -17,6 +17,7 @@ import type {
   Actor, Employee, EmployeeView as EmployeeRow, EmployeeNextOfKin, EmployeeBeneficiary, EmployeeDependant,
   EmployeeEmergencyContact, EmployeeProfessionalBody, EmployeeWorkHistory, EmployeeBankAccount, EmployeeContract,
 } from './types.ts';
+import { assertContactColumns, assertContactRows } from './validate.ts';
 
 /** Every field a New employee record (or an Employee Editing request) may carry — shared with
  *  lib/employeeEdits.ts so the two stay in lockstep. */
@@ -140,6 +141,7 @@ function assertMandatory(input: EmployeeInput): void {
 
 export async function createEmployee(input: EmployeeInput, user: Actor): Promise<{ id: number; employeeNo: string }> {
   assertMandatory(input);
+  assertContactColumns(input as Record<string, unknown>);
   const employeeNo = await nextSequence('EMPLOYEE');
   const cols = EMPLOYEE_EDITABLE_FIELDS.filter((f) => input[f] !== undefined);
   const info = await run(
@@ -157,6 +159,7 @@ export async function createEmployee(input: EmployeeInput, user: Actor): Promise
 }
 
 export async function updateEmployee(id: number, input: EmployeeInput, user: Actor): Promise<EmployeeRow> {
+  assertContactColumns(input as Record<string, unknown>);
   const before = await one<Employee>('SELECT * FROM employee WHERE id = ?', id);
   if (!before) throw new AppError('Employee not found', 'NOT_FOUND');
   if (before.status !== 'NEW') {
@@ -202,6 +205,7 @@ export const listNextOfKin = (employeeId: number): Promise<EmployeeNextOfKin[]> 
 
 export async function replaceNextOfKin(employeeId: number, rows: Omit<EmployeeNextOfKin, 'id' | 'employee_id'>[]): Promise<void> {
   const clean = rows.filter((r) => r.full_name?.trim());
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
   await tx(async () => {
     await run('DELETE FROM employee_next_of_kin WHERE employee_id = ?', employeeId);
     for (const r of clean) {
@@ -218,6 +222,7 @@ export const listBeneficiaries = (employeeId: number): Promise<EmployeeBeneficia
 
 export async function replaceBeneficiaries(employeeId: number, rows: Omit<EmployeeBeneficiary, 'id' | 'employee_id'>[]): Promise<void> {
   const clean = rows.filter((r) => r.full_name?.trim()).map((r) => ({ ...r, percentage: Number(r.percentage) || 0 }));
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
   await assertBeneficiaryPercentages(clean);
   await tx(async () => {
     await run('DELETE FROM employee_beneficiary WHERE employee_id = ?', employeeId);
@@ -257,6 +262,7 @@ export const listEmergencyContacts = (employeeId: number): Promise<EmployeeEmerg
 
 export async function replaceEmergencyContacts(employeeId: number, rows: Omit<EmployeeEmergencyContact, 'id' | 'employee_id'>[]): Promise<void> {
   const clean = rows.filter((r) => r.full_name?.trim());
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
   await tx(async () => {
     await run('DELETE FROM employee_emergency_contact WHERE employee_id = ?', employeeId);
     for (const r of clean) {

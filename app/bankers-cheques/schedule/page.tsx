@@ -1,9 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
-import { getOrg } from '@/lib/org';
-import { bankersChequeSchedule } from '@/lib/bankersCheques';
-import { renderBankersChequeScheduleHtml } from '@/lib/bankersChequeSchedule';
+import { buildBankersChequeScheduleDocument, renderDocument } from '@/lib/bankersChequeSchedule';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +13,12 @@ export default async function BankersChequeSchedulePage({ searchParams }: {
   await requireAction('BANKERS_CHEQUES_READ');
   const { from, to, no, print } = await searchParams;
 
-  const org = await getOrg();
-  if (!org) notFound();
-  const rows = await bankersChequeSchedule({ from, to, no });
-  const html = renderBankersChequeScheduleHtml(org, rows, { from, to, no });
+  const doc = await buildBankersChequeScheduleDocument({ from, to, no });
+  if (!doc) notFound();
 
   return (
     <>
-      <div className="no-print" style={{ maxWidth: 1000, margin: '0 auto 12px' }}>
+      <div className="no-print" style={{ maxWidth: '301mm', margin: '16px auto 12px' }}>
         <form method="get" className="inline" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label className="tiny">From<br /><input type="date" name="from" defaultValue={from} /></label>
           <label className="tiny">To<br /><input type="date" name="to" defaultValue={to} /></label>
@@ -32,13 +28,11 @@ export default async function BankersChequeSchedulePage({ searchParams }: {
           <Link href="/bankers-cheques" className="btn sm ghost">← Back</Link>
         </form>
       </div>
-      <div dangerouslySetInnerHTML={{ __html: html }} />
+      <div style={{ paddingBottom: 24 }} dangerouslySetInnerHTML={{ __html: renderDocument(doc) }} />
       <script
         dangerouslySetInnerHTML={{
-          __html: `
-            document.querySelector('[data-print]')?.addEventListener('click', function(){ window.print(); });
-            ${print ? "window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });" : ''}
-          `,
+          __html: "document.querySelector('[data-print]')?.addEventListener('click',function(){window.print();});"
+            + (print ? "window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});" : ''),
         }}
       />
     </>

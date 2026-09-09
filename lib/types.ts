@@ -3516,6 +3516,8 @@ export interface ApprovalUserSetupRow {
   user_id: number;
   username: string;
   full_name: string;
+  /** The user's scanned signature — a Cloudinary public_id, or null when none is on file. */
+  signature_image: string | null;
   approver_id: number | null;
   approver_name: string | null;
   substitute_id: number | null;
@@ -5455,56 +5457,11 @@ export interface PostedPaymentVoucherLine {
 
 /* ----------------------------------------------------------------- print slips */
 
-export interface ReceiptSlipLine { description: string; amount: Cents }
-export interface ReceiptSlip {
-  org_name: string;
-  org_address: string;
-  org_phone: string | null;
-  receipt_no: string;
-  date: IsoDate;
-  received_from: string;
-  pay_mode: string | null;
-  cheque_ref: string | null;
-  manual_no: string | null;
-  currency_code: string;
-  currency_symbol: string;
-  amount: Cents;
-  amount_words: string;
-  being_for: string;
-  lines: ReceiptSlipLine[];
-  issued_by: string | null;
-}
-
-export interface PaymentVoucherSlipLine {
-  account_no: string; account_name: string; description: string; amount: Cents;
-}
-export interface PaymentVoucherSlip {
-  org_name: string;
-  org_address: string;
-  org_phone: string | null;
-  pv_no: string;
-  date: IsoDate;
-  payee: string;
-  payee_bank: string | null;
-  payee_branch: string | null;
-  payee_account_no: string | null;
-  pay_mode: string | null;
-  paying_bank: string;
-  cheque_no: string | null;
-  cheque_date: IsoDate | null;
-  narration: string;
-  currency_code: string;
-  currency_symbol: string;
-  total: Cents;
-  total_words: string;
-  lines: PaymentVoucherSlipLine[];
-  prepared_by: string | null;
-  approved_by: string | null;
-  paid_by: string | null;
-  /** Deductions summary — populated when any line carries VAT / WHT. */
-  vat_total: Cents;
-  wht_total: Cents;
-  net_paid: Cents;
+/** A resolved signature for a printout — see lib/userSignatures.ts. */
+export interface SignatureBlock {
+  username: string;
+  full_name: string | null;
+  src: string | null;
 }
 
 /* --------------------------------------------------------------- VAT + Withholding Tax */
@@ -5643,6 +5600,8 @@ export interface WhtCertificateSlip {
   total_wht: Cents;
   total_wht_words: string;
   lines: WhtCertificateSlipLine[];
+  /** The issuing officer's signature on file, resolved at print time (lib/userSignatures.ts). */
+  issued_by_signature: SignatureBlock | null;
 }
 
 export interface VatInputListingRow {

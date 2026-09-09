@@ -60,7 +60,7 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
         {r.status === 'Pending Approval' && canApprove ? (<><ApproveButton no={r.no} kind="receipt" /><RejectButton no={r.no} kind="receipt" /></>) : null}
         {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="receipt" /> : null}
         {!r.posted && (r.status === 'Approved' || r.status === 'Open') && canPost ? <PostReceiptButton no={r.no} /> : null}
-        {r.posted ? <a className="btn" href={`/receipt-slip/${r.no}`} target="_blank" rel="noreferrer">Print official receipt</a> : null}
+        {r.posted ? <a className="btn" href={`/print/receipt/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print official receipt</a> : null}
       </div>
     </Page>
   );

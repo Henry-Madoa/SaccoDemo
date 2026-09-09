@@ -22,6 +22,7 @@ import type {
   Actor, MemberEditFieldDiff, MemberEditRequest, MemberEditRequestWithDimensions,
   MemberWithDimensions,
 } from './types.ts';
+import { assertContactColumns } from './validate.ts';
 
 /** Every member field this workflow may change — every MEMBER_FIELDS entry except the
  *  member's own lifecycle `status`, which stays out of this flow. */
@@ -298,6 +299,7 @@ export async function changeMemberEditRequestMember(
 export async function updateMemberEditRequest(
   no: string, body: MemberEditInput, user: Actor,
 ): Promise<MemberEditRequestWithDimensions> {
+  assertContactColumns(body as Record<string, unknown>);
   const req = await one<MemberEditRequest>('SELECT * FROM member_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open edit request can be edited', 'VALIDATION');

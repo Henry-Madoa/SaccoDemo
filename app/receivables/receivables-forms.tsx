@@ -10,10 +10,10 @@ import {
   createPaymentMethodRequest, updatePaymentMethodRequest,
   createFinanceChargeTermsRequest, updateFinanceChargeTermsRequest,
   createReminderTermsRequest, updateReminderTermsRequest,
-  requestCustomer, saveCustomer, saveSalesReceivablesSetupRequest,
+  requestCustomer, saveSalesReceivablesSetupRequest,
 } from '@/app/actions/receivables';
 import type {
-  CustomerListRow, CustomerPostingGroup, CustomerPostingGroupView, FinanceChargeTerms, GlAccount,
+  CustomerPostingGroup, CustomerPostingGroupView, FinanceChargeTerms, GlAccount,
   PaymentMethod, PaymentTerms, ReminderLevel, ReminderTerms, SalesReceivablesSetup,
 } from '@/lib/types';
 
@@ -25,14 +25,14 @@ const BLOCKED = [
 
 /* ------------------------------------------------------------------- Customer */
 
-export function CustomerFormButton({ customer, postingGroups, paymentTerms, paymentMethods, reminderTerms, finChargeTerms, className = 'btn', children }: {
-  customer?: CustomerListRow | null;
+/** Registering a customer. Everything after registration is edited on the customer's own card
+ *  (app/receivables/customer-card.tsx), so this modal only ever creates. */
+export function NewCustomerButton({ postingGroups, paymentTerms, paymentMethods, reminderTerms, finChargeTerms, className = 'btn', children }: {
   postingGroups: CustomerPostingGroupView[]; paymentTerms: PaymentTerms[]; paymentMethods: PaymentMethod[];
   reminderTerms: ReminderTerms[]; finChargeTerms: FinanceChargeTerms[];
   className?: string; children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const c = customer ?? null;
   const opts = (rows: { code: string; description: string }[], none = '(none)') =>
     [{ value: '', label: none }, ...rows.map((r) => ({ value: r.code, label: `${r.code} — ${r.description}` }))];
   return (
@@ -40,40 +40,41 @@ export function CustomerFormButton({ customer, postingGroups, paymentTerms, paym
       <button type="button" className={className} onClick={() => setOpen(true)}>{children}</button>
       {open ? (
         <FormModal
-          title={c ? `Edit ${c.no}` : 'New customer'} wide
+          title="New customer" wide
           onClose={() => setOpen(false)}
-          onSubmit={(v) => (c ? saveCustomer(c.no, v) : requestCustomer(v))}
-          submitLabel={c ? 'Save changes' : 'Create'}
-          successTitle={c ? 'Customer updated' : 'Customer created'}
+          onSubmit={requestCustomer}
+          submitLabel="Create"
+          successTitle="Customer created"
+          successDetail={(d) => `${d.no} registered — open its card to fill in the rest`}
         >
           <div className="grid g2">
-            <Field name="name" label="Name" required defaultValue={c?.name} />
-            <Field name="name2" label="Name 2" defaultValue={c?.name_2 ?? ''} placeholder="Optional" />
+            <Field name="name" label="Name" required />
+            <Field name="name2" label="Name 2" defaultValue="" placeholder="Optional" />
           </div>
           <div className="grid g2">
-            <Field name="address" label="Address" defaultValue={c?.address ?? ''} />
-            <Field name="city" label="City" defaultValue={c?.city ?? ''} />
+            <Field name="address" label="Address" defaultValue="" />
+            <Field name="city" label="City" defaultValue="" />
           </div>
           <div className="grid g3">
-            <Field name="contact" label="Contact" defaultValue={c?.contact ?? ''} />
-            <Field name="phone" label="Phone" defaultValue={c?.phone ?? ''} />
-            <Field name="email" label="Email" type="email" defaultValue={c?.email ?? ''} />
+            <Field name="contact" label="Contact" defaultValue="" />
+            <Field name="phone" label="Phone" defaultValue="" type="phone" />
+            <Field name="email" label="Email" type="email" defaultValue="" />
           </div>
           <div className="grid g2">
-            <Field name="customerPostingGroupCode" label="Customer posting group" type="select" defaultValue={c?.customer_posting_group_code ?? ''} options={opts(postingGroups)} />
-            <Field name="paymentTermsCode" label="Payment terms" type="select" defaultValue={c?.payment_terms_code ?? ''} options={opts(paymentTerms)} />
+            <Field name="customerPostingGroupCode" label="Customer posting group" type="select" defaultValue="" options={opts(postingGroups)} />
+            <Field name="paymentTermsCode" label="Payment terms" type="select" defaultValue="" options={opts(paymentTerms)} />
           </div>
           <div className="grid g2">
-            <Field name="paymentMethodCode" label="Payment method" type="select" defaultValue={c?.payment_method_code ?? ''} options={opts(paymentMethods)} />
-            <Field name="salesperson" label="Salesperson" defaultValue={c?.salesperson ?? ''} placeholder="Optional" />
+            <Field name="paymentMethodCode" label="Payment method" type="select" defaultValue="" options={opts(paymentMethods)} />
+            <Field name="salesperson" label="Salesperson" defaultValue="" placeholder="Optional" />
           </div>
           <div className="grid g2">
-            <Field name="reminderTermsCode" label="Reminder terms" type="select" defaultValue={c?.reminder_terms_code ?? ''} options={opts(reminderTerms)} />
-            <Field name="finChargeTermsCode" label="Fin. charge terms" type="select" defaultValue={c?.fin_charge_terms_code ?? ''} options={opts(finChargeTerms)} />
+            <Field name="reminderTermsCode" label="Reminder terms" type="select" defaultValue="" options={opts(reminderTerms)} />
+            <Field name="finChargeTermsCode" label="Fin. charge terms" type="select" defaultValue="" options={opts(finChargeTerms)} />
           </div>
           <div className="grid g2">
-            <Field name="creditLimit" label="Credit limit" type="currency" defaultValue={c ? String(c.credit_limit / 100) : '0'} />
-            <Field name="blocked" label="Blocked" type="select" defaultValue={c?.blocked ?? ''} options={BLOCKED} />
+            <Field name="creditLimit" label="Credit limit" type="currency" defaultValue="0" />
+            <Field name="blocked" label="Blocked" type="select" defaultValue="" options={BLOCKED} />
           </div>
         </FormModal>
       ) : null}

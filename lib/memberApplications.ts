@@ -18,6 +18,7 @@ import {
 import type {
   Actor, MemberApplication, MemberApplicationAttachment, MemberApplicationWithDimensions,
 } from './types.ts';
+import { assertContactColumns } from './validate.ts';
 
 const APPLICATION_FIELDS = [
   'member_type', 'member_category_id', 'title', 'first_name', 'middle_name', 'last_name', 'identification_no', 'kra_pin',
@@ -162,6 +163,7 @@ export async function getAdjacentApplicationNos(
 export async function createMemberApplication(
   body: MemberApplicationInput, user: Actor,
 ): Promise<{ no: string }> {
+  assertContactColumns(body as Record<string, unknown>);
   const no = await nextSequence('MEMBER_APPLICATION');
   const cols = APPLICATION_FIELDS.filter((f) => body[f] !== undefined);
   await run(
@@ -178,6 +180,7 @@ export async function createMemberApplication(
 export async function updateMemberApplication(
   no: string, body: MemberApplicationInput, user: Actor,
 ): Promise<MemberApplicationWithDimensions> {
+  assertContactColumns(body as Record<string, unknown>);
   const app = await one<MemberApplication>('SELECT * FROM member_application WHERE no = ?', no);
   if (!app) throw new AppError('Application not found', 'NOT_FOUND');
   if (app.status !== 'Open') throw new AppError('Only an open application can be edited', 'VALIDATION');

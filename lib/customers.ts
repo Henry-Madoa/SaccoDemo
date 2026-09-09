@@ -4,6 +4,7 @@
  * lib/custLedger.ts's recomputeCustomerBalance).
  */
 import { one, all, run, nextSequence, audit, hasAnyRow } from './db.ts';
+import { assertContactDetails } from './validate.ts';
 import { AppError } from './errors.ts';
 import { today } from './format.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
@@ -97,6 +98,7 @@ export interface CustomerInput {
 }
 
 async function assertCustomer(input: CustomerInput): Promise<void> {
+  assertContactDetails({ phone: input.phone, email: input.email });
   if (!input.name?.trim()) throw new AppError('A name is required', 'VALIDATION');
   if (!BLOCKED_VALUES.includes(input.blocked)) throw new AppError('Invalid Blocked value', 'VALIDATION');
   if (input.creditLimit < 0) throw new AppError('Credit limit cannot be negative', 'VALIDATION');

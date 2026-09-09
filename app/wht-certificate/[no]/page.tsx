@@ -1,21 +1,16 @@
 import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
-import { buildWhtCertificateSlip, renderWhtCertificateHtml } from '@/lib/whtCertificateSlip';
+import { buildWhtCertificateDocument, renderDocument } from '@/lib/whtCertificateSlip';
+import { Printable } from '@/components/ui/printable';
 
 export const dynamic = 'force-dynamic';
 
+/** Print-friendly Withholding Tax Certificate — AL Rep52203485. Opened in a new tab from the
+ *  payment voucher card's certificate list. */
 export default async function WhtCertificatePage({ params }: { params: Promise<{ no: string }> }) {
-  await requireAction('WHT_CERTIFICATE_PRINT');
+  await requireAction('CASH_MGMT_READ');
   const { no } = await params;
-  const slip = await buildWhtCertificateSlip(no);
-  if (!slip) notFound();
-  return (
-    <>
-      <div className="no-print" style={{ maxWidth: 700, margin: '0 auto 12px', textAlign: 'right' }}>
-        <button type="button" className="btn" data-print>Print / Save as PDF</button>
-      </div>
-      <div dangerouslySetInnerHTML={{ __html: renderWhtCertificateHtml(slip) }} />
-      <script dangerouslySetInnerHTML={{ __html: `document.querySelector('[data-print]')?.addEventListener('click',function(){window.print();});window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});` }} />
-    </>
-  );
+  const cert = await buildWhtCertificateDocument(no);
+  if (!cert) notFound();
+  return <Printable html={renderDocument(cert)} />;
 }

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAction, requireUser } from '@/lib/session';
-import { actionResult } from '@/lib/errors';
+import { actionResult, AppError } from '@/lib/errors';
 import { toCents } from '@/lib/format';
 import {
   listVendorPostingGroups, createVendorPostingGroup, updateVendorPostingGroup, type VendorPostingGroupInput,
@@ -34,7 +34,7 @@ const revalidate = (): void => revalidatePath('/payables', 'layout');
 const str = (v: unknown): string => String(v ?? '').trim();
 const opt = (v: unknown): string | null => (str(v) === '' ? null : str(v));
 const numOrNull = (v: unknown): number | null => (v === undefined || v === '' || v === null ? null : Number(v));
-const bool = (v: unknown): boolean => v === 'on' || v === 'true' || v === true;
+const bool = (v: unknown): boolean => v === 'on' || v === 'true' || v === true || v === 1 || v === '1';
 
 /* ------------------------------------------------------------------ setup masters */
 
@@ -79,7 +79,9 @@ export async function savePurchasesPayablesSetupRequest(v: FormValues): Promise<
 const toVendorInput = (v: FormValues): VendorInput => ({
   name: str(v.name), name2: opt(v.name2), address: opt(v.address), address2: opt(v.address2), city: opt(v.city),
   postCode: opt(v.postCode), country: opt(v.country), contact: opt(v.contact), phone: opt(v.phone), email: opt(v.email),
-  vendorPostingGroupCode: opt(v.vendorPostingGroupCode), paymentTermsCode: opt(v.paymentTermsCode),
+  vendorPostingGroupCode: opt(v.vendorPostingGroupCode), vatBusPostingGroupCode: opt(v.vatBusPostingGroupCode),
+  pinNo: opt(v.pinNo), whtExempt: bool(v.whtExempt), currencyCode: opt(v.currencyCode),
+  paymentTermsCode: opt(v.paymentTermsCode),
   paymentMethodCode: opt(v.paymentMethodCode), purchaser: opt(v.purchaser), ourAccountNo: opt(v.ourAccountNo),
   creditLimit: toCents(v.creditLimit), blocked: (str(v.blocked || '') as VendorBlocked),
   globalDimension1Id: numOrNull(v.globalDimension1Id), globalDimension2Id: numOrNull(v.globalDimension2Id),
@@ -119,8 +121,14 @@ export interface PurchaseLineDraft {
   type: string; no: string; description: string; quantity: string; directUnitCost: string; lineDiscountPct: string;
   locationCode: string; faDepreciationBookCode: string;
 }
+// Every line the user keeps has to say what it is for — lib/purchaseDocuments.ts would otherwise
+// fall back to the master record's own name, which reads as boilerplate on the printed document.
 const toPurchaseLines = (lines: PurchaseLineDraft[]): PurchaseLineInput[] => lines
   .filter((l) => l.type === 'Comment' || l.no)
+  .map((l) => {
+    if (!l.description?.trim()) throw new AppError('Every document line needs a description', 'VALIDATION');
+    return l;
+  })
   .map((l) => ({
     type: (l.type as PurchaseLineType), no: l.no || null, description: l.description || null,
     quantity: Number(l.quantity || 0), directUnitCost: toCents(l.directUnitCost), lineDiscountPct: Number(l.lineDiscountPct || 0),

@@ -23,6 +23,7 @@ import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, AccountOpeningRequest, AccountOpeningRequestWithDimensions, Member, SavingsProduct,
 } from './types.ts';
+import { assertPhone } from './validate.ts';
 
 /** The four nav sub-views — "processed" means the savings account has actually been opened. */
 export type AccountOpeningView = 'open' | 'pending' | 'approved' | 'processed';
@@ -199,6 +200,7 @@ export async function createAccountOpeningRequest(
   }: CreateAccountOpeningInput,
   user: Actor,
 ): Promise<{ no: string }> {
+  assertPhone(businessPhoneNo, 'Business Phone No.');
   const member = await one<Member>('SELECT * FROM member WHERE id = ?', memberId);
   if (!member) throw new AppError('Member not found', 'NOT_FOUND');
   if (member.status === 'WITHDRAWN' || member.status === 'DECEASED') {
@@ -287,7 +289,10 @@ export async function updateAccountOpeningRequest(
   if (body.businessName !== undefined) cols.business_name = body.businessName;
   if (body.businessLocation !== undefined) cols.business_location = body.businessLocation;
   if (body.businessPaybillTillNo !== undefined) cols.business_paybill_till_no = body.businessPaybillTillNo;
-  if (body.businessPhoneNo !== undefined) cols.business_phone_no = body.businessPhoneNo;
+  if (body.businessPhoneNo !== undefined) {
+    assertPhone(body.businessPhoneNo, 'Business Phone No.');
+    cols.business_phone_no = body.businessPhoneNo;
+  }
   if (body.juniorName !== undefined) cols.junior_name = body.juniorName;
   if (body.juniorBirthCertNo !== undefined) cols.junior_birth_cert_no = body.juniorBirthCertNo;
   if (body.juniorDateOfBirth !== undefined) cols.junior_date_of_birth = body.juniorDateOfBirth;

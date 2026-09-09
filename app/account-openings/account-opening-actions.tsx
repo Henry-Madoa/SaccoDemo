@@ -118,7 +118,7 @@ function BusinessFields({ defaults }: {
       <Field name="businessName" label="Business Name" defaultValue={defaults?.business_name ?? ''} required />
       <Field name="businessLocation" label="Business Location" defaultValue={defaults?.business_location ?? ''}required />
       <Field name="businessPaybillTillNo" label="Paybill / Till No." defaultValue={defaults?.business_paybill_till_no ?? ''} />
-      <Field name="businessPhoneNo" label="Business Phone No." defaultValue={defaults?.business_phone_no ?? ''} required />
+      <Field name="businessPhoneNo" label="Business Phone No." defaultValue={defaults?.business_phone_no ?? ''} required type="phone" />
     </div>
   );
 }

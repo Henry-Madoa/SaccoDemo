@@ -105,6 +105,7 @@ import { WorkflowFormButton } from '../workflow-form';
 import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
 import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
 import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
+import { UserSignatureButton } from '../user-signature-form';
 import { ChangeLogSetupTable } from '../change-log-setup-table';
 import { ConfigPackageFormButton } from '../config-package-form';
 import { ConfigPackageCard, DeleteConfigPackageButton } from '../config-package-io';
@@ -145,6 +146,7 @@ const POOL_GROUPS: PoolGroup[] = [
     ],
   },
   {
+    
     key: 'membership', label: 'Membership', screens: [
       { key: 'member-categories', label: 'Member Categories', page: 'ADMIN_POOL_CATEGORIES' },
       { key: 'account-instructions', label: 'Account Instructions', page: 'ADMIN_ACCOUNT_INSTRUCTIONS' },
@@ -156,6 +158,7 @@ const POOL_GROUPS: PoolGroup[] = [
       { key: 'collateral-types', label: 'Collateral Types', page: 'ADMIN_PRODUCTS_COLLATERAL' },
       { key: 'fd-types', label: 'Fixed Deposit Types', page: 'ADMIN_PRODUCTS_FD' },
       { key: 'sectors', label: 'Economic Sectors', page: 'ADMIN_POOL_SECTORS' },
+      { key: 'salary-params', label: 'Salary Appraisal Parameters', page: 'ADMIN_PRODUCTS_SALARY_PARAMS' },
     ],
   },
   {
@@ -173,12 +176,11 @@ const POOL_GROUPS: PoolGroup[] = [
       { key: 'transaction-charges', label: 'Transaction Charges', page: 'ADMIN_CHARGES_TRANSACTION' },
       { key: 'currencies', label: 'Currencies', page: 'ADMIN_POOL_CURRENCIES' },
       { key: 'vat-posting-setup', label: 'VAT Posting Setup', page: 'ADMIN_POOL_VAT' },
+      { key: 'employers', label: 'Employers', page: 'ADMIN_PRODUCTS_EMPLOYERS' },
     ],
   },
   {
     key: 'hr-payroll', label: 'HR & Payroll', screens: [
-      { key: 'salary-params', label: 'Salary Appraisal Parameters', page: 'ADMIN_PRODUCTS_SALARY_PARAMS' },
-      { key: 'employers', label: 'Employers', page: 'ADMIN_PRODUCTS_EMPLOYERS' },
       { key: 'job-grades', label: 'Job Grades', page: 'ADMIN_HR_JOB_GRADES' },
       { key: 'contract-types', label: 'Employment Contract Types', page: 'ADMIN_HR_CONTRACT_TYPES' },
       { key: 'termination-reasons', label: 'Termination Reasons', page: 'ADMIN_HR_TERMINATION_REASONS' },
@@ -2236,13 +2238,17 @@ async function TableRelationsTab() {
 
 async function ApprovalUserSetupTab() {
   const rows = await listApprovalUserSetup();
+  const mediaEnabled = isConfigured();
 
   return (
     <Card>
-      <CardHead title="User setup" sub="Who approves each user's requests, their substitute, fallback approval administrators, and per-user posting-date overrides" />
+      <CardHead
+        title="User setup"
+        sub="Who approves each user's requests, their substitute, fallback approval administrators, per-user posting-date overrides, and the signature stamped onto documents they approve"
+      />
       <TableWrap>
         <thead>
-          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th>Posting window</th><th className="num" /></tr>
+          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th>Posting window</th><th>Signature</th><th className="num" /></tr>
         </thead>
         <tbody>
           {rows.map((r) => (
@@ -2256,6 +2262,18 @@ async function ApprovalUserSetupTab() {
                 {r.allow_posting_from || r.allow_posting_to
                   ? `${r.allow_posting_from ?? '…'}${r.allow_posting_from_time ? ` ${r.allow_posting_from_time}` : ''} – ${r.allow_posting_to ?? '…'}${r.allow_posting_to_time ? ` ${r.allow_posting_to_time}` : ''}`
                   : 'Company default'}
+              </td>
+              <td>
+                <div className="inline" style={{ gap: 8 }}>
+                  {imageSrc(r.signature_image, { width: 120, height: 40, crop: 'fit' })
+                    ? <img src={imageSrc(r.signature_image, { width: 120, height: 40, crop: 'fit' })!}
+                        alt={`${r.full_name} signature`} style={{ maxHeight: 32 }} />
+                    : <span className="tiny muted-cell">None on file</span>}
+                  <UserSignatureButton
+                    userId={r.user_id} fullName={r.full_name} mediaEnabled={mediaEnabled}
+                    src={imageSrc(r.signature_image, { width: 360, height: 140, crop: 'fit' })}
+                  />
+                </div>
               </td>
               <td className="num">
                 <ApprovalUserSetupFormButton row={r} users={rows} className="btn sm ghost">Edit</ApprovalUserSetupFormButton>

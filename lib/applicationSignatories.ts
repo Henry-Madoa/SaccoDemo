@@ -1,5 +1,6 @@
 import { all, run, tx } from './db.ts';
 import type { MemberApplicationSignatory } from './types.ts';
+import { assertContactRows } from './validate.ts';
 
 export const listApplicationSignatories = (applicationNo: string): Promise<MemberApplicationSignatory[]> =>
   all<MemberApplicationSignatory>(
@@ -18,6 +19,8 @@ export interface SignatoryDraft {
 /** Replaces an application's full signatory list with the submitted rows — nothing else references these rows. */
 export async function replaceApplicationSignatories(applicationNo: string, rows: SignatoryDraft[]): Promise<void> {
   const clean = rows.map((r) => ({ ...r, name: String(r.name || '').trim() })).filter((r) => r.name);
+
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
 
   await tx(async () => {
     await run('DELETE FROM member_application_signatory WHERE application_no = ?', applicationNo);

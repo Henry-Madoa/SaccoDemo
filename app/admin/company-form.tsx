@@ -118,8 +118,8 @@ export function CompanyForm({ org, charges, logoSrc, mediaEnabled }: CompanyForm
               <Field name="county" label="County" defaultValue={org.county} />
               <Field name="country" label="Country" defaultValue={org.country} />
               <Field name="website" label="Website" defaultValue={org.website} />
-              <Field name="phone_primary" label="Primary telephone" defaultValue={org.phone_primary} />
-              <Field name="phone_secondary" label="Secondary telephone" defaultValue={org.phone_secondary} />
+              <Field name="phone_primary" label="Primary telephone" defaultValue={org.phone_primary} type="phone" />
+              <Field name="phone_secondary" label="Secondary telephone" defaultValue={org.phone_secondary} type="phone" />
               <Field name="email" label="Email address" type="email" defaultValue={org.email} />
             </div>
           </Card>

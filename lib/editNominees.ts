@@ -1,6 +1,7 @@
 import { one, all, run, tx } from './db.ts';
 import { AppError } from './errors.ts';
 import type { MemberEditNextOfKin, MemberEditNominee } from './types.ts';
+import { assertContactRows } from './validate.ts';
 
 /* ------------------------------------------------------------------- next of kin */
 export const listEditNextOfKin = (editNo: string): Promise<MemberEditNextOfKin[]> =>
@@ -33,6 +34,8 @@ export async function replaceEditNextOfKin(editNo: string, rows: NextOfKinDraft[
     .map((r) => ({ ...r, name: String(r.name || '').trim(), identification_no: r.identification_no?.trim() || null }))
     .filter((r) => r.name);
   assertNoDuplicateId(clean, 'this member\'s next of kin');
+
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
 
   await tx(async () => {
     await run('DELETE FROM member_edit_next_of_kin WHERE edit_no = ?', editNo);
@@ -82,6 +85,8 @@ export async function replaceEditNominees(editNo: string, rows: NomineeDraft[]):
       throw new AppError(`Nominee percentages must add up to 100% (currently ${total}%)`, 'VALIDATION');
     }
   }
+
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
 
   await tx(async () => {
     await run('DELETE FROM member_edit_nominee WHERE edit_no = ?', editNo);

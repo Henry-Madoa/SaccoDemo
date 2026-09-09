@@ -1,5 +1,6 @@
 import { all, run, tx } from './db.ts';
 import type { MemberEditSignatory } from './types.ts';
+import { assertContactRows } from './validate.ts';
 
 export const listEditSignatories = (editNo: string): Promise<MemberEditSignatory[]> =>
   all<MemberEditSignatory>('SELECT * FROM member_edit_signatory WHERE edit_no = ? ORDER BY id', editNo);
@@ -16,6 +17,8 @@ export interface SignatoryDraft {
 /** Replaces an edit request's full signatory list with the submitted rows — nothing else references these rows. */
 export async function replaceEditSignatories(editNo: string, rows: SignatoryDraft[]): Promise<void> {
   const clean = rows.map((r) => ({ ...r, name: String(r.name || '').trim() })).filter((r) => r.name);
+
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
 
   await tx(async () => {
     await run('DELETE FROM member_edit_signatory WHERE edit_no = ?', editNo);

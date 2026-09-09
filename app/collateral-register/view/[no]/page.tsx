@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import { CardNav } from '@/components/ui/card-nav';
+import { PhoneLink } from '@/components/ui/contact-link';
 
 export default async function CollateralRegisterDetailPage({ params }: {
   params: Promise<{ no: string }>;
@@ -71,7 +72,7 @@ export default async function CollateralRegisterDetailPage({ params }: {
             <DefinitionList items={[
               ['Owner name', register.owner_name || '—'],
               ['Owner ID no.', register.owner_id_no || '—'],
-              ['Owner phone no.', register.owner_phone_no || '—'],
+              ['Owner phone no.', <PhoneLink value={register.owner_phone_no} key="owner-phone-no" />],
             ]} />
           </Card>
 

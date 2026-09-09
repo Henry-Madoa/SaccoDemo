@@ -87,6 +87,24 @@ const VPS_SELECT = `
 export const listVatPostingSetup = (): Promise<VatPostingSetupView[]> =>
   all<VatPostingSetupView>(`${VPS_SELECT} ORDER BY s.vat_bus_posting_group_code, s.vat_prod_posting_group_code`);
 
+/**
+ * Every live VAT rate, as `rates[busCode][prodCode] = pct` — the same pairs
+ * lib/vatEngine.ts's resolveVatSetup() resolves one at a time, flattened so a document's line
+ * editor can show Total Incl. VAT while it is still being typed. Withholding-tax rows and
+ * blocked rows are left out: neither is charged on a purchase line.
+ */
+export async function vatRateMatrix(): Promise<Record<string, Record<string, number>>> {
+  const rows = await all<{ vat_bus_posting_group_code: string; vat_prod_posting_group_code: string; vat_pct: number }>(
+    `SELECT vat_bus_posting_group_code, vat_prod_posting_group_code, vat_pct
+     FROM vat_posting_setup WHERE tax_type = 'VAT' AND blocked = 0`,
+  );
+  const rates: Record<string, Record<string, number>> = {};
+  for (const r of rows) {
+    (rates[r.vat_bus_posting_group_code] ??= {})[r.vat_prod_posting_group_code] = r.vat_pct;
+  }
+  return rates;
+}
+
 export const getVatPostingSetup = (busCode: string, prodCode: string): Promise<VatPostingSetup | undefined> =>
   one<VatPostingSetup>(
     'SELECT * FROM vat_posting_setup WHERE vat_bus_posting_group_code = ? AND vat_prod_posting_group_code = ?',

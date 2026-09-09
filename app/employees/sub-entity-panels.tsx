@@ -18,9 +18,9 @@ const strip = <T extends { id: number }>(rows: T[]): Row<T>[] => rows.map(({ id:
 const NOK_COLUMNS: LineColumn<Row<EmployeeNextOfKin>>[] = [
   { key: 'full_name', label: 'Name' },
   { key: 'relationship', label: 'Relationship', type: 'select', options: RELATIONSHIPS },
-  { key: 'phone', label: 'Phone' },
+  { key: 'phone', label: 'Phone', type: 'phone' },
   { key: 'id_no', label: 'ID No.' },
-  { key: 'email', label: 'Email' },
+  { key: 'email', label: 'Email', type: 'email' },
 ];
 const emptyNok = (): Row<EmployeeNextOfKin> => ({ employee_id: 0, full_name: '', relationship: null, id_no: null, phone: null, email: null });
 
@@ -93,9 +93,9 @@ export function DependantsPanel({ employeeId, rows, canManage }: { employeeId: n
 const EC_COLUMNS: LineColumn<Row<EmployeeEmergencyContact>>[] = [
   { key: 'full_name', label: 'Name' },
   { key: 'relationship', label: 'Relationship', type: 'select', options: RELATIONSHIPS },
-  { key: 'phone', label: 'Phone' },
-  { key: 'alt_phone', label: 'Alt. Phone' },
-  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone', type: 'phone' },
+  { key: 'alt_phone', label: 'Alt. Phone', type: 'phone' },
+  { key: 'email', label: 'Email', type: 'email' },
 ];
 const emptyEc = (): Row<EmployeeEmergencyContact> => ({ employee_id: 0, full_name: '', relationship: null, phone: null, alt_phone: null, email: null });
 

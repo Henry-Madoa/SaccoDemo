@@ -2,40 +2,86 @@
 
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
-import { Field } from '@/components/ui/field';
+import { Field, MoneyInput, toTwoDp } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { today } from '@/lib/format';
-import { requestPurchaseDocument, savePurchaseDocument, type PurchaseLineDraft } from '@/app/actions/payables';
+import { today, toCents } from '@/lib/format';
+import { Money } from '@/components/ui/money';
+import { DocumentTotalsPanel } from '@/components/ui/document-totals';
+import {
+  computeDocumentTotals, computeLineAmounts, previewVatPct,
+  type DocumentLineDraft, type VatPreview,
+} from '@/lib/documentTotals';
+import { requestPurchaseDocument, type PurchaseLineDraft } from '@/app/actions/payables';
 import type { PaymentMethod, PaymentTerms, PurchaseDocumentDetail, PurchaseDocumentType } from '@/lib/types';
 
-type EligibleVendor = { id: number; no: string; name: string; blocked: string; payment_terms_code: string | null };
+type EligibleVendor = {
+  id: number; no: string; name: string; blocked: string;
+  payment_terms_code: string | null; vat_bus_posting_group_code: string | null;
+};
+
+/** Every table-relation list the header + line fields pick from. The Payables tab builds it once
+ *  and hands the same object to the New modal and to the document card's inline editor. */
+export interface PurchaseDocLookups {
+  vendors: EligibleVendor[]; paymentTerms: PaymentTerms[]; paymentMethods: PaymentMethod[];
+  accounts: { code: string; name: string }[]; items: { no: string; description: string }[];
+  fixedAssets: { no: string; description: string }[]; locations: { code: string; name: string }[];
+  /** The VAT Posting Setup, flattened, so the totals can include VAT before the document is saved. */
+  vatPreview?: VatPreview;
+}
 
 const LINE_TYPES = ['G/L Account', 'Item', 'Fixed Asset', 'Comment'];
-const emptyLine = (): PurchaseLineDraft => ({
+export const emptyLine = (): PurchaseLineDraft => ({
   type: 'G/L Account', no: '', description: '', quantity: '1', directUnitCost: '', lineDiscountPct: '',
   locationCode: '', faDepreciationBookCode: '',
 });
 
-function DocFields({ documentType, vendors, paymentTerms, paymentMethods, accounts, items, fixedAssets, locations, initial, lines, setLines }: {
+export function DocFields({ documentType, vendors, paymentTerms, paymentMethods, accounts, items, fixedAssets, locations, vatPreview, initial, lines, setLines }: PurchaseDocLookups & {
   documentType: PurchaseDocumentType;
-  vendors: EligibleVendor[]; paymentTerms: PaymentTerms[]; paymentMethods: PaymentMethod[];
-  accounts: { code: string; name: string }[]; items: { no: string; description: string }[];
-  fixedAssets: { no: string; description: string }[]; locations: { code: string; name: string }[];
   initial?: PurchaseDocumentDetail | null; lines: PurchaseLineDraft[]; setLines: (l: PurchaseLineDraft[]) => void;
 }) {
   const editing = !!initial;
   const [vendorId, setVendorId] = useState(String(initial?.vendor_id ?? ''));
+  // VAT follows the vendor's VAT Bus. Posting Group, so the totals move when the vendor changes.
+  const vatBus = initial?.vat_bus_posting_group_code
+    ?? vendors.find((v) => String(v.id) === vendorId)?.vat_bus_posting_group_code
+    ?? null;
+  const drafts = lines.map((l) => asDraft(l, vatPreview, vatBus));
+  const totals = computeDocumentTotals(drafts, { pricesInclVat: !!vatPreview?.pricesInclVat });
   const set = (i: number, k: keyof PurchaseLineDraft, v: string) => setLines(lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)));
+  const patch = (i: number, p: Partial<PurchaseLineDraft>) => setLines(lines.map((l, idx) => (idx === i ? { ...l, ...p } : l)));
+
+  /** What the posting routine would name this line if the description were left blank — the
+   *  master record's own name (lib/purchaseDocuments.ts's resolveLine). */
+  const masterName = (type: string, no: string): string => {
+    if (!no) return '';
+    if (type === 'G/L Account') return accounts.find((a) => a.code === no)?.name ?? '';
+    if (type === 'Item') return items.find((a) => a.no === no)?.description ?? '';
+    if (type === 'Fixed Asset') return fixedAssets.find((a) => a.no === no)?.description ?? '';
+    return '';
+  };
+  /** Picking a No. fills the description with that record's name, but never overwrites wording
+   *  the user typed themselves. */
+  const pickNo = (i: number, l: PurchaseLineDraft, no: string) => {
+    const wasAuto = !l.description || l.description === masterName(l.type, l.no);
+    patch(i, { no, description: wasAuto ? masterName(l.type, no) : l.description });
+  };
+  const pickType = (i: number, l: PurchaseLineDraft, type: string) => {
+    const wasAuto = !l.description || l.description === masterName(l.type, l.no);
+    patch(i, { type, no: '', description: wasAuto ? '' : l.description });
+  };
 
   return (
     <>
       <input type="hidden" name="documentType" value={documentType} />
       <div className="grid g2">
         <SearchableSelect
-          name="vendorId" label="Vendor" required items={vendors} value={vendorId} disabled={editing}
+          name={editing ? 'vendorPick' : 'vendorId'} label="Vendor" required items={vendors} value={vendorId} disabled={editing}
           getValue={(c) => String(c.id)} getLabel={(c) => `${c.no} — ${c.name}${c.blocked ? ` (blocked: ${c.blocked})` : ''}`}
           onChange={setVendorId} placeholder="Search vendor…" emptyText="No matching vendors"
         />
+        {/* A disabled control is left out of FormData, so an edit still has to submit the vendor
+            it was created against — the document keeps its vendor once lines exist. */}
+        {editing ? <input type="hidden" name="vendorId" value={vendorId} /> : null}
         <Field name="postingDate" label="Posting date" type="date" required defaultValue={initial?.posting_date ?? today()} />
       </div>
       <div className="grid g3">
@@ -50,34 +96,48 @@ function DocFields({ documentType, vendors, paymentTerms, paymentMethods, accoun
       <div className="hint" style={{ marginTop: 'calc(var(--sp)*1)' }}>Lines</div>
       <table>
         <thead>
-          <tr><th style={{ width: 110 }}>Type</th><th>No.</th><th>Description</th><th style={{ width: 70 }}>Qty</th><th style={{ width: 120 }}>Direct unit cost</th><th style={{ width: 60 }}>Disc %</th><th style={{ width: 40 }} /></tr>
+          <tr>
+            <th style={{ width: 110 }}>Type</th><th>No.</th><th>Description <span className="req">*</span></th>
+            <th style={{ width: 70 }}>Qty</th><th style={{ width: 120 }}>Direct unit cost</th>
+            <th style={{ width: 60 }}>Disc %</th>
+            <th className="num" style={{ width: 120 }}>Line Amount</th>
+            <th style={{ width: 40 }} />
+          </tr>
         </thead>
         <tbody>
           {lines.map((l, i) => (
             <tr key={i}>
               <td>
-                <select value={l.type} onChange={(e) => set(i, 'type', e.target.value)} aria-label="Line type">
+                <select value={l.type} onChange={(e) => pickType(i, l, e.target.value)} aria-label="Line type">
                   {LINE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </td>
               <td>
                 {l.type === 'Comment' ? null
                   : l.type === 'G/L Account'
-                    ? <select value={l.no} onChange={(e) => set(i, 'no', e.target.value)} aria-label="Account"><option value="">…</option>{accounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select>
+                    ? <select value={l.no} onChange={(e) => pickNo(i, l, e.target.value)} aria-label="Account"><option value="">…</option>{accounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select>
                     : l.type === 'Item'
-                      ? <select value={l.no} onChange={(e) => set(i, 'no', e.target.value)} aria-label="Item"><option value="">…</option>{items.map((a) => <option key={a.no} value={a.no}>{a.no} — {a.description}</option>)}</select>
-                      : <select value={l.no} onChange={(e) => set(i, 'no', e.target.value)} aria-label="Fixed asset"><option value="">…</option>{fixedAssets.map((a) => <option key={a.no} value={a.no}>{a.no} — {a.description}</option>)}</select>}
+                      ? <select value={l.no} onChange={(e) => pickNo(i, l, e.target.value)} aria-label="Item"><option value="">…</option>{items.map((a) => <option key={a.no} value={a.no}>{a.no} — {a.description}</option>)}</select>
+                      : <select value={l.no} onChange={(e) => pickNo(i, l, e.target.value)} aria-label="Fixed asset"><option value="">…</option>{fixedAssets.map((a) => <option key={a.no} value={a.no}>{a.no} — {a.description}</option>)}</select>}
               </td>
-              <td><input value={l.description} onChange={(e) => set(i, 'description', e.target.value)} aria-label="Description" /></td>
+              <td>
+                <input type="text" value={l.description} required maxLength={100}
+                  onChange={(e) => set(i, 'description', e.target.value)} aria-label="Description"
+                  placeholder={l.type === 'Comment' ? 'Comment text' : masterName(l.type, l.no) || 'What is being bought'} />
+              </td>
               <td><input type="number" step="0.01" min={0} value={l.quantity} onChange={(e) => set(i, 'quantity', e.target.value)} aria-label="Quantity" disabled={l.type === 'Comment' || l.type === 'Fixed Asset'} /></td>
-              <td><input type="number" step="0.01" min={0} value={l.directUnitCost} onChange={(e) => set(i, 'directUnitCost', e.target.value)} aria-label="Direct unit cost" disabled={l.type === 'Comment'} placeholder={l.type === 'Fixed Asset' ? 'acquisition cost' : ''} /></td>
+              <td><MoneyInput value={l.directUnitCost} onChange={(v) => set(i, 'directUnitCost', v)} className="num" min={0} ariaLabel="Direct unit cost" disabled={l.type === 'Comment'} placeholder={l.type === 'Fixed Asset' ? 'acquisition cost' : ''} /></td>
               <td><input type="number" step="0.01" min={0} max={100} value={l.lineDiscountPct} onChange={(e) => set(i, 'lineDiscountPct', e.target.value)} aria-label="Discount %" disabled={l.type === 'Comment'} /></td>
+              <td className="num">
+                {l.type === 'Comment' ? <span className="muted-cell">—</span>
+                  : <Money cents={computeLineAmounts(drafts[i], { pricesInclVat: !!vatPreview?.pricesInclVat }).lineAmount} />}
+              </td>
               <td><button type="button" className="btn sm ghost" onClick={() => setLines(lines.filter((_, idx) => idx !== i))} aria-label="Remove">×</button></td>
             </tr>
           ))}
           {lines.some((l) => l.type === 'Item') ? (
             <tr>
-              <td colSpan={7} className="tiny">
+              <td colSpan={8} className="tiny">
                 Item lines need a location:{' '}
                 {lines.map((l, i) => (l.type === 'Item' ? (
                   <span key={i}>
@@ -93,15 +153,35 @@ function DocFields({ documentType, vendors, paymentTerms, paymentMethods, accoun
         </tbody>
       </table>
       <button type="button" className="btn ghost sm" style={{ marginTop: 8 }} onClick={() => setLines([...lines, emptyLine()])}>Add line</button>
+      <DocumentTotalsPanel
+        totals={totals} showVat currencyCode={initial?.currency_code}
+        note={vatPreview?.pricesInclVat ? 'unit costs include VAT' : 'VAT added to the net'}
+      />
     </>
   );
 }
 
-export function NewPurchaseDocumentButton({ documentType, ...rest }: {
+/** The saved document's lines as editable drafts — cents back to a plain '1234.00' string. */
+/** A draft row in the shape lib/documentTotals.ts adds up, with its VAT % resolved the way the
+ *  save will resolve it (lib/vatEngine.ts's resolveVatSetup, via the flattened matrix). */
+const asDraft = (
+  l: PurchaseLineDraft, vatPreview: VatPreview | undefined, vatBus: string | null,
+): DocumentLineDraft => ({
+  type: l.type, no: l.no, quantity: Number(l.quantity) || 0, unitAmount: toCents(l.directUnitCost),
+  lineDiscountPct: Number(l.lineDiscountPct) || 0,
+  vatPct: previewVatPct(vatPreview, vatBus, l.type, l.no),
+});
+
+export const linesOf = (doc: PurchaseDocumentDetail): PurchaseLineDraft[] => (doc.lines.length
+  ? doc.lines.map((l) => ({
+    type: l.type, no: l.no ?? '', description: l.description ?? '', quantity: String(l.quantity),
+    directUnitCost: toTwoDp(String(l.direct_unit_cost / 100)), lineDiscountPct: String(l.line_discount_pct),
+    locationCode: l.location_code ?? '', faDepreciationBookCode: l.fa_depreciation_book_code ?? '',
+  }))
+  : [emptyLine()]);
+
+export function NewPurchaseDocumentButton({ documentType, ...rest }: PurchaseDocLookups & {
   documentType: PurchaseDocumentType;
-  vendors: EligibleVendor[]; paymentTerms: PaymentTerms[]; paymentMethods: PaymentMethod[];
-  accounts: { code: string; name: string }[]; items: { no: string; description: string }[];
-  fixedAssets: { no: string; description: string }[]; locations: { code: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<PurchaseLineDraft[]>([emptyLine()]);
@@ -117,38 +197,6 @@ export function NewPurchaseDocumentButton({ documentType, ...rest }: {
           successDetail={(d) => `${d.no} created — submit it for approval`}
         >
           <DocFields documentType={documentType} {...rest} lines={lines} setLines={setLines} />
-        </FormModal>
-      ) : null}
-    </>
-  );
-}
-
-export function EditPurchaseDocumentButton({ doc, documentType, className = 'btn ghost sm', ...rest }: {
-  doc: PurchaseDocumentDetail; documentType: PurchaseDocumentType; className?: string;
-  vendors: EligibleVendor[]; paymentTerms: PaymentTerms[]; paymentMethods: PaymentMethod[];
-  accounts: { code: string; name: string }[]; items: { no: string; description: string }[];
-  fixedAssets: { no: string; description: string }[]; locations: { code: string; name: string }[];
-}) {
-  const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<PurchaseLineDraft[]>(() =>
-    doc.lines.length
-      ? doc.lines.map((l) => ({
-        type: l.type, no: l.no ?? '', description: l.description ?? '', quantity: String(l.quantity),
-        directUnitCost: String(l.direct_unit_cost / 100), lineDiscountPct: String(l.line_discount_pct),
-        locationCode: l.location_code ?? '', faDepreciationBookCode: l.fa_depreciation_book_code ?? '',
-      }))
-      : [emptyLine()]);
-  return (
-    <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
-          title={`Edit ${doc.no}`} wide
-          onClose={() => setOpen(false)}
-          onSubmit={(v) => savePurchaseDocument(doc.no, v, lines)}
-          submitLabel="Save changes" successTitle="Purchase document updated"
-        >
-          <DocFields documentType={documentType} {...rest} initial={doc} lines={lines} setLines={setLines} />
         </FormModal>
       ) : null}
     </>

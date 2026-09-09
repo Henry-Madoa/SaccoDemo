@@ -1,130 +1,127 @@
 /*
- * Payment Voucher slip — AL Rep52203425 "Payment Voucher". Built from a posted_payment_voucher.
- * Mirror of lib/receiptSlip.ts, with a Deductions block (VAT / WHT) and prepared / approved /
- * paid-by signatures. Used by /cash-management/payment-vouchers/[no]/slip.
+ * Payment Voucher printout — AL Rep52203568 "Payment Voucher" (./ssrs/PaymentVoucher.rdl).
+ *
+ * Built from a posted_payment_voucher and rendered through the shared document chrome in
+ * lib/documentPrint.ts, so it carries the same letterhead, line table and signature strip as
+ * every Sales and Purchase document. The AL layout's deduction block is reproduced in the
+ * totals: gross, VAT included, withholding tax and withholding VAT deducted, net paid.
+ *
+ * Used by /pv-slip/[no].
  */
 import { one, all } from './db.ts';
-import { getOrg } from './org.ts';
-import { amountInWords } from './numberToWords.ts';
 import { formatDate, formatMoney } from './format.ts';
-import type { PaymentVoucherSlip, PostedPaymentVoucher, PostedPaymentVoucherLine } from './types.ts';
+import { amountInWords } from './numberToWords.ts';
+import { signaturesFor } from './userSignatures.ts';
+import {
+  printBrand, documentMoney, currencyLabel, renderDocument,
+} from './documentPrint.ts';
+import type { PrintDocument, PrintColumn, PrintRow } from './documentPrint.ts';
+import type { PostedPaymentVoucher, PostedPaymentVoucherLine } from './types.ts';
 
-const esc = (s: unknown): string => String(s ?? '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+export { renderDocument };
 
-export async function buildPaymentVoucherSlip(no: string): Promise<PaymentVoucherSlip | null> {
+const COLUMNS: PrintColumn[] = [
+  { key: 'account', label: 'Account', width: '22%' },
+  { key: 'description', label: 'Details' },
+  { key: 'applies', label: 'Applied To', width: '13%' },
+  { key: 'amount', label: 'Gross', align: 'right', width: '13%' },
+  { key: 'deductions', label: 'VAT / WHT', align: 'right', width: '14%' },
+  { key: 'net', label: 'Net', align: 'right', width: '13%' },
+];
+
+export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocument | null> {
   const doc = await one<PostedPaymentVoucher & { paying_bank_name: string }>(
     `SELECT ppv.*, ba.name AS paying_bank_name
      FROM posted_payment_voucher ppv JOIN bank_account ba ON ba.id = ppv.paying_bank_account_id
      WHERE ppv.no = ? OR ppv.pv_no = ?`, no, no,
   );
   if (!doc) return null;
-  const org = await getOrg();
-  if (!org) return null;
-  const lines = await all<PostedPaymentVoucherLine>(
-    'SELECT * FROM posted_payment_voucher_line WHERE posted_payment_voucher_id = ? ORDER BY line_no', doc.id,
-  );
-  const branch = doc.payee_bank_branch_code
-    ? await one<{ branch_name: string }>('SELECT branch_name FROM external_bank_branch WHERE bank_code = ? AND branch_code = ?', doc.payee_external_bank_code, doc.payee_bank_branch_code)
-    : null;
-  const bank = doc.payee_external_bank_code
-    ? await one<{ name: string }>('SELECT name FROM external_bank WHERE code = ?', doc.payee_external_bank_code)
-    : null;
-  const currencyLabel = doc.currency_code === 'KES' ? 'Kenya Shillings' : doc.currency_code;
-  const grossTotal = lines.reduce((s, l) => s + l.amount, 0);
-  const vatTotal = lines.reduce((s, l) => s + l.vat_amount, 0);
-  const whtTotal = lines.reduce((s, l) => s + l.wht_amount_one + l.wht_amount_two, 0);
+  const brand = await printBrand();
+  if (!brand) return null;
+  const money = documentMoney(brand, doc.currency_code);
+  const bare = (c: number): string => formatMoney(c, { showSymbol: false });
+
+  const [lines, bank, branch, signatures] = await Promise.all([
+    all<PostedPaymentVoucherLine>(
+      'SELECT * FROM posted_payment_voucher_line WHERE posted_payment_voucher_id = ? ORDER BY line_no',
+      doc.id,
+    ),
+    doc.payee_external_bank_code
+      ? one<{ name: string }>('SELECT name FROM external_bank WHERE code = ?', doc.payee_external_bank_code)
+      : Promise.resolve(undefined),
+    doc.payee_bank_branch_code
+      ? one<{ branch_name: string }>(
+        'SELECT branch_name FROM external_bank_branch WHERE bank_code = ? AND branch_code = ?',
+        doc.payee_external_bank_code, doc.payee_bank_branch_code,
+      )
+      : Promise.resolve(undefined),
+    // Whoever prepared, approved and paid it signs the printout, if they have a signature on file.
+    signaturesFor([doc.prepared_by, doc.approved_by, doc.created_by]),
+  ]);
+
+  const gross = lines.reduce((s, l) => s + l.amount, 0);
+  const vat = lines.reduce((s, l) => s + l.vat_amount, 0);
+  const wht = lines.reduce((s, l) => s + l.wht_amount_one + l.wht_amount_two, 0);
+
+  const rows: PrintRow[] = lines.map((l) => ({
+    cells: {
+      account: [l.account_no, l.account_name].filter(Boolean).join(' — ') || '',
+      description: l.description ?? '',
+      applies: l.applies_to_doc_no ?? '—',
+      amount: money(l.amount),
+      // Narrow column: the currency is already on the Gross and Net figures beside it.
+      deductions: [
+        l.vat_amount ? `VAT ${bare(l.vat_amount)}` : null,
+        l.wht_amount_one + l.wht_amount_two ? `WHT ${bare(l.wht_amount_one + l.wht_amount_two)}` : null,
+      ].filter(Boolean).join('\n') || '—',
+      net: money(l.net_amount),
+    },
+  }));
 
   return {
-    org_name: org.name,
-    org_address: [org.physical_address, org.postal_address, org.city].filter(Boolean).join(' · '),
-    org_phone: [org.phone_primary, org.email].filter(Boolean).join(' · ') || null,
-    pv_no: doc.pv_no,
-    date: doc.posting_date,
-    payee: doc.payee_name || '',
-    payee_bank: bank?.name ?? doc.payee_external_bank_code,
-    payee_branch: branch?.branch_name ?? doc.payee_bank_branch_code,
-    payee_account_no: doc.payee_account_no,
-    pay_mode: doc.pay_mode_code,
-    paying_bank: doc.paying_bank_name,
-    cheque_no: doc.cheque_no,
-    cheque_date: doc.cheque_date,
-    narration: doc.description || '',
-    currency_code: doc.currency_code,
-    currency_symbol: org.currency_symbol,
-    total: doc.total_amount,
-    total_words: amountInWords(doc.total_amount, currencyLabel),
-    lines: lines.map((l) => ({
-      account_no: l.account_no || '', account_name: l.account_name || '', description: l.description || '', amount: l.amount,
-    })),
-    prepared_by: doc.prepared_by,
-    approved_by: doc.approved_by,
-    paid_by: doc.created_by,
-    vat_total: vatTotal,
-    wht_total: whtTotal,
-    net_paid: grossTotal - whtTotal,
+    brand,
+    title: 'Payment Voucher',
+    subtitle: doc.pv_no && doc.pv_no !== doc.no ? `Voucher ${doc.pv_no}` : null,
+    status: { label: 'Posted', tone: 'ok' },
+    parties: [{
+      heading: 'Pay to',
+      name: doc.payee_name || '',
+      lines: [
+        bank?.name ?? doc.payee_external_bank_code ?? '',
+        branch?.branch_name ?? doc.payee_bank_branch_code ?? '',
+        doc.payee_account_no ? `A/C No. ${doc.payee_account_no}` : '',
+      ].filter(Boolean),
+    }],
+    meta: [
+      { label: 'Voucher No.', value: doc.no },
+      { label: 'Date', value: formatDate(doc.date) },
+      { label: 'Posting Date', value: formatDate(doc.posting_date) },
+      { label: 'Paying Bank', value: doc.paying_bank_name },
+      ...(doc.pay_mode_code ? [{ label: 'Payment Mode', value: doc.pay_mode_code }] : []),
+      ...(doc.cheque_no
+        ? [{
+          label: 'Cheque / EFT No.',
+          value: doc.cheque_date ? `${doc.cheque_no} (${formatDate(doc.cheque_date)})` : doc.cheque_no,
+        }]
+        : []),
+      { label: 'Currency', value: doc.currency_code },
+      { label: 'Net Paid', value: money(doc.total_amount), strong: true },
+    ],
+    columns: COLUMNS,
+    rows,
+    totals: [
+      { label: 'Gross amount', value: money(gross) },
+      ...(vat ? [{ label: 'VAT included', value: money(vat) }] : []),
+      ...(wht ? [{ label: 'Less: withholding tax', value: money(wht), negative: true }] : []),
+      { label: `Net paid (${doc.currency_code})`, value: money(doc.total_amount), grand: true },
+    ],
+    amount_words: amountInWords(doc.total_amount, currencyLabel(doc.currency_code)),
+    notes: doc.description ? [{ heading: 'Being payment for', body: doc.description }] : [],
+    signatures: [
+      { label: 'Prepared by', block: signatures.get(doc.prepared_by?.trim() ?? '') ?? null },
+      { label: 'Approved by', block: signatures.get(doc.approved_by?.trim() ?? '') ?? null },
+      { label: 'Paid by', block: signatures.get(doc.created_by?.trim() ?? '') ?? null },
+      { label: 'Received by (payee)', block: null },
+    ],
   };
-}
-
-export function renderVoucherHtml(slip: PaymentVoucherSlip): string {
-  const money = (c: number): string => formatMoney(c, { symbol: slip.currency_symbol, code: slip.currency_code });
-  const lineRows = slip.lines.map((l) => `
-    <tr><td>${esc(l.account_name || l.account_no)}</td><td>${esc(l.description)}</td><td class="r">${money(l.amount)}</td></tr>`).join('');
-  const detail = (label: string, value: string): string =>
-    `<tr><td class="k">${esc(label)}</td><td class="v">${value}</td></tr>`;
-  return `
-<style>
-  .pv { font-family: Arial, Helvetica, sans-serif; max-width: 640px; margin: 0 auto; color: #111; }
-  .pv .org { text-align: center; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 14px; }
-  .pv .org .name { font-size: 20px; font-weight: 700; }
-  .pv .org .meta { font-size: 11px; color: #444; margin-top: 4px; }
-  .pv .title { text-align: center; font-size: 15px; font-weight: 700; text-transform: uppercase;
-    background: #f2f2f2; padding: 8px; margin-bottom: 14px; letter-spacing: .1em; }
-  .pv table { width: 100%; border-collapse: collapse; }
-  .pv td { padding: 6px 4px; font-size: 12px; vertical-align: top; border-bottom: 1px solid #eee; }
-  .pv td.k { color: #555; width: 38%; } .pv td.v { font-weight: 600; }
-  .pv table.lines th { text-align: left; font-size: 11px; color: #555; border-bottom: 1px solid #999; padding: 6px 4px; }
-  .pv table.lines td.r, .pv table.lines th.r { text-align: right; }
-  .pv .ded { margin-top: 10px; width: 60%; margin-left: auto; }
-  .pv .ded td { border: none; padding: 3px 4px; }
-  .pv .ded td.r { text-align: right; }
-  .pv .words { font-size: 12px; font-style: italic; color: #333; margin: 10px 0 18px; }
-  .pv .sign { display: flex; justify-content: space-between; margin-top: 40px; font-size: 11px; }
-  .pv .sign div { width: 30%; border-top: 1px solid #111; padding-top: 4px; text-align: center; }
-  @media print { .no-print { display: none !important; } body { margin: 0; } .pv { max-width: none; } }
-</style>
-<div class="pv">
-  <div class="org">
-    <div class="name">${esc(slip.org_name)}</div>
-    ${slip.org_address ? `<div class="meta">${esc(slip.org_address)}</div>` : ''}
-    ${slip.org_phone ? `<div class="meta">${esc(slip.org_phone)}</div>` : ''}
-  </div>
-  <div class="title">Payment Voucher</div>
-  <table>
-    ${detail('Voucher No.', esc(slip.pv_no))}
-    ${detail('Date', esc(formatDate(slip.date)))}
-    ${detail('Pay to', esc(slip.payee))}
-    ${slip.payee_bank ? detail('Bank / Branch', `${esc(slip.payee_bank)}${slip.payee_branch ? ` — ${esc(slip.payee_branch)}` : ''}`) : ''}
-    ${slip.payee_account_no ? detail('Account No.', esc(slip.payee_account_no)) : ''}
-    ${detail('Paying bank', esc(slip.paying_bank))}
-    ${slip.pay_mode ? detail('Payment mode', esc(slip.pay_mode)) : ''}
-    ${slip.cheque_no ? detail('Cheque No.', `${esc(slip.cheque_no)}${slip.cheque_date ? ` (${esc(formatDate(slip.cheque_date))})` : ''}`) : ''}
-    ${detail('Narration', esc(slip.narration))}
-  </table>
-  <table class="lines">
-    <thead><tr><th>Account</th><th>Details</th><th class="r">Amount</th></tr></thead>
-    <tbody>${lineRows}</tbody>
-  </table>
-  <table class="ded">
-    ${slip.vat_total ? `<tr><td>VAT included</td><td class="r">${money(slip.vat_total)}</td></tr>` : ''}
-    ${slip.wht_total ? `<tr><td>Less: Withholding Tax</td><td class="r">(${money(slip.wht_total)})</td></tr>` : ''}
-    <tr><td><strong>Net paid</strong></td><td class="r"><strong>${money(slip.total)}</strong></td></tr>
-  </table>
-  <div class="words">${esc(slip.total_words)}</div>
-  <div class="sign">
-    <div>Prepared by${slip.prepared_by ? ` — ${esc(slip.prepared_by)}` : ''}</div>
-    <div>Approved by${slip.approved_by ? ` — ${esc(slip.approved_by)}` : ''}</div>
-    <div>Paid by${slip.paid_by ? ` — ${esc(slip.paid_by)}` : ''}</div>
-  </div>
-</div>`;
 }

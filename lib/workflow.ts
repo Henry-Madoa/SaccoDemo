@@ -1263,7 +1263,7 @@ export async function updateWorkflowUserGroup(
 
 export const listApprovalUserSetup = (): Promise<ApprovalUserSetupRow[]> =>
   all<ApprovalUserSetupRow>(
-    `SELECT u.id AS user_id, u.username, u.full_name,
+    `SELECT u.id AS user_id, u.username, u.full_name, u.signature_image,
             s.approver_id, a.full_name AS approver_name,
             s.substitute_id, sub.full_name AS substitute_name,
             COALESCE(s.is_approval_administrator, 0) AS is_approval_administrator,

@@ -6,6 +6,7 @@ import { actionResult, AppError } from '@/lib/errors';
 import { signUpload, verifyUpload, destroyAsset, type UploadKind } from '@/lib/cloudinary';
 import { updateOrg, getOrg } from '@/lib/org';
 import { updateMember, getMember } from '@/lib/members';
+import { setUserSignature } from '@/lib/userSignatures';
 import { updateMemberApplication, getMemberApplication } from '@/lib/memberApplications';
 import { updateMemberEditRequest, getMemberEditRequest } from '@/lib/memberEdits';
 import { updateAccountOpeningRequest, getAccountOpeningRequest } from '@/lib/accountOpening';
@@ -28,6 +29,8 @@ const WRITE_ACTION: Record<UploadKind, ActionKey> = {
   fingerprint1: 'MEMBERS_UPDATE',
   fingerprint2: 'MEMBERS_UPDATE',
   junior_photo: 'ACCOUNT_OPENING_CREATE',
+  // A user's own signature is administrator-managed, not member data.
+  user_signature: 'ADMIN_USER_MANAGE',
 };
 
 /**
@@ -95,6 +98,33 @@ export async function saveMemberPhoto(
     revalidatePath(`/members/${memberId}`);
     revalidatePath('/members');
     return { photo };
+  });
+}
+
+/* --------------------------------------------------------- user signatures */
+
+/**
+ * The scanned signature an administrator holds for a user (Admin Centre -> System Security ->
+ * User Setup). Stored and replaced exactly like a member's biometric image: the browser uploads
+ * to Cloudinary under one-shot credentials, this verifies the asset really landed in the right
+ * folder, and the previous image is destroyed once the new public_id is committed.
+ */
+export async function saveUserSignature(
+  userId: number, file: UploadedFile | null,
+): Promise<ActionResult<{ signature_image: string | null }>> {
+  return actionResult(async () => {
+    const actor = await requireAction('ADMIN_USER_MANAGE');
+    let value: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, 'user_signature', file.resourceType);
+      value = asset.public_id;
+    }
+    const previous = await setUserSignature(userId, value, actor);
+    if (previous && previous !== value && !previous.startsWith('data:')) {
+      await destroyAsset(previous);
+    }
+    revalidatePath('/admin/security/setup');
+    return { signature_image: value };
   });
 }
 

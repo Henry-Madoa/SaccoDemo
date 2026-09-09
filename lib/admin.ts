@@ -15,6 +15,7 @@ import type {
   Actor, AuditEntry, LoanProduct, LoanProductWithCharges, LoanProductWithUsage, PermissionSetLine, Role,
   RoleWithUsage, SavingsProduct, SavingsProductWithUsage, UserListRow, UserStatus,
 } from './types.ts';
+import { assertContactDetails } from './validate.ts';
 
 export { listPermissionTables };
 
@@ -156,6 +157,7 @@ export async function createUser(
   if (!username || !full_name || !password || !role_id) {
     throw new AppError('Username, name, password and role are required', 'VALIDATION');
   }
+  assertContactDetails({ phone, email });
   const pwError = passwordStrengthError(String(password), { username });
   if (pwError) throw new AppError(pwError, 'WEAK_PASSWORD');
   if (await one('SELECT 1 FROM app_user WHERE username = ?', username)) {
@@ -184,6 +186,7 @@ export async function updateUser(
   if (Number(id) === user.id && status && status !== 'ACTIVE') {
     throw new AppError('You cannot deactivate your own account', 'SELF_LOCKOUT');
   }
+  assertContactDetails({ phone, email });
   if (password) {
     const existing = await one<{ username: string }>('SELECT username FROM app_user WHERE id = ?', id);
     const pwError = passwordStrengthError(String(password), { username: existing?.username });

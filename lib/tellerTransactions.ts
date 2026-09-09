@@ -23,7 +23,7 @@ import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, start
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import { sendMail } from './mailer.ts';
-import { buildTellerSlip, renderSlipHtml, slipSubject } from './tellerSlip.ts';
+import { buildTellerSlipDocument, renderDocument, slipSubject } from './tellerSlip.ts';
 import type {
   Actor, Cents, SavingsAccountForDebit, TellerTransaction, TellerTransactionType, TellerTransactionView, IsoDate,
 } from './types.ts';
@@ -449,13 +449,14 @@ export async function postTellerTransaction(no: string, user: Actor): Promise<{ 
 /** Sends (or re-sends) the deposit/withdrawal slip to the member's email. Safe to call more
  *  than once. Returns whether an address was on file to send to. */
 export async function emailSlip(no: string): Promise<boolean> {
-  const slip = await buildTellerSlip(no);
+  const doc = await getTellerTransaction(no);
+  if (!doc || !doc.member_email) return false;
+  const slip = await buildTellerSlipDocument(no);
   if (!slip) return false;
-  if (!slip.doc.member_email) return false;
   await sendMail({
-    to: slip.doc.member_email,
-    subject: slipSubject(slip.doc),
-    html: renderSlipHtml(slip),
+    to: doc.member_email,
+    subject: slipSubject(doc),
+    html: renderDocument(slip),
   });
   await run('UPDATE teller_transaction SET slip_emailed_at = ? WHERE no = ?', new Date().toISOString(), no);
   return true;

@@ -29,8 +29,8 @@ export function EmployerFormButton({ employer, className = 'btn', children }: {
           <Field name="code" label="Code" required placeholder="e.g. GOK" defaultValue={e?.code} disabled={!!e} uppercase />
           <Field name="name" label="Name" required placeholder="e.g. Government of Kenya" defaultValue={e?.name} />
           <div className="grid g2">
-            <Field name="phone" label="Phone" defaultValue={e?.phone ?? ''} />
-            <Field name="email" label="Email" defaultValue={e?.email ?? ''} />
+            <Field name="phone" label="Phone" defaultValue={e?.phone ?? ''} type="phone" />
+            <Field name="email" label="Email" defaultValue={e?.email ?? ''} type="email" />
           </div>
           <Field name="payroll_no_mandatory" label="Payroll number mandatory for members" type="checkbox"
             defaultValue={e?.payroll_no_mandatory ? '1' : ''} />

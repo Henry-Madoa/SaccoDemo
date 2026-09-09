@@ -4,6 +4,7 @@
  * recomputeVendorBalance).
  */
 import { one, all, run, nextSequence, audit, hasAnyRow } from './db.ts';
+import { assertContactDetails } from './validate.ts';
 import { AppError } from './errors.ts';
 import { today } from './format.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
@@ -64,8 +65,10 @@ export const getVendor = (no: string): Promise<VendorListRow | undefined> =>
 export const getVendorById = (id: number): Promise<Vendor | undefined> =>
   one<Vendor>('SELECT * FROM vendor WHERE id = ?', id);
 
-export const listActiveVendors = (): Promise<Pick<Vendor, 'id' | 'no' | 'name' | 'blocked' | 'vendor_posting_group_code' | 'payment_terms_code'>[]> =>
-  all("SELECT id, no, name, blocked, vendor_posting_group_code, payment_terms_code FROM vendor ORDER BY no");
+export const listActiveVendors = (): Promise<Pick<Vendor,
+'id' | 'no' | 'name' | 'blocked' | 'vendor_posting_group_code' | 'vat_bus_posting_group_code' | 'payment_terms_code'>[]> =>
+  all(`SELECT id, no, name, blocked, vendor_posting_group_code, vat_bus_posting_group_code, payment_terms_code
+      FROM vendor ORDER BY no`);
 
 export const hasAnyVendors = (): Promise<boolean> => hasAnyRow('vendor');
 
@@ -98,6 +101,7 @@ export interface VendorInput {
 }
 
 async function assertVendor(input: VendorInput): Promise<void> {
+  assertContactDetails({ phone: input.phone, email: input.email });
   if (!input.name?.trim()) throw new AppError('A name is required', 'VALIDATION');
   if (!BLOCKED_VALUES.includes(input.blocked)) throw new AppError('Invalid Blocked value', 'VALIDATION');
   if (input.creditLimit < 0) throw new AppError('Credit limit cannot be negative', 'VALIDATION');

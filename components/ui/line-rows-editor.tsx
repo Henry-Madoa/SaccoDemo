@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FormModal } from './form-modal';
+import { EMAIL_PATTERN, EMAIL_TITLE, PHONE_PATTERN, PHONE_TITLE } from '@/lib/validate';
 import { EmptyState, TableWrap } from './primitives';
 import { CollapsibleCard } from './collapsible-card';
 import type { ActionResult } from '@/lib/types';
@@ -18,7 +19,7 @@ import type { ActionResult } from '@/lib/types';
 export type LineColumn<R> = {
   key: keyof R & string;
   label: string;
-  type?: 'text' | 'select' | 'checkbox' | 'number' | 'date';
+  type?: 'text' | 'select' | 'checkbox' | 'number' | 'date' | 'phone' | 'email';
   options?: readonly (string | { value: string | number; label: string })[];
   width?: number | string;
   /** Read-only rendering for the summary panel — defaults to the raw value. */
@@ -91,7 +92,11 @@ export function LineRowsFormButton<R extends Record<string, any>>({
                     return (
                       <td key={c.key}>
                         <input
-                          type={c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : 'text'}
+                          type={c.type === 'number' ? 'number' : c.type === 'date' ? 'date'
+                            : c.type === 'phone' ? 'tel' : c.type === 'email' ? 'email' : 'text'}
+                          inputMode={c.type === 'phone' ? 'tel' : undefined}
+                          pattern={c.type === 'phone' ? PHONE_PATTERN : c.type === 'email' ? EMAIL_PATTERN : undefined}
+                          title={c.type === 'phone' ? PHONE_TITLE : c.type === 'email' ? EMAIL_TITLE : undefined}
                           value={(value as string | number) ?? ''} aria-label={c.label}
                           onChange={(e) => update(
                             i, c.key, c.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value,

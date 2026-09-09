@@ -26,7 +26,7 @@ export function ClearanceSectionFormButton({ section, className = 'btn', childre
         >
           <Field name="code" label="Code" required placeholder="e.g. IT" defaultValue={s?.code} uppercase />
           <Field name="name" label="Name" required placeholder="e.g. IT Department" defaultValue={s?.name} />
-          <Field name="owner_email" label="Owner email" placeholder="Notified when an exit needs clearing" defaultValue={s?.owner_email ?? ''} />
+          <Field name="owner_email" label="Owner email" placeholder="Notified when an exit needs clearing" defaultValue={s?.owner_email ?? ''} type="email" />
           <Field name="sort_order" label="Sort order" type="number" defaultValue={s?.sort_order ?? 0} />
         </FormModal>
       ) : null}

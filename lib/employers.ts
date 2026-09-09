@@ -7,6 +7,7 @@
  * header comment for the full list of what's excluded and why.
  */
 import { one, all, run, audit } from './db.ts';
+import { assertContactColumns } from './validate.ts';
 import { AppError } from './errors.ts';
 import type { Actor, Cents, Employer, EmployerStats, EmployerWithCounts } from './types.ts';
 
@@ -30,6 +31,7 @@ export const getEmployer = (id: number): Promise<Employer | undefined> =>
 
 export async function createEmployer(body: EmployerInput, user: Actor): Promise<{ id: number }> {
   if (!body.code || !body.name) throw new AppError('Code and name are required', 'VALIDATION');
+  assertContactColumns(body as Record<string, unknown>);
   if (await one('SELECT 1 FROM employer WHERE code = ?', body.code)) {
     throw new AppError('Employer code already exists', 'DUPLICATE');
   }
@@ -43,6 +45,7 @@ export async function createEmployer(body: EmployerInput, user: Actor): Promise<
 }
 
 export async function updateEmployer(id: number, body: EmployerInput, user: Actor): Promise<Employer> {
+  assertContactColumns(body as Record<string, unknown>);
   const existing = await getEmployer(id);
   if (!existing) throw new AppError('Employer not found', 'NOT_FOUND');
   const cols = FIELDS.filter((f) => body[f] !== undefined && f !== 'code');

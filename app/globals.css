@@ -454,12 +454,30 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight
 .field { margin-bottom: calc(var(--sp) * 1.8); }
 .field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; color: var(--text); }
 .field .hint { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
-.field .req { color: var(--danger); }
+.field .req, th .req { color: var(--danger); }
+
+/* A phone/email input with its dial / compose action beside it (components/ui/field.tsx). */
+.input-with-action { display: flex; gap: 6px; align-items: stretch; }
+.input-with-action input { flex: 1 1 auto; min-width: 0; }
+.input-with-action .btn { flex: 0 0 auto; padding: 6px 10px; line-height: 1; }
+.btn.disabled, .btn[aria-disabled="true"] { opacity: .45; cursor: default; pointer-events: none; }
+
+/* Business Central's totals block under a document's lines (components/ui/document-totals.tsx). */
+.doc-totals { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-top: var(--sp); }
+.doc-totals table { width: auto; min-width: 260px; font-size: 13px; }
+.doc-totals th { text-align: left; font-weight: 500; color: var(--text-muted); padding: 4px 18px 4px 0; border: 0; }
+.doc-totals td { padding: 4px 0; border: 0; white-space: nowrap; }
+.doc-totals .doc-totals-grand th { color: var(--text); font-weight: 600; }
+.doc-totals .doc-totals-grand td { font-weight: 700; border-top: 1px solid var(--border); }
+
+/* A stored contact detail is actionable wherever it is shown (components/ui/contact-link.tsx). */
+.contact-link { color: var(--brand-primary); text-decoration: none; }
+.contact-link:hover { text-decoration: underline; }
 .pw-checklist {
   list-style: none; margin: 4px 0 0; padding: 0; display: grid;
   grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2px 12px; font-size: 11.5px; color: var(--text-muted);
 }
-input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=email], select, textarea {
+input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=email], input[type=tel], select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); outline: none;
 }
@@ -528,17 +546,15 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 }
 .pill.chip button:hover { opacity: .7; }
 
-/* Member Statement (app/member-statements) — letterhead, print pagination and toolbar sizing
+/* Loan Documents (app/loan-documents) letterhead + the Member Statement toolbar sizing
    for its three multi-select filters. */
 .toolbar .field.combobox.multi { margin-bottom: 0; min-width: 220px; }
-.statement-block { margin-bottom: calc(var(--sp) * 3); }
 .statement-letterhead {
   display: flex; align-items: center; gap: calc(var(--sp) * 1.5);
   padding-bottom: calc(var(--sp) * 1.5); margin-bottom: calc(var(--sp) * 1.5); border-bottom: 1px solid var(--border);
 }
 .statement-logo { width: 56px; height: 56px; object-fit: contain; flex: none; }
 .statement-org-name { font-weight: 650; font-size: 15px; }
-.statement-footnote { color: var(--text-muted); font-size: 11.5px; text-align: center; margin-top: calc(var(--sp) * 2); }
 
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: calc(var(--sp) * 2.5); overflow-x: auto; }
 .tabs a, .tabs button {
@@ -891,9 +907,9 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
   .sidebar, .topbar, .toolbar, .btn, .tabs, .toasts, .result-back, .nav-backdrop, .card-nav-btn, .doc-actions { display: none !important; }
   .shell { grid-template-columns: 1fr; }
   .card { border: none; padding: 0; }
-  /* Member Statement printout: one member's statement per page, table headers repeat across a
-     ledger that spans a page break, and a single ledger row is never split across pages. */
-  .statement-block + .statement-block { break-before: page; page-break-before: always; }
+  /* Loan Documents printout: table headers repeat across a ledger that spans a page break, and a
+     single ledger row is never split across pages. (The Member Statement prints through
+     lib/documentPrint.ts, which carries its own pagination rules.) */
   .statement-ledger thead { display: table-header-group; }
   .statement-ledger tr { break-inside: avoid; }
   /* Loan Documents printout (app/loan-documents): one loan's document per page. */

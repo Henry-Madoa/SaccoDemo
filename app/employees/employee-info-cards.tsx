@@ -11,6 +11,7 @@ import { updateEmployeeRequest } from '@/app/actions/employees';
 import { GENDERS, MARITAL_STATUSES } from '@/lib/constants';
 import type { EmployeeLookups } from './employee-actions';
 import type { EmployeeView } from '@/lib/types';
+import { EmailLink, PhoneLink } from '@/components/ui/contact-link';
 
 /** Inline card-editing, mirroring app/member-applications/view/[no]/info-cards.tsx's pattern:
  *  an Edit button swaps the card's read-only DefinitionList for its own <form>, Save posts just
@@ -83,9 +84,9 @@ export function BioDataCard({ employee: e, lookups, canEdit, startEditing = fals
             ['SHIF No.', e.shif_no || '—'],
           ]} />
           <DefinitionList items={[
-            ['Phone', e.phone || '—'],
-            ['Alt. phone', e.alt_phone || '—'],
-            ['Email', e.email || '—'],
+            ['Phone', <PhoneLink value={e.phone} key="phone" />],
+            ['Alt. phone', <PhoneLink value={e.alt_phone} key="alt-phone" />],
+            ['Email', <EmailLink value={e.email} key="email" />],
             ['Physical address', e.physical_address || '—'],
             ['County', e.county_name || '—'],
             ['Sub-county', e.sub_county_name || '—'],
@@ -111,11 +112,11 @@ export function BioDataCard({ employee: e, lookups, canEdit, startEditing = fals
             </div>
             <div className="grid g2">
               <Field name="shif_no" label="SHIF No." defaultValue={e.shif_no ?? ''} />
-              <Field name="phone" label="Phone" defaultValue={e.phone ?? ''} />
+              <Field name="phone" label="Phone" defaultValue={e.phone ?? ''} type="phone" />
             </div>
             <div className="grid g2">
-              <Field name="alt_phone" label="Alternative phone" defaultValue={e.alt_phone ?? ''} />
-              <Field name="email" label="Email" defaultValue={e.email ?? ''} />
+              <Field name="alt_phone" label="Alternative phone" defaultValue={e.alt_phone ?? ''} type="phone" />
+              <Field name="email" label="Email" defaultValue={e.email ?? ''} type="email" />
             </div>
             <Field name="physical_address" label="Physical address" defaultValue={e.physical_address ?? ''} />
             <div className="grid g2">

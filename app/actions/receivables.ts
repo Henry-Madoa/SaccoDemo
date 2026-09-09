@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAction, requireUser } from '@/lib/session';
-import { actionResult } from '@/lib/errors';
+import { actionResult, AppError } from '@/lib/errors';
 import { toCents } from '@/lib/format';
 import {
   listCustomerPostingGroups, createCustomerPostingGroup, updateCustomerPostingGroup, type CustomerPostingGroupInput,
@@ -42,7 +42,7 @@ const revalidate = (): void => revalidatePath('/receivables', 'layout');
 const str = (v: unknown): string => String(v ?? '').trim();
 const opt = (v: unknown): string | null => (str(v) === '' ? null : str(v));
 const numOrNull = (v: unknown): number | null => (v === undefined || v === '' || v === null ? null : Number(v));
-const bool = (v: unknown): boolean => v === 'on' || v === 'true' || v === true;
+const bool = (v: unknown): boolean => v === 'on' || v === 'true' || v === true || v === 1 || v === '1';
 
 /* ------------------------------------------------------------------ setup masters */
 
@@ -166,7 +166,8 @@ const toCustomerInput = (v: FormValues): CustomerInput => ({
   postCode: opt(v.postCode), country: opt(v.country), contact: opt(v.contact), phone: opt(v.phone), email: opt(v.email),
   customerPostingGroupCode: opt(v.customerPostingGroupCode), paymentTermsCode: opt(v.paymentTermsCode),
   paymentMethodCode: opt(v.paymentMethodCode), reminderTermsCode: opt(v.reminderTermsCode), finChargeTermsCode: opt(v.finChargeTermsCode),
-  salesperson: opt(v.salesperson), creditLimit: toCents(v.creditLimit), blocked: (str(v.blocked || '') as CustomerBlocked),
+  salesperson: opt(v.salesperson), currencyCode: opt(v.currencyCode),
+  creditLimit: toCents(v.creditLimit), blocked: (str(v.blocked || '') as CustomerBlocked),
   globalDimension1Id: numOrNull(v.globalDimension1Id), globalDimension2Id: numOrNull(v.globalDimension2Id),
 });
 export async function listCustomersRequest(opts: Parameters<typeof listCustomers>[0]) {
@@ -204,8 +205,14 @@ export interface SalesLineDraft {
   type: string; no: string; description: string; quantity: string; unitPrice: string; lineDiscountPct: string;
   locationCode: string; faDepreciationBookCode: string;
 }
+// Every line the user keeps has to say what it is for — lib/salesDocuments.ts would otherwise
+// fall back to the master record's own name, which reads as boilerplate on the printed document.
 const toSalesLines = (lines: SalesLineDraft[]): SalesLineInput[] => lines
   .filter((l) => l.type === 'Comment' || l.no)
+  .map((l) => {
+    if (!l.description?.trim()) throw new AppError('Every document line needs a description', 'VALIDATION');
+    return l;
+  })
   .map((l) => ({
     type: (l.type as SalesLineType), no: l.no || null, description: l.description || null,
     quantity: Number(l.quantity || 0), unitPrice: toCents(l.unitPrice), lineDiscountPct: Number(l.lineDiscountPct || 0),

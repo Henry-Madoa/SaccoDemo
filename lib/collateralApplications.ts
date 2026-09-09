@@ -25,6 +25,7 @@ import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
   Actor, CollateralApplication, CollateralApplicationWithDetails, CollateralType, Member,
 } from './types.ts';
+import { assertPhone } from './validate.ts';
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
@@ -175,6 +176,7 @@ async function resolveTypeSnapshot(
 export async function createCollateralApplication(
   input: CreateCollateralApplicationInput, user: Actor,
 ): Promise<{ no: string }> {
+  assertPhone(input.ownerPhoneNo, 'Owner phone no.');
   const member = await one<Member>('SELECT * FROM member WHERE id = ?', input.memberId);
   if (!member) throw new AppError('Member not found', 'NOT_FOUND');
   if (member.status === 'WITHDRAWN' || member.status === 'DECEASED') {
@@ -234,7 +236,10 @@ export async function updateCollateralApplication(
   if (body.jointOwnership !== undefined) cols.joint_ownership = body.jointOwnership ? 1 : 0;
   if (body.ownerName !== undefined) cols.owner_name = body.ownerName || null;
   if (body.ownerIdNo !== undefined) cols.owner_id_no = body.ownerIdNo || null;
-  if (body.ownerPhoneNo !== undefined) cols.owner_phone_no = body.ownerPhoneNo || null;
+  if (body.ownerPhoneNo !== undefined) {
+    assertPhone(body.ownerPhoneNo, 'Owner phone no.');
+    cols.owner_phone_no = body.ownerPhoneNo || null;
+  }
   if (body.insuranceExpiryDate !== undefined) cols.insurance_expiry_date = body.insuranceExpiryDate || null;
   if (body.carTrackDueDate !== undefined) cols.car_track_due_date = body.carTrackDueDate || null;
   if (body.chequeNo !== undefined) cols.cheque_no = body.chequeNo || null;

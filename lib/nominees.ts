@@ -1,6 +1,7 @@
 import { one, all, run, tx, audit } from './db.ts';
 import { AppError } from './errors.ts';
 import type { Actor, MemberNextOfKin, MemberNominee } from './types.ts';
+import { assertContactRows } from './validate.ts';
 
 /* ------------------------------------------------------------------- next of kin */
 export const listNextOfKin = (memberId: number): Promise<MemberNextOfKin[]> =>
@@ -33,6 +34,8 @@ export async function replaceNextOfKin(memberId: number, rows: NextOfKinDraft[],
     .map((r) => ({ ...r, name: String(r.name || '').trim(), identification_no: r.identification_no?.trim() || null }))
     .filter((r) => r.name);
   assertNoDuplicateId(clean, 'this member\'s next of kin');
+
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
 
   await tx(async () => {
     await run('DELETE FROM member_next_of_kin WHERE member_id = ?', memberId);
@@ -83,6 +86,8 @@ export async function replaceNominees(memberId: number, rows: NomineeDraft[], us
       throw new AppError(`Nominee percentages must add up to 100% (currently ${total}%)`, 'VALIDATION');
     }
   }
+
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
 
   await tx(async () => {
     await run('DELETE FROM member_nominee WHERE member_id = ?', memberId);

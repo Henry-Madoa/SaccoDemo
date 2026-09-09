@@ -22,6 +22,7 @@ import type {
   EmployeeEditNextOfKin, EmployeeEditBeneficiary, EmployeeEditDependant, EmployeeEditEmergencyContact,
   EmployeeEditProfessionalBody, EmployeeEditWorkHistory, EmployeeEditBankAccount,
 } from './types.ts';
+import { assertContactColumns, assertContactRows } from './validate.ts';
 
 export type EmployeeEditView = 'open' | 'pending' | 'approved' | 'processed';
 
@@ -132,6 +133,7 @@ export async function createEmployeeEditRequest(employeeId: number, user: Actor)
 }
 
 export async function updateEmployeeEditRequest(no: string, body: EmployeeInput, user: Actor): Promise<EmployeeEditRequestView> {
+  assertContactColumns(body as Record<string, unknown>);
   const req = await one<EmployeeEditRequest>('SELECT * FROM employee_edit_request WHERE no = ?', no);
   if (!req) throw new AppError('Edit request not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open edit request can be edited', 'VALIDATION');
@@ -229,6 +231,7 @@ export const listEditNextOfKin = (editNo: string): Promise<EmployeeEditNextOfKin
   all('SELECT * FROM employee_edit_next_of_kin WHERE edit_no = ? ORDER BY id', editNo);
 export async function replaceEditNextOfKin(editNo: string, rows: Omit<EmployeeEditNextOfKin, 'id' | 'edit_no'>[]): Promise<void> {
   const clean = rows.filter((r) => r.full_name?.trim());
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
   await run('DELETE FROM employee_edit_next_of_kin WHERE edit_no = ?', editNo);
   for (const r of clean) {
     await run(
@@ -242,6 +245,7 @@ export const listEditBeneficiaries = (editNo: string): Promise<EmployeeEditBenef
   all('SELECT * FROM employee_edit_beneficiary WHERE edit_no = ? ORDER BY id', editNo);
 export async function replaceEditBeneficiaries(editNo: string, rows: Omit<EmployeeEditBeneficiary, 'id' | 'edit_no'>[]): Promise<void> {
   const clean = rows.filter((r) => r.full_name?.trim()).map((r) => ({ ...r, percentage: Number(r.percentage) || 0 }));
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
   if (clean.length) {
     const total = Math.round(clean.reduce((s, r) => s + r.percentage, 0) * 100) / 100;
     if (total > 100.01) throw new AppError(`Beneficiary percentages cannot exceed 100% (currently ${total}%)`, 'VALIDATION');
@@ -274,6 +278,7 @@ export const listEditEmergencyContacts = (editNo: string): Promise<EmployeeEditE
   all('SELECT * FROM employee_edit_emergency_contact WHERE edit_no = ? ORDER BY id', editNo);
 export async function replaceEditEmergencyContacts(editNo: string, rows: Omit<EmployeeEditEmergencyContact, 'id' | 'edit_no'>[]): Promise<void> {
   const clean = rows.filter((r) => r.full_name?.trim());
+  assertContactRows(clean as unknown as Record<string, unknown>[]);
   await run('DELETE FROM employee_edit_emergency_contact WHERE edit_no = ?', editNo);
   for (const r of clean) {
     await run(

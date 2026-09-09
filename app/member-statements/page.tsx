@@ -1,24 +1,25 @@
 import { requireAction } from '@/lib/session';
-import { getOrg } from '@/lib/org';
-import { imageSrc } from '@/lib/cloudinary';
-import { formatDate, formatStatementTimestamp } from '@/lib/format';
+import { renderDocuments } from '@/lib/documentPrint';
 import {
-  buildMemberStatements, listMemberAccountsForFilter, listMemberLoansForFilter, listMembersForStatementPicker,
-  type MemberStatementDocument, type StatementAccountSection, type StatementLoanSection,
+  listMemberAccountsForFilter, listMemberLoansForFilter, listMembersForStatementPicker,
 } from '@/lib/memberStatement';
+import { buildMemberStatementPrints } from '@/lib/memberStatementPrint';
 import { Page } from '@/components/layout/page';
-import {
-  Card, CardHead, DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer,
-} from '@/components/ui/primitives';
+import { EmptyState, Toolbar, Spacer } from '@/components/ui/primitives';
 import { DateFilterExpressionInput } from '@/components/ui/filters';
 import { MultiSelectFilter, BoolToggle } from '@/components/ui/multi-select-filter';
-import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
-import type { Organisation } from '@/lib/types';
+import type { PrintDocument } from '@/lib/documentPrint';
 
 const parseIds = (raw?: string): number[] =>
   (raw ? raw.split(',') : []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
 
+/**
+ * Member Statement — filters on top, and below them the statement itself, rendered through the
+ * shared document chrome (lib/documentPrint.ts) that prints the Sales Invoice and the Payment
+ * Voucher. What is on screen IS the printout: the filters and the action bar are `@media print`
+ * casualties, so Print / Save as PDF and the ?preview=1 tab all emit the same sheets.
+ */
 export default async function MemberStatementsPage({ searchParams }: {
   searchParams: Promise<{
     member?: string; account?: string; loan?: string; from?: string; to?: string;
@@ -36,14 +37,16 @@ export default async function MemberStatementsPage({ searchParams }: {
   const showAccounts = showAccountsRaw !== '0';
   const showLoans = showLoansRaw !== '0';
 
-  const [org, allMembers, accountOptionRows, loanOptionRows, docs] = await Promise.all([
-    getOrg(),
+  const [allMembers, accountOptionRows, loanOptionRows, docs] = await Promise.all([
     listMembersForStatementPicker(),
     listMemberAccountsForFilter(memberIds),
     listMemberLoansForFilter(memberIds),
     memberIds.length
-      ? buildMemberStatements({ memberIds, accountIds, loanIds, from, to, showAccounts, showLoans })
-      : Promise.resolve([] as MemberStatementDocument[]),
+      ? buildMemberStatementPrints(
+        { memberIds, accountIds, loanIds, from, to, showAccounts, showLoans },
+        { username: user.username, full_name: user.full_name },
+      )
+      : Promise.resolve([] as PrintDocument[]),
   ]);
 
   const memberOptions = allMembers.map((m) => ({ value: String(m.id), label: `${m.member_no} — ${m.first_name} ${m.last_name}` }));
@@ -84,187 +87,10 @@ export default async function MemberStatementsPage({ searchParams }: {
       ) : !docs.length ? (
         <EmptyState icon="🔎" title="No matching members" sub="The selected member(s) could not be found." />
       ) : (
-        docs.map((doc) => (
-          <StatementBlock
-            key={doc.member.id} doc={doc} org={org} generatedBy={user.full_name}
-            showAccounts={showAccounts} showLoans={showLoans}
-          />
-        ))
+        // One sheet per member — renderDocuments() emits the shared stylesheet once and breaks
+        // the page between documents.
+        <div dangerouslySetInnerHTML={{ __html: renderDocuments(docs) }} />
       )}
     </Page>
-  );
-}
-
-function StatementBlock({ doc, org, generatedBy, showAccounts, showLoans }: {
-  doc: MemberStatementDocument;
-  org: Organisation | undefined;
-  generatedBy: string;
-  showAccounts: boolean;
-  showLoans: boolean;
-}) {
-  const { member, accounts, loans } = doc;
-  const fullName = [member.first_name, member.middle_name, member.last_name].filter(Boolean).join(' ');
-  const generatedAt = formatStatementTimestamp();
-  const logo = imageSrc(org?.logo, { width: 72, height: 72, crop: 'fit' });
-
-  return (
-    <div className="statement-block">
-      <Card>
-        <div className="statement-letterhead">
-          {logo ? <img src={logo} alt={org?.name ?? ''} className="statement-logo" /> : null}
-          <div>
-            <div className="statement-org-name">{org?.name ?? '—'}</div>
-            <div className="tiny">{[org?.physical_address, org?.postal_address].filter(Boolean).join(' · ')}</div>
-            <div className="tiny">{[org?.phone_primary, org?.email, org?.website].filter(Boolean).join(' · ')}</div>
-          </div>
-        </div>
-        <CardHead title="Account Statement" sub={`Member ${member.member_no} · generated ${generatedAt}`} />
-        <div className="grid split-side-sm">
-          <DefinitionList items={[
-            ['Member No.', member.member_no],
-            ['Member Name', fullName],
-            ['ID No.', member.identification_no || '—'],
-            ['KRA PIN', member.kra_pin || '—'],
-            ['Staff / Payroll No.', member.staff_no || '—'],
-          ]}
-          />
-          <DefinitionList items={[
-            ['Phone No.', member.phone || '—'],
-            ['Email Address', member.email || '—'],
-            ['Employer', member.employer || '—'],
-            ['Status', <Pill status={member.status} />],
-          ]}
-          />
-        </div>
-      </Card>
-
-      {showAccounts ? (
-        accounts.length
-          ? accounts.map((s) => <AccountLedgerCard key={s.account.id} section={s} />)
-          : <Card><EmptyState icon="💰" title="No eligible savings accounts for this member" /></Card>
-      ) : null}
-
-      {showLoans ? (
-        loans.length
-          ? loans.map((s) => <LoanLedgerCard key={s.loan.id} section={s} />)
-          : <Card><EmptyState icon="📄" title="No disbursed loans for this member" /></Card>
-      ) : null}
-
-      <Card>
-        <CardHead title="Attestation" />
-        <div className="grid split-side-sm">
-          <DefinitionList items={[
-            ['Member No.', member.member_no],
-            ['Member Name', fullName],
-            ['ID No.', member.identification_no || '—'],
-          ]}
-          />
-          <DefinitionList items={[
-            ['Generated By', generatedBy],
-            ['Date & Time', generatedAt],
-            ['Stamp', '—'],
-          ]}
-          />
-        </div>
-      </Card>
-
-      {org?.statement_footer ? <p className="note statement-footnote">{org.statement_footer}</p> : null}
-    </div>
-  );
-}
-
-/** Accounts: a deposit (credit) grows the member's balance, a withdrawal/charge (debit) shrinks
- *  it — see lib/memberStatement.ts's header comment for why the underlying running-balance math
- *  needs no separate sign rule per ledger kind; only which column a positive/negative amount is
- *  displayed under differs between an account and a loan. */
-function AccountLedgerCard({ section }: { section: StatementAccountSection }) {
-  const { account, opening, lines, closing } = section;
-  return (
-    <Card>
-      <CardHead title={`${account.account_no} — ${account.product_name}`} sub="Savings account activity" />
-      <TableWrap className="statement-ledger">
-        <thead>
-          <tr>
-            <th>Date</th><th>Document No.</th><th>Description</th>
-            <th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td colSpan={5}><i>Opening balance</i></td>
-            <td className="num"><b><Money cents={opening} symbol={false} /></b></td>
-          </tr>
-          {lines.length ? lines.map(({ txn: t, running }) => {
-            const reversed = t.status === 'REVERSED';
-            return (
-              <tr key={t.id} className={reversed ? 'muted' : undefined}>
-                <td>{formatDate(t.value_date)}</td>
-                <td className="mono">{t.document_no || '—'}</td>
-                <td>{t.description || ''}{reversed ? <> <Pill tone="bad">REVERSED</Pill></> : null}</td>
-                <td className="num">{t.amount < 0 ? <Money cents={-t.amount} symbol={false} /> : ''}</td>
-                <td className="num">{t.amount > 0 ? <Money cents={t.amount} symbol={false} /> : ''}</td>
-                <td className="num"><Money cents={running} symbol={false} /></td>
-              </tr>
-            );
-          }) : (
-            <tr><td colSpan={6}><EmptyState icon="🧾" title="No activity in the selected period" /></td></tr>
-          )}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={5}>Closing balance</td>
-            <td className="num"><b><Money cents={closing} symbol={false} /></b></td>
-          </tr>
-        </tfoot>
-      </TableWrap>
-    </Card>
-  );
-}
-
-/** Loans: a disbursement or charge (debit) grows the outstanding balance, a repayment (credit)
- *  shrinks it — the opposite column mapping from an account, even though `amount`'s sign already
- *  carries the correct arithmetic in both cases (see lib/memberStatement.ts). The Opening Balance
- *  row is only shown when non-zero, matching the reference statement (a loan with no pre-period
- *  history renders no opening line at all rather than a redundant "0.00" one). */
-function LoanLedgerCard({ section }: { section: StatementLoanSection }) {
-  const { loan, opening, lines, closing } = section;
-  return (
-    <Card>
-      <CardHead title={`${loan.loan_no} — ${loan.product_name}`} sub="Loan account activity" />
-      <TableWrap className="statement-ledger">
-        <thead>
-          <tr>
-            <th>Date</th><th>Document No.</th><th>Description</th>
-            <th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {opening !== 0 ? (
-            <tr>
-              <td colSpan={5}><i>Opening balance</i></td>
-              <td className="num"><b><Money cents={opening} symbol={false} /></b></td>
-            </tr>
-          ) : null}
-          {lines.length ? lines.map(({ txn: t, running }) => (
-            <tr key={t.id} className={t.status === 'REVERSED' ? 'muted' : undefined}>
-              <td>{formatDate(t.value_date)}</td>
-              <td className="mono">{t.document_no || '—'}</td>
-              <td>{t.description || ''}</td>
-              <td className="num">{t.amount > 0 ? <Money cents={t.amount} symbol={false} /> : ''}</td>
-              <td className="num">{t.amount < 0 ? <Money cents={-t.amount} symbol={false} /> : ''}</td>
-              <td className="num"><Money cents={running} symbol={false} /></td>
-            </tr>
-          )) : (
-            <tr><td colSpan={6}><EmptyState icon="🧾" title="No activity in the selected period" /></td></tr>
-          )}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={5}>Closing balance</td>
-            <td className="num"><b><Money cents={closing} symbol={false} /></b></td>
-          </tr>
-        </tfoot>
-      </TableWrap>
-    </Card>
   );
 }

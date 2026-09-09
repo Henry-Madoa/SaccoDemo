@@ -22,6 +22,7 @@ import { MemberPhoto } from './photo-upload';
 import { BiometricPanel } from './biometric-panel';
 import { SetEmployerButton } from './set-employer-button';
 import { AttachmentPanel } from '@/components/attachments/attachment-panel';
+import { EmailLink, PhoneLink } from '@/components/ui/contact-link';
 
 export default async function MemberDetailPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
@@ -134,8 +135,8 @@ export default async function MemberDetailPage({ params, searchParams }: {
 
           <CollapsibleCard title="Contact and Address">
             <DefinitionList items={[
-              ['Phone', m.phone || '—'],
-              ['Email', m.email || '—'],
+              ['Phone', <PhoneLink value={m.phone} key="phone" />],
+              ['Email', <EmailLink value={m.email} key="email" />],
               ['Postal address', m.postal_address || '—'],
               ['Physical address', m.physical_address || '—'],
               ['County', m.county_name || '—'],
@@ -181,8 +182,8 @@ export default async function MemberDetailPage({ params, searchParams }: {
                 ['Registration date', formatDate(m.registration_date)],
                 ['Number of members', m.member_count ?? '—'],
                 ['Contact person', m.contact_person_name || '—'],
-                ['Contact phone', m.contact_person_phone || '—'],
-                ['Contact email', m.contact_person_email || '—'],
+                ['Contact phone', <PhoneLink value={m.contact_person_phone} key="contact-phone" />],
+                ['Contact email', <EmailLink value={m.contact_person_email} key="contact-email" />],
               ]} />
             </CollapsibleCard>
           ) : null}
@@ -204,8 +205,8 @@ export default async function MemberDetailPage({ params, searchParams }: {
                         <td><b>{s.name}</b></td>
                         <td>{s.designation || '—'}</td>
                         <td>{formatDate(s.date_of_birth)}</td>
-                        <td>{s.email || '—'}</td>
-                        <td>{s.phone || '—'}</td>
+                        <td><EmailLink value={s.email} /></td>
+                        <td><PhoneLink value={s.phone} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -226,7 +227,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
                       <tr key={n.id}>
                         <td><b>{n.name}</b></td>
                         <td>{n.relationship || '—'}</td>
-                        <td>{n.phone || '—'}</td>
+                        <td><PhoneLink value={n.phone} /></td>
                         <td className="mono">{n.identification_no || '—'}</td>
                       </tr>
                     ))}
@@ -250,7 +251,7 @@ export default async function MemberDetailPage({ params, searchParams }: {
                     <tr key={n.id}>
                       <td><b>{n.name}</b></td>
                       <td>{n.relationship || '—'}</td>
-                      <td>{n.phone || '—'}</td>
+                      <td><PhoneLink value={n.phone} /></td>
                       <td className="mono">{n.identification_no || '—'}</td>
                       <td className="num">{n.percentage}%</td>
                       <td>{n.is_next_of_kin ? <Pill tone="info">YES</Pill> : '—'}</td>

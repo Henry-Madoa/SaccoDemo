@@ -10,6 +10,7 @@
 import { one, all, run } from './db.ts';
 import { AppError } from './errors.ts';
 import { toLcy } from './currency.ts';
+import { addVatToNet, extractVatFromGross, roundUpCents as roundUp } from './documentTotals.ts';
 import type { Cents, IsoDate, LineTaxResult, TaxType, VatCalculationType, VatEntry } from './types.ts';
 
 export interface ResolvedVatSetup {
@@ -45,15 +46,10 @@ export async function resolveVatSetup(
   };
 }
 
-/** Round to the whole cent, always up — AL `Round(x, 1, '>')`. */
-const roundUp = (n: number): number => Math.ceil(n - 1e-9);
-
-/** VAT contained in a VAT-inclusive gross amount. */
-export const extractVatFromGross = (gross: Cents, pct: number): Cents =>
-  pct > 0 ? roundUp(gross / (1 + pct / 100) * (pct / 100)) : 0;
-
-/** VAT to add on top of a VAT-exclusive net amount. */
-export const addVatToNet = (net: Cents, pct: number): Cents => (pct > 0 ? roundUp(net * (pct / 100)) : 0);
+// The arithmetic itself lives in lib/documentTotals.ts, which has no database import so the
+// document line editor can preview these very numbers as the user types. Re-exported here
+// because the posting routines have always reached for them through this module.
+export { extractVatFromGross, addVatToNet };
 
 export interface ComputeLineTaxInput {
   /** The figure the user entered. `pricesInclVat` decides whether it is gross or the net base. */
