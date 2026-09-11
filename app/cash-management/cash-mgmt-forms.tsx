@@ -141,8 +141,11 @@ export function DeleteRateButton({ id }: { id: number }) {
 
 /* -------------------------------------------------------------------- Setup */
 
-export function CashMgmtSetupButton({ setup, banks, accounts, className = 'btn', children }: {
-  setup: CashManagementSetup; banks: { id: number; code: string }[]; accounts: GlAccount[]; className?: string; children: ReactNode;
+export function CashMgmtSetupButton({ setup, banks, accounts, charges, products, className = 'btn', children }: {
+  setup: CashManagementSetup; banks: { id: number; code: string }[]; accounts: GlAccount[];
+  charges: { id: number; code: string; description: string }[];
+  products: { id: number; code: string; name: string }[];
+  className?: string; children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -163,6 +166,17 @@ export function CashMgmtSetupButton({ setup, banks, accounts, className = 'btn',
             <Field name="defaultReceiptBankAccountId" label="Default receipt bank" type="select" defaultValue={String(setup.default_receipt_bank_account_id ?? '')} options={[{ value: '', label: '(none)' }, ...banks.map((b) => ({ value: String(b.id), label: b.code }))]} />
             <Field name="allowCmPostingFrom" label="Allow posting from" type="date" defaultValue={setup.allow_cm_posting_from ?? ''} />
             <Field name="allowCmPostingTo" label="Allow posting to" type="date" defaultValue={setup.allow_cm_posting_to ?? ''} />
+          </div>
+          <div className="hint" style={{ marginTop: 8 }}>Member receipting</div>
+          <div className="grid g2">
+            <Field name="loanRepaymentChargeId" label="Loan repayment charge" type="select"
+              defaultValue={String(setup.loan_repayment_charge_id ?? '')}
+              options={[{ value: '', label: '(no charge)' }, ...charges.map((c) => ({ value: String(c.id), label: `${c.code} — ${c.description}` }))]}
+              hint="Taken off a member receipt line before the rest reaches the loan" />
+            <Field name="unallocatedProductId" label="Unallocated product" type="select"
+              defaultValue={String(setup.unallocated_product_id ?? '')}
+              options={[{ value: '', label: '(refuse overpayment)' }, ...products.map((x) => ({ value: String(x.id), label: `${x.code} — ${x.name}` }))]}
+              hint="Holds what is left when a member pays more than their loan owes" />
           </div>
         </FormModal>
       ) : null}

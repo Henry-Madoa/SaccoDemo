@@ -1,5 +1,10 @@
 /*
- * Official Receipt printout — AL Rep52203569 "Customer Receipt" (./ssrs/CustomerReceipt.rdl).
+ * Official Receipt printout — AL Rep52203569 "Customer Receipt" (./ssrs/CustomerReceipt.rdl), and
+ * for a Member receipt the Nation CBS Rep52204075 "Member Cash Receipt".
+ *
+ * A member's copy has to answer one more question than a customer's: what did this payment leave
+ * me owing? So a Member receipt prints the loan balances quoted when the line was captured and
+ * what the payment settled, rather than just the amount.
  *
  * Built from a posted_receipt and rendered through the shared document chrome in
  * lib/documentPrint.ts, so the receipt a member walks away with carries the same letterhead and
@@ -26,6 +31,25 @@ const COLUMNS: PrintColumn[] = [
   { key: 'amount', label: 'Amount', align: 'right', width: '18%' },
 ];
 
+/** A member's copy: what was owed on the loan, what the charge took, and what was paid. */
+const MEMBER_COLUMNS: PrintColumn[] = [
+  { key: 'account', label: 'Account', width: '22%' },
+  { key: 'description', label: 'Being payment for' },
+  { key: 'owing', label: 'Was Owing', align: 'right', width: '15%' },
+  { key: 'charge', label: 'Charge', align: 'right', width: '12%' },
+  { key: 'amount', label: 'Amount', align: 'right', width: '15%' },
+];
+
+/** The loan numbers behind a member receipt's lines, in one read. */
+async function loanNumbersFor(lines: PostedReceiptLine[]): Promise<Map<number, string>> {
+  const ids = [...new Set(lines.map((l) => Number(l.loan_id)).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await all<{ id: number; loan_no: string }>(
+    `SELECT id, loan_no FROM loan WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids,
+  );
+  return new Map(rows.map((r) => [Number(r.id), r.loan_no]));
+}
+
 export async function buildReceiptDocument(no: string): Promise<PrintDocument | null> {
   const doc = await one<PostedReceipt>(
     'SELECT * FROM posted_receipt WHERE no = ? OR receipt_no = ?', no, no,
@@ -43,13 +67,26 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
     signatureFor(doc.created_by),
   ]);
 
-  const rows: PrintRow[] = lines.map((l) => ({
-    cells: {
-      account: [l.account_no, l.account_name].filter(Boolean).join(' — ') || '',
-      description: l.description ?? '',
-      applies: l.applies_to_doc_no ?? '—',
-      amount: money(l.amount),
-    },
+  const isMember = doc.receipt_type === 'Member';
+  const loanNos = isMember ? await loanNumbersFor(lines) : new Map<number, string>();
+
+  const rows: PrintRow[] = lines.map((l): PrintRow => ({
+    cells: isMember
+      ? {
+        account: l.account_name || l.account_no || '',
+        description: l.loan_id
+          ? `Loan repayment — ${loanNos.get(Number(l.loan_id)) ?? ''}`
+          : (l.description || 'Deposit'),
+        owing: l.loan_id ? money(l.loan_balance) : '—',
+        charge: l.charge_amount ? money(l.charge_amount) : '—',
+        amount: money(l.amount),
+      }
+      : {
+        account: [l.account_no, l.account_name].filter(Boolean).join(' — ') || '',
+        description: l.description ?? '',
+        applies: l.applies_to_doc_no ?? '—',
+        amount: money(l.amount),
+      },
   }));
 
   return {
@@ -59,8 +96,12 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
     status: { label: 'Posted', tone: 'ok' },
     parties: [{
       heading: 'Received from',
-      name: doc.description || '—',
-      lines: [doc.bank_account_name ? `Banked to ${doc.bank_account_name}` : ''].filter(Boolean),
+      name: (isMember ? doc.member_name : doc.description) || doc.description || '—',
+      lines: [
+        isMember && doc.member_no ? `Member No. ${doc.member_no}` : '',
+        isMember && doc.description ? doc.description : '',
+        doc.bank_account_name ? `Banked to ${doc.bank_account_name}` : '',
+      ].filter(Boolean),
     }],
     meta: [
       { label: 'Receipt No.', value: doc.no },
@@ -71,7 +112,7 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
       { label: 'Currency', value: doc.currency_code },
       { label: 'Amount Received', value: money(doc.amount), strong: true },
     ],
-    columns: COLUMNS,
+    columns: isMember ? MEMBER_COLUMNS : COLUMNS,
     rows,
     totals: [{ label: `Total received (${doc.currency_code})`, value: money(doc.amount), grand: true }],
     amount_words: amountInWords(doc.amount, currencyLabel(doc.currency_code)),

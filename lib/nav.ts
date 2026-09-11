@@ -174,6 +174,10 @@ export const NAV: NavGroup[] = [
           { path: '/cash-management/adjust-exchange-rates', label: 'Adjust Exchange Rates', icon: '📈', page: 'CASH_MGMT' },
         ],
       },
+      // The annual declaration on member deposits and share capital. It lives in Finance
+      // rather than FOSA because it raises the expense and the payable in the G/L, even though
+      // what it pays out lands in member accounts.
+      { path: '/dividends', label: 'Dividends', icon: '💰', page: 'DIVIDENDS' },
       {
         submenu: 'VAT & WHT', icon: '🧮',
         items: [

@@ -9,6 +9,8 @@ import {
   listCurrencies, listActiveCurrencies, listExchangeRates, listBankAccPostingGroups, listExternalBanks,
   getCashManagementSetup,
 } from '@/lib/cashMgmtSetup';
+import { listActiveTransactionCharges } from '@/lib/charges';
+import { listActiveSavingsProducts } from '@/lib/admin';
 import { listReceipts, hasAnyReceipts } from '@/lib/receipts';
 import { listPaymentVouchers, hasAnyPaymentVouchers } from '@/lib/paymentVouchers';
 import { findPendingRoutedTask } from '@/lib/workflow';
@@ -405,13 +407,18 @@ async function ExternalBanksTab() {
 }
 
 async function SetupTab() {
-  const [setup, banks, accounts, canManage] = await Promise.all([
-    getCashManagementSetup(), listBankAccounts(), listPostableAccounts(), currentCanAction('CASH_MGMT_SETUP_MANAGE'),
+  const [setup, banks, accounts, charges, products, canManage] = await Promise.all([
+    getCashManagementSetup(), listBankAccounts(), listPostableAccounts(),
+    listActiveTransactionCharges(), listActiveSavingsProducts(), currentCanAction('CASH_MGMT_SETUP_MANAGE'),
   ]);
   return (
     <Card>
       <CardHead title="Cash Management Setup" sub="Approval limits, Transfer-to-G/L defaults and the posting-date window">
-        {canManage ? <CashMgmtSetupButton setup={setup} banks={banks.map((b) => ({ id: b.id, code: b.code }))} accounts={accounts}>Edit setup</CashMgmtSetupButton> : null}
+        {canManage ? (
+          <CashMgmtSetupButton setup={setup} banks={banks.map((b) => ({ id: b.id, code: b.code }))} accounts={accounts}
+            charges={charges.map((c) => ({ id: c.id, code: c.code, description: c.description }))}
+            products={products.map((x) => ({ id: x.id, code: x.code, name: x.name }))}>Edit setup</CashMgmtSetupButton>
+        ) : null}
       </CardHead>
       <TableWrap>
         <tbody>

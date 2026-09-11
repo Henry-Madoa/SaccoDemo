@@ -373,6 +373,8 @@ model gl_account {
   is_postable                                                    Int                         @default(1)
   account_type                                                   String                      @default("POSTING")
   totaling                                                       String?
+  /// Depth in the Begin-Total / End-Total bracketing, set by Indent Chart of Accounts.
+  indentation                                                    Int                         @default(0)
   balance                                                        BigInt                      @default(0)
   status                                                         String                      @default("ACTIVE")
   /// Blocks this account from a manual G/L journal line — it's a subledger control account
@@ -475,6 +477,8 @@ model transaction_charge {
   cheque_type_express        cheque_type[]                @relation("ct_express_charge")
   bankers_cheque             bankers_cheque[]
   cheque_deposit_clearing    cheque_deposit[]             @relation("cd_clearing_charge")
+  receipt_line               receipt_line[]
+  cash_management_setup_loan_repayment cash_management_setup[] @relation("cms_loan_repayment_charge")
 
   @@index([transaction_type], map: "ix_tc_type")
 }
@@ -783,6 +787,8 @@ model loan {
   standing_order             standing_order[]
   cheque_instruction         cheque_instruction[]
   economic_sector            economic_sector?             @relation(fields: [sector_code], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  receipt_line               receipt_line[]
+  posted_receipt_line        posted_receipt_line[]
 
   @@index([member_id], map: "ix_loan_member")
   @@index([recovery_mode], map: "ix_loan_recovery_mode")
@@ -1552,6 +1558,14 @@ model member {
   inter_account_transfer_destination inter_account_transfer[]            @relation("iat_destination_member")
   bankers_cheque                     bankers_cheque[]
   cheque_deposit                     cheque_deposit[]
+  receipt_header                     receipt_header[]
+  receipt_line                       receipt_line[]
+  payment_voucher_header             payment_voucher_header[]
+  payment_voucher_line               payment_voucher_line[]
+  posted_payment_voucher             posted_payment_voucher[]
+  posted_payment_voucher_line        posted_payment_voucher_line[]
+  posted_receipt                     posted_receipt[]
+  posted_receipt_line                posted_receipt_line[]
 
   @@index([county_id], map: "ix_member_county")
   @@index([employer_id], map: "ix_member_employer")
@@ -1584,6 +1598,8 @@ model organisation {
   website                          String?
   paybill_no                       String?
   bank_name                        String?
+  bank_branch                      String?
+  bank_account_name                String?
   bank_account_no                  String?
   logo                             String?
   currency_code                    String?             @default("KES")
@@ -1742,6 +1758,10 @@ model savings_account {
   bankers_cheque                     bankers_cheque[]
   cheque_deposit                     cheque_deposit[]
   cheque_instruction                 cheque_instruction[]
+  receipt_line                       receipt_line[]
+  posted_receipt_line                posted_receipt_line[]
+  payment_voucher_line               payment_voucher_line[]
+  posted_payment_voucher_line        posted_payment_voucher_line[]
 
   @@index([member_id], map: "ix_sa_member")
   @@index([product_id], map: "ix_sa_product")
@@ -2037,6 +2057,7 @@ model savings_product {
   account_opening_request                                   account_opening_request[]
   member_fixed_deposit_type                                 member_fixed_deposit_type[]
   transaction_recovery                                      transaction_recovery[]
+  cash_management_setup_unallocated                         cash_management_setup[] @relation("cms_unallocated_product")
 }
 
 /// A member fixed-deposit product: interest rate bounds, calc method (Flat vs Reducing Balance,
@@ -3823,6 +3844,7 @@ model sales_header {
   payment_method_code         String?
   customer_posting_group_code String?
   your_reference              String?
+  applies_to_doc_no                String?
   salesperson                 String?
   currency_code               String       @default("KES")
   currency_factor             Float        @default(1)
@@ -3886,6 +3908,7 @@ model posted_sales_document {
   order_no             String?
   payment_terms_code   String?
   your_reference       String?
+  applies_to_doc_no                String?
   currency_code        String              @default("KES")
   currency_factor      Float               @default(1)
   amount               BigInt              @default(0)
@@ -4400,11 +4423,19 @@ model cash_management_setup {
   default_receipt_bank_account_id    Int?
   allow_cm_posting_from              String?
   allow_cm_posting_to                String?
+  /// AL General Ledger Setup "Loan Repayment Charge" — applied to a Member receipt line that
+  /// repays a loan, and taken off before the rest reaches the loan.
+  loan_repayment_charge_id           Int?
+  /// Where the remainder goes when a member pays more than their loan still owes. Null means
+  /// the receipt refuses the overpayment rather than parking it somewhere they did not choose.
+  unallocated_product_id             Int?
   updated_at                         String?
   updated_by                         String?
   bank_charges_account               gl_account?   @relation("cms_bank_charges", fields: [bank_charges_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   bank_interest_income_account       gl_account?   @relation("cms_bank_interest", fields: [bank_interest_income_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   default_receipt_bank_account       bank_account? @relation(fields: [default_receipt_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan_repayment_charge              transaction_charge? @relation("cms_loan_repayment_charge", fields: [loan_repayment_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unallocated_product                savings_product?    @relation("cms_unallocated_product", fields: [unallocated_product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 /// Business Central Table 274 "Bank Acc. Reconciliation Line".
@@ -4433,7 +4464,9 @@ model bank_rec_line {
 model receipt_header {
   id                    Int            @id @default(autoincrement())
   no                    String         @unique
-  /// 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account'
+  /// 'Member' | 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account' — AL's Receipt Type, which
+  /// also fixes what every line on the receipt may be posted to. A Member receipt takes cash for
+  /// one member: each line either tops up one of their savings accounts or repays one of their loans.
   receipt_type          String         @default("G/L Account")
   posting_date          String         @default("")
   bank_account_id       Int
@@ -4456,11 +4489,20 @@ model receipt_header {
   created_by            String?
   posted_at             String?
   posted_by             String?
+  /// Receipt Type = Member only: whose money this is.
+  member_id             Int?
+  member_no             String?
+  member_name           String?
+  /// AL "Received Amount" — what the teller counted. Checked against the sum of the lines before
+  /// the receipt may be submitted, so a miskeyed line cannot post.
+  received_amount       BigInt         @default(0)
   bank_account          bank_account   @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member                member?        @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   receipt_line          receipt_line[]
 
   @@index([status], map: "ix_receipt_header_status")
   @@index([created_by], map: "ix_receipt_header_created_by")
+  @@index([member_id], map: "ix_receipt_header_member")
 }
 
 model receipt_line {
@@ -4475,7 +4517,31 @@ model receipt_line {
   applies_to_doc_no     String?
   global_dimension_1_id Int?
   global_dimension_2_id Int?
+  /// Receipt Type = Member only.
+  member_id             Int?
+  /// The member account this line credits — the loan account itself for a repayment.
+  savings_account_id    Int?
+  /// Required when the account is on a LOAN ACCOUNT product; which loan is being repaid.
+  loan_id               Int?
+  /// The savings product's category — AL's "Product Posting Type", which is what decides
+  /// whether a Loan No. is required on the line.
+  product_category      String?
+  /// The loan balances as quoted when the line was captured, printed on the receipt so the
+  /// member can see what was owed before their payment.
+  penalty_balance       BigInt         @default(0)
+  accrued_interest      BigInt         @default(0)
+  interest_balance      BigInt         @default(0)
+  principal_balance     BigInt         @default(0)
+  loan_balance          BigInt         @default(0)
+  /// AL "Charge Code"/"Charge Amount" — the loan repayment charge, taken off the line before
+  /// what is left is applied to the loan.
+  charge_id             Int?
+  charge_amount         BigInt         @default(0)
   receipt_header        receipt_header @relation(fields: [receipt_header_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  member                member?        @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account       savings_account? @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan                  loan?          @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  charge                transaction_charge? @relation(fields: [charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([receipt_header_id, line_no], map: "receipt_line_header_lineno_key")
 }
@@ -4498,7 +4564,11 @@ model posted_receipt {
   journal_id           Int?
   created_at           String?
   created_by           String?
+  member_id            Int?
+  member_no            String?
+  member_name          String?
   bank_account         bank_account          @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member               member?               @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   posted_receipt_line  posted_receipt_line[]
 
   @@index([receipt_no], map: "ix_posted_receipt_receipt_no")
@@ -4514,7 +4584,20 @@ model posted_receipt_line {
   description       String?
   amount            BigInt         @default(0)
   applies_to_doc_no String?
+  member_id          Int?
+  savings_account_id Int?
+  loan_id            Int?
+  product_category   String?
+  penalty_balance    BigInt        @default(0)
+  accrued_interest   BigInt        @default(0)
+  interest_balance   BigInt        @default(0)
+  principal_balance  BigInt        @default(0)
+  loan_balance       BigInt        @default(0)
+  charge_amount      BigInt        @default(0)
   posted_receipt    posted_receipt @relation(fields: [posted_receipt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  member             member?          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account    savings_account? @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loan               loan?            @relation(fields: [loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([posted_receipt_id], map: "ix_prl_doc")
 }
@@ -4524,6 +4607,9 @@ model payment_voucher_header {
   id                       Int                    @id @default(autoincrement())
   no                       String                 @unique
   date                     String
+  /// AL's Payment Type: 'Member Payment' | 'RTGS/SWIFT' | 'Supplier Payment' | 'Customer Refund'
+  /// | 'Bank Transfer' | 'Direct Expensing' | 'Payroll Settlement' | 'Remittance'. It fixes what
+  /// every line on the voucher may pay, the way the AL relates Account No per Payment Type.
   pv_type                  String?
   pay_mode_code            String?
   cheque_no                String?
@@ -4551,6 +4637,11 @@ model payment_voucher_header {
   posted_at                String?
   posted_by                String?
   paying_bank_account      bank_account           @relation(fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// Payment Type = Member Payment / RTGS-SWIFT only.
+  member_id                Int?
+  member_no                String?
+  member_name              String?
+  member                   member?                @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   payment_voucher_line     payment_voucher_line[]
 
   @@index([status], map: "ix_pvh_status")
@@ -4579,7 +4670,15 @@ model payment_voucher_line {
   purchase_invoice_amount     BigInt                 @default(0)
   global_dimension_1_id       Int?
   global_dimension_2_id       Int?
+  /// Payment Type = Member Payment / RTGS-SWIFT only — whose account is being drawn on.
+  member_id                   Int?
+  savings_account_id          Int?
+  /// AL "Available Balance": balance less holds less the product's minimum balance, floored at
+  /// zero. Snapshotted when the line is captured and re-checked at posting.
+  available_balance           BigInt                 @default(0)
   payment_voucher_header      payment_voucher_header @relation(fields: [payment_voucher_header_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  member                      member?                @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account             savings_account?       @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([payment_voucher_header_id, line_no], map: "payment_voucher_line_header_lineno_key")
 }
@@ -4608,7 +4707,13 @@ model posted_payment_voucher {
   approved_by                 String?
   created_at                  String?
   created_by                  String?
+  /// The Payment Type the voucher was raised under — the printout varies by it.
+  pv_type                     String?
+  member_id                   Int?
+  member_no                   String?
+  member_name                 String?
   paying_bank_account         bank_account                  @relation(fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  member                      member?                       @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   posted_payment_voucher_line posted_payment_voucher_line[]
 
   @@index([pv_no], map: "ix_ppv_pv_no")
@@ -4632,7 +4737,12 @@ model posted_payment_voucher_line {
   wht_amount_two              BigInt                 @default(0)
   wht_base                    BigInt                 @default(0)
   net_amount                  BigInt                 @default(0)
+  member_id                   Int?
+  savings_account_id          Int?
+  available_balance           BigInt                 @default(0)
   posted_payment_voucher      posted_payment_voucher @relation(fields: [posted_payment_voucher_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  member                      member?                @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  savings_account             savings_account?       @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([posted_payment_voucher_id], map: "ix_ppvl_doc")
 }
@@ -5550,4 +5660,179 @@ model payroll_p9_line {
   created_at             String?
 
   @@unique([employee_id, payroll_period_id], map: "ux_p9_employee_period")
+}
+
+/// The Dividend module — ported from the Nation CBS AL extension (Sacco CBS/src), Codeunit
+/// 52204023 "Dividend Management" and tables 52204067-74. The declaration header; its parameters
+/// carry one rate per savings product, and calculating it writes a line per member account with
+/// the monthly working behind it. See lib/dividends.ts.
+model dividend {
+  id                    Int     @id @default(autoincrement())
+  no                    String  @unique
+  /// 'BOSA' | 'FOSA' — which book the dividend is declared out of, and so which earning formula
+  /// runs: BOSA pro-rates each month's net increase, FOSA earns on the minimum running balance.
+  document_type         String  @default("BOSA")
+  description           String
+  posting_description   String?
+  dividend_year         Int
+  start_date            String
+  end_date              String
+  posting_date          String
+  /// 'Provisioning' (Dr expense, Cr payable) | 'Payout' (settle the payable to the members).
+  posting_type          String  @default("Provisioning")
+  /// 'Automatic' (walk the member ledgers) | 'Manual Upload' (take dividend_earned_entry as given).
+  computation_type      String  @default("Automatic")
+  transaction_charge_id Int?
+  expense_account_id    Int?
+  payable_account_id    Int?
+  recover_loans         Int     @default(0)
+  boost_to_minimum      Int     @default(0)
+  maximum_boost_amount  BigInt  @default(0)
+  preferential_boost    Int     @default(0)
+  global_dimension_1_id Int?
+  global_dimension_2_id Int?
+  status                String  @default("Open")
+  decision_reason       String?
+  calculated_at         String?
+  posted                Int     @default(0)
+  posted_at             String?
+  posted_by             String?
+  journal_id            Int?
+  created_at            String?
+  created_by            String?
+}
+
+/// One savings product the dividend is declared on, with its own rate and treatment.
+/// AL Tab52204070 "Dividend Calculation Params".
+model dividend_param {
+  id                        Int     @id @default(autoincrement())
+  dividend_id               Int
+  product_id                Int
+  posting_description       String
+  /// Annual rate as a percentage, e.g. 12.5.
+  rate                      Float   @default(0)
+  /// AL's Proration Type — how the product earns, and a property of the product, not of the
+  /// document, so one declaration can carry both models:
+  ///   'Pro Rated'       non-withdrawable deposits and share capital: the balance at the end of
+  ///                     the first month earns the full year, each later month earns on its own
+  ///                     increase weighted by the months remaining.
+  ///   'Minimum Balance' withdrawable accounts, the bank passbook rule: each month earns on the
+  ///                     lowest balance the account held that month, at one twelfth of the rate.
+  ///   'Straight Line'   a flat rate on the closing balance, with no monthly working.
+  rate_type                 String  @default("Pro Rated")
+  /// 'Savings' (the member's FOSA account) | 'Same Account' (capitalise) | 'Accrue' (hold in the
+  /// payable).
+  post_to                   String  @default("Savings")
+  is_share_capital          Int     @default(0)
+  minimum_balance           BigInt  @default(0)
+  qualified_minimum_balance BigInt  @default(0)
+  maximum_boost_amount      BigInt  @default(0)
+
+  @@unique([dividend_id, product_id])
+}
+
+/// One member account that earns. AL Tab52204069 "Dividend Lines".
+model dividend_line {
+  id                     Int     @id @default(autoincrement())
+  dividend_id            Int
+  member_id              Int
+  member_no              String
+  member_name            String
+  product_id             Int
+  savings_account_id     Int
+  account_no             String
+  /// Where a Post To = Savings earning is credited; null when the line accrues instead.
+  destination_account_id Int?
+  posting_description    String?
+  account_balance        BigInt  @default(0)
+  amount_earned          BigInt  @default(0)
+  total_recoveries       BigInt  @default(0)
+  net_amount             BigInt  @default(0)
+  preferential_boost     Int     @default(0)
+  preferential_boost_pct Float   @default(0)
+  deceased               Int     @default(0)
+  blocked_account        Int     @default(0)
+  phone_no               String?
+  posted                 Int     @default(0)
+
+  @@unique([dividend_id, savings_account_id])
+  @@index([dividend_id, member_id], map: "ix_dividend_line_member")
+}
+
+/// The month-by-month working behind each line — what the member's dividend slip prints.
+/// AL Tab52204073 "Dividend Det. Entries".
+model dividend_det_entry {
+  id                      Int    @id @default(autoincrement())
+  dividend_id             Int
+  dividend_line_id        Int
+  member_id               Int
+  savings_account_id      Int
+  month_no                Int
+  year                    Int
+  month_code              String
+  description             String?
+  posting_type            String @default("Pro Rated")
+  rate                    Float  @default(0)
+  ratio                   Float  @default(1)
+  min_balance             BigInt @default(0)
+  previous_month_balance  BigInt @default(0)
+  current_month_balance   BigInt @default(0)
+  net_change              BigInt @default(0)
+  minimum_running_balance BigInt @default(0)
+  amount                  BigInt @default(0)
+
+  @@index([dividend_line_id, month_no], map: "ix_dividend_det_line")
+}
+
+/// Manual Upload amounts, taken as given instead of derived. AL Tab52204074 "Dividend Earned Entries".
+model dividend_earned_entry {
+  id                 Int     @id @default(autoincrement())
+  dividend_id        Int
+  member_id          Int
+  savings_account_id Int
+  description        String?
+  amount             BigInt  @default(0)
+  created_at         String?
+  created_by         String?
+
+  @@unique([dividend_id, savings_account_id])
+}
+
+/// Everything taken off a line before it is paid — charges, loan recoveries and share-capital
+/// boosts. Amounts are negative. AL Tab52204067 "Dividend Recoveries".
+model dividend_recovery {
+  id                Int     @id @default(autoincrement())
+  dividend_id       Int
+  dividend_line_id  Int
+  member_id         Int
+  /// CHARGES | PENALTY | INTEREST_ARREARS | PRINCIPAL_ARREARS | INTEREST_PAID | PRINCIPAL_PAID
+  /// | BOOST | PREFERENTIAL_BOOST
+  entry_type        String
+  recovery_code     String?
+  description       String
+  loan_id           Int?
+  target_account_id Int?
+  charge_id         Int?
+  amount            BigInt  @default(0)
+  priority          Int     @default(0)
+  /// A payout commits in chunks, so a re-run has to know which recoveries already reached the
+  /// loan or the share account. See lib/dividends.ts postPayout().
+  posted            Int     @default(0)
+
+  @@index([dividend_line_id, entry_type], map: "ix_dividend_recovery_line")
+  @@index([dividend_id, posted], map: "ix_dividend_recovery_posting")
+}
+
+/// Members whose exit matured inside the dividend year — flagged for the officer to review rather
+/// than excluded automatically. AL Tab52204072 "Dividend Withdrawn Members".
+model dividend_withdrawn_member {
+  id            Int     @id @default(autoincrement())
+  dividend_id   Int
+  member_id     Int
+  member_no     String
+  member_name   String
+  exit_no       String?
+  maturity_date String?
+
+  @@unique([dividend_id, member_id])
 }

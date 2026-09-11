@@ -28,6 +28,7 @@ import { ExportButton } from '@/components/ui/export-button';
 import { LedgerLink, JournalLink } from '../drill-downs';
 import { NewJournalButton } from '../journal-form';
 import { GlAccountFormButton } from '../gl-account-form';
+import { IndentAccountsButton } from '../indent-accounts-button';
 import { PeriodToggle } from '../period-toggle';
 
 const TABS: TabDefinition[] = [
@@ -270,12 +271,15 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf, from }: {
   // Indentation follows Business Central's Begin-Total/End-Total bracketing, which only means
   // anything in code order — so depth is always resolved against the chart's natural order,
   // independent of whatever column the list itself is currently sorted by.
+  const indented = rows.some((r) => r.indentation > 0);
   const codeOrder = [...rows].sort((x, y) => x.code.localeCompare(y.code));
   const depthByCode = new Map<string, number>();
   let depth = 0;
   for (const r of codeOrder) {
     if (r.account_type === 'END_TOTAL') depth = Math.max(0, depth - 1);
-    depthByCode.set(r.code, depth);
+    // Indent Chart of Accounts stores the depth on the account; until it has been run the
+    // bracketing is read live, so a chart that has never been indented still reads correctly.
+    depthByCode.set(r.code, indented ? r.indentation : depth);
     if (r.account_type === 'BEGIN_TOTAL') depth += 1;
   }
 
@@ -290,6 +294,7 @@ async function AccountsTab({ search, filtersRaw, sortRaw, asOf, from }: {
           href="/api/export/gl-accounts" params={{ q: search, filters: filtersRaw, sort: sortRaw, asOf, from }}
           disabled={!rows.length}
         />
+        {canManage ? <IndentAccountsButton /> : null}
         {canManage ? <GlAccountFormButton className="btn">Add account</GlAccountFormButton> : null}
       </Toolbar>
       <Card>

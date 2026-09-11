@@ -1,10 +1,11 @@
 import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
-import { renderDocument } from '@/lib/documentPrint';
+import { renderDocument, renderDocuments } from '@/lib/documentPrint';
 import { buildSalesDocumentPrint, buildPostedSalesDocumentPrint } from '@/lib/salesDocumentPrint';
 import { buildPurchaseDocumentPrint, buildPostedPurchaseDocumentPrint } from '@/lib/purchaseDocumentPrint';
 import { buildPaymentVoucherDocument } from '@/lib/paymentVoucherSlip';
 import { buildReceiptDocument } from '@/lib/receiptSlip';
+import { buildDividendSlipPrint, buildDividendSlipBatch } from '@/lib/dividendSlip';
 import { Printable } from '@/components/ui/printable';
 import type { PrintDocument } from '@/lib/documentPrint';
 import type { ActionKey } from '@/lib/permissions';
@@ -19,13 +20,19 @@ export const dynamic = 'force-dynamic';
  * same pipeline — build a PrintDocument, render it through the shared chrome — so the only thing
  * that varies per kind is which builder runs and which permission opens it.
  */
-const KINDS: Record<string, { action: ActionKey; build: (no: string) => Promise<PrintDocument | null> }> = {
+const KINDS: Record<string, {
+  action: ActionKey;
+  /** A single sheet, or a batch — a dividend run prints one slip per member off one URL. */
+  build: (no: string) => Promise<PrintDocument | PrintDocument[] | null>;
+}> = {
   sales: { action: 'RECEIVABLES_READ', build: buildSalesDocumentPrint },
   'posted-sales': { action: 'RECEIVABLES_READ', build: buildPostedSalesDocumentPrint },
   purchase: { action: 'PAYABLES_READ', build: buildPurchaseDocumentPrint },
   'posted-purchase': { action: 'PAYABLES_READ', build: buildPostedPurchaseDocumentPrint },
   'payment-voucher': { action: 'CASH_MGMT_READ', build: buildPaymentVoucherDocument },
   receipt: { action: 'CASH_MGMT_READ', build: buildReceiptDocument },
+  'dividend-slip': { action: 'DIVIDENDS_READ', build: buildDividendSlipPrint },
+  'dividend-slips': { action: 'DIVIDENDS_READ', build: buildDividendSlipBatch },
 };
 
 export default async function PrintDocumentPage({ params }: { params: Promise<{ kind: string; no: string }> }) {
@@ -34,6 +41,6 @@ export default async function PrintDocumentPage({ params }: { params: Promise<{ 
   if (!entry) notFound();
   await requireAction(entry.action);
   const doc = await entry.build(decodeURIComponent(no));
-  if (!doc) notFound();
-  return <Printable html={renderDocument(doc)} />;
+  if (!doc || (Array.isArray(doc) && !doc.length)) notFound();
+  return <Printable html={Array.isArray(doc) ? renderDocuments(doc) : renderDocument(doc)} />;
 }

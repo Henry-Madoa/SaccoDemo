@@ -145,6 +145,8 @@ export interface SalesHeaderInput {
   salesperson?: string | null;
   /** Transaction currency; omitted → the customer's default currency, else KES. */
   currencyCode?: string | null;
+  /** Credit Memo only — the posted invoice being corrected (BC Applies-to Doc. No.). */
+  appliesToDocNo?: string | null;
 }
 
 export interface SalesLineInput {
@@ -178,11 +180,13 @@ export async function createSalesDocument(input: SalesHeaderInput, user: Actor):
   await run(
     `INSERT INTO sales_header
        (document_type, no, customer_id, posting_date, document_date, payment_terms_code, payment_method_code,
-        customer_posting_group_code, your_reference, salesperson, currency_code, currency_factor, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        customer_posting_group_code, your_reference, applies_to_doc_no, salesperson, currency_code,
+        currency_factor, created_at, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     input.documentType, no, customer.id, input.postingDate, input.documentDate || input.postingDate,
     paymentTerms || null, input.paymentMethodCode || null, customer.customer_posting_group_code,
-    input.yourReference?.trim() || null, input.salesperson?.trim() || null, cur.code, cur.factor,
+    input.yourReference?.trim() || null, input.appliesToDocNo?.trim() || null,
+    input.salesperson?.trim() || null, cur.code, cur.factor,
     new Date().toISOString(), user.username,
   );
   await audit(user, 'SALES_DOCUMENT_CREATE', 'sales_header', no, { documentType: input.documentType, customer: customer.no });
@@ -198,11 +202,11 @@ export async function updateSalesDocumentHeader(no: string, input: SalesHeaderIn
   const cur = await resolveDocCurrency(input.currencyCode ?? before.currency_code, input.documentDate || input.postingDate);
   await run(
     `UPDATE sales_header SET customer_id = ?, posting_date = ?, document_date = ?, payment_terms_code = ?,
-       payment_method_code = ?, customer_posting_group_code = ?, your_reference = ?, salesperson = ?,
-       currency_code = ?, currency_factor = ? WHERE no = ?`,
+       payment_method_code = ?, customer_posting_group_code = ?, your_reference = ?,
+       applies_to_doc_no = ?, salesperson = ?, currency_code = ?, currency_factor = ? WHERE no = ?`,
     customer.id, input.postingDate, input.documentDate || input.postingDate, input.paymentTermsCode || null,
     input.paymentMethodCode || null, customer.customer_posting_group_code, input.yourReference?.trim() || null,
-    input.salesperson?.trim() || null, cur.code, cur.factor, no,
+    input.appliesToDocNo?.trim() || null, input.salesperson?.trim() || null, cur.code, cur.factor, no,
   );
   await audit(user, 'SALES_DOCUMENT_UPDATE', 'sales_header', no, {});
 }
@@ -629,6 +633,22 @@ export async function postSalesDocument(
         dueDate, pmtDiscountDate: pmtDiscDate, pmtDiscountPossible: pmtDiscPossible,
         sourceType: isCreditMemo ? 'Sales Credit Memo' : 'Sales Invoice', sourceId: header.id, journalId,
       });
+      // BC's Applies-to Doc. No.: a corrective credit memo settles the invoice it was raised
+      // against, so the customer is not left with an open invoice and an open credit note.
+      if (isCreditMemo && header.applies_to_doc_no && custLedgerEntryId) {
+        const target = await one<{ id: number }>(
+          `SELECT id FROM cust_ledger_entry
+           WHERE customer_id = ? AND document_no = ? AND open = 1 AND positive = 1
+           ORDER BY id LIMIT 1`,
+          customer.id, header.applies_to_doc_no,
+        );
+        // Silent when the invoice is already settled — the memo still posts, just unapplied.
+        if (target) {
+          await applyCustomerEntries(
+            { applyingEntryId: custLedgerEntryId, appliedTo: [target.id], postingDate: vd }, user,
+          );
+        }
+      }
       invoiceNo = await nextSequence(isCreditMemo ? 'POSTED_SALES_CREDIT_MEMO' : 'POSTED_SALES_INVOICE');
       await writePostedDocument(isCreditMemo ? 'Credit Memo' : 'Invoice', invoiceNo, header, customer, vd, isOrder ? no : null, journalId, custLedgerEntryId, postedLines, user);
       await recomputeCustomerBalance(customer.id);
@@ -667,12 +687,13 @@ async function writePostedDocument(
   const info = await run(
     `INSERT INTO posted_sales_document
        (document_type, no, customer_id, sell_to_name, sell_to_address, sell_to_city, sell_to_contact,
-        posting_date, document_date, due_date, order_no, payment_terms_code, your_reference, currency_code, currency_factor, amount,
+        posting_date, document_date, due_date, order_no, payment_terms_code, your_reference,
+        applies_to_doc_no, currency_code, currency_factor, amount,
         cust_ledger_entry_id, journal_id, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     documentType, postedNo, customer.id, customer.name, customer.address, customer.city, customer.contact,
     vd, header.document_date, header.due_date, orderNo, header.payment_terms_code, header.your_reference,
-    header.currency_code, header.currency_factor, total,
+    header.applies_to_doc_no, header.currency_code, header.currency_factor, total,
     custLedgerEntryId, journalId, new Date().toISOString(), _user.username,
   );
   const docId = Number(info.lastInsertRowid);
@@ -713,4 +734,97 @@ export async function getPostedSalesDocument(no: string): Promise<PostedSalesDoc
     'SELECT * FROM posted_sales_line WHERE posted_sales_document_id = ? ORDER BY line_no', header.id,
   );
   return { ...header, lines };
+}
+
+/* --------------------------------------------- corrective credit memo (copy document) */
+
+/** One posted invoice offered as the source of a corrective credit memo. */
+export interface PostedInvoiceOption {
+  no: string;
+  posting_date: IsoDate;
+  customer_id: number;
+  customer_no: string;
+  customer_name: string;
+  amount: Cents;
+  /** What is still open on the customer ledger — 0 once the invoice has been settled. */
+  remaining_amount: Cents;
+}
+
+/**
+ * Posted sales invoices a credit memo can be raised against, newest first — Business Central's
+ * "Copy Document" / "Create Corrective Credit Memo" source list. Narrowed to one customer once
+ * the memo has one, so the picker offers that customer's invoices rather than the whole ledger.
+ */
+export const listPostedInvoicesForCredit = (customerId?: number | null): Promise<PostedInvoiceOption[]> =>
+  all<PostedInvoiceOption>(
+    `SELECT d.no, d.posting_date, d.customer_id, c.no AS customer_no, c.name AS customer_name,
+            d.amount, COALESCE(e.remaining_amount, 0) AS remaining_amount
+     FROM posted_sales_document d
+     JOIN customer c ON c.id = d.customer_id
+     LEFT JOIN cust_ledger_entry e ON e.id = d.cust_ledger_entry_id
+     WHERE d.document_type = 'Invoice' ${customerId ? 'AND d.customer_id = @customerId' : ''}
+     ORDER BY d.id DESC
+     LIMIT 200`,
+    customerId ? { customerId } : {},
+  );
+
+/** A posted invoice reshaped into the header + line drafts a credit memo starts from. */
+export interface CreditMemoSource {
+  invoiceNo: string;
+  customerId: number;
+  customerNo: string;
+  customerName: string;
+  postingDate: IsoDate;
+  paymentTermsCode: string | null;
+  yourReference: string | null;
+  currencyCode: string;
+  amount: Cents;
+  lines: {
+    type: SalesLineType;
+    no: string | null;
+    description: string | null;
+    quantity: number;
+    unitPrice: Cents;
+    /** Recovered from the posted line's discount amount, which is what was actually stored. */
+    lineDiscountPct: number;
+  }[];
+}
+
+/**
+ * The posted invoice, ready to prefill a credit memo — Business Central's Copy Document with
+ * "Include Header" on. Quantities come across positive: a credit memo is a negative document by
+ * virtue of its type, not by carrying negative lines (see postSalesDocument's `sign`).
+ */
+export async function getInvoiceForCreditMemo(no: string): Promise<CreditMemoSource | undefined> {
+  const doc = await one<PostedSalesDocumentView>(
+    `SELECT d.*, c.no AS customer_no, c.name AS customer_name
+     FROM posted_sales_document d JOIN customer c ON c.id = d.customer_id
+     WHERE d.no = ? AND d.document_type = 'Invoice'`, no,
+  );
+  if (!doc) return undefined;
+  const lines = await all<PostedSalesLine>(
+    'SELECT * FROM posted_sales_line WHERE posted_sales_document_id = ? ORDER BY line_no', doc.id,
+  );
+  return {
+    invoiceNo: doc.no,
+    customerId: doc.customer_id,
+    customerNo: doc.customer_no,
+    customerName: doc.customer_name,
+    postingDate: doc.posting_date,
+    paymentTermsCode: doc.payment_terms_code,
+    yourReference: doc.your_reference,
+    currencyCode: doc.currency_code,
+    amount: doc.amount,
+    lines: lines.map((l) => {
+      const gross = Math.round(l.quantity * l.unit_price);
+      return {
+        type: l.type,
+        no: l.no,
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unit_price,
+        lineDiscountPct: gross > 0 ? Math.round((l.line_discount_amount / gross) * 10000) / 100 : 0,
+      };
+    }),
+  };
 }

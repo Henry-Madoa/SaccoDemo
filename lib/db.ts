@@ -188,12 +188,19 @@ export async function run(sql: string, ...args: unknown[]): Promise<RunResult> {
  * The transaction client is threaded through AsyncLocalStorage so nested
  * services need no extra argument.
  */
-export async function tx<T>(fn: () => Promise<T>): Promise<T> {
+export interface TxOptions {
+  /** Milliseconds the transaction may run for. Defaults to two minutes, which covers every
+   *  ordinary document posting; a whole-membership run (a dividend calculation over every
+   *  savings account) is legitimately longer and passes its own. */
+  timeout?: number;
+}
+
+export async function tx<T>(fn: () => Promise<T>, options: TxOptions = {}): Promise<T> {
   if (txStore.getStore()) return fn();
   return db.$transaction(
     (client) => txStore.run(client as RawClient, fn),
     // The seed posts thousands of journals inside one transaction.
-    { timeout: 120_000, maxWait: 15_000 },
+    { timeout: options.timeout ?? 120_000, maxWait: 15_000 },
   );
 }
 
@@ -211,6 +218,12 @@ export async function tx<T>(fn: () => Promise<T>): Promise<T> {
 export async function nextSequence(name: string): Promise<string> {
   const { nextSequence: fromSeries } = await import('./noSeries.ts');
   return fromSeries(name);
+}
+
+/** N consecutive document numbers in one round trip — see noSeries.nextSequenceBatch(). */
+export async function nextSequenceBatch(name: string, count: number): Promise<string[]> {
+  const { nextSequenceBatch: fromSeries } = await import('./noSeries.ts');
+  return fromSeries(name, count);
 }
 
 export async function audit(

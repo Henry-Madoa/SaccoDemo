@@ -8,7 +8,7 @@
  */
 import type {
   BankAccountType, Channel, ChargeCalculationType, ChargeRateType, ChargeTransactionType, CheckoffSearchType, CollateralCategory,
-  DocumentStatus, FosaDocumentType, GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
+  DividendRateType, DocumentStatus, FosaDocumentType, GlAccountStructureType, GlAccountType, InterestMethod, JobQueueStatus, JobQueueType, LoanCalculatorRateType,
   LoanChargeCalculationType, LoanRecoveryMode, LoanStatus, MemberCategoryType, MemberStatus, PayMode, SalaryAppraisalLineType,
   TransactionRecoveryDeductionType, TransactionRecoveryType,
   SalaryAppraisalSpecialType, SavingsAccountStatus, SavingsCategory, StandingOrderAmountType, StandingOrderClass,
@@ -49,6 +49,41 @@ export const PAY_MODES: { value: PayMode; label: string }[] = [
 
 export const SAVINGS_CATEGORIES: SavingsCategory[] = ['WITHDRAWABLE DEPOSIT', 'NON WITHDRAWABLE DEPOSIT', 'JUNIOR ACCOUNT', 'SHARE CAPITAL ACCOUNT', 'FIXED DEPOSIT ACCOUNT', 'LOAN ACCOUNT', 'INVESTMENTS ACCOUNT', 'HOLDING ACCOUNT', 'HOLIDAY ACCOUNT', 'SHARE TRADING ACCOUNT', 'BENEVOLENT ACCOUNT', 'SCHOOL FEE ACCOUNT'];
 export const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE'];
+
+/**
+ * Dividend Proration Type — how a savings product earns, per AL Tab52204070.
+ */
+export const DIVIDEND_RATE_TYPES: { value: DividendRateType; label: string; help: string }[] = [
+  {
+    value: 'Pro Rated',
+    label: 'Pro Rated (BOSA model)',
+    help: 'The balance at the end of the first month earns the full year; each later month earns on its own increase, weighted by the months left.',
+  },
+  {
+    value: 'Minimum Balance',
+    label: 'Minimum Balance (bank model)',
+    help: 'Each month earns on the lowest balance the account held that month, above the minimum interest-earning balance, at one twelfth of the rate.',
+  },
+  {
+    value: 'Straight Line',
+    label: 'Straight Line',
+    help: 'A flat rate on the closing balance, with no monthly working.',
+  },
+];
+
+/**
+ * Which model a product earns on by default: a member's non-withdrawable stake and share capital
+ * are pro-rated, because money left in for the whole year should earn for the whole year. Anything
+ * the member can draw on earns the bank way instead — on what actually stayed in each month —
+ * since a balance that is deposited and withdrawn again has not been the SACCO's to lend.
+ *
+ * A default, not a rule: the Rate Type stays editable on the dividend parameter line.
+ */
+export function defaultDividendRateType(category: string): DividendRateType {
+  return category === 'NON WITHDRAWABLE DEPOSIT' || category === 'SHARE CAPITAL ACCOUNT'
+    ? 'Pro Rated'
+    : 'Minimum Balance';
+}
 export const SAVINGS_ACCOUNT_STATUSES: SavingsAccountStatus[] = ['ACTIVE', 'DORMANT', 'FROZEN', 'CLOSED', 'INACTIVE'];
 
 export const MEMBER_CATEGORY_TYPES: { value: MemberCategoryType; label: string }[] = [
@@ -145,6 +180,9 @@ export const SOCIETY_TYPES = [
   'Non-Deposit Taking SACCO',
   'Investment Co-operative',
   'Housing Co-operative',
+  /** A company registered under the Companies Act rather than the Co-operative Societies Act —
+   *  it has a Registrar of Companies number instead of a SASRA licence. */
+  'Private Limited Company',
 ];
 
 /** Suggested document labels; the field is free text so a society can use its own. */

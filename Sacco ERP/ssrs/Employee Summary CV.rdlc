@@ -1,0 +1,347 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="DataSource">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString />
+      </ConnectionProperties>
+      <rd:SecurityType>None</rd:SecurityType>
+    </DataSource>
+  </DataSources>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <Height>2in</Height>
+        <Style />
+      </Body>
+      <Width>6.5in</Width>
+      <Page>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <Code>Public Function BlankZero(ByVal Value As Decimal)
+    if Value = 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankPos(ByVal Value As Decimal)
+    if Value &gt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankZeroAndPos(ByVal Value As Decimal)
+    if Value &gt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNeg(ByVal Value As Decimal)
+    if Value &lt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNegAndZero(ByVal Value As Decimal)
+    if Value &lt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+</Code>
+  <Language>=User!Language</Language>
+  <ConsumeContainerWhitespace>true</ConsumeContainerWhitespace>
+  <rd:ReportUnitType>Inch</rd:ReportUnitType>
+  <rd:ReportID>0eeb6585-38ae-40f1-885b-8d50088d51b4</rd:ReportID>
+  <DataSets>
+    <DataSet Name="DataSet_Result">
+      <Fields>
+        <Field Name="JobDescription_Employee">
+          <DataField>JobDescription_Employee</DataField>
+        </Field>
+        <Field Name="NationalID_Employee">
+          <DataField>NationalID_Employee</DataField>
+        </Field>
+        <Field Name="EMail_Employee">
+          <DataField>EMail_Employee</DataField>
+        </Field>
+        <Field Name="MobilePhoneNo_Employee">
+          <DataField>MobilePhoneNo_Employee</DataField>
+        </Field>
+        <Field Name="PhoneNo_Employee">
+          <DataField>PhoneNo_Employee</DataField>
+        </Field>
+        <Field Name="CountryRegionCode_Employee">
+          <DataField>CountryRegionCode_Employee</DataField>
+        </Field>
+        <Field Name="SHIFNumber_Employee">
+          <DataField>SHIFNumber_Employee</DataField>
+        </Field>
+        <Field Name="NSSFNumber_Employee">
+          <DataField>NSSFNumber_Employee</DataField>
+        </Field>
+        <Field Name="KRANumber_Employee">
+          <DataField>KRANumber_Employee</DataField>
+        </Field>
+        <Field Name="MaritalStatus_Employee">
+          <DataField>MaritalStatus_Employee</DataField>
+        </Field>
+        <Field Name="No_Employee">
+          <DataField>No_Employee</DataField>
+        </Field>
+        <Field Name="FirstName_Employee">
+          <DataField>FirstName_Employee</DataField>
+        </Field>
+        <Field Name="MiddleName_Employee">
+          <DataField>MiddleName_Employee</DataField>
+        </Field>
+        <Field Name="LastName_Employee">
+          <DataField>LastName_Employee</DataField>
+        </Field>
+        <Field Name="Initials_Employee">
+          <DataField>Initials_Employee</DataField>
+        </Field>
+        <Field Name="EmployeeNo_EmployeeQualification">
+          <DataField>EmployeeNo_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="LineNo_EmployeeQualification">
+          <DataField>LineNo_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="QualificationCode_EmployeeQualification">
+          <DataField>QualificationCode_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="FromDate_EmployeeQualification">
+          <DataField>FromDate_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="ToDate_EmployeeQualification">
+          <DataField>ToDate_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="Type_EmployeeQualification">
+          <DataField>Type_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="Description_EmployeeQualification">
+          <DataField>Description_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="InstitutionCompany_EmployeeQualification">
+          <DataField>InstitutionCompany_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="Cost_EmployeeQualification">
+          <DataField>Cost_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="Cost_EmployeeQualificationFormat">
+          <DataField>Cost_EmployeeQualificationFormat</DataField>
+        </Field>
+        <Field Name="CourseGrade_EmployeeQualification">
+          <DataField>CourseGrade_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="EmployeeStatus_EmployeeQualification">
+          <DataField>EmployeeStatus_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="Comment_EmployeeQualification">
+          <DataField>Comment_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="ExpirationDate_EmployeeQualification">
+          <DataField>ExpirationDate_EmployeeQualification</DataField>
+        </Field>
+        <Field Name="EmployeeNo_EmployeeWorkHistory">
+          <DataField>EmployeeNo_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="LineNo_EmployeeWorkHistory">
+          <DataField>LineNo_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="FromDate_EmployeeWorkHistory">
+          <DataField>FromDate_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="ToDate_EmployeeWorkHistory">
+          <DataField>ToDate_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="WorkDone_EmployeeWorkHistory">
+          <DataField>WorkDone_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="InstitutionCompany_EmployeeWorkHistory">
+          <DataField>InstitutionCompany_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="EmployeeStatus_EmployeeWorkHistory">
+          <DataField>EmployeeStatus_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="Comment_EmployeeWorkHistory">
+          <DataField>Comment_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="PositionHeld_EmployeeWorkHistory">
+          <DataField>PositionHeld_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="KeyExperience_EmployeeWorkHistory">
+          <DataField>KeyExperience_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="SalaryonLeaving_EmployeeWorkHistory">
+          <DataField>SalaryonLeaving_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="SalaryonLeaving_EmployeeWorkHistoryFormat">
+          <DataField>SalaryonLeaving_EmployeeWorkHistoryFormat</DataField>
+        </Field>
+        <Field Name="ReasonForLeaving_EmployeeWorkHistory">
+          <DataField>ReasonForLeaving_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="Comments_EmployeeWorkHistory">
+          <DataField>Comments_EmployeeWorkHistory</DataField>
+        </Field>
+        <Field Name="EmployeeNo_EmployeeLanguages">
+          <DataField>EmployeeNo_EmployeeLanguages</DataField>
+        </Field>
+        <Field Name="Language_EmployeeLanguages">
+          <DataField>Language_EmployeeLanguages</DataField>
+        </Field>
+        <Field Name="Read_EmployeeLanguages">
+          <DataField>Read_EmployeeLanguages</DataField>
+        </Field>
+        <Field Name="Write_EmployeeLanguages">
+          <DataField>Write_EmployeeLanguages</DataField>
+        </Field>
+        <Field Name="Speak_EmployeeLanguages">
+          <DataField>Speak_EmployeeLanguages</DataField>
+        </Field>
+        <Field Name="No_EmployeeBeneficiaries">
+          <DataField>No_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="EmployeeNo_EmployeeBeneficiaries">
+          <DataField>EmployeeNo_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="FullNames_EmployeeBeneficiaries">
+          <DataField>FullNames_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="IDBirthCertificateNo_EmployeeBeneficiaries">
+          <DataField>IDBirthCertificateNo_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="DateofBirth_EmployeeBeneficiaries">
+          <DataField>DateofBirth_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="PhoneNo_EmployeeBeneficiaries">
+          <DataField>PhoneNo_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="EmailAddress_EmployeeBeneficiaries">
+          <DataField>EmailAddress_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Entitlement_EmployeeBeneficiaries">
+          <DataField>Entitlement_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Entitlement_EmployeeBeneficiariesFormat">
+          <DataField>Entitlement_EmployeeBeneficiariesFormat</DataField>
+        </Field>
+        <Field Name="Relationship_EmployeeBeneficiaries">
+          <DataField>Relationship_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Gender_EmployeeBeneficiaries">
+          <DataField>Gender_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Beneficiary_EmployeeBeneficiaries">
+          <DataField>Beneficiary_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Percentage_EmployeeBeneficiaries">
+          <DataField>Percentage_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Percentage_EmployeeBeneficiariesFormat">
+          <DataField>Percentage_EmployeeBeneficiariesFormat</DataField>
+        </Field>
+        <Field Name="Comments_EmployeeBeneficiaries">
+          <DataField>Comments_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Age_EmployeeBeneficiaries">
+          <DataField>Age_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="Type_EmployeeBeneficiaries">
+          <DataField>Type_EmployeeBeneficiaries</DataField>
+        </Field>
+        <Field Name="LineNo_EmployeeDepandants">
+          <DataField>LineNo_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="EmployeeNo_EmployeeDepandants">
+          <DataField>EmployeeNo_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="FullName_EmployeeDepandants">
+          <DataField>FullName_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="IDBirthCertificateNo_EmployeeDepandants">
+          <DataField>IDBirthCertificateNo_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="DateofBirth_EmployeeDepandants">
+          <DataField>DateofBirth_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="Age_EmployeeDepandants">
+          <DataField>Age_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="Relationship_EmployeeDepandants">
+          <DataField>Relationship_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="Gender_EmployeeDepandants">
+          <DataField>Gender_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="IsStudent_EmployeeDepandants">
+          <DataField>IsStudent_EmployeeDepandants</DataField>
+        </Field>
+        <Field Name="EmployeeNo_EmployeeRelative">
+          <DataField>EmployeeNo_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="LineNo_EmployeeRelative">
+          <DataField>LineNo_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="RelativeCode_EmployeeRelative">
+          <DataField>RelativeCode_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="FirstName_EmployeeRelative">
+          <DataField>FirstName_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="MiddleName_EmployeeRelative">
+          <DataField>MiddleName_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="LastName_EmployeeRelative">
+          <DataField>LastName_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="BirthDate_EmployeeRelative">
+          <DataField>BirthDate_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="PhoneNo_EmployeeRelative">
+          <DataField>PhoneNo_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="RelativesEmployeeNo_EmployeeRelative">
+          <DataField>RelativesEmployeeNo_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="Comment_EmployeeRelative">
+          <DataField>Comment_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="IDBirthCertificateNo_EmployeeRelative">
+          <DataField>IDBirthCertificateNo_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="EmailAddress_EmployeeRelative">
+          <DataField>EmailAddress_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="Entitlement_EmployeeRelative">
+          <DataField>Entitlement_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="Entitlement_EmployeeRelativeFormat">
+          <DataField>Entitlement_EmployeeRelativeFormat</DataField>
+        </Field>
+        <Field Name="Gender_EmployeeRelative">
+          <DataField>Gender_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="DateofBirth_EmployeeRelative">
+          <DataField>DateofBirth_EmployeeRelative</DataField>
+        </Field>
+        <Field Name="Age_EmployeeRelative">
+          <DataField>Age_EmployeeRelative</DataField>
+        </Field>
+      </Fields>
+      <Query>
+        <DataSourceName>DataSource</DataSourceName>
+        <CommandText />
+      </Query>
+    </DataSet>
+  </DataSets>
+</Report>

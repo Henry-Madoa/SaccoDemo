@@ -667,6 +667,12 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       else await svc.rejectBankersCheque(task.entity_id, reason, decidedBy);
       break;
     }
+    case 'DIVIDEND': {
+      const svc = await import('./dividends.ts');
+      if (approved) await svc.approveDividend(task.entity_id, decidedBy);
+      else await svc.rejectDividend(task.entity_id, reason, decidedBy);
+      break;
+    }
     case 'CHEQUE_DEPOSIT': {
       const svc = await import('./chequeDeposits.ts');
       if (approved) await svc.approveChequeDeposit(task.entity_id, decidedBy);

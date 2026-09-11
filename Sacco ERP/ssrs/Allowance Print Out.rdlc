@@ -1,0 +1,269 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="DataSource">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString />
+      </ConnectionProperties>
+      <rd:SecurityType>None</rd:SecurityType>
+    </DataSource>
+  </DataSources>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <Height>2in</Height>
+        <Style />
+      </Body>
+      <Width>6.5in</Width>
+      <Page>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <Code>Public Function BlankZero(ByVal Value As Decimal)
+    if Value = 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankPos(ByVal Value As Decimal)
+    if Value &gt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankZeroAndPos(ByVal Value As Decimal)
+    if Value &gt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNeg(ByVal Value As Decimal)
+    if Value &lt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNegAndZero(ByVal Value As Decimal)
+    if Value &lt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+</Code>
+  <Language>=User!Language</Language>
+  <ConsumeContainerWhitespace>true</ConsumeContainerWhitespace>
+  <rd:ReportUnitType>Inch</rd:ReportUnitType>
+  <rd:ReportID>0eeb6585-38ae-40f1-885b-8d50088d51b4</rd:ReportID>
+  <DataSets>
+    <DataSet Name="DataSet_Result">
+      <Fields>
+        <Field Name="CompanyName">
+          <DataField>CompanyName</DataField>
+        </Field>
+        <Field Name="CompanyPicture">
+          <DataField>CompanyPicture</DataField>
+        </Field>
+        <Field Name="CompanyAddress">
+          <DataField>CompanyAddress</DataField>
+        </Field>
+        <Field Name="CompanyPhone">
+          <DataField>CompanyPhone</DataField>
+        </Field>
+        <Field Name="CompanyLocation">
+          <DataField>CompanyLocation</DataField>
+        </Field>
+        <Field Name="CompanyEmail">
+          <DataField>CompanyEmail</DataField>
+        </Field>
+        <Field Name="CompanyWebsite">
+          <DataField>CompanyWebsite</DataField>
+        </Field>
+        <Field Name="CompanyPostCode">
+          <DataField>CompanyPostCode</DataField>
+        </Field>
+        <Field Name="SenderID">
+          <DataField>SenderID</DataField>
+        </Field>
+        <Field Name="DateTimeSend">
+          <DataField>DateTimeSend</DataField>
+        </Field>
+        <Field Name="SenderSignature">
+          <DataField>SenderSignature</DataField>
+        </Field>
+        <Field Name="FirstApproverID">
+          <DataField>FirstApproverID</DataField>
+        </Field>
+        <Field Name="DateTimeFirstApprove">
+          <DataField>DateTimeFirstApprove</DataField>
+        </Field>
+        <Field Name="FirstApproveSignature">
+          <DataField>FirstApproveSignature</DataField>
+        </Field>
+        <Field Name="SecondApproverID">
+          <DataField>SecondApproverID</DataField>
+        </Field>
+        <Field Name="DateTimeSecondApprove">
+          <DataField>DateTimeSecondApprove</DataField>
+        </Field>
+        <Field Name="SecondApproveSignature">
+          <DataField>SecondApproveSignature</DataField>
+        </Field>
+        <Field Name="ThirdApproverID">
+          <DataField>ThirdApproverID</DataField>
+        </Field>
+        <Field Name="DateTimeThirdApprove">
+          <DataField>DateTimeThirdApprove</DataField>
+        </Field>
+        <Field Name="ThirdApproveSignature">
+          <DataField>ThirdApproveSignature</DataField>
+        </Field>
+        <Field Name="FourthApproverID">
+          <DataField>FourthApproverID</DataField>
+        </Field>
+        <Field Name="DateTimeFourthApprove">
+          <DataField>DateTimeFourthApprove</DataField>
+        </Field>
+        <Field Name="FourthApproveSignature">
+          <DataField>FourthApproveSignature</DataField>
+        </Field>
+        <Field Name="FifthApproverID">
+          <DataField>FifthApproverID</DataField>
+        </Field>
+        <Field Name="DateTimeFifthApprove">
+          <DataField>DateTimeFifthApprove</DataField>
+        </Field>
+        <Field Name="FifthApproveSignature">
+          <DataField>FifthApproveSignature</DataField>
+        </Field>
+        <Field Name="No_RequestHeader">
+          <DataField>No_RequestHeader</DataField>
+        </Field>
+        <Field Name="EmployeeNo_RequestHeader">
+          <DataField>EmployeeNo_RequestHeader</DataField>
+        </Field>
+        <Field Name="EmployeeName_RequestHeader">
+          <DataField>EmployeeName_RequestHeader</DataField>
+        </Field>
+        <Field Name="RequestFor_RequestHeader">
+          <DataField>RequestFor_RequestHeader</DataField>
+        </Field>
+        <Field Name="RequestType_RequestHeader">
+          <DataField>RequestType_RequestHeader</DataField>
+        </Field>
+        <Field Name="Purpose_RequestHeader">
+          <DataField>Purpose_RequestHeader</DataField>
+        </Field>
+        <Field Name="PayingBank_RequestHeader">
+          <DataField>PayingBank_RequestHeader</DataField>
+        </Field>
+        <Field Name="EmployeeBalance_RequestHeader">
+          <DataField>EmployeeBalance_RequestHeader</DataField>
+        </Field>
+        <Field Name="EmployeeBalance_RequestHeaderFormat">
+          <DataField>EmployeeBalance_RequestHeaderFormat</DataField>
+        </Field>
+        <Field Name="ClaimAmount_RequestHeader">
+          <DataField>ClaimAmount_RequestHeader</DataField>
+        </Field>
+        <Field Name="ClaimAmount_RequestHeaderFormat">
+          <DataField>ClaimAmount_RequestHeaderFormat</DataField>
+        </Field>
+        <Field Name="Status_RequestHeader">
+          <DataField>Status_RequestHeader</DataField>
+        </Field>
+        <Field Name="CreatedOn_RequestHeader">
+          <DataField>CreatedOn_RequestHeader</DataField>
+        </Field>
+        <Field Name="CreatedBy_RequestHeader">
+          <DataField>CreatedBy_RequestHeader</DataField>
+        </Field>
+        <Field Name="PostingDate_RequestHeader">
+          <DataField>PostingDate_RequestHeader</DataField>
+        </Field>
+        <Field Name="Posted_RequestHeader">
+          <DataField>Posted_RequestHeader</DataField>
+        </Field>
+        <Field Name="PostedBy_RequestHeader">
+          <DataField>PostedBy_RequestHeader</DataField>
+        </Field>
+        <Field Name="PostedOn_RequestHeader">
+          <DataField>PostedOn_RequestHeader</DataField>
+        </Field>
+        <Field Name="GlobalDimension1Code_RequestHeader">
+          <DataField>GlobalDimension1Code_RequestHeader</DataField>
+        </Field>
+        <Field Name="GlobalDimension2Code_RequestHeader">
+          <DataField>GlobalDimension2Code_RequestHeader</DataField>
+        </Field>
+        <Field Name="SurrenderAmount_RequestHeader">
+          <DataField>SurrenderAmount_RequestHeader</DataField>
+        </Field>
+        <Field Name="SurrenderAmount_RequestHeaderFormat">
+          <DataField>SurrenderAmount_RequestHeaderFormat</DataField>
+        </Field>
+        <Field Name="ImprestNo_RequestHeader">
+          <DataField>ImprestNo_RequestHeader</DataField>
+        </Field>
+        <Field Name="Surrendered_RequestHeader">
+          <DataField>Surrendered_RequestHeader</DataField>
+        </Field>
+        <Field Name="PayMode_RequestHeader">
+          <DataField>PayMode_RequestHeader</DataField>
+        </Field>
+        <Field Name="ChequeNo_RequestHeader">
+          <DataField>ChequeNo_RequestHeader</DataField>
+        </Field>
+        <Field Name="EFTNo_RequestHeader">
+          <DataField>EFTNo_RequestHeader</DataField>
+        </Field>
+        <Field Name="CurrencyCode_RequestHeader">
+          <DataField>CurrencyCode_RequestHeader</DataField>
+        </Field>
+        <Field Name="AccountNo_RequestLines">
+          <DataField>AccountNo_RequestLines</DataField>
+        </Field>
+        <Field Name="AccountName_RequestLines">
+          <DataField>AccountName_RequestLines</DataField>
+        </Field>
+        <Field Name="Description_RequestLines">
+          <DataField>Description_RequestLines</DataField>
+        </Field>
+        <Field Name="NetAllowanceAmount_RequestLines">
+          <DataField>NetAllowanceAmount_RequestLines</DataField>
+        </Field>
+        <Field Name="NetAllowanceAmount_RequestLinesFormat">
+          <DataField>NetAllowanceAmount_RequestLinesFormat</DataField>
+        </Field>
+        <Field Name="TaxAmount_RequestLines">
+          <DataField>TaxAmount_RequestLines</DataField>
+        </Field>
+        <Field Name="TaxAmount_RequestLinesFormat">
+          <DataField>TaxAmount_RequestLinesFormat</DataField>
+        </Field>
+        <Field Name="Amount_RequestLines">
+          <DataField>Amount_RequestLines</DataField>
+        </Field>
+        <Field Name="Amount_RequestLinesFormat">
+          <DataField>Amount_RequestLinesFormat</DataField>
+        </Field>
+        <Field Name="EmployeeNo_RequestLines">
+          <DataField>EmployeeNo_RequestLines</DataField>
+        </Field>
+        <Field Name="EmployeeName_RequestLines">
+          <DataField>EmployeeName_RequestLines</DataField>
+        </Field>
+      </Fields>
+      <Query>
+        <DataSourceName>DataSource</DataSourceName>
+        <CommandText />
+      </Query>
+    </DataSet>
+  </DataSets>
+</Report>

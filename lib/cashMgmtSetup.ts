@@ -186,7 +186,8 @@ export async function deleteExchangeRate(id: number, user: Actor): Promise<void>
 const DEFAULT_SETUP: CashManagementSetup = {
   id: 1, receipt_approval_limit: 0, pv_approval_limit: 0, default_vat_bus_posting_group_code: null, bank_charges_account_id: null,
   bank_interest_income_account_id: null, default_receipt_bank_account_id: null,
-  allow_cm_posting_from: null, allow_cm_posting_to: null, updated_at: null, updated_by: null,
+  allow_cm_posting_from: null, allow_cm_posting_to: null,
+  loan_repayment_charge_id: null, unallocated_product_id: null, updated_at: null, updated_by: null,
 };
 
 export async function getCashManagementSetup(): Promise<CashManagementSetup> {
@@ -198,24 +199,29 @@ export interface CashManagementSetupInput {
   bankChargesAccountId: number | null; bankInterestIncomeAccountId: number | null;
   defaultReceiptBankAccountId: number | null;
   allowCmPostingFrom: string | null; allowCmPostingTo: string | null;
+  /** Member receipting — see lib/receipts.ts. */
+  loanRepaymentChargeId: number | null;
+  unallocatedProductId: number | null;
 }
 
 export async function saveCashManagementSetup(i: CashManagementSetupInput, user: Actor): Promise<void> {
   await run(
     `INSERT INTO cash_management_setup (id, receipt_approval_limit, pv_approval_limit, bank_charges_account_id,
        bank_interest_income_account_id, default_receipt_bank_account_id, allow_cm_posting_from, allow_cm_posting_to,
-       updated_at, updated_by)
-     VALUES (1,?,?,?,?,?,?,?,?,?)
+       loan_repayment_charge_id, unallocated_product_id, updated_at, updated_by)
+     VALUES (1,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT (id) DO UPDATE SET
        receipt_approval_limit = EXCLUDED.receipt_approval_limit, pv_approval_limit = EXCLUDED.pv_approval_limit,
        bank_charges_account_id = EXCLUDED.bank_charges_account_id,
        bank_interest_income_account_id = EXCLUDED.bank_interest_income_account_id,
        default_receipt_bank_account_id = EXCLUDED.default_receipt_bank_account_id,
        allow_cm_posting_from = EXCLUDED.allow_cm_posting_from, allow_cm_posting_to = EXCLUDED.allow_cm_posting_to,
+       loan_repayment_charge_id = EXCLUDED.loan_repayment_charge_id,
+       unallocated_product_id = EXCLUDED.unallocated_product_id,
        updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
     Math.round(i.receiptApprovalLimit), Math.round(i.pvApprovalLimit), i.bankChargesAccountId,
     i.bankInterestIncomeAccountId, i.defaultReceiptBankAccountId, i.allowCmPostingFrom || null,
-    i.allowCmPostingTo || null, now(), user.username,
+    i.allowCmPostingTo || null, i.loanRepaymentChargeId, i.unallocatedProductId, now(), user.username,
   );
   await audit(user, 'CASH_MANAGEMENT_SETUP_SAVE', 'cash_management_setup', 1, i);
 }

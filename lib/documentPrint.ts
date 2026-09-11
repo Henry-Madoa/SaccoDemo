@@ -155,8 +155,12 @@ export async function printBrand(): Promise<PrintBrand | null> {
       [org.phone_primary, org.phone_secondary].filter(Boolean).join(' / '),
       [org.email, org.website].filter(Boolean).join('   •   '),
     ].filter((l) => !!l.trim()),
+    // What a payer needs to settle the invoice, in the order the AL Sales Invoice layout prints
+    // it: who the account is held by, where it is, then how to reach it.
     pay_to: [
+      org.bank_account_name ? `Account name: ${org.bank_account_name}` : null,
       org.bank_name ? `Bank: ${org.bank_name}` : null,
+      org.bank_branch ? `Branch: ${org.bank_branch}` : null,
       org.bank_account_no ? `A/C No: ${org.bank_account_no}` : null,
       org.paybill_no ? `Paybill: ${org.paybill_no}` : null,
     ].filter(Boolean).join('\n') || null,

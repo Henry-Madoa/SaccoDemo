@@ -127,6 +127,50 @@ export const PRESETS: Record<string, { label: string; tokens: ThemeTokens }> = {
       '--info': '#2a6fb0',
     },
   },
+  /*
+   * The Calbytes Technologies brand palette, taken from the brand guide rather than sampled off
+   * the logo: Calbytes Navy #0A2540 (primary ink and dark grounds), Deep Teal #0E7490 (the
+   * gradient mid-point), Byte Cyan #06B6D4 (the accent and calls to action), Slate #64748B
+   * (secondary information) and Signal White.
+   *
+   * Deep Teal rather than Byte Cyan carries --brand-primary: the guide measures Byte Cyan at
+   * 2.4:1 on white and restricts it to fills, while --brand-primary also paints emphasis text
+   * (a stat figure, an active nav label). Deep Teal reads at 5.36:1 either way, and the cyan
+   * stays where the guide wants it — as the accent.
+   */
+  'calbytes-tech': {
+    label: 'Calbytes Technologies',
+    tokens: {
+      ...BASE,
+      '--brand-primary': '#0e7490',
+      '--brand-primary-hover': '#0b5c73',
+      '--brand-primary-soft': '#e0f5fa',
+      '--brand-on-primary': '#ffffff',
+      '--brand-accent': '#06b6d4',
+      '--sidebar-bg': '#0a2540',
+      // Slate itself is only 3.26:1 on Navy; this is Slate lightened to a readable 9.3:1.
+      '--sidebar-fg': '#b9cbdb',
+      '--sidebar-fg-active': '#ffffff',
+      '--sidebar-active-bg': '#0e7490',
+      '--topbar-bg': '#ffffff',
+      '--topbar-fg': '#0a2540',
+      '--bg': '#f5f8fa',
+      '--surface': '#ffffff',
+      '--surface-2': '#f8fbfc',
+      '--border': '#dde5ec',
+      '--text': '#0a2540',
+      '--text-muted': '#64748b',
+      // The brand guide's semantic set, which sits alongside Navy/Teal/Cyan/Slate rather than
+      // replacing any of them: Ledger Green (success), Pending Amber (caution), Escalation Red
+      // (danger).
+      '--success': '#15803d',
+      '--warning': '#b45309',
+      '--danger': '#c2413b',
+      // The guide names no "info" colour, and --info carries text on white (status pills), which
+      // rules Byte Cyan out — so informational status borrows Deep Teal.
+      '--info': '#0e7490',
+    },
+  },
   midnight: {
     label: 'Midnight (dark)',
     tokens: {

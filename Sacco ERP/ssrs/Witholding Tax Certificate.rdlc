@@ -1,0 +1,179 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="DataSource">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString />
+      </ConnectionProperties>
+      <rd:SecurityType>None</rd:SecurityType>
+    </DataSource>
+  </DataSources>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <Height>2in</Height>
+        <Style />
+      </Body>
+      <Width>6.5in</Width>
+      <Page>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <Code>Public Function BlankZero(ByVal Value As Decimal)
+    if Value = 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankPos(ByVal Value As Decimal)
+    if Value &gt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankZeroAndPos(ByVal Value As Decimal)
+    if Value &gt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNeg(ByVal Value As Decimal)
+    if Value &lt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNegAndZero(ByVal Value As Decimal)
+    if Value &lt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+</Code>
+  <Language>=User!Language</Language>
+  <ConsumeContainerWhitespace>true</ConsumeContainerWhitespace>
+  <rd:ReportUnitType>Inch</rd:ReportUnitType>
+  <rd:ReportID>0eeb6585-38ae-40f1-885b-8d50088d51b4</rd:ReportID>
+  <DataSets>
+    <DataSet Name="DataSet_Result">
+      <Fields>
+        <Field Name="Payments_No">
+          <DataField>Payments_No</DataField>
+        </Field>
+        <Field Name="Company_Information__Name">
+          <DataField>Company_Information__Name</DataField>
+        </Field>
+        <Field Name="PV_Lines1__PV_Lines1___Account_Name_">
+          <DataField>PV_Lines1__PV_Lines1___Account_Name_</DataField>
+        </Field>
+        <Field Name="Company_Information__Address">
+          <DataField>Company_Information__Address</DataField>
+        </Field>
+        <Field Name="PV_Lines1___Gross_Amount___VAT_Amount_">
+          <DataField>PV_Lines1___Gross_Amount___VAT_Amount_</DataField>
+        </Field>
+        <Field Name="PV_Lines1___Gross_Amount___VAT_Amount_Format">
+          <DataField>PV_Lines1___Gross_Amount___VAT_Amount_Format</DataField>
+        </Field>
+        <Field Name="PV_Lines1__PV_Lines1___WTX_Amount_">
+          <DataField>PV_Lines1__PV_Lines1___WTX_Amount_</DataField>
+        </Field>
+        <Field Name="PV_Lines1__PV_Lines1___WTX_Amount_Format">
+          <DataField>PV_Lines1__PV_Lines1___WTX_Amount_Format</DataField>
+        </Field>
+        <Field Name="Company_Information__Picture">
+          <DataField>Company_Information__Picture</DataField>
+        </Field>
+        <Field Name="STRSUBSTNO__Date__1__2__TODAY_TIME_">
+          <DataField>STRSUBSTNO__Date__1__2__TODAY_TIME_</DataField>
+        </Field>
+        <Field Name="VendorRec__VAT_Registration_No__">
+          <DataField>VendorRec__VAT_Registration_No__</DataField>
+        </Field>
+        <Field Name="VendorRec__PIN_No__">
+          <DataField>VendorRec__PIN_No__</DataField>
+        </Field>
+        <Field Name="CompInfo__Giro_No__">
+          <DataField>CompInfo__Giro_No__</DataField>
+        </Field>
+        <Field Name="CompInfo__VAT_Registration_No__">
+          <DataField>CompInfo__VAT_Registration_No__</DataField>
+        </Field>
+        <Field Name="CertNo">
+          <DataField>CertNo</DataField>
+        </Field>
+        <Field Name="VendInvoiceNo">
+          <DataField>VendInvoiceNo</DataField>
+        </Field>
+        <Field Name="WITHOLDING_TAX_CERTIFICATECaption">
+          <DataField>WITHOLDING_TAX_CERTIFICATECaption</DataField>
+        </Field>
+        <Field Name="CERTIFICATE_OF_CONSULTANCY_AGENCY_OR_CONTRACTUAL_FEES_PAID_AND_TAX_DEDUCTED_YEARCaption">
+          <DataField>CERTIFICATE_OF_CONSULTANCY_AGENCY_OR_CONTRACTUAL_FEES_PAID_AND_TAX_DEDUCTED_YEARCaption</DataField>
+        </Field>
+        <Field Name="NAME_OF_PAYER_Caption">
+          <DataField>NAME_OF_PAYER_Caption</DataField>
+        </Field>
+        <Field Name="NAME_OF_PAYEE_Caption">
+          <DataField>NAME_OF_PAYEE_Caption</DataField>
+        </Field>
+        <Field Name="ADDRESS_OF_PAYEE_Caption">
+          <DataField>ADDRESS_OF_PAYEE_Caption</DataField>
+        </Field>
+        <Field Name="GROSS_AMOUNT_KSHS_Caption">
+          <DataField>GROSS_AMOUNT_KSHS_Caption</DataField>
+        </Field>
+        <Field Name="TAX_DEDUCTED_KSHS_Caption">
+          <DataField>TAX_DEDUCTED_KSHS_Caption</DataField>
+        </Field>
+        <Field Name="I_certify_that_the_tax_as_indicated_has_been_paid_over_to_the_Commisioner_of_Income_TAX__Nairobi_Caption">
+          <DataField>I_certify_that_the_tax_as_indicated_has_been_paid_over_to_the_Commisioner_of_Income_TAX__Nairobi_Caption</DataField>
+        </Field>
+        <Field Name="SIGNATURECaption">
+          <DataField>SIGNATURECaption</DataField>
+        </Field>
+        <Field Name="DATECaption">
+          <DataField>DATECaption</DataField>
+        </Field>
+        <Field Name="VAT_NO_Caption">
+          <DataField>VAT_NO_Caption</DataField>
+        </Field>
+        <Field Name="PIN_NO_Caption">
+          <DataField>PIN_NO_Caption</DataField>
+        </Field>
+        <Field Name="PIN_NO_Caption_Control1000000007">
+          <DataField>PIN_NO_Caption_Control1000000007</DataField>
+        </Field>
+        <Field Name="VAT_NO_Caption_Control1000000008">
+          <DataField>VAT_NO_Caption_Control1000000008</DataField>
+        </Field>
+        <Field Name="Certificate_No_Caption">
+          <DataField>Certificate_No_Caption</DataField>
+        </Field>
+        <Field Name="INVOICE_NO_Caption">
+          <DataField>INVOICE_NO_Caption</DataField>
+        </Field>
+        <Field Name="KRA_Receipt_No___________________________________________________________Caption">
+          <DataField>KRA_Receipt_No___________________________________________________________Caption</DataField>
+        </Field>
+        <Field Name="PV_Lines1_PV_No">
+          <DataField>PV_Lines1_PV_No</DataField>
+        </Field>
+        <Field Name="PV_Lines1_Line_No">
+          <DataField>PV_Lines1_Line_No</DataField>
+        </Field>
+      </Fields>
+      <Query>
+        <DataSourceName>DataSource</DataSourceName>
+        <CommandText />
+      </Query>
+    </DataSet>
+  </DataSets>
+</Report>

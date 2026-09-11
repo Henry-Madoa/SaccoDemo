@@ -21,6 +21,7 @@ import {
   listSalesDocuments, getSalesDocument, createSalesDocument, updateSalesDocumentHeader, deleteSalesDocument,
   setSalesLines, makeOrder, submitSalesDocument, cancelSalesDocumentApproval, approveSalesDocument,
   rejectSalesDocument, reopenSalesDocument, postSalesDocument,
+  listPostedInvoicesForCredit, getInvoiceForCreditMemo,
   type SalesHeaderInput, type SalesLineInput,
 } from '@/lib/salesDocuments';
 import {
@@ -195,6 +196,7 @@ const toSalesHeaderInput = (v: FormValues): SalesHeaderInput => ({
   postingDate: str(v.postingDate), documentDate: str(v.documentDate || v.postingDate),
   paymentTermsCode: opt(v.paymentTermsCode), paymentMethodCode: opt(v.paymentMethodCode),
   yourReference: opt(v.yourReference), salesperson: opt(v.salesperson),
+  appliesToDocNo: opt(v.appliesToDocNo),
 });
 export interface SalesLineDraft {
   type: string; no: string; description: string; quantity: string; unitPrice: string; lineDiscountPct: string;
@@ -306,4 +308,24 @@ export async function agedArRequest(opts: Parameters<typeof getAgedAccountsRecei
 }
 export async function customerStatementRequest(opts: Parameters<typeof getCustomerStatement>[0]) {
   return actionResult(async () => { await requireAction('RECEIVABLES_READ'); return getCustomerStatement(opts); });
+}
+
+/* ------------------------------------------- corrective credit memo (copy document) */
+
+/** Posted invoices a credit memo may be raised against — the Applies-to picker's list. */
+export async function listPostedInvoicesForCreditRequest(customerId?: number | null) {
+  return actionResult(async () => {
+    await requireAction('RECEIVABLES_READ');
+    return listPostedInvoicesForCredit(customerId ?? null);
+  });
+}
+
+/** One posted invoice, reshaped into the header + lines a credit memo starts from. */
+export async function getInvoiceForCreditMemoRequest(no: string) {
+  return actionResult(async () => {
+    await requireAction('RECEIVABLES_READ');
+    const src = await getInvoiceForCreditMemo(no);
+    if (!src) throw new AppError('Posted invoice not found', 'NOT_FOUND');
+    return src;
+  });
 }

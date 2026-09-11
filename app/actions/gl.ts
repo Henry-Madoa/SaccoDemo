@@ -136,3 +136,16 @@ export async function setPeriodStatus(code: string, status: string): Promise<Act
     return period;
   });
 }
+
+/**
+ * Business Central's "Indent Chart of Accounts" action — restamps every account's indentation
+ * from its Begin-Total / End-Total bracketing and fills in each End-Total's Totaling range.
+ */
+export async function indentChartOfAccountsRequest(): Promise<ActionResult<gl.IndentChartResult>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_ACCOUNT_MANAGE');
+    const result = await gl.indentChartOfAccounts(user);
+    revalidatePath('/accounting/accounts');
+    return result;
+  });
+}

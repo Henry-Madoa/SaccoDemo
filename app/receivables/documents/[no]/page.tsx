@@ -106,6 +106,8 @@ export default async function SalesDocumentPage({ params }: { params: Promise<{ 
         <DefinitionList items={[
           ['Customer posting group', doc.customer_posting_group_code || '—'],
           ['Salesperson', doc.salesperson || '—'],
+          ...(doc.document_type === 'Credit Memo'
+            ? [['Credits invoice', doc.applies_to_doc_no || '— not linked'] as [string, string]] : []),
           ['Currency', `${doc.currency_code}${doc.currency_code === 'KES' ? '' : ` @ ${doc.currency_factor}`}`],
         ]} />
       </Card>

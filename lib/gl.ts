@@ -773,3 +773,100 @@ export {
   deleteBankRecLine, getBankReconciliationDetail, postBankReconciliation,
   type BankAccountInput, type ListBankLedgerOptions, type BankRecAdjustmentInput,
 } from './bankMgmt.ts';
+
+/* ------------------------------------------------------- indent chart of accounts */
+
+export interface IndentChartResult {
+  /** How many accounts had their indentation or totaling changed. */
+  updated: number;
+  /** End-Total accounts whose Totaling range was filled in from their Begin-Total. */
+  totalingSet: number;
+  /** Begin-Totals left open at the end of the chart — a structure error worth reporting. */
+  unclosed: string[];
+}
+
+/**
+ * Business Central's "Indent Chart of Accounts" (Codeunit 2, G/L Account-Indent).
+ *
+ * Walks the chart in code order keeping a stack of open Begin-Totals. Every account is stamped
+ * with the current depth; a Begin-Total opens a level after stamping itself, an End-Total closes
+ * one before stamping, so a pair sits at the same indentation with its members indented inside.
+ * Closing a pair also writes the End-Total's Totaling as `<begin>..<end>` — the part that cannot
+ * be derived when the list renders, and the reason this is an action rather than a view concern.
+ *
+ * Idempotent: running it twice changes nothing the second time.
+ */
+export async function indentChartOfAccounts(user: Actor): Promise<IndentChartResult> {
+  const accounts = await all<Pick<GlAccount, 'id' | 'code' | 'account_type' | 'indentation' | 'totaling' | 'parent_code'>>(
+    'SELECT id, code, account_type, indentation, totaling, parent_code FROM gl_account ORDER BY code',
+  );
+
+  // A chart that uses parent_code instead of Begin-Total / End-Total brackets would otherwise
+  // indent to nothing, so depth comes from the parent chain when there is no bracketing at all.
+  const bracketed = accounts.some((a) => a.account_type === 'BEGIN_TOTAL' || a.account_type === 'END_TOTAL');
+  if (!bracketed) return indentByParentChain(accounts, user);
+
+  const open: { code: string }[] = [];
+  let depth = 0;
+  let updated = 0;
+  let totalingSet = 0;
+
+  for (const a of accounts) {
+    let totaling = a.totaling;
+    if (a.account_type === 'END_TOTAL') {
+      depth = Math.max(0, depth - 1);
+      const begin = open.pop();
+      if (begin) {
+        const range = `${begin.code}..${a.code}`;
+        if (range !== a.totaling) { totaling = range; totalingSet += 1; }
+      }
+    }
+
+    if (a.indentation !== depth || totaling !== a.totaling) {
+      await run('UPDATE gl_account SET indentation = ?, totaling = ? WHERE id = ?', depth, totaling, a.id);
+      updated += 1;
+    }
+
+    if (a.account_type === 'BEGIN_TOTAL') {
+      open.push({ code: a.code });
+      depth += 1;
+    }
+  }
+
+  const result: IndentChartResult = { updated, totalingSet, unclosed: open.map((o) => o.code) };
+  await audit(user, 'GL_CHART_INDENT', 'gl_account', null, result);
+  return result;
+}
+
+/** Depth from the parent_code chain, for a chart that nests by parent rather than by
+ *  Begin-Total / End-Total brackets. A cycle stops at the depth already walked rather than
+ *  looping forever. */
+async function indentByParentChain(
+  accounts: Pick<GlAccount, 'id' | 'code' | 'account_type' | 'indentation' | 'totaling' | 'parent_code'>[],
+  user: Actor,
+): Promise<IndentChartResult> {
+  const parentByCode = new Map(accounts.map((a) => [a.code, a.parent_code]));
+  const depthOf = (code: string): number => {
+    const seen = new Set<string>([code]);
+    let depth = 0;
+    let parent = parentByCode.get(code) ?? null;
+    while (parent && !seen.has(parent) && parentByCode.has(parent)) {
+      seen.add(parent);
+      depth += 1;
+      parent = parentByCode.get(parent) ?? null;
+    }
+    return depth;
+  };
+
+  let updated = 0;
+  for (const a of accounts) {
+    const depth = depthOf(a.code);
+    if (a.indentation !== depth) {
+      await run('UPDATE gl_account SET indentation = ? WHERE id = ?', depth, a.id);
+      updated += 1;
+    }
+  }
+  const result: IndentChartResult = { updated, totalingSet: 0, unclosed: [] };
+  await audit(user, 'GL_CHART_INDENT', 'gl_account', null, { ...result, by: 'parent_code' });
+  return result;
+}

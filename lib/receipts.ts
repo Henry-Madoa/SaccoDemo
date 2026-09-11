@@ -1,8 +1,17 @@
 /*
- * Receipt — a maker-checker cash-in document (AL Tab52203423/424, Cod52203434.PostReceipt). The
- * SACCO records money received (by cash, cheque or M-Pesa) into a bank account; posting is one
- * journal: Dr the bank account, Cr each line's account. Customer lines write + apply a Payment;
- * Vendor lines a Refund; G/L / Bank lines credit the account directly.
+ * Receipt — a maker-checker cash-in document (AL Tab52203423/424, Cod52203434.PostReceipt, and
+ * the Nation CBS member extension: Enum-Ext52204000, Tab-Ext52204014/15, Cod52204021).
+ *
+ * The SACCO records money received (by cash, cheque or M-Pesa) into a bank account. The header's
+ * Receipt Type fixes what every line may be posted to — a G/L Account receipt takes G/L lines and
+ * nothing else — exactly as the AL relates Receipt Lines."Account No" to a different table per
+ * Receipt Type.
+ *
+ * Posting is one journal (Dr the bank account, Cr each line's account), plus whatever a line's own
+ * subledger needs: Customer lines write + apply a Payment; Vendor lines a Refund; G/L and Bank
+ * lines credit the account directly; Member lines either credit one of the member's savings
+ * accounts or repay one of their loans through lib/loanService.ts's repay(), which posts its own
+ * journal and so is left out of the receipt's.
  *
  * Lifecycle: Open → Pending Approval → Approved → Posted. A receipt whose amount is below the
  * Receipt Approval Limit (Cash Management Setup) can be posted directly by its creator without a
@@ -11,6 +20,8 @@
 import { one, all, run, tx, nextSequence, audit, hasAnyRow } from './db.ts';
 import { AppError } from './errors.ts';
 import { postJournal } from './accounting.ts';
+import { repay } from './loanService.ts';
+import { postTransactionCharges, previewTransactionChargeById } from './charges.ts';
 import { getEffectivePostingRange } from './postingDates.ts';
 import { resolveDocCurrency } from './currency.ts';
 import { getCashManagementSetup } from './cashMgmtSetup.ts';
@@ -20,7 +31,8 @@ import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, start
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
 import type {
-  Actor, Cents, IsoDate, ReceiptDetail, ReceiptHeader, ReceiptHeaderView, ReceiptLine, ReceiptLineType,
+  Actor, Cents, IsoDate, Member, MemberReceiptAccount, MemberReceiptLoan, ReceiptDetail, ReceiptHeader,
+  ReceiptHeaderView, ReceiptLine, ReceiptLineType,
 } from './types.ts';
 
 export type ReceiptView = 'open' | 'pending' | 'approved' | 'posted';
@@ -32,7 +44,8 @@ const VIEW_CLAUSE: Record<ReceiptView, string> = {
   posted: 'rh.posted = true',
 };
 
-const LINE_TYPES: ReceiptLineType[] = ['Customer', 'Vendor', 'G/L Account', 'Bank Account'];
+/** AL's Receipt Type, which a receipt's lines all inherit — see resolveLine(). */
+const RECEIPT_TYPES: ReceiptLineType[] = ['Member', 'Customer', 'Vendor', 'G/L Account', 'Bank Account'];
 
 const SELECT_ROW = `
   SELECT rh.*, ba.code AS bank_account_code,
@@ -45,7 +58,7 @@ const SELECT_ROW = `
 export const RECEIPT_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'no', label: 'No.', type: 'text', column: 'rh.no' },
   { key: 'receipt_type', label: 'Type', type: 'select', column: 'rh.receipt_type',
-    options: LINE_TYPES.map((v) => ({ value: v, label: v })) },
+    options: RECEIPT_TYPES.map((v) => ({ value: v, label: v })) },
   { key: 'bank_account_id', label: 'Bank Account', type: 'select', column: 'rh.bank_account_id' },
   { key: 'created_by', label: 'Created By', type: 'text', column: 'rh.created_by' },
 ];
@@ -83,14 +96,82 @@ export async function getReceipt(no: string): Promise<ReceiptDetail | undefined>
 export const hasAnyReceipts = (view?: ReceiptView): Promise<boolean> =>
   hasAnyRow('receipt_header rh', view ? VIEW_CLAUSE[view] : undefined);
 
+/* --------------------------------------------------------------- member lookups */
+
+/**
+ * The accounts a Member receipt line may credit — AL's `Vendor where("Account Type" = Sacco|Loan,
+ * "Member No." = field("Member No."), "Product Posting Type" <> "Fixed Deposit Account")`.
+ *
+ * A fixed deposit is excluded because it is funded once, at placement, through its own document;
+ * a closed account because nothing can be paid into it. The AL's Loan half of that filter has no
+ * equivalent here — this system keeps a loan as its own record rather than mirroring it as an
+ * account on a "Loan Account" product, so memberReceiptLoans() offers those separately.
+ */
+export const memberReceiptAccounts = (memberId: number): Promise<MemberReceiptAccount[]> =>
+  all<MemberReceiptAccount>(
+    `SELECT sa.id, sa.account_no, sp.name AS product_name, sp.category, sa.balance,
+            (sp.category = 'LOAN ACCOUNT') AS is_loan_account
+     FROM savings_account sa JOIN savings_product sp ON sp.id = sa.product_id
+     WHERE sa.member_id = ? AND sa.status <> 'CLOSED' AND sp.category <> 'FIXED DEPOSIT ACCOUNT'
+     ORDER BY sp.category, sa.account_no`,
+    memberId,
+  );
+
+/**
+ * The loans a Member receipt line may repay — AL's `Loans where("Member No." = field, "Loan
+ * Balance" > 0, "Loan Account" = field("Account No"))`, with the balances the teller quotes.
+ *
+ * Accrued interest is AL's GetProratedInterest(): interest that has run since the last accrual but
+ * is not yet on the ledger. This system accrues on a schedule rather than pro-rating on demand, so
+ * it reports the interest already accrued and outstanding, which is the figure the member owes.
+ */
+export const memberReceiptLoans = (memberId: number): Promise<MemberReceiptLoan[]> =>
+  all<MemberReceiptLoan>(
+    `SELECT l.id, l.loan_no, lp.name AS product_name, l.disburse_to_account_id AS savings_account_id,
+            l.penalty_balance, l.interest_balance AS accrued_interest, l.interest_balance,
+            l.principal_balance,
+            (l.principal_balance + l.interest_balance + l.penalty_balance) AS loan_balance
+     FROM loan l JOIN loan_product lp ON lp.id = l.product_id
+     WHERE l.member_id = ? AND l.status = 'DISBURSED'
+       AND (l.principal_balance + l.interest_balance + l.penalty_balance) > 0
+     ORDER BY l.days_in_arrears DESC, l.loan_no`,
+    memberId,
+  );
+
+/**
+ * Who may be receipted — AL's `Members where(Status = filter(Active | Dormant | "Not Paid Up"))`.
+ * Wider than lib/members.ts's listActiveMembers(), deliberately: paying money in is exactly how a
+ * dormant member becomes active again, so refusing them here would trap them.
+ */
+export const listReceiptMembers = (): Promise<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[]> =>
+  all<Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>>(
+    `SELECT id, member_no, first_name, last_name FROM member
+     WHERE status IN ('ACTIVE', 'DORMANT', 'NOT PAID UP') ORDER BY member_no`,
+  );
+
+/** The member's own summary, for the header's Member No. lookup. */
+export const receiptMemberName = async (memberId: number): Promise<{ member_no: string; name: string } | undefined> =>
+  one<{ member_no: string; name: string }>(
+    `SELECT member_no,
+            TRIM(COALESCE(first_name,'') || ' ' || COALESCE(middle_name,'') || ' ' || COALESCE(last_name,'')) AS name
+     FROM member WHERE id = ?`,
+    memberId,
+  );
+
 /* -------------------------------------------------------------------- create / edit */
 
 export interface ReceiptLineInput {
-  lineType: ReceiptLineType;
+  /** Ignored on input: a line always takes the header's Receipt Type. Kept so an existing caller
+   *  that still sends it is not broken. */
+  lineType?: ReceiptLineType;
   accountNo: string;
   description?: string | null;
   amount: Cents;
   appliesToDocNo?: string | null;
+  /** Receipt Type = Member only, and exactly one of the two: the member account this line is
+   *  deposited into, or the loan it repays. */
+  savingsAccountId?: number | null;
+  loanId?: number | null;
 }
 export interface ReceiptInput {
   receiptType: ReceiptLineType;
@@ -101,6 +182,9 @@ export interface ReceiptInput {
   manualReceiptNo?: string | null;
   description: string;
   currencyCode?: string | null;
+  /** Receipt Type = Member only. */
+  memberId?: number | null;
+  receivedAmount?: Cents;
   lines: ReceiptLineInput[];
 }
 
@@ -113,39 +197,161 @@ async function loadBank(id: number): Promise<{ id: number; code: string; name: s
   return ba;
 }
 
-async function resolveLine(input: ReceiptLineInput, currencyCode: string): Promise<{ accountName: string }> {
-  if (!LINE_TYPES.includes(input.lineType)) throw new AppError('Invalid line type', 'VALIDATION');
-  if (!input.accountNo?.trim()) throw new AppError(`A ${input.lineType} is required on every line`, 'VALIDATION');
+/** Everything a resolved line contributes beyond what the user typed. */
+interface ResolvedLine {
+  accountName: string;
+  memberId: number | null;
+  savingsAccountId: number | null;
+  loanId: number | null;
+  productCategory: string | null;
+  penaltyBalance: Cents;
+  accruedInterest: Cents;
+  interestBalance: Cents;
+  principalBalance: Cents;
+  loanBalance: Cents;
+  chargeId: number | null;
+  chargeAmount: Cents;
+}
+
+const BLANK_RESOLVED: Omit<ResolvedLine, 'accountName'> = {
+  memberId: null, savingsAccountId: null, loanId: null, productCategory: null,
+  penaltyBalance: 0, accruedInterest: 0, interestBalance: 0, principalBalance: 0, loanBalance: 0,
+  chargeId: null, chargeAmount: 0,
+};
+
+/**
+ * Validates one line against the header's Receipt Type and fills in everything derived.
+ *
+ * The type is the header's, never the line's own — AL relates Receipt Lines."Account No" to a
+ * different table per `"Receipt Type"`, which is the header's field, so a G/L Account receipt can
+ * only ever hold G/L lines.
+ */
+async function resolveLine(
+  input: ReceiptLineInput, lineType: ReceiptLineType, currencyCode: string,
+  header: { memberId: number | null; postingDate: IsoDate },
+): Promise<ResolvedLine> {
   if (!(input.amount > 0)) throw new AppError('Every line needs an amount greater than zero', 'VALIDATION');
+
+  if (lineType === 'Member') {
+    if (!header.memberId) throw new AppError('Pick the member this receipt is for', 'VALIDATION');
+    if (!input.savingsAccountId && !input.loanId) {
+      throw new AppError('Every line needs a member account or a loan to pay into', 'VALIDATION');
+    }
+    if (input.savingsAccountId && input.loanId) {
+      throw new AppError('A line pays into an account or off a loan, not both', 'VALIDATION');
+    }
+
+    // A loan repayment. The AL reaches the loan through a Vendor record on a "Loan Account"
+    // product; here a loan is its own record and is picked directly, which is the same choice the
+    // teller makes and one fewer thing to keep in step.
+    if (input.loanId) {
+      const loan = await one<{
+        id: number; loan_no: string; member_id: number; status: string; product_name: string;
+        penalty_balance: Cents; interest_balance: Cents; principal_balance: Cents;
+      }>(
+        `SELECT l.id, l.loan_no, l.member_id, l.status, lp.name AS product_name,
+                l.penalty_balance, l.interest_balance, l.principal_balance
+         FROM loan l JOIN loan_product lp ON lp.id = l.product_id WHERE l.id = ?`,
+        input.loanId,
+      );
+      if (!loan) throw new AppError('Loan not found', 'NOT_FOUND');
+      if (Number(loan.member_id) !== Number(header.memberId)) {
+        throw new AppError(`Loan ${loan.loan_no} does not belong to this member`, 'VALIDATION');
+      }
+      if (loan.status !== 'DISBURSED') throw new AppError(`Loan ${loan.loan_no} is ${loan.status} — nothing to repay`, 'VALIDATION');
+
+      const owed = Number(loan.principal_balance) + Number(loan.interest_balance) + Number(loan.penalty_balance);
+      const setup = await getCashManagementSetup();
+      // AL: the repayment charge comes off the line first, and only what is left reaches the loan —
+      // so the member is never told they cleared more than they did.
+      const charge = setup.loan_repayment_charge_id
+        ? (await previewTransactionChargeById(setup.loan_repayment_charge_id, input.amount))
+          .reduce((sum, c) => sum + c.amount, 0)
+        : 0;
+      if (charge >= input.amount) {
+        throw new AppError(`The repayment charge (${charge / 100}) leaves nothing for loan ${loan.loan_no}`, 'VALIDATION');
+      }
+      if (input.amount - charge > owed && !setup.unallocated_product_id) {
+        throw new AppError(
+          `${(input.amount - charge) / 100} exceeds what loan ${loan.loan_no} still owes (${owed / 100}). `
+          + 'Reduce the line, or set an Unallocated Product on Cash Management Setup to hold the balance.',
+          'VALIDATION',
+        );
+      }
+      return {
+        ...BLANK_RESOLVED,
+        accountName: `${loan.loan_no} — ${loan.product_name}`,
+        memberId: Number(header.memberId),
+        loanId: loan.id,
+        // AL's Product Posting Type for a loan line.
+        productCategory: 'LOAN ACCOUNT',
+        penaltyBalance: Number(loan.penalty_balance),
+        accruedInterest: Number(loan.interest_balance),
+        interestBalance: Number(loan.interest_balance),
+        principalBalance: Number(loan.principal_balance),
+        loanBalance: owed,
+        chargeId: setup.loan_repayment_charge_id,
+        chargeAmount: charge,
+      };
+    }
+
+    // A deposit into one of the member's own accounts.
+    const acc = await one<{
+      id: number; account_no: string; member_id: number; status: string; category: string; product_name: string;
+    }>(
+      `SELECT sa.id, sa.account_no, sa.member_id, sa.status, sp.category, sp.name AS product_name
+       FROM savings_account sa JOIN savings_product sp ON sp.id = sa.product_id WHERE sa.id = ?`,
+      input.savingsAccountId,
+    );
+    if (!acc) throw new AppError('Member account not found', 'NOT_FOUND');
+    if (Number(acc.member_id) !== Number(header.memberId)) {
+      throw new AppError(`Account ${acc.account_no} does not belong to this member`, 'VALIDATION');
+    }
+    if (acc.status === 'CLOSED') throw new AppError(`Account ${acc.account_no} is closed`, 'VALIDATION');
+    if (acc.status === 'FROZEN') throw new AppError(`Account ${acc.account_no} is frozen`, 'VALIDATION');
+    if (acc.category === 'FIXED DEPOSIT ACCOUNT') {
+      throw new AppError('A fixed deposit is funded through its own document, not a receipt', 'VALIDATION');
+    }
+    return {
+      ...BLANK_RESOLVED,
+      accountName: `${acc.account_no} — ${acc.product_name}`,
+      memberId: Number(header.memberId),
+      savingsAccountId: acc.id,
+      productCategory: acc.category,
+    };
+  }
+
+  if (!input.accountNo?.trim()) throw new AppError(`A ${lineType} is required on every line`, 'VALIDATION');
   const no = input.accountNo.trim();
-  if (input.lineType === 'Customer') {
+  if (lineType === 'Customer') {
     const c = await one<{ name: string; blocked: string; currency_code: string | null }>('SELECT name, blocked, currency_code FROM customer WHERE no = ?', no);
     if (!c) throw new AppError(`Customer ${no} not found`, 'NOT_FOUND');
     if (c.blocked === 'All') throw new AppError(`Customer ${no} is blocked`, 'VALIDATION');
-    return { accountName: c.name };
+    return { ...BLANK_RESOLVED, accountName: c.name };
   }
-  if (input.lineType === 'Vendor') {
+  if (lineType === 'Vendor') {
     const v = await one<{ name: string; blocked: string }>('SELECT name, blocked FROM vendor WHERE no = ?', no);
     if (!v) throw new AppError(`Vendor ${no} not found`, 'NOT_FOUND');
-    return { accountName: v.name };
+    return { ...BLANK_RESOLVED, accountName: v.name };
   }
-  if (input.lineType === 'Bank Account') {
+  if (lineType === 'Bank Account') {
     const b = await one<{ name: string; currency_code: string }>('SELECT name, currency_code FROM bank_account WHERE code = ?', no);
     if (!b) throw new AppError(`Bank account ${no} not found`, 'NOT_FOUND');
     if (b.currency_code !== currencyCode) throw new AppError('An inter-bank line must be in the same currency as the receipt', 'VALIDATION');
-    return { accountName: b.name };
+    return { ...BLANK_RESOLVED, accountName: b.name };
   }
   const acc = await one<{ name: string; is_postable: number; status: string; no_direct_posting: number }>(
     'SELECT name, is_postable, status, no_direct_posting FROM gl_account WHERE code = ?', no,
   );
   if (!acc || !acc.is_postable || acc.status !== 'ACTIVE') throw new AppError(`G/L account ${no} is not an active posting account`, 'VALIDATION');
   if (acc.no_direct_posting) throw new AppError(`G/L account ${no} is a subledger control account`, 'VALIDATION');
-  return { accountName: acc.name };
+  return { ...BLANK_RESOLVED, accountName: acc.name };
 }
-
 export async function createReceipt(input: ReceiptInput, user: Actor): Promise<{ no: string }> {
   if (!input.postingDate) throw new AppError('A posting date is required', 'VALIDATION');
   if (!input.description?.trim()) throw new AppError('A description (received from) is required', 'VALIDATION');
+  if (!RECEIPT_TYPES.includes(input.receiptType)) throw new AppError('Invalid receipt type', 'VALIDATION');
+  const member = await resolveHeaderMember(input);
   const bank = await loadBank(input.bankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? bank.currency_code, input.postingDate);
   if (cur.code !== bank.currency_code) throw new AppError(`The receipt is in ${cur.code} but bank account ${bank.code} is a ${bank.currency_code} account`, 'VALIDATION');
@@ -155,14 +361,16 @@ export async function createReceipt(input: ReceiptInput, user: Actor): Promise<{
     const info = await run(
       `INSERT INTO receipt_header
          (no, receipt_type, posting_date, bank_account_id, bank_account_name, pay_mode_code, external_document_no, manual_receipt_no,
-          description, currency_code, currency_factor, approval_limit, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          description, currency_code, currency_factor, approval_limit, member_id, member_no, member_name, received_amount,
+          created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       no, input.receiptType, input.postingDate, bank.id, bank.name, input.payModeCode || null, input.externalDocumentNo?.trim() || null,
       input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor,
-      setup.receipt_approval_limit, new Date().toISOString(), user.username,
+      setup.receipt_approval_limit, member?.id ?? null, member?.member_no ?? null, member?.name ?? null,
+      Math.round(input.receivedAmount ?? 0), new Date().toISOString(), user.username,
     );
-    await replaceLines(Number(info.lastInsertRowid), input.lines, cur.code);
-    await audit(user, 'RECEIPT_CREATE', 'receipt_header', no, { lineCount: input.lines.length });
+    await replaceLines(Number(info.lastInsertRowid), input, cur.code);
+    await audit(user, 'RECEIPT_CREATE', 'receipt_header', no, { lineCount: input.lines.length, type: input.receiptType });
     return { no };
   });
 }
@@ -172,34 +380,79 @@ export async function updateReceipt(no: string, input: ReceiptInput, user: Actor
   if (!before) throw new AppError('Receipt not found', 'NOT_FOUND');
   if (before.status !== 'Open') throw new AppError('Only an open receipt can be edited', 'VALIDATION');
   if (before.created_by !== user.username) throw new AppError('Only the person who created this can edit it', 'NOT_CREATOR');
+  if (!RECEIPT_TYPES.includes(input.receiptType)) throw new AppError('Invalid receipt type', 'VALIDATION');
+  const member = await resolveHeaderMember(input);
   const bank = await loadBank(input.bankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? before.currency_code, input.postingDate);
   if (cur.code !== bank.currency_code) throw new AppError('The receipt currency must match the bank account currency', 'VALIDATION');
   await tx(async () => {
     await run(
       `UPDATE receipt_header SET receipt_type = ?, posting_date = ?, bank_account_id = ?, bank_account_name = ?, pay_mode_code = ?,
-         external_document_no = ?, manual_receipt_no = ?, description = ?, currency_code = ?, currency_factor = ? WHERE id = ?`,
+         external_document_no = ?, manual_receipt_no = ?, description = ?, currency_code = ?, currency_factor = ?,
+         member_id = ?, member_no = ?, member_name = ?, received_amount = ? WHERE id = ?`,
       input.receiptType, input.postingDate, bank.id, bank.name, input.payModeCode || null, input.externalDocumentNo?.trim() || null,
-      input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor, before.id,
+      input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor,
+      member?.id ?? null, member?.member_no ?? null, member?.name ?? null, Math.round(input.receivedAmount ?? 0), before.id,
     );
-    await replaceLines(before.id, input.lines, cur.code);
+    await replaceLines(before.id, input, cur.code);
   });
   await audit(user, 'RECEIPT_UPDATE', 'receipt_header', no, {});
 }
 
-async function replaceLines(headerId: number, lines: ReceiptLineInput[], currencyCode: string): Promise<void> {
+/** AL Tab-Ext52204014's Member No. OnValidate — the name follows the number. */
+async function resolveHeaderMember(
+  input: ReceiptInput,
+): Promise<{ id: number; member_no: string; name: string } | null> {
+  if (input.receiptType !== 'Member') return null;
+  if (!input.memberId) throw new AppError('Pick the member this receipt is for', 'VALIDATION');
+  const m = await one<{ id: number; member_no: string; name: string; status: string }>(
+    `SELECT id, member_no, status,
+            TRIM(COALESCE(first_name,'') || ' ' || COALESCE(middle_name,'') || ' ' || COALESCE(last_name,'')) AS name
+     FROM member WHERE id = ?`,
+    input.memberId,
+  );
+  if (!m) throw new AppError('Member not found', 'NOT_FOUND');
+  // AL: `TableRelation = Members where(Status = filter(Active | Dormant | "Not Paid Up"))`.
+  if (!['ACTIVE', 'DORMANT', 'NOT PAID UP'].includes(m.status)) {
+    throw new AppError(`Member ${m.member_no} is ${m.status} and cannot be receipted`, 'VALIDATION');
+  }
+  return { id: m.id, member_no: m.member_no, name: m.name.split(' ').filter(Boolean).join(' ') };
+}
+
+async function replaceLines(headerId: number, input: ReceiptInput, currencyCode: string): Promise<void> {
   await run('DELETE FROM receipt_line WHERE receipt_header_id = ?', headerId);
+  const lineType = input.receiptType;
+  const isMember = lineType === 'Member';
   let lineNo = 10000;
   let total = 0;
-  for (const l of lines) {
-    if (!l.accountNo?.trim() || !(l.amount > 0)) continue;
-    const resolved = await resolveLine(l, currencyCode);
+  for (const l of input.lines) {
+    const hasAccount = isMember ? !!(l.savingsAccountId || l.loanId) : !!l.accountNo?.trim();
+    // A blank row the user never filled in is dropped; one carrying money but no account is
+    // refused, so a line can never be silently lost between the form and the document.
+    if (!hasAccount && !(l.amount > 0)) continue;
+    if (!hasAccount) {
+      throw new AppError(
+        isMember
+          ? 'A line has an amount but no member account or loan to pay it into'
+          : `A line has an amount but no ${lineType} — this receipt posts to ${lineType} only`,
+        'VALIDATION',
+      );
+    }
+    if (!(l.amount > 0)) continue;
+    const r = await resolveLine(l, lineType, currencyCode, {
+      memberId: input.memberId ?? null, postingDate: input.postingDate,
+    });
     total += Math.round(l.amount);
     await run(
-      `INSERT INTO receipt_line (receipt_header_id, line_no, line_type, account_no, account_name, description, amount, applies_to_doc_no)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      headerId, lineNo, l.lineType, l.accountNo.trim(), resolved.accountName, l.description?.trim() || null,
+      `INSERT INTO receipt_line
+         (receipt_header_id, line_no, line_type, account_no, account_name, description, amount, applies_to_doc_no,
+          member_id, savings_account_id, loan_id, product_category, penalty_balance, accrued_interest,
+          interest_balance, principal_balance, loan_balance, charge_id, charge_amount)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      headerId, lineNo, lineType, l.accountNo?.trim() || null, r.accountName, l.description?.trim() || null,
       Math.round(l.amount), l.appliesToDocNo?.trim() || null,
+      r.memberId, r.savingsAccountId, r.loanId, r.productCategory, r.penaltyBalance, r.accruedInterest,
+      r.interestBalance, r.principalBalance, r.loanBalance, r.chargeId, r.chargeAmount,
     );
     lineNo += 10000;
   }
@@ -217,11 +470,30 @@ export async function deleteReceipt(no: string, user: Actor): Promise<void> {
 
 /* --------------------------------------------------------------- maker-checker */
 
+/**
+ * AL Tab-Ext52204014's OnBeforeSendForApproval: the lines must add up to what the teller counted.
+ * A Received Amount of zero means it was never captured, which is allowed on the non-member types
+ * that have no cash drawer behind them.
+ */
+function assertReceivedAmountAgrees(header: ReceiptHeader): void {
+  if (header.receipt_type === 'Member' && !header.received_amount) {
+    throw new AppError('Enter the amount received from the member', 'VALIDATION');
+  }
+  if (header.received_amount && header.received_amount !== header.amount) {
+    throw new AppError(
+      `The lines total ${header.amount / 100} but ${header.received_amount / 100} was received — `
+      + 'they must agree before this receipt can go any further.',
+      'VALIDATION',
+    );
+  }
+}
+
 export async function submitReceipt(no: string, user: Actor): Promise<{ autoApproved: boolean }> {
   const req = await one<ReceiptHeader>('SELECT * FROM receipt_header WHERE no = ?', no);
   if (!req) throw new AppError('Receipt not found', 'NOT_FOUND');
   if (req.status !== 'Open') throw new AppError('Only an open receipt can be submitted', 'VALIDATION');
   if (req.amount <= 0) throw new AppError('Add at least one receipt line before submitting', 'VALIDATION');
+  assertReceivedAmountAgrees(req);
   const matched = await findMatchingWorkflow('RECEIPT', await pickConditionFields('RECEIPT', req));
   if (!matched) throw new AppError('There is no enabled workflow for this document', 'NO_WORKFLOW');
   await tx(async () => {
@@ -269,6 +541,131 @@ export async function reopenReceipt(no: string, user: Actor): Promise<void> {
   await audit(user, 'RECEIPT_REOPEN', 'receipt_header', no, {});
 }
 
+/** A member account credit queued while the receipt's journal is being assembled — written once
+ *  the journal exists, so every ledger entry points at it. */
+interface MemberCredit {
+  accountId: number;
+  memberId: number;
+  amount: Cents;
+  narration: string;
+}
+
+/**
+ * A Member receipt line that repays a loan — AL PostReceipt's Member branch.
+ *
+ * The AL hand-allocates penalty → interest → principal and writes the journal lines itself. Here
+ * the repayment goes through lib/loanService.ts's repay() instead, funded straight from the bank
+ * account the receipt was taken into: that is the one engine that owns the loan schedule, arrears
+ * and interest/principal allocation, and it allocates penalty-first exactly as the AL does. It
+ * posts its own journal, so a loan line is deliberately kept out of the receipt's own journal
+ * rather than debiting the bank twice for the same money.
+ *
+ * Returns whatever is left after the charge and the loan are satisfied, for the caller to park.
+ */
+async function postMemberLoanLine(
+  header: ReceiptHeader, line: ReceiptLine, bankGlAccountId: number, vd: IsoDate, user: Actor,
+): Promise<{ repaid: Cents; charged: Cents; unallocated: Cents }> {
+  const setup = await getCashManagementSetup();
+  const loan = await one<{ id: number; loan_no: string; status: string; owed: Cents }>(
+    `SELECT id, loan_no, status, (principal_balance + interest_balance + penalty_balance) AS owed
+     FROM loan WHERE id = ?`, line.loan_id!,
+  );
+  if (!loan) throw new AppError('Loan not found', 'NOT_FOUND');
+  if (loan.status !== 'DISBURSED') throw new AppError(`Loan ${loan.loan_no} is ${loan.status} — nothing to repay`, 'VALIDATION');
+
+  // Recomputed from the live setup rather than trusting the snapshot taken when the line was
+  // captured, so the G/L split always matches how the Transaction Charge is configured now.
+  let charged = 0;
+  if (setup.loan_repayment_charge_id) {
+    const posted = await postTransactionCharges({
+      transactionChargeId: setup.loan_repayment_charge_id, baseAmount: line.amount,
+      debitAccountCode: bankGlAccountId, valueDate: vd, module: 'CASH_MGMT',
+      eventType: 'LOAN_REPAYMENT_CHARGE', memberId: line.member_id,
+      description: `Receipt ${header.no} — loan repayment charge`, reference: header.no, user,
+      idempotencyKey: `RECEIPT-CHG-${header.no}-${line.id}`,
+    });
+    if (posted) charged = posted.charges.reduce((sum, c) => sum + c.amount, 0);
+  }
+
+  const available = line.amount - charged;
+  const repaid = Math.min(available, Number(loan.owed));
+  if (repaid > 0) {
+    await repay({
+      loanId: loan.id, amount: repaid, valueDate: vd, channel: 'SYSTEM',
+      bankAccountId: header.bank_account_id,
+      description: `Receipt ${header.no} — ${loan.loan_no}`,
+      idempotencyKey: `RECEIPT-REP-${header.no}-${line.id}`, user,
+    });
+  }
+  return { repaid, charged, unallocated: available - repaid };
+}
+
+/**
+ * Where a loan overpayment goes — AL parks it in another of the member's accounts rather than
+ * refusing the money. Which account is a policy choice, so it is configured (Cash Management
+ * Setup → Unallocated Product) instead of being hard-wired to AL's School Fee Account.
+ */
+async function unallocatedAccountFor(memberId: number, productId: number | null): Promise<number> {
+  if (!productId) {
+    throw new AppError(
+      'This line pays more than the loan owes. Reduce it, or set an Unallocated Product on Cash '
+      + 'Management Setup for the balance to be held in.',
+      'VALIDATION',
+    );
+  }
+  const holding = await one<{ id: number }>(
+    `SELECT id FROM savings_account
+     WHERE member_id = ? AND product_id = ? AND status <> 'CLOSED' ORDER BY id LIMIT 1`,
+    memberId, productId,
+  );
+  if (!holding) {
+    throw new AppError(
+      'This line pays more than the loan owes, and the member has no account on the Unallocated '
+      + 'Product to hold the balance. Reduce the line, or open one for them.',
+      'VALIDATION',
+    );
+  }
+  return holding.id;
+}
+
+/**
+ * Credits one of the member's accounts and writes the ledger entry behind it.
+ *
+ * Posted directly rather than through lib/savings.ts's deposit(), because that raises its own
+ * journal against a channel G/L account while a receipt has already decided which bank account the
+ * money went into — the receipt's own journal carries the matching credit to the product's control
+ * account. A credit also wakes a dormant account, exactly as a counter deposit does.
+ */
+async function writeMemberCredit(
+  header: ReceiptHeader, credit: MemberCredit, vd: IsoDate, journalId: number, user: Actor,
+): Promise<void> {
+  const acct = await one<{ balance: Cents }>('SELECT balance FROM savings_account WHERE id = ?', credit.accountId);
+  const next = Number(acct?.balance ?? 0) + credit.amount;
+  await run(
+    `UPDATE savings_account SET balance = ?, last_activity = ?, version = version + 1,
+       status = CASE WHEN status = 'DORMANT' THEN 'ACTIVE' ELSE status END WHERE id = ?`,
+    next, vd, credit.accountId,
+  );
+  await run(
+    `INSERT INTO txn (txn_ref, value_date, created_at, module, txn_type, member_id, savings_account_id,
+       amount, running_balance, channel, description, journal_id, bank_account_id, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    await nextSequence('TXN'), vd, new Date().toISOString(), 'SAVINGS', 'DEPOSIT', credit.memberId,
+    credit.accountId, credit.amount, next, 'TELLER', credit.narration.slice(0, 250), journalId,
+    header.bank_account_id, user.username,
+  );
+}
+
+/** The deposit control account a member credit lands on. */
+const controlAccountFor = async (accountId: number): Promise<number> => {
+  const row = await one<{ gl_control_id: number }>(
+    `SELECT sp.gl_control_id FROM savings_account sa JOIN savings_product sp ON sp.id = sa.product_id
+     WHERE sa.id = ?`, accountId,
+  );
+  if (!row?.gl_control_id) throw new AppError('That savings product has no G/L control account', 'VALIDATION');
+  return Number(row.gl_control_id);
+};
+
 /* ------------------------------------------------------------------- posting */
 
 export async function postReceipt(no: string, user: Actor): Promise<{ postedReceiptNo: string; journalNo: string | null }> {
@@ -284,6 +681,7 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
       throw new AppError('Only the person who created this receipt can post it directly', 'NOT_CREATOR');
     }
     if (!['Open', 'Approved'].includes(header.status)) throw new AppError('This receipt cannot be posted', 'VALIDATION');
+    assertReceivedAmountAgrees(header);
 
     const vd = header.posting_date;
     const setup = await getCashManagementSetup();
@@ -297,16 +695,36 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
     const lines = await all<ReceiptLine>('SELECT * FROM receipt_line WHERE receipt_header_id = ? ORDER BY line_no', header.id);
     if (!lines.length) throw new AppError('This receipt has no lines', 'VALIDATION');
 
-    const glLines: { account: number; debit: Cents; credit: Cents; narration: string; bankDocumentType?: string; bankDocumentNo?: string; bankExternalDocumentNo?: string | null }[] = [
-      { account: bank.gl_account_id, debit: header.amount, credit: 0, narration: `Receipt ${no} — ${header.description}`.slice(0, 250),
-        bankDocumentType: 'Receipt', bankDocumentNo: no, bankExternalDocumentNo: header.external_document_no },
-    ];
+    const glLines: { account: number; debit: Cents; credit: Cents; narration: string; bankDocumentType?: string; bankDocumentNo?: string; bankExternalDocumentNo?: string | null }[] = [];
+    const memberCredits: MemberCredit[] = [];
     const touchedCustomers = new Set<number>();
     const touchedVendors = new Set<number>();
+    let loanRepaid = 0;
+    let loanCharged = 0;
 
     for (const line of lines) {
       const narration = `Receipt ${no} — ${line.description || line.account_name || line.account_no}`.slice(0, 250);
-      if (line.line_type === 'G/L Account') {
+      if (line.line_type === 'Member') {
+        if (line.loan_id) {
+          // repay() and the repayment charge each post their own journal against the bank, so this
+          // line contributes nothing to the receipt's journal except any unallocated remainder.
+          const res = await postMemberLoanLine(header, line, bank.gl_account_id, vd, user);
+          loanRepaid += res.repaid;
+          loanCharged += res.charged;
+          if (res.unallocated > 0) {
+            const setup = await getCashManagementSetup();
+            const accountId = await unallocatedAccountFor(line.member_id!, setup.unallocated_product_id);
+            glLines.push({ account: await controlAccountFor(accountId), debit: 0, credit: res.unallocated, narration: `${narration} (unallocated)` });
+            memberCredits.push({
+              accountId, memberId: line.member_id!, amount: res.unallocated,
+              narration: `Receipt ${no} — unallocated after loan repayment`,
+            });
+          }
+        } else {
+          glLines.push({ account: await controlAccountFor(line.savings_account_id!), debit: 0, credit: line.amount, narration });
+          memberCredits.push({ accountId: line.savings_account_id!, memberId: line.member_id!, amount: line.amount, narration });
+        }
+      } else if (line.line_type === 'G/L Account') {
         const acc = await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', line.account_no!);
         glLines.push({ account: acc!.id, debit: 0, credit: line.amount, narration });
       } else if (line.line_type === 'Bank Account') {
@@ -348,17 +766,32 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
       }
     }
 
-    const j = await postJournal({
-      valueDate: vd, module: 'CASH_MGMT', eventType: 'RECEIPT',
-      description: `Receipt ${no} — ${header.description}`.slice(0, 250), reference: no, user,
-      idempotencyKey: `RECEIPT-${no}`, currencyCode: header.currency_code, currencyFactor: header.currency_factor,
-      lines: glLines.map((l) => ({
-        account: l.account, debit: l.debit, credit: l.credit, narration: l.narration,
-        bankDocumentType: l.bankDocumentType, bankDocumentNo: l.bankDocumentNo, bankExternalDocumentNo: l.bankExternalDocumentNo,
-      })),
-    });
-    await run("UPDATE cust_ledger_entry SET journal_id = ? WHERE source_type = 'Receipt' AND source_id = ? AND journal_id IS NULL", j.id, header.id);
-    await run("UPDATE vendor_ledger_entry SET journal_id = ? WHERE source_type = 'Receipt' AND source_id = ? AND journal_id IS NULL", j.id, header.id);
+    // The bank is debited with what this journal actually credits — which is the whole receipt
+    // except the loan lines, whose own journals have already debited it for their share.
+    const journalAmount = glLines.reduce((sum, l) => sum + l.credit, 0);
+    let j: { id: number; journal_no: string } | null = null;
+    if (journalAmount > 0) {
+      j = await postJournal({
+        valueDate: vd, module: 'CASH_MGMT', eventType: 'RECEIPT',
+        description: `Receipt ${no} — ${header.description}`.slice(0, 250), reference: no, user,
+        memberId: header.member_id, idempotencyKey: `RECEIPT-${no}`,
+        currencyCode: header.currency_code, currencyFactor: header.currency_factor,
+        lines: [
+          {
+            account: bank.gl_account_id, debit: journalAmount, credit: 0,
+            narration: `Receipt ${no} — ${header.description}`.slice(0, 250),
+            bankDocumentType: 'Receipt', bankDocumentNo: no, bankExternalDocumentNo: header.external_document_no,
+          },
+          ...glLines.map((l) => ({
+            account: l.account, debit: l.debit, credit: l.credit, narration: l.narration,
+            bankDocumentType: l.bankDocumentType, bankDocumentNo: l.bankDocumentNo, bankExternalDocumentNo: l.bankExternalDocumentNo,
+          })),
+        ],
+      });
+      for (const credit of memberCredits) await writeMemberCredit(header, credit, vd, j.id, user);
+      await run("UPDATE cust_ledger_entry SET journal_id = ? WHERE source_type = 'Receipt' AND source_id = ? AND journal_id IS NULL", j.id, header.id);
+      await run("UPDATE vendor_ledger_entry SET journal_id = ? WHERE source_type = 'Receipt' AND source_id = ? AND journal_id IS NULL", j.id, header.id);
+    }
     for (const c of touchedCustomers) await recomputeCustomerBalance(c);
     for (const v of touchedVendors) await recomputeVendorBalance(v);
 
@@ -366,25 +799,31 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
     const info = await run(
       `INSERT INTO posted_receipt
          (no, receipt_no, receipt_type, bank_account_id, bank_account_name, pay_mode_code, external_document_no,
-          manual_receipt_no, description, currency_code, currency_factor, posting_date, amount, journal_id, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          manual_receipt_no, description, currency_code, currency_factor, posting_date, amount, journal_id,
+          member_id, member_no, member_name, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       postedNo, no, header.receipt_type, bank.id, header.bank_account_name, header.pay_mode_code, header.external_document_no,
-      header.manual_receipt_no, header.description, header.currency_code, header.currency_factor, vd, header.amount, j.id,
-      new Date().toISOString(), user.username,
+      header.manual_receipt_no, header.description, header.currency_code, header.currency_factor, vd, header.amount, j?.id ?? null,
+      header.member_id, header.member_no, header.member_name, new Date().toISOString(), user.username,
     );
     const prId = Number(info.lastInsertRowid);
     let ln = 10000;
     for (const line of lines) {
       await run(
-        `INSERT INTO posted_receipt_line (posted_receipt_id, line_no, line_type, account_no, account_name, description, amount, applies_to_doc_no)
-         VALUES (?,?,?,?,?,?,?,?)`,
+        `INSERT INTO posted_receipt_line
+           (posted_receipt_id, line_no, line_type, account_no, account_name, description, amount, applies_to_doc_no,
+            member_id, savings_account_id, loan_id, product_category, penalty_balance, accrued_interest,
+            interest_balance, principal_balance, loan_balance, charge_amount)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         prId, ln, line.line_type, line.account_no, line.account_name, line.description, line.amount, line.applies_to_doc_no,
+        line.member_id, line.savings_account_id, line.loan_id, line.product_category, line.penalty_balance,
+        line.accrued_interest, line.interest_balance, line.principal_balance, line.loan_balance, line.charge_amount,
       );
       ln += 10000;
     }
 
-    await run("UPDATE receipt_header SET posted = true, journal_id = ?, posted_at = ?, posted_by = ? WHERE no = ?", j.id, new Date().toISOString(), user.username, no);
-    await audit(user, 'RECEIPT_POST', 'receipt_header', no, { postedNo, journalNo: j.journal_no });
-    return { postedReceiptNo: postedNo, journalNo: j.journal_no };
+    await run("UPDATE receipt_header SET posted = true, journal_id = ?, posted_at = ?, posted_by = ? WHERE no = ?", j?.id ?? null, new Date().toISOString(), user.username, no);
+    await audit(user, 'RECEIPT_POST', 'receipt_header', no, { postedNo, journalNo: j?.journal_no ?? null, loanRepaid, loanCharged });
+    return { postedReceiptNo: postedNo, journalNo: j?.journal_no ?? null };
   });
 }

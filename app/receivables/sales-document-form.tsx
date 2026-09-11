@@ -9,6 +9,8 @@ import { Money } from '@/components/ui/money';
 import { DocumentTotalsPanel } from '@/components/ui/document-totals';
 import { computeDocumentTotals, computeLineAmounts, type DocumentLineDraft } from '@/lib/documentTotals';
 import { requestSalesDocument, type SalesLineDraft } from '@/app/actions/receivables';
+import { CreditMemoSourcePicker } from './credit-memo-source';
+import type { CreditMemoSource } from '@/lib/salesDocuments';
 import type { PaymentMethod, PaymentTerms, SalesDocumentDetail, SalesDocumentType } from '@/lib/types';
 
 type EligibleCustomer = { id: number; no: string; name: string; blocked: string; payment_terms_code: string | null };
@@ -58,9 +60,25 @@ export function DocFields({ documentType, customers, paymentTerms, paymentMethod
     patch(i, { type, no: '', description: wasAuto ? '' : l.description });
   };
 
+  // Copying a posted invoice replaces the header customer and the whole line set — the memo is
+  // being raised *for* that invoice, so a half-copied document would be the confusing outcome.
+  const copyFromInvoice = (src: CreditMemoSource) => {
+    setCustomerId(String(src.customerId));
+    setLines(src.lines.map((l) => ({
+      type: l.type, no: l.no ?? '', description: l.description ?? '',
+      quantity: String(l.quantity), unitPrice: (l.unitPrice / 100).toFixed(2),
+      lineDiscountPct: l.lineDiscountPct ? String(l.lineDiscountPct) : '',
+      locationCode: '', faDepreciationBookCode: '',
+    })));
+  };
+
   return (
     <>
       <input type="hidden" name="documentType" value={documentType} />
+      {documentType === 'Credit Memo' && !editing
+        ? <CreditMemoSourcePicker customerId={customerId} onCopy={copyFromInvoice} /> : null}
+      {documentType === 'Credit Memo' && editing && initial?.applies_to_doc_no
+        ? <input type="hidden" name="appliesToDocNo" value={initial.applies_to_doc_no} /> : null}
       <div className="grid g2">
         <SearchableSelect
           name={editing ? 'customerPick' : 'customerId'} label="Customer" required items={customers} value={customerId} disabled={editing}

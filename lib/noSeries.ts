@@ -92,6 +92,8 @@ export const NO_SERIES_DOCUMENTS: NoSeriesDocument[] = [
   { code: 'POSTED_PAYMENT_VOUCHER', label: 'Posted Payment Voucher No.', category: 'Cash Management' },
   { code: 'BANK_RECONCILIATION', label: 'Bank Reconciliation No.', category: 'Cash Management' },
   { code: 'WHT_CERTIFICATE', label: 'Withholding Tax Certificate No.', category: 'Finance' },
+  { code: 'BOSA_DIVIDEND', label: 'BOSA Dividend No.', category: 'Finance' },
+  { code: 'FOSA_DIVIDEND', label: 'FOSA Interest Declaration No.', category: 'Finance' },
 ];
 
 const DOC_ORDER = new Map(NO_SERIES_DOCUMENTS.map((d, i) => [d.code, i]));
@@ -166,6 +168,57 @@ export async function getNextNo(seriesCode: string, date?: string): Promise<stri
       no, d, willClose ? 0 : 1, line.id,
     );
     return no;
+  });
+}
+
+/**
+ * GetNextNo `count` times in one round trip — the same numbers, the same line advance, but the
+ * series is read and written once instead of once per document.
+ *
+ * For a batch that issues thousands of ledger entries at a stroke (a dividend payout crediting
+ * every member), asking the database for each number in turn costs more than the posting itself.
+ * The numbers are still contiguous, still serialised by the same `FOR UPDATE`, and still stop at
+ * the line’s Ending No.
+ */
+export async function nextSequenceBatch(name: string, count: number, date?: string): Promise<string[]> {
+  if (count <= 0) return [];
+  const d = date || today();
+  const setup = await one<{ series_code: string | null }>(
+    'SELECT series_code FROM no_series_setup WHERE document_code = ?', name,
+  );
+  const seriesCode = setup?.series_code || name;
+  if (!(await hasAnyRow('no_series', 'code = ?', seriesCode))) {
+    // The legacy flat counter advances by `count` in one UPDATE and the block is expanded here.
+    const row = await one<{ prefix: string; next_no: number; width: number }>(
+      'UPDATE sequence SET next_no = next_no + ? WHERE name = ? RETURNING prefix, next_no - ? AS next_no, width',
+      count, name, count,
+    );
+    if (!row) throw new Error('Unknown sequence: ' + name);
+    return Array.from({ length: count }, (_, i) =>
+      row.prefix + String(Number(row.next_no) + i).padStart(row.width, '0'));
+  }
+
+  return tx(async () => {
+    const { no, line } = await computeNext(seriesCode, d, true);
+    const step = line.increment_by_no || 1;
+    const numbers: string[] = [no];
+    let last = no;
+    for (let i = 1; i < count; i += 1) {
+      last = incrementNo(last, step);
+      if (noExceeds(last, line.ending_no)) {
+        throw new AppError(
+          `No. Series "${seriesCode}" has only ${numbers.length} of the ${count} numbers this batch needs`,
+          'NO_SERIES_EXHAUSTED',
+        );
+      }
+      numbers.push(last);
+    }
+    const willClose = !!line.ending_no && noExceeds(incrementNo(last, step), line.ending_no);
+    await run(
+      'UPDATE no_series_line SET last_no_used = ?, last_date_used = ?, open = ? WHERE id = ?',
+      last, d, willClose ? 0 : 1, line.id,
+    );
+    return numbers;
   });
 }
 

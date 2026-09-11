@@ -1,0 +1,191 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="DataSource">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString />
+      </ConnectionProperties>
+      <rd:SecurityType>None</rd:SecurityType>
+    </DataSource>
+  </DataSources>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <Height>2in</Height>
+        <Style />
+      </Body>
+      <Width>6.5in</Width>
+      <Page>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <Code>Public Function BlankZero(ByVal Value As Decimal)
+    if Value = 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankPos(ByVal Value As Decimal)
+    if Value &gt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankZeroAndPos(ByVal Value As Decimal)
+    if Value &gt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNeg(ByVal Value As Decimal)
+    if Value &lt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNegAndZero(ByVal Value As Decimal)
+    if Value &lt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+</Code>
+  <Language>=User!Language</Language>
+  <ConsumeContainerWhitespace>true</ConsumeContainerWhitespace>
+  <rd:ReportUnitType>Inch</rd:ReportUnitType>
+  <rd:ReportID>0eeb6585-38ae-40f1-885b-8d50088d51b4</rd:ReportID>
+  <DataSets>
+    <DataSet Name="DataSet_Result">
+      <Fields>
+        <Field Name="Logo">
+          <DataField>Logo</DataField>
+        </Field>
+        <Field Name="CompName">
+          <DataField>CompName</DataField>
+        </Field>
+        <Field Name="OfferDate">
+          <DataField>OfferDate</DataField>
+        </Field>
+        <Field Name="FullName">
+          <DataField>FullName</DataField>
+        </Field>
+        <Field Name="POBox">
+          <DataField>POBox</DataField>
+        </Field>
+        <Field Name="City">
+          <DataField>City</DataField>
+        </Field>
+        <Field Name="FirstName">
+          <DataField>FirstName</DataField>
+        </Field>
+        <Field Name="Title">
+          <DataField>Title</DataField>
+        </Field>
+        <Field Name="BeforeTitle">
+          <DataField>BeforeTitle</DataField>
+        </Field>
+        <Field Name="JobTitle">
+          <DataField>JobTitle</DataField>
+        </Field>
+        <Field Name="EffectiveDate">
+          <DataField>EffectiveDate</DataField>
+        </Field>
+        <Field Name="OfficeLocation">
+          <DataField>OfficeLocation</DataField>
+        </Field>
+        <Field Name="ProbationPeriod">
+          <DataField>ProbationPeriod</DataField>
+        </Field>
+        <Field Name="ProbationTerminationPeriod">
+          <DataField>ProbationTerminationPeriod</DataField>
+        </Field>
+        <Field Name="AnnualLeaveDays">
+          <DataField>AnnualLeaveDays</DataField>
+        </Field>
+        <Field Name="LeaveNoticePeriod">
+          <DataField>LeaveNoticePeriod</DataField>
+        </Field>
+        <Field Name="ContractTerminationNotice">
+          <DataField>ContractTerminationNotice</DataField>
+        </Field>
+        <Field Name="HoursWorkedPerWeek">
+          <DataField>HoursWorkedPerWeek</DataField>
+        </Field>
+        <Field Name="HoursWorkedPerWeekFormat">
+          <DataField>HoursWorkedPerWeekFormat</DataField>
+        </Field>
+        <Field Name="DaysWorkedPerWeek">
+          <DataField>DaysWorkedPerWeek</DataField>
+        </Field>
+        <Field Name="DaysWorkedPerWeekFormat">
+          <DataField>DaysWorkedPerWeekFormat</DataField>
+        </Field>
+        <Field Name="ReportingTime">
+          <DataField>ReportingTime</DataField>
+        </Field>
+        <Field Name="ClosingTime">
+          <DataField>ClosingTime</DataField>
+        </Field>
+        <Field Name="LunchBreakDuration">
+          <DataField>LunchBreakDuration</DataField>
+        </Field>
+        <Field Name="LunchStartTime">
+          <DataField>LunchStartTime</DataField>
+        </Field>
+        <Field Name="LunchEndTime">
+          <DataField>LunchEndTime</DataField>
+        </Field>
+        <Field Name="FirstDayOfWeek">
+          <DataField>FirstDayOfWeek</DataField>
+        </Field>
+        <Field Name="LastDayOfWeek">
+          <DataField>LastDayOfWeek</DataField>
+        </Field>
+        <Field Name="OfferSignedBy">
+          <DataField>OfferSignedBy</DataField>
+        </Field>
+        <Field Name="EarningOne">
+          <DataField>EarningOne</DataField>
+        </Field>
+        <Field Name="EarningTwo">
+          <DataField>EarningTwo</DataField>
+        </Field>
+        <Field Name="EarningThree">
+          <DataField>EarningThree</DataField>
+        </Field>
+        <Field Name="AmountOne">
+          <DataField>AmountOne</DataField>
+        </Field>
+        <Field Name="AmountOneFormat">
+          <DataField>AmountOneFormat</DataField>
+        </Field>
+        <Field Name="AmountTwo">
+          <DataField>AmountTwo</DataField>
+        </Field>
+        <Field Name="AmountTwoFormat">
+          <DataField>AmountTwoFormat</DataField>
+        </Field>
+        <Field Name="AmountThree">
+          <DataField>AmountThree</DataField>
+        </Field>
+        <Field Name="AmountThreeFormat">
+          <DataField>AmountThreeFormat</DataField>
+        </Field>
+        <Field Name="LCYCode">
+          <DataField>LCYCode</DataField>
+        </Field>
+      </Fields>
+      <Query>
+        <DataSourceName>DataSource</DataSourceName>
+        <CommandText />
+      </Query>
+    </DataSet>
+  </DataSets>
+</Report>

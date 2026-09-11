@@ -10,7 +10,8 @@ export { TOKEN_GROUPS };
 const ORG_FIELDS = [
   'name', 'short_name', 'motto', 'registration_no', 'sasra_licence_no', 'kra_pin', 'society_type',
   'physical_address', 'postal_address', 'city', 'county', 'country', 'phone_primary', 'phone_secondary',
-  'email', 'website', 'paybill_no', 'bank_name', 'bank_account_no', 'logo', 'currency_code',
+  'email', 'website', 'paybill_no', 'bank_name', 'bank_branch', 'bank_account_name', 'bank_account_no',
+  'logo', 'currency_code',
   'currency_symbol', 'locale', 'timezone', 'date_format', 'fy_start_month', 'fy_start_day', 'statement_footer',
   'global_dimension_1_caption', 'global_dimension_2_caption', 'guarantor_multiplier', 'self_guarantor_multiplier',
   'member_exit_notice_days', 'dormancy_days', 'instant_withdrawal_charge_id', 'inter_account_transfer_charge_id',

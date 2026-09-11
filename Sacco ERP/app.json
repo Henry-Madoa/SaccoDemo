@@ -1,0 +1,35 @@
+{
+  "id": "e21e9692-8016-4aba-9588-a4f7ebfc694b",
+  "name": "Nation ERP",
+  "publisher": "Henry_ISL",
+  "version": "1.0.0.0",
+  "runtime": "15.0",
+  "target": "OnPrem",
+  "application": "26.0.0.0",
+  "platform": "26.0.0.0",
+  "resourceExposurePolicy": {
+    "allowDebugging": true,
+    "allowDownloadingSource": false,
+    "includeSourceInSymbolFile": true,
+    "applyToDevExtension": false
+  },
+  "features": [
+   "NoImplicitWith"
+  ],
+  "idRanges": [
+    {
+      "from": 52203423,
+      "to": 52203999
+    }
+  ],
+  "suppressWarnings": [
+    "AL0269",
+    "AL0432",
+    "AL0603",
+    "AL0729",
+    "AL0758",
+    "AL0606",
+    "AL0667",
+    "AL0685"
+  ]
+}

@@ -36,6 +36,9 @@ export interface Organisation {
   website: string | null;
   paybill_no: string | null;
   bank_name: string | null;
+  bank_branch: string | null;
+  /** The name the account is held in — printed above the number on an invoice. */
+  bank_account_name: string | null;
   bank_account_no: string | null;
   logo: string | null;
   currency_code: string;
@@ -1476,6 +1479,9 @@ export interface GlAccount {
   /** For TOTAL/END_TOTAL only — the code range(s)/list of Posting accounts this row sums,
    *  Business Central style (e.g. "1010..1099|1200"). */
   totaling: string | null;
+  /** Depth in the Begin-Total / End-Total bracketing, written by Indent Chart of Accounts
+   *  (lib/gl.ts's indentChartOfAccounts()). 0 until the chart has been indented. */
+  indentation: number;
   balance: Cents;
   status: 'ACTIVE' | 'INACTIVE';
   /** Blocks this account from a manual G/L journal line — see lib/gl.ts's createJournal(). */
@@ -3340,7 +3346,7 @@ export type WorkflowDocumentType =
   | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'MEMBER_READMISSION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE'
   | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER'
   | 'FOSA_TRANSACTION' | 'TELLER_TRANSACTION' | 'MEMBER_LIEN' | 'INTER_ACCOUNT_TRANSFER' | 'BANKERS_CHEQUE'
-  | 'CHEQUE_DEPOSIT' | 'ITEM_JOURNAL' | 'FA_JOURNAL'
+  | 'CHEQUE_DEPOSIT' | 'ITEM_JOURNAL' | 'FA_JOURNAL' | 'DIVIDEND'
   | 'SALES_DOCUMENT' | 'REMINDER'
   | 'PURCHASE_DOCUMENT'
   | 'RECEIPT' | 'PAYMENT_VOUCHER'
@@ -4475,6 +4481,8 @@ export interface SalesHeader {
   payment_method_code: string | null;
   customer_posting_group_code: string | null;
   your_reference: string | null;
+  /** The posted invoice a corrective Credit Memo is raised against (BC Applies-to Doc. No.). */
+  applies_to_doc_no: string | null;
   salesperson: string | null;
   currency_code: string;
   currency_factor: number;
@@ -4538,6 +4546,8 @@ export interface PostedSalesDocument {
   order_no: string | null;
   payment_terms_code: string | null;
   your_reference: string | null;
+  /** The invoice a posted Credit Memo corrected. */
+  applies_to_doc_no: string | null;
   currency_code: string;
   currency_factor: number;
   amount: Cents;
@@ -5039,9 +5049,26 @@ export interface VendorStatementReport {
  * lib/receipts.ts, lib/paymentVouchers.ts.
  * ========================================================================================== */
 
-export type ReceiptLineType = 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account';
+/**
+ * AL's Receipt Type (Enum-Ext52204000 adds Member). It is set on the header and fixes what every
+ * line may be posted to — a Receipt Type of G/L Account takes G/L lines and nothing else.
+ */
+export type ReceiptLineType = 'Member' | 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account';
 export type ReceiptStatus = 'Open' | 'Pending Approval' | 'Approved';
-export type PaymentVoucherLineType = 'G/L Account' | 'Vendor' | 'Customer' | 'Bank Account';
+export type PaymentVoucherLineType = 'Member' | 'G/L Account' | 'Vendor' | 'Customer' | 'Bank Account';
+
+/**
+ * AL's Payment Type (Enum-Ext52204001 adds the SACCO ones). It is set on the header and fixes
+ * what every line may pay — the AL relates Payment Voucher Lines."Account No" to a different
+ * table per Payment Type, so a Supplier Payment pays vendors and nothing else.
+ *
+ * The AL's Employee Payment and EFT Loan Payment are deliberately absent: this system has no
+ * employee subledger to post against, and a loan is disbursed through lib/loanService.ts's
+ * disburse(), so a second path to the same money would be a way to pay it twice.
+ */
+export type PaymentVoucherType =
+  | 'Member Payment' | 'RTGS/SWIFT' | 'Supplier Payment' | 'Customer Refund' | 'Bank Transfer'
+  | 'Direct Expensing' | 'Payroll Settlement' | 'Remittance';
 export type BankLedgerDocumentType =
   '' | 'Payment' | 'Refund' | 'Receipt' | 'Transfer' | 'Reconciliation';
 export type BankRecLineType = 'Bank Account Ledger Entry' | 'G/L Adjustment';
@@ -5123,6 +5150,12 @@ export interface CashManagementSetup {
   default_receipt_bank_account_id: number | null;
   allow_cm_posting_from: IsoDate | null;
   allow_cm_posting_to: IsoDate | null;
+  /** AL General Ledger Setup "Loan Repayment Charge" — applied to a Member receipt line that
+   *  repays a loan, and taken off before the rest reaches the loan. */
+  loan_repayment_charge_id: number | null;
+  /** Which savings product receives the remainder when a member pays more than their loan owes.
+   *  Null means the receipt refuses the overpayment instead. */
+  unallocated_product_id: number | null;
   updated_at: IsoDateTime | null;
   updated_by: string | null;
 }
@@ -5186,6 +5219,12 @@ export interface ReceiptHeader {
   created_by: string | null;
   posted_at: IsoDateTime | null;
   posted_by: string | null;
+  /** Receipt Type = Member only. */
+  member_id: number | null;
+  member_no: string | null;
+  member_name: string | null;
+  /** AL "Received Amount" — what the teller counted, checked against the sum of the lines. */
+  received_amount: Cents;
 }
 
 export interface ReceiptHeaderView extends ReceiptHeader {
@@ -5206,6 +5245,43 @@ export interface ReceiptLine {
   applies_to_doc_no: string | null;
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
+  /* Receipt Type = Member only — see lib/receipts.ts. */
+  member_id: number | null;
+  savings_account_id: number | null;
+  loan_id: number | null;
+  product_category: SavingsCategory | null;
+  /** The loan balances as quoted when the line was captured — printed on the receipt. */
+  penalty_balance: Cents;
+  accrued_interest: Cents;
+  interest_balance: Cents;
+  principal_balance: Cents;
+  loan_balance: Cents;
+  charge_id: number | null;
+  charge_amount: Cents;
+}
+
+/** One of a member's own accounts, as offered on a Member receipt line. */
+export interface MemberReceiptAccount {
+  id: number;
+  account_no: string;
+  product_name: string;
+  category: SavingsCategory;
+  balance: Cents;
+  /** True when the account is on a LOAN ACCOUNT product, so the line needs a Loan No. */
+  is_loan_account: boolean;
+}
+
+/** A loan the member can repay through a receipt, with the balances the teller quotes. */
+export interface MemberReceiptLoan {
+  id: number;
+  loan_no: string;
+  product_name: string;
+  savings_account_id: number | null;
+  penalty_balance: Cents;
+  accrued_interest: Cents;
+  interest_balance: Cents;
+  principal_balance: Cents;
+  loan_balance: Cents;
 }
 
 export interface ReceiptDetail extends ReceiptHeaderView {
@@ -5230,6 +5306,10 @@ export interface PostedReceipt {
   journal_id: number | null;
   created_at: IsoDateTime | null;
   created_by: string | null;
+  /* Receipt Type = Member only. */
+  member_id: number | null;
+  member_no: string | null;
+  member_name: string | null;
 }
 
 export interface PostedReceiptLine {
@@ -5242,6 +5322,17 @@ export interface PostedReceiptLine {
   description: string | null;
   amount: Cents;
   applies_to_doc_no: string | null;
+  /* Receipt Type = Member only — the snapshot the printed receipt shows. */
+  member_id: number | null;
+  savings_account_id: number | null;
+  loan_id: number | null;
+  product_category: SavingsCategory | null;
+  penalty_balance: Cents;
+  accrued_interest: Cents;
+  interest_balance: Cents;
+  principal_balance: Cents;
+  loan_balance: Cents;
+  charge_amount: Cents;
 }
 
 /* --------------------------------------------------------------- Payment Voucher */
@@ -5250,7 +5341,7 @@ export interface PaymentVoucherHeader {
   id: number;
   no: string;
   date: IsoDate;
-  pv_type: string | null;
+  pv_type: PaymentVoucherType | null;
   pay_mode_code: string | null;
   cheque_no: string | null;
   cheque_date: IsoDate | null;
@@ -5276,6 +5367,21 @@ export interface PaymentVoucherHeader {
   created_by: string | null;
   posted_at: IsoDateTime | null;
   posted_by: string | null;
+  /** Payment Type = Member Payment / RTGS-SWIFT only. */
+  member_id: number | null;
+  member_no: string | null;
+  member_name: string | null;
+}
+
+/** One of a member's own accounts, as offered on a member payment line. */
+export interface MemberPaymentAccount {
+  id: number;
+  account_no: string;
+  product_name: string;
+  category: SavingsCategory;
+  balance: Cents;
+  /** AL's Available Balance: balance less holds less the product's minimum balance, floored at 0. */
+  available_balance: Cents;
 }
 
 export interface PaymentVoucherHeaderView extends PaymentVoucherHeader {
@@ -5305,6 +5411,10 @@ export interface PaymentVoucherLine {
   purchase_invoice_amount: Cents;
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
+  /* Payment Type = Member Payment / RTGS-SWIFT only. */
+  member_id: number | null;
+  savings_account_id: number | null;
+  available_balance: Cents;
 }
 
 export interface PaymentVoucherDetail extends PaymentVoucherHeaderView {
@@ -5335,6 +5445,11 @@ export interface PostedPaymentVoucher {
   approved_by: string | null;
   created_at: IsoDateTime | null;
   created_by: string | null;
+  /** The Payment Type the voucher was raised under — the printout varies by it. */
+  pv_type: PaymentVoucherType | null;
+  member_id: number | null;
+  member_no: string | null;
+  member_name: string | null;
 }
 
 export interface PostedPaymentVoucherLine {
@@ -5355,6 +5470,10 @@ export interface PostedPaymentVoucherLine {
   wht_amount_two: Cents;
   wht_base: Cents;
   net_amount: Cents;
+  /* Payment Type = Member Payment / RTGS-SWIFT only. */
+  member_id: number | null;
+  savings_account_id: number | null;
+  available_balance: Cents;
 }
 
 /* ----------------------------------------------------------------- print slips */
@@ -5938,4 +6057,184 @@ export interface PayrollP9Line {
   insurance_relief_cents: Cents; personal_relief_cents: Cents; paye_cents: Cents; nssf_cents: Cents;
   shif_cents: Cents; housing_levy_cents: Cents; deductions_cents: Cents; net_pay_cents: Cents;
   created_at: IsoDateTime | null;
+}
+
+/* ------------------------------------------------------------------------ Dividends */
+
+export type DividendBook = 'BOSA' | 'FOSA';
+export type DividendPostingType = 'Provisioning' | 'Payout';
+export type DividendComputationType = 'Automatic' | 'Manual Upload';
+/**
+ * How a savings product earns its dividend. The AL calls this the Proration Type, and it belongs
+ * to the product, not the document — one declaration can carry both models at once.
+ *
+ *   'Pro Rated'        AL's BOSA model, for Non-Withdrawable Deposits and Share Capital: the
+ *                      opening stake earns the full year, each later month earns on its own
+ *                      increase weighted by the months remaining.
+ *   'Minimum Balance'  AL's FOSA model, the bank passbook rule, for withdrawable accounts:
+ *                      each month earns on the lowest balance the account held that month.
+ *   'Straight Line'    A flat rate on the closing balance, with no monthly working.
+ */
+export type DividendRateType = 'Pro Rated' | 'Minimum Balance' | 'Straight Line';
+export type DividendPostTo = 'Savings' | 'Same Account' | 'Accrue';
+export type DividendStatus = 'Open' | 'Pending Approval' | 'Approved';
+/** AL enum 52204027 "Dividend Recovery Types". */
+export type DividendRecoveryEntryType =
+  | 'CHARGES' | 'INTEREST_PAID' | 'PRINCIPAL_PAID' | 'INTEREST_ARREARS' | 'PRINCIPAL_ARREARS'
+  | 'BOOST' | 'PREFERENTIAL_BOOST'
+  /* Not in the AL enum: this system's loans carry a penalty balance of their own, and a
+     recovery has to say which part of the debt it cleared. */
+  | 'PENALTY';
+
+/** AL Table 52204068 "Dividend Header". */
+export interface Dividend {
+  id: number;
+  no: string;
+  document_type: DividendBook;
+  description: string;
+  posting_description: string | null;
+  dividend_year: number;
+  start_date: IsoDate;
+  end_date: IsoDate;
+  posting_date: IsoDate;
+  posting_type: DividendPostingType;
+  computation_type: DividendComputationType;
+  transaction_charge_id: number | null;
+  expense_account_id: number | null;
+  payable_account_id: number | null;
+  recover_loans: Flag;
+  boost_to_minimum: Flag;
+  maximum_boost_amount: Cents;
+  preferential_boost: Flag;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  status: DividendStatus;
+  decision_reason: string | null;
+  calculated_at: IsoDateTime | null;
+  posted: Flag;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface DividendListRow extends Dividend {
+  line_count: number;
+  total_earned: Cents;
+  total_recoveries: Cents;
+  total_net: Cents;
+  journal_no: string | null;
+}
+
+/** AL Table 52204070 "Dividend Calculation Params". */
+export interface DividendParam {
+  id: number;
+  dividend_id: number;
+  product_id: number;
+  posting_description: string;
+  rate: number;
+  rate_type: DividendRateType;
+  post_to: DividendPostTo;
+  is_share_capital: Flag;
+  minimum_balance: Cents;
+  qualified_minimum_balance: Cents;
+  maximum_boost_amount: Cents;
+}
+
+export interface DividendParamView extends DividendParam {
+  product_code: string;
+  product_name: string;
+  calculated_amount: Cents;
+  account_balances: Cents;
+}
+
+/** AL Table 52204069 "Dividend Lines". */
+export interface DividendLine {
+  id: number;
+  dividend_id: number;
+  member_id: number;
+  member_no: string;
+  member_name: string;
+  product_id: number;
+  savings_account_id: number;
+  account_no: string;
+  destination_account_id: number | null;
+  posting_description: string | null;
+  account_balance: Cents;
+  amount_earned: Cents;
+  total_recoveries: Cents;
+  net_amount: Cents;
+  preferential_boost: Flag;
+  preferential_boost_pct: number;
+  deceased: Flag;
+  blocked_account: Flag;
+  phone_no: string | null;
+  posted: Flag;
+}
+
+export interface DividendLineView extends DividendLine {
+  product_code: string;
+  product_name: string;
+  destination_account_no: string | null;
+}
+
+/** AL Table 52204073 "Dividend Det. Entries" — the monthly working behind a line. */
+export interface DividendDetEntry {
+  id: number;
+  dividend_id: number;
+  dividend_line_id: number;
+  member_id: number;
+  savings_account_id: number;
+  month_no: number;
+  year: number;
+  month_code: string;
+  description: string | null;
+  posting_type: DividendRateType;
+  rate: number;
+  ratio: number;
+  min_balance: Cents;
+  previous_month_balance: Cents;
+  current_month_balance: Cents;
+  net_change: Cents;
+  minimum_running_balance: Cents;
+  amount: Cents;
+}
+
+/** AL Table 52204067 "Dividend Recoveries". */
+export interface DividendRecovery {
+  id: number;
+  dividend_id: number;
+  dividend_line_id: number;
+  member_id: number;
+  entry_type: DividendRecoveryEntryType;
+  recovery_code: string | null;
+  description: string;
+  loan_id: number | null;
+  target_account_id: number | null;
+  charge_id: number | null;
+  amount: Cents;
+  priority: number;
+  posted: Flag;
+}
+
+export interface DividendRecoveryView extends DividendRecovery {
+  loan_no: string | null;
+  target_account_no: string | null;
+}
+
+/** AL Table 52204072 "Dividend Withdrawn Members". */
+export interface DividendWithdrawnMember {
+  id: number;
+  dividend_id: number;
+  member_id: number;
+  member_no: string;
+  member_name: string;
+  exit_no: string | null;
+  maturity_date: IsoDate | null;
+}
+
+export interface DividendDetail extends DividendListRow {
+  params: DividendParamView[];
+  withdrawn: DividendWithdrawnMember[];
 }

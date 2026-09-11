@@ -123,9 +123,11 @@ export function CompanyForm({ org, logoSrc, mediaEnabled }: CompanyFormProps) {
             <h3>Banking and collections</h3>
             <div className="card-sub">Used on receipts and payment instructions.</div>
             <div className="grid g3">
-              <Field name="paybill_no" label="Mobile money paybill" defaultValue={org.paybill_no} />
+              <Field name="bank_account_name" label="Account name" defaultValue={org.bank_account_name} />
               <Field name="bank_name" label="Bank" defaultValue={org.bank_name} />
+              <Field name="bank_branch" label="Branch" defaultValue={org.bank_branch} />
               <Field name="bank_account_no" label="Bank account number" defaultValue={org.bank_account_no} />
+              <Field name="paybill_no" label="Mobile money paybill" defaultValue={org.paybill_no} />
             </div>
             <Field name="statement_footer" label="Statement footer text" type="textarea"
               defaultValue={org.statement_footer} />

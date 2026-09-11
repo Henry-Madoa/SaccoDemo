@@ -20,7 +20,7 @@ import * as reminderLib from './reminders.ts';
 import * as vendorLib from './vendors.ts';
 import * as purchaseLib from './purchaseDocuments.ts';
 import type {
-  Actor, Cents, Channel, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member,
+  Actor, Cents, Channel, GlAccountStructureType, GlAccountType, IsoDate, IsoDateTime, LoanProduct, Member,
 } from './types.ts';
 
 const K = (n: number): Cents => Math.round(n * 100); // shillings -> cents
@@ -31,10 +31,19 @@ const rnd = (): number => ((seedState = (seedState * 1103515245 + 12345) & 0x7ff
 const pick = <T>(a: readonly T[]): T => a[Math.floor(rnd() * a.length)];
 const int = (a: number, b: number): number => a + Math.floor(rnd() * (b - a + 1));
 
-type ChartRow = [code: string, name: string, type: GlAccountType, parent: string | null, postable: 0 | 1];
+type ChartRow = [
+  code: string, name: string, type: GlAccountType, parent: string | null, postable: 0 | 1,
+  /** Business Central structure type. Omitted rows are Posting (postable) or Heading. */
+  accountType?: GlAccountStructureType,
+  /** End-Total only — the code range it sums. */
+  totaling?: string,
+];
 
 const CHART: ChartRow[] = [
-  ['1000', 'CASH AND CASH EQUIVALENTS', 'ASSET', null, 0],
+  // Business Central bracketing: a group opens with a Begin-Total and closes with an End-Total
+  // that carries the Totaling range, so the chart rolls itself up. CASH AND CASH EQUIVALENTS is
+  // the pattern every other group follows.
+  ['1000', 'CASH AND CASH EQUIVALENTS', 'ASSET', null, 0, 'BEGIN_TOTAL'],
   ['1010', 'Cash in Hand — Tellers', 'ASSET', '1000', 1],
   ['1020', 'Bank Current Account', 'ASSET', '1000', 1],
   ['1030', 'M-Pesa Settlement Account', 'ASSET', '1000', 1],
@@ -43,54 +52,66 @@ const CHART: ChartRow[] = [
   ['1015', 'Main Vault — Treasury', 'ASSET', '1000', 1],
   ['1016', 'Till 01 — Cash', 'ASSET', '1000', 1],
   ['1017', 'Till 02 — Cash', 'ASSET', '1000', 1],
-  ['1100', 'LOANS AND ADVANCES TO MEMBERS', 'ASSET', null, 0],
+  ['1099', 'CASH AND CASH EQUIVALENTS  TOTALS', 'ASSET', null, 0, 'END_TOTAL', '1000..1099'],
+  ['1100', 'LOANS AND ADVANCES TO MEMBERS', 'ASSET', null, 0, 'BEGIN_TOTAL'],
   ['1110', 'Normal Loans Receivable', 'ASSET', '1100', 1],
   ['1120', 'Emergency Loans Receivable', 'ASSET', '1100', 1],
   ['1130', 'School Fees Loans Receivable', 'ASSET', '1100', 1],
   ['1140', 'Development Loans Receivable', 'ASSET', '1100', 1],
   ['1190', 'Provision for Loan Losses', 'ASSET', '1100', 1],
-  ['1200', 'OTHER ASSETS', 'ASSET', null, 0],
+  ['1199', 'LOANS AND ADVANCES TO MEMBERS  TOTALS', 'ASSET', null, 0, 'END_TOTAL', '1100..1199'],
+  ['1200', 'OTHER ASSETS', 'ASSET', null, 0, 'BEGIN_TOTAL'],
   ['1210', 'Prepayments and Deposits', 'ASSET', '1200', 1],
-  ['1240', 'TRADE AND OTHER RECEIVABLES', 'ASSET', null, 0],
+  ['1239', 'OTHER ASSETS  TOTALS', 'ASSET', null, 0, 'END_TOTAL', '1200..1239'],
+  ['1240', 'TRADE AND OTHER RECEIVABLES', 'ASSET', null, 0, 'BEGIN_TOTAL'],
   ['1250', 'Trade Receivables — Customers', 'ASSET', '1240', 1],
+  ['1299', 'TRADE AND OTHER RECEIVABLES  TOTALS', 'ASSET', null, 0, 'END_TOTAL', '1240..1299'],
   ['1300', 'Property and Equipment', 'ASSET', null, 1],
-  ['1400', 'PROPERTY, PLANT AND EQUIPMENT', 'ASSET', null, 0],
+  ['1400', 'PROPERTY, PLANT AND EQUIPMENT', 'ASSET', null, 0, 'BEGIN_TOTAL'],
   ['1410', 'Land and Buildings at Cost', 'ASSET', '1400', 1],
   ['1420', 'Furniture, Fittings & Equipment at Cost', 'ASSET', '1400', 1],
   ['1425', 'Accum. Depreciation — Furniture, Fittings & Equipment', 'ASSET', '1400', 1],
   ['1430', 'Motor Vehicles at Cost', 'ASSET', '1400', 1],
   ['1435', 'Accum. Depreciation — Motor Vehicles', 'ASSET', '1400', 1],
-  ['2000', 'MEMBER DEPOSITS', 'LIABILITY', null, 0],
+  ['1499', 'PROPERTY, PLANT AND EQUIPMENT  TOTALS', 'ASSET', null, 0, 'END_TOTAL', '1400..1499'],
+  ['2000', 'MEMBER DEPOSITS', 'LIABILITY', null, 0, 'BEGIN_TOTAL'],
   ['2010', 'BOSA Member Deposits', 'LIABILITY', '2000', 1],
   ['2020', 'FOSA Savings Accounts', 'LIABILITY', '2000', 1],
   ['2030', 'Fixed Deposits', 'LIABILITY', '2000', 1],
   ['2040', 'Holiday Savings', 'LIABILITY', '2000', 1],
-  ['2100', 'OTHER LIABILITIES', 'LIABILITY', null, 0],
+  ['2099', 'MEMBER DEPOSITS  TOTALS', 'LIABILITY', null, 0, 'END_TOTAL', '2000..2099'],
+  ['2100', 'OTHER LIABILITIES', 'LIABILITY', null, 0, 'BEGIN_TOTAL'],
   ['2110', 'Accounts Payable and Accruals', 'LIABILITY', '2100', 1],
   ['2120', 'Interest Payable on Deposits', 'LIABILITY', '2100', 1],
+  ['2125', 'Dividend Payable to Members', 'LIABILITY', '2100', 1],
   ['2130', 'Unallocated Receipts (Suspense)', 'LIABILITY', '2100', 1],
   ['2140', 'Bankers Cheques Payable', 'LIABILITY', '2100', 1],
-  ['2145', 'TRADE AND OTHER PAYABLES', 'LIABILITY', null, 0],
+  ['2145', 'TRADE AND OTHER PAYABLES', 'LIABILITY', null, 0, 'BEGIN_TOTAL'],
   ['2150', 'Trade Payables — Vendors', 'LIABILITY', '2145', 1],
   ['2160', 'Goods Received Not Invoiced', 'LIABILITY', '2145', 1],
-  ['3000', 'CAPITAL AND RESERVES', 'EQUITY', null, 0],
+  ['2180', 'TRADE AND OTHER PAYABLES  TOTALS', 'LIABILITY', null, 0, 'END_TOTAL', '2145..2180'],
+  ['2199', 'OTHER LIABILITIES  TOTALS', 'LIABILITY', null, 0, 'END_TOTAL', '2100..2199'],
+  ['3000', 'CAPITAL AND RESERVES', 'EQUITY', null, 0, 'BEGIN_TOTAL'],
   ['3010', 'Member Share Capital', 'EQUITY', '3000', 1],
   ['3020', 'Statutory Reserve Fund', 'EQUITY', '3000', 1],
   ['3030', 'Retained Earnings', 'EQUITY', '3000', 1],
-  ['4000', 'INCOME', 'INCOME', null, 0],
+  ['3099', 'CAPITAL AND RESERVES  TOTALS', 'EQUITY', null, 0, 'END_TOTAL', '3000..3099'],
+  ['4000', 'INCOME', 'INCOME', null, 0, 'BEGIN_TOTAL'],
   ['4010', 'Interest on Member Loans', 'INCOME', '4000', 1],
   ['4020', 'Loan Processing and Insurance Fees', 'INCOME', '4000', 1],
   ['4030', 'Penalty and Default Income', 'INCOME', '4000', 1],
   ['4040', 'FOSA Commissions and Charges', 'INCOME', '4000', 1],
   ['4050', 'Other Operating Income', 'INCOME', '4000', 1],
   ['4060', 'Gain on Disposal of Property & Equipment', 'INCOME', '4000', 1],
-  ['4090', 'SALES AND SERVICE INCOME', 'INCOME', null, 0],
+  ['4089', 'INCOME  TOTALS', 'INCOME', null, 0, 'END_TOTAL', '4000..4089'],
+  ['4090', 'SALES AND SERVICE INCOME', 'INCOME', null, 0, 'BEGIN_TOTAL'],
   ['4092', 'Rental Income', 'INCOME', '4090', 1],
   ['4094', 'Service and Sundry Income', 'INCOME', '4090', 1],
   ['4096', 'Merchandise Sales', 'INCOME', '4090', 1],
   ['4098', 'Interest on Overdue Receivables', 'INCOME', '4090', 1],
   ['4099', 'Late Payment and Reminder Fees', 'INCOME', '4090', 1],
-  ['5000', 'EXPENDITURE', 'EXPENSE', null, 0],
+  ['4199', 'SALES AND SERVICE INCOME  TOTALS', 'INCOME', null, 0, 'END_TOTAL', '4090..4199'],
+  ['5000', 'EXPENDITURE', 'EXPENSE', null, 0, 'BEGIN_TOTAL'],
   ['5010', 'Interest on Member Deposits', 'EXPENSE', '5000', 1],
   ['5020', 'Staff Costs', 'EXPENSE', '5000', 1],
   ['5030', 'Administrative Expenses', 'EXPENSE', '5000', 1],
@@ -100,6 +121,8 @@ const CHART: ChartRow[] = [
   ['5070', 'Repairs and Maintenance', 'EXPENSE', '5000', 1],
   ['5080', 'Loss on Disposal of Property & Equipment', 'EXPENSE', '5000', 1],
   ['5090', 'Cost of Goods Sold', 'EXPENSE', '5000', 1],
+  ['5095', 'Dividend on Member Deposits and Shares', 'EXPENSE', '5000', 1],
+  ['5099', 'EXPENDITURE  TOTALS', 'EXPENSE', null, 0, 'END_TOTAL', '5000..5099'],
   // Cash Management + multi-currency + VAT/WHT
   ['1260', 'Input VAT (Recoverable)', 'ASSET', '1240', 1],
   ['2170', 'Cheques Not Presented', 'LIABILITY', '2145', 1],
@@ -251,6 +274,7 @@ export const ROLES: RoleSeed[] = [
       'CASH_MGMT_RECEIPT_POST', 'CASH_MGMT_PV_CREATE', 'CASH_MGMT_PV_APPROVE', 'CASH_MGMT_PV_POST',
       'CASH_MGMT_APPLY_ENTRIES', 'WHT_CERTIFICATE_PRINT',
       'VAT_REPORT_READ', 'VAT_SETUP_MANAGE', 'WHT_MARK_REMITTED', 'CURRENCY_SETUP_MANAGE',
+      'DIVIDENDS_READ', 'DIVIDENDS_CREATE', 'DIVIDENDS_CALCULATE', 'DIVIDENDS_APPROVE', 'DIVIDENDS_POST',
       'ADMIN_CHARGES_MASTER_MANAGE', 'ADMIN_CHARGES_TRANSACTION_MANAGE',
       'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ', 'GUARANTOR_CHANGES_READ',
       'FIXED_DEPOSITS_READ',
@@ -273,7 +297,7 @@ export const ROLES: RoleSeed[] = [
       'LOAN_READ', 'GL_READ', 'COLLATERAL_APPLICATIONS_READ', 'COLLATERAL_REGISTER_READ', 'COLLATERAL_RELEASES_READ',
       'GUARANTOR_CHANGES_READ',
       'FIXED_DEPOSITS_READ', 'INVENTORY_READ', 'FIXED_ASSETS_READ', 'RECEIVABLES_READ', 'PAYABLES_READ',
-      'CASH_MGMT_READ', 'VAT_REPORT_READ', 'FINANCIAL_REPORTS_READ',
+      'CASH_MGMT_READ', 'VAT_REPORT_READ', 'FINANCIAL_REPORTS_READ', 'DIVIDENDS_READ',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW', 'ADMIN_AUDIT_VIEW',
     ],
   },
@@ -529,10 +553,17 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     'emerald-standard', JSON.stringify(PRESETS['emerald-standard'].tokens), now, 'system',
   );
 
-  const INS_ACC = 'INSERT INTO gl_account (code, name, type, parent_code, is_postable, account_type) VALUES (?,?,?,?,?,?)';
-  for (const [code, name, type, parent, postable] of CHART) {
-    await run(INS_ACC, code, name, type, parent, postable, postable ? 'POSTING' : 'HEADING');
+  const INS_ACC = `INSERT INTO gl_account (code, name, type, parent_code, is_postable, account_type, totaling)
+    VALUES (?,?,?,?,?,?,?)`;
+  for (const [code, name, type, parent, postable, accountType, totaling] of CHART) {
+    await run(
+      INS_ACC, code, name, type, parent, postable,
+      accountType ?? (postable ? 'POSTING' : 'HEADING'), totaling ?? null,
+    );
   }
+  // Stamp the Begin-Total / End-Total depth the same way Indent Chart of Accounts would, so a
+  // fresh install opens on an already-indented chart.
+  await indentSeededChart();
   const accId = async (code: string): Promise<number> =>
     (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', code))!.id;
 
@@ -1502,4 +1533,21 @@ function applyDateFormulaSeed(base: IsoDate, formula: string): IsoDate {
   const mm = f.match(/^(\d+)\s*M$/);
   if (mm) return addMonths(base, Number(mm[1]));
   return base;
+}
+
+/**
+ * Stamps gl_account.indentation from the Begin-Total / End-Total bracketing the CHART above
+ * declares — the same walk lib/gl.ts's indentChartOfAccounts() performs, inlined here so seeding
+ * stays self-contained (no audit row against a user that may not exist yet).
+ */
+async function indentSeededChart(): Promise<void> {
+  const accounts = await all<{ id: number; account_type: string }>(
+    'SELECT id, account_type FROM gl_account ORDER BY code',
+  );
+  let depth = 0;
+  for (const a of accounts) {
+    if (a.account_type === 'END_TOTAL') depth = Math.max(0, depth - 1);
+    await run('UPDATE gl_account SET indentation = ? WHERE id = ?', depth, a.id);
+    if (a.account_type === 'BEGIN_TOTAL') depth += 1;
+  }
 }

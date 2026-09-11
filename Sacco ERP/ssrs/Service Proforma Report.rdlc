@@ -1,0 +1,221 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition" xmlns:rd="http://schemas.microsoft.com/SQLServer/reporting/reportdesigner">
+  <AutoRefresh>0</AutoRefresh>
+  <DataSources>
+    <DataSource Name="DataSource">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString />
+      </ConnectionProperties>
+      <rd:SecurityType>None</rd:SecurityType>
+    </DataSource>
+  </DataSources>
+  <ReportSections>
+    <ReportSection>
+      <Body>
+        <Height>2in</Height>
+        <Style />
+      </Body>
+      <Width>6.5in</Width>
+      <Page>
+        <Style />
+      </Page>
+    </ReportSection>
+  </ReportSections>
+  <Code>Public Function BlankZero(ByVal Value As Decimal)
+    if Value = 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankPos(ByVal Value As Decimal)
+    if Value &gt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankZeroAndPos(ByVal Value As Decimal)
+    if Value &gt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNeg(ByVal Value As Decimal)
+    if Value &lt; 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+
+Public Function BlankNegAndZero(ByVal Value As Decimal)
+    if Value &lt;= 0 then
+        Return ""
+    end if
+    Return Value
+End Function
+</Code>
+  <Language>=User!Language</Language>
+  <ConsumeContainerWhitespace>true</ConsumeContainerWhitespace>
+  <rd:ReportUnitType>Inch</rd:ReportUnitType>
+  <rd:ReportID>0eeb6585-38ae-40f1-885b-8d50088d51b4</rd:ReportID>
+  <DataSets>
+    <DataSet Name="DataSet_Result">
+      <Fields>
+        <Field Name="No_ServiceProformaHeader">
+          <DataField>No_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="VehicleREGNo_ServiceProformaHeader">
+          <DataField>VehicleREGNo_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="Model_ServiceProformaHeader">
+          <DataField>Model_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="ChassisNo_ServiceProformaHeader">
+          <DataField>ChassisNo_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="EngineNo_ServiceProformaHeader">
+          <DataField>EngineNo_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="MileageKms_ServiceProformaHeader">
+          <DataField>MileageKms_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="MileageKms_ServiceProformaHeaderFormat">
+          <DataField>MileageKms_ServiceProformaHeaderFormat</DataField>
+        </Field>
+        <Field Name="DealerNo_ServiceProformaHeader">
+          <DataField>DealerNo_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="DealerName_ServiceProformaHeader">
+          <DataField>DealerName_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="ProformaDate_ServiceProformaHeader">
+          <DataField>ProformaDate_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="LastServiceDate_ServiceProformaHeader">
+          <DataField>LastServiceDate_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="CreatedDate_ServiceProformaHeader">
+          <DataField>CreatedDate_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="CreatedBy_ServiceProformaHeader">
+          <DataField>CreatedBy_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="ContactPerson_ServiceProformaHeader">
+          <DataField>ContactPerson_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="ContactPersonName_ServiceProformaHeader">
+          <DataField>ContactPersonName_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="TotalAmountSundries_ServiceProformaHeader">
+          <DataField>TotalAmountSundries_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="TotalAmountSundries_ServiceProformaHeaderFormat">
+          <DataField>TotalAmountSundries_ServiceProformaHeaderFormat</DataField>
+        </Field>
+        <Field Name="TotalAmount_ServiceProformaHeader">
+          <DataField>TotalAmount_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="TotalAmount_ServiceProformaHeaderFormat">
+          <DataField>TotalAmount_ServiceProformaHeaderFormat</DataField>
+        </Field>
+        <Field Name="TotalSundries_ServiceProformaHeader">
+          <DataField>TotalSundries_ServiceProformaHeader</DataField>
+        </Field>
+        <Field Name="TotalSundries_ServiceProformaHeaderFormat">
+          <DataField>TotalSundries_ServiceProformaHeaderFormat</DataField>
+        </Field>
+        <Field Name="CompanyInformationName">
+          <DataField>CompanyInformationName</DataField>
+        </Field>
+        <Field Name="CompanyInformationAddress">
+          <DataField>CompanyInformationAddress</DataField>
+        </Field>
+        <Field Name="CompanyInformationAddress2">
+          <DataField>CompanyInformationAddress2</DataField>
+        </Field>
+        <Field Name="CompanyInformationCity">
+          <DataField>CompanyInformationCity</DataField>
+        </Field>
+        <Field Name="CompanyInformationPicture">
+          <DataField>CompanyInformationPicture</DataField>
+        </Field>
+        <Field Name="CompanyInformationCountryRegionCode">
+          <DataField>CompanyInformationCountryRegionCode</DataField>
+        </Field>
+        <Field Name="CompanyInformationPhoneNo">
+          <DataField>CompanyInformationPhoneNo</DataField>
+        </Field>
+        <Field Name="CompanyInformationEMail">
+          <DataField>CompanyInformationEMail</DataField>
+        </Field>
+        <Field Name="CompanyInformationHomePage">
+          <DataField>CompanyInformationHomePage</DataField>
+        </Field>
+        <Field Name="DocumentNo_ServiceProformaLine">
+          <DataField>DocumentNo_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="ItemName_ServiceProformaLine">
+          <DataField>ItemName_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="Description_ServiceProformaLine">
+          <DataField>Description_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="Quantity_ServiceProformaLine">
+          <DataField>Quantity_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="Quantity_ServiceProformaLineFormat">
+          <DataField>Quantity_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="UnitPrice_ServiceProformaLine">
+          <DataField>UnitPrice_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="UnitPrice_ServiceProformaLineFormat">
+          <DataField>UnitPrice_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="Sundries_ServiceProformaLine">
+          <DataField>Sundries_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="Sundries_ServiceProformaLineFormat">
+          <DataField>Sundries_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="Discount_ServiceProformaLine">
+          <DataField>Discount_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="Discount_ServiceProformaLineFormat">
+          <DataField>Discount_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="VAT_ServiceProformaLine">
+          <DataField>VAT_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="VAT_ServiceProformaLineFormat">
+          <DataField>VAT_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="TotalAmount_ServiceProformaLine">
+          <DataField>TotalAmount_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="TotalAmount_ServiceProformaLineFormat">
+          <DataField>TotalAmount_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="LineNo_ServiceProformaLine">
+          <DataField>LineNo_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="TotalAmountSundries_ServiceProformaLine">
+          <DataField>TotalAmountSundries_ServiceProformaLine</DataField>
+        </Field>
+        <Field Name="TotalAmountSundries_ServiceProformaLineFormat">
+          <DataField>TotalAmountSundries_ServiceProformaLineFormat</DataField>
+        </Field>
+        <Field Name="ItemNo_ServiceProformaLine">
+          <DataField>ItemNo_ServiceProformaLine</DataField>
+        </Field>
+      </Fields>
+      <Query>
+        <DataSourceName>DataSource</DataSourceName>
+        <CommandText />
+      </Query>
+    </DataSet>
+  </DataSets>
+</Report>

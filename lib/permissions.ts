@@ -85,6 +85,7 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'RECEIVABLES', label: 'Receivables', route: '/receivables' },
   { code: 'PAYABLES', label: 'Payables', route: '/payables' },
   { code: 'CASH_MGMT', label: 'Cash Management', route: '/cash-management' },
+  { code: 'DIVIDENDS', label: 'Dividends', route: '/dividends' },
   { code: 'VAT_REPORTS', label: 'VAT & Withholding Tax', route: '/finance/vat' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'FINANCIAL_REPORTS', label: 'Financial Reports', route: '/finance/financial-reports' },
@@ -1395,6 +1396,37 @@ export const ACTIONS = {
   PAYROLL_TRANSACTION_CODES_MANAGE: {
     page: 'ADMIN_PAYROLL_TRANSACTION_CODES',
     tables: [['payroll_transaction_code', 'insert'], ['payroll_transaction_code', 'modify'], ['payroll_transaction_code', 'delete']],
+  },
+  // Dividends — the annual declaration over member savings and share capital (lib/dividends.ts).
+  // _CALCULATE runs the member sweep and writes the working; _POST raises the provision or pays
+  // the members, which moves member accounts, loans and the G/L, so it is granted separately.
+  DIVIDENDS_READ: { page: 'DIVIDENDS', tables: [['dividend', 'read']] },
+  DIVIDENDS_CREATE: {
+    page: 'DIVIDENDS',
+    tables: [
+      ['dividend', 'insert'], ['dividend', 'modify'], ['dividend', 'delete'],
+      ['dividend_param', 'insert'], ['dividend_param', 'modify'], ['dividend_param', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  DIVIDENDS_CALCULATE: {
+    page: 'DIVIDENDS',
+    tables: [
+      ['dividend', 'modify'], ['dividend_line', 'insert'], ['dividend_line', 'modify'],
+      ['dividend_line', 'delete'], ['dividend_det_entry', 'insert'], ['dividend_det_entry', 'delete'],
+      ['dividend_recovery', 'insert'], ['dividend_recovery', 'delete'],
+      ['dividend_earned_entry', 'insert'], ['dividend_earned_entry', 'modify'], ['dividend_earned_entry', 'delete'],
+      ['dividend_withdrawn_member', 'insert'], ['dividend_withdrawn_member', 'delete'],
+    ],
+  },
+  DIVIDENDS_APPROVE: { page: 'DIVIDENDS', tables: [['dividend', 'modify']] },
+  DIVIDENDS_POST: {
+    page: 'DIVIDENDS',
+    tables: [
+      ['dividend', 'modify'], ['dividend_line', 'modify'], ['savings_account', 'modify'],
+      ['loan', 'modify'], ['loan_schedule', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
   },
 } as const satisfies Record<string, ActionGrant>;
 

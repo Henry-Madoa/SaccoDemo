@@ -14,10 +14,12 @@ import {
   adjustExchangeRates, type BankAccPostingGroupInput, type CurrencyInput, type CashManagementSetupInput,
 } from '@/lib/cashMgmtSetup';
 import {
+  memberReceiptAccounts, memberReceiptLoans,
   createReceipt, updateReceipt, deleteReceipt, submitReceipt, cancelReceiptApproval, approveReceipt,
   rejectReceipt, reopenReceipt, postReceipt, type ReceiptInput, type ReceiptLineInput,
 } from '@/lib/receipts';
 import {
+  memberPaymentAccounts,
   createPaymentVoucher, updatePaymentVoucher, deletePaymentVoucher, submitPaymentVoucher,
   cancelPaymentVoucherApproval, approvePaymentVoucher, rejectPaymentVoucher, reopenPaymentVoucher,
   postPaymentVoucher, type PaymentVoucherInput, type PaymentVoucherLineInput,
@@ -47,18 +49,23 @@ const bool = (v: unknown): boolean => v === 'on' || v === 'true' || v === true;
 
 export interface ReceiptLineDraft {
   lineType: string; accountNo: string; description?: string; amount: string; appliesToDocNo?: string;
+  /** Receipt Type = Member only — the member account credited, and the loan being repaid. */
+  savingsAccountId?: string; loanId?: string;
 }
 export interface PvLineDraft extends ReceiptLineDraft {
   vatProdPostingGroupCode?: string; whtCodeOne?: string; whtCodeTwo?: string;
 }
 
 function toReceiptLines(lines: ReceiptLineDraft[]): ReceiptLineInput[] {
-  return lines.filter((l) => str(l.accountNo)).map((l) => ({
-    lineType: str(l.lineType) as ReceiptLineType,
+  // A Member line identifies its account by id, every other type by code — so a line counts as
+  // filled in when either is present.
+  return lines.filter((l) => str(l.accountNo) || numOrNull(l.savingsAccountId)).map((l) => ({
     accountNo: str(l.accountNo),
     description: opt(l.description),
     amount: toCents(l.amount),
     appliesToDocNo: opt(l.appliesToDocNo),
+    savingsAccountId: numOrNull(l.savingsAccountId),
+    loanId: numOrNull(l.loanId),
   }));
 }
 function toReceiptInput(v: FormValues, lines: ReceiptLineDraft[]): ReceiptInput {
@@ -71,8 +78,21 @@ function toReceiptInput(v: FormValues, lines: ReceiptLineDraft[]): ReceiptInput 
     manualReceiptNo: opt(v.manualReceiptNo),
     description: str(v.description),
     currencyCode: opt(v.currencyCode),
+    memberId: numOrNull(v.memberId),
+    receivedAmount: toCents(v.receivedAmount),
     lines: toReceiptLines(lines),
   };
+}
+
+/** The member's own accounts and loans, for the Member receipt line pickers. */
+export async function memberReceiptOptions(memberId: number) {
+  return actionResult(async () => {
+    await requireAction('CASH_MGMT_RECEIPT_CREATE');
+    const [accounts, loans] = await Promise.all([
+      memberReceiptAccounts(memberId), memberReceiptLoans(memberId),
+    ]);
+    return { accounts, loans };
+  });
 }
 
 export async function createReceiptRequest(v: FormValues, lines: ReceiptLineDraft[]): Promise<ActionResult<{ no: string }>> {
@@ -111,9 +131,10 @@ export async function postReceiptRequest(no: string): Promise<ActionResult<{ pos
 /* ---------------------------------------------------------- payment vouchers */
 
 function toPvLines(lines: PvLineDraft[]): PaymentVoucherLineInput[] {
-  return lines.filter((l) => str(l.accountNo)).map((l) => ({
-    lineType: str(l.lineType) as PaymentVoucherLineType,
+  // A member line identifies its account by id, every other type by code.
+  return lines.filter((l) => str(l.accountNo) || numOrNull(l.savingsAccountId)).map((l) => ({
     accountNo: str(l.accountNo),
+    savingsAccountId: numOrNull(l.savingsAccountId),
     description: opt(l.description),
     amount: toCents(l.amount),
     appliesToDocNo: opt(l.appliesToDocNo),
@@ -137,8 +158,17 @@ function toPvInput(v: FormValues, lines: PvLineDraft[]): PaymentVoucherInput {
     payeeBankBranchCode: opt(v.payeeBankBranchCode),
     payeeAccountNo: opt(v.payeeAccountNo),
     currencyCode: opt(v.currencyCode),
+    memberId: numOrNull(v.memberId),
     lines: toPvLines(lines),
   };
+}
+
+/** The accounts a member payment may draw on, for the voucher line picker. */
+export async function memberPaymentOptions(memberId: number, pvType: string) {
+  return actionResult(async () => {
+    await requireAction('CASH_MGMT_PV_CREATE');
+    return memberPaymentAccounts(memberId, pvType);
+  });
 }
 
 export async function createPvRequest(v: FormValues, lines: PvLineDraft[]): Promise<ActionResult<{ no: string }>> {
@@ -277,6 +307,8 @@ export async function saveCashMgmtSetupRequest(v: FormValues): Promise<ActionRes
       bankChargesAccountId: numOrNull(v.bankChargesAccountId), bankInterestIncomeAccountId: numOrNull(v.bankInterestIncomeAccountId),
       defaultReceiptBankAccountId: numOrNull(v.defaultReceiptBankAccountId),
       allowCmPostingFrom: opt(v.allowCmPostingFrom), allowCmPostingTo: opt(v.allowCmPostingTo),
+      loanRepaymentChargeId: numOrNull(v.loanRepaymentChargeId),
+      unallocatedProductId: numOrNull(v.unallocatedProductId),
     };
     await saveCashManagementSetup(input, u);
     revalidate();
