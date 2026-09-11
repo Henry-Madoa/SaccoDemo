@@ -18,11 +18,12 @@
  * and signature images, and is sized for A4 with `@page` margins, so "Print / Save as PDF" in
  * the browser produces the same page every time.
  */
-import { all } from './db.ts';
+import { all, one } from './db.ts';
 import { getOrg, getTheme } from './org.ts';
 import { imageSrc } from './cloudinary.ts';
-import { formatDateTime, formatMoney } from './format.ts';
+import { formatDate, formatDateTime, formatMoney } from './format.ts';
 import { renderSignatureHtml, signaturesFor } from './userSignatures.ts';
+import type { IsoDate } from './types.ts';
 import type { SignatureBlock, WorkflowDocumentType } from './types.ts';
 
 export const esc = (s: unknown): string => String(s ?? '')
@@ -85,8 +86,13 @@ export interface PrintTotal {
 }
 
 export interface PrintSignature {
+  /** The role: Checked by, Approved by, Authorised by, Received by … */
   label: string;
   block: SignatureBlock | null;
+  /** Printed on the Name line. Falls back to the signature block's own name. */
+  name?: string | null;
+  /** Printed on the Date line — when this person actually acted. */
+  date?: IsoDate | string | null;
 }
 
 export interface PrintNote {
@@ -190,7 +196,15 @@ export function documentMoney(brand: PrintBrand, code: string | null | undefined
 }
 
 /**
- * Who signs the printout: whoever raised the document, then each approver who cleared it.
+ * Who signs the printout, in the three roles a SACCO document is cleared through:
+ *
+ *   Checked by      whoever raised the document
+ *   Approved by     the second-to-last person to approve it
+ *   Authorised by   the last person to approve it
+ *
+ * With a single approver that one person is both the approver and the authoriser, so they are
+ * named on both lines — the document was genuinely cleared once, and pretending otherwise would
+ * either hide who did it or invent a second signatory.
  *
  * The AL reports read this out of the Approval Entry table (Sender ID -> 1st approver, Approver
  * ID -> 2nd..4th); here the equivalent trail is workflow_task, one APPROVED row per step. A
@@ -201,25 +215,55 @@ export async function documentSignatories(
   documentType: WorkflowDocumentType,
   entityId: string,
   preparedBy: string | null | undefined,
-  labels: { prepared: string; approved: string } = { prepared: 'Prepared by', approved: 'Approved by' },
+  labels: { prepared?: string; approved?: string; authorised?: string } = {},
 ): Promise<PrintSignature[]> {
-  const decided = await all<{ decided_by: string }>(
-    `SELECT decided_by FROM workflow_task
+  const decided = await all<{ decided_by: string; decided_at: string | null }>(
+    `SELECT decided_by, decided_at FROM workflow_task
      WHERE document_type = ? AND entity_id = ? AND status = 'APPROVED' AND decided_by IS NOT NULL
      ORDER BY decided_at, id`,
     documentType, String(entityId),
   );
-  const approvers = [...new Set(decided.map((d) => d.decided_by))].slice(0, 2);
-  const blocks = await signaturesFor([preparedBy, ...approvers]);
+  // One line per person, in the order they cleared it — a group-sequence step can record the
+  // same approver twice, and two identical signatures on one page tell the reader nothing.
+  const seen = new Map<string, string | null>();
+  for (const d of decided) if (!seen.has(d.decided_by)) seen.set(d.decided_by, d.decided_at);
+  const approvers = [...seen.entries()].map(([username, at]) => ({ username, at }));
+
+  const authoriser = approvers.length ? approvers[approvers.length - 1] : null;
+  // One approver signs both lines; two or more and the roles separate.
+  const approver = approvers.length > 1 ? approvers[approvers.length - 2] : authoriser;
+
+  const blocks = await signaturesFor([preparedBy, ...approvers.map((a) => a.username)]);
+  const of = (username: string | null | undefined): SignatureBlock | null =>
+    blocks.get(username?.trim() ?? '') ?? null;
+  const nameOf = (username: string | null | undefined): string | null =>
+    (username ? of(username)?.full_name || username : null);
+
+  const created = await documentRaisedAt(documentType, String(entityId));
   return [
-    { label: labels.prepared, block: blocks.get(preparedBy?.trim() ?? '') ?? null },
-    ...(approvers.length
-      ? approvers.map((a, i) => ({
-        label: approvers.length > 1 ? `${labels.approved} (${i + 1})` : labels.approved,
-        block: blocks.get(a.trim()) ?? null,
-      }))
-      : [{ label: labels.approved, block: null }]),
+    { label: labels.prepared ?? 'Checked by', block: of(preparedBy), name: nameOf(preparedBy), date: created },
+    {
+      label: labels.approved ?? 'Approved by',
+      block: of(approver?.username), name: nameOf(approver?.username), date: approver?.at ?? null,
+    },
+    {
+      label: labels.authorised ?? 'Authorised by',
+      block: of(authoriser?.username), name: nameOf(authoriser?.username), date: authoriser?.at ?? null,
+    },
   ];
+}
+
+/**
+ * When the document was raised, for the Checked by date. Read from the requesting task rather
+ * than each document's own table, so one query serves every document type.
+ */
+async function documentRaisedAt(documentType: WorkflowDocumentType, entityId: string): Promise<string | null> {
+  const row = await one<{ requested_at: string | null }>(
+    `SELECT requested_at FROM workflow_task
+     WHERE document_type = ? AND entity_id = ? ORDER BY id LIMIT 1`,
+    documentType, entityId,
+  );
+  return row?.requested_at ?? null;
 }
 
 /* ------------------------------------------------------------------------ rendering */
@@ -371,10 +415,30 @@ function notesBlock(doc: PrintDocument): string {
   </section>`;
 }
 
+/**
+ * The signature strip: a column per signatory, each with the three things a cleared document has
+ * to show — who, when, and their mark. A line with nobody on it prints the same rules, so the
+ * page can be signed by hand.
+ */
 function signBlock(doc: PrintDocument): string {
   const sigs = doc.signatures ?? [];
   if (!sigs.length) return '';
-  return `<section class="dp-sign">${sigs.map((s) => renderSignatureHtml(s.block, s.label)).join('')}</section>`;
+  const field = (caption: string, value: string): string =>
+    `<div class="dp-sig-field"><span class="dp-sig-cap">${caption}</span>`
+    + `<span class="dp-sig-val">${value}</span></div>`;
+  return `<section class="dp-sign">${sigs.map((sig) => {
+    const name = sig.name ?? sig.block?.full_name ?? sig.block?.username ?? '';
+    const mark = sig.block?.src
+      ? `<img class="dp-sig-img" src="${esc(sig.block.src)}" alt="" />`
+      : '';
+    return `
+    <div class="dp-sig-block">
+      <div class="dp-sig-role">${esc(sig.label)}</div>
+      ${field('Name', esc(name))}
+      ${field('Date', esc(sig.date ? formatDate(String(sig.date).slice(0, 10)) : ''))}
+      ${field('Signature', mark)}
+    </div>`;
+  }).join('')}</section>`;
 }
 
 /** The document body itself, without the stylesheet — see renderDocuments(). */
@@ -534,8 +598,19 @@ function documentStyles(doc: PrintDocument): string {
   .dp-note-b { font-size: 10.5px; white-space: pre-wrap; }
 
   /* ---------------------------------------------------------------- signatures */
-  .dp-sign { display: flex; justify-content: space-between; gap: 20px; margin-top: 26px;
+  .dp-sign { display: flex; justify-content: space-between; gap: 18px; margin-top: 26px;
     page-break-inside: avoid; }
+  .dp-sig-block { flex: 1; min-width: 150px; }
+  .dp-sig-role { font-size: 9.5px; font-weight: 700; color: var(--dp-ink); letter-spacing: .05em;
+    text-transform: uppercase; padding-bottom: 5px; }
+  /* Caption then a ruled space: filled in on screen, writable on paper when it is not. */
+  .dp-sig-field { display: flex; align-items: flex-end; gap: 5px; margin-top: 5px; font-size: 9.5px; }
+  .dp-sig-cap { color: var(--dp-muted); white-space: nowrap; }
+  .dp-sig-val { flex: 1; min-height: 13px; border-bottom: 1px solid #8b9490; color: var(--dp-ink);
+    line-height: 1.25; word-break: break-word; }
+  .dp-sig-field:last-child .dp-sig-val { min-height: 30px; }
+  .dp-sig-img { display: block; max-width: 150px; max-height: 28px; }
+  /* The old single-rule block, still used by the standalone slips. */
   .dp .sig-block { flex: 1; min-width: 130px; }
   .dp .sig-block .sig-img { display: block; max-width: 170px; max-height: 48px; margin-bottom: 2px; }
   .dp .sig-block .sig-rule { height: 44px; border-bottom: 1px solid #8b9490; margin-bottom: 2px; }

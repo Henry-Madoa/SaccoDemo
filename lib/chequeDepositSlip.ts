@@ -7,8 +7,9 @@
 import { getChequeDeposit } from './chequeDeposits.ts';
 import { formatDate } from './format.ts';
 import { amountInWords } from './numberToWords.ts';
-import { signatureFor } from './userSignatures.ts';
-import { printBrand, documentMoney, currencyLabel, renderDocument } from './documentPrint.ts';
+import {
+  printBrand, documentMoney, documentSignatories, currencyLabel, renderDocument,
+} from './documentPrint.ts';
 import type { PrintDocument } from './documentPrint.ts';
 
 export { renderDocument };
@@ -19,7 +20,6 @@ export async function buildChequeDepositSlipDocument(no: string): Promise<PrintD
   const brand = await printBrand();
   if (!brand) return null;
   const money = documentMoney(brand, brand.currency_code);
-  const receivedBy = await signatureFor(doc.created_by);
 
   return {
     brand,
@@ -62,8 +62,8 @@ export async function buildChequeDepositSlipDocument(no: string): Promise<PrintD
     totals: [{ label: 'Amount banked', value: money(doc.amount), grand: true }],
     amount_words: amountInWords(doc.amount, currencyLabel(brand.currency_code)),
     signatures: [
+      ...(await documentSignatories('CHEQUE_DEPOSIT', doc.no, doc.created_by)),
       { label: 'Depositor', block: null },
-      { label: 'Received by', block: receivedBy },
     ],
     footnote: 'This is an acknowledgement of receipt only. Funds are available after the cheque '
       + 'clears on its maturity date.',

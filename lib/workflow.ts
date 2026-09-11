@@ -545,6 +545,14 @@ export async function recordLegacyDecision(
   );
 }
 
+/**
+ * Moves the document's own status once its approval task is decided.
+ *
+ * Every workflow document type must appear here. A missing case fails silently and badly: the
+ * task goes APPROVED while the document stays Pending Approval for ever — including when the
+ * engine clears a level automatically because the requester is the approver. REMINDER is the
+ * one deliberate absence; a reminder has no approve/reject of its own to call.
+ */
 async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy: Actor, reason: string | null): Promise<void> {
   switch (task.document_type) {
     case 'MEMBER_APPLICATION': {
@@ -671,6 +679,102 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       const svc = await import('./dividends.ts');
       if (approved) await svc.approveDividend(task.entity_id, decidedBy);
       else await svc.rejectDividend(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'SALES_DOCUMENT': {
+      const svc = await import('./salesDocuments.ts');
+      if (approved) await svc.approveSalesDocument(task.entity_id, decidedBy);
+      else await svc.rejectSalesDocument(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'PURCHASE_DOCUMENT': {
+      const svc = await import('./purchaseDocuments.ts');
+      if (approved) await svc.approvePurchaseDocument(task.entity_id, decidedBy);
+      else await svc.rejectPurchaseDocument(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'RECEIPT': {
+      const svc = await import('./receipts.ts');
+      if (approved) await svc.approveReceipt(task.entity_id, decidedBy);
+      else await svc.rejectReceipt(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'PAYMENT_VOUCHER': {
+      const svc = await import('./paymentVouchers.ts');
+      if (approved) await svc.approvePaymentVoucher(task.entity_id, decidedBy);
+      else await svc.rejectPaymentVoucher(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'STANDING_ORDER': {
+      const svc = await import('./standingOrders.ts');
+      if (approved) await svc.approveStandingOrder(task.entity_id, decidedBy);
+      else await svc.rejectStandingOrder(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'ITEM_JOURNAL': {
+      const svc = await import('./itemJournal.ts');
+      if (approved) await svc.approveItemJournalLine(task.entity_id, decidedBy);
+      else await svc.rejectItemJournalLine(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'FA_JOURNAL': {
+      const svc = await import('./faJournal.ts');
+      if (approved) await svc.approveFaJournalLine(task.entity_id, decidedBy);
+      else await svc.rejectFaJournalLine(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'EMPLOYEE_ONBOARDING': {
+      const svc = await import('./employees.ts');
+      if (approved) await svc.approveEmployee(Number(task.entity_id), decidedBy);
+      else await svc.rejectEmployee(Number(task.entity_id), reason, decidedBy);
+      break;
+    }
+    case 'EMPLOYEE_EDIT': {
+      const svc = await import('./employeeEdits.ts');
+      if (approved) await svc.approveEmployeeEdit(task.entity_id, decidedBy);
+      else await svc.rejectEmployeeEdit(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'EMPLOYEE_CONTRACT_CHANGE': {
+      const svc = await import('./employeeContractChanges.ts');
+      if (approved) await svc.approveContractChange(task.entity_id, decidedBy);
+      else await svc.rejectContractChange(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'EMPLOYEE_EXIT': {
+      const svc = await import('./employeeExits.ts');
+      if (approved) await svc.approveExit(task.entity_id, decidedBy);
+      else await svc.rejectExit(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'LEAVE_APPLICATION': {
+      const svc = await import('./leaveManagement.ts');
+      if (approved) await svc.approveLeaveApplication(task.entity_id, decidedBy);
+      else await svc.rejectLeaveApplication(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'LEAVE_ADJUSTMENT': {
+      const svc = await import('./leaveManagement.ts');
+      if (approved) await svc.approveLeaveAdjustment(task.entity_id, decidedBy);
+      else await svc.rejectLeaveAdjustment(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'LEAVE_RECALL': {
+      const svc = await import('./leaveManagement.ts');
+      if (approved) await svc.approveLeaveRecall(task.entity_id, decidedBy);
+      else await svc.rejectLeaveRecall(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'LEAVE_PLAN': {
+      const svc = await import('./leaveManagement.ts');
+      if (approved) await svc.approveLeavePlan(task.entity_id, decidedBy);
+      else await svc.rejectLeavePlan(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'PAYROLL_PERIOD': {
+      const svc = await import('./payroll.ts');
+      if (approved) await svc.approvePayrollPeriod(Number(task.entity_id), decidedBy);
+      else await svc.rejectPayrollPeriod(Number(task.entity_id), reason, decidedBy);
       break;
     }
     case 'CHEQUE_DEPOSIT': {

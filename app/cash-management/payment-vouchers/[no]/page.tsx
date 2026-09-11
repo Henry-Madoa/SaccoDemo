@@ -26,6 +26,9 @@ export default async function PvDetailPage({ params }: { params: Promise<{ no: s
   // An Open voucher is still the creator's draft, so it is edited here on its own card — the
   // line editor's lookups are only fetched when it actually can be.
   const editable = !r.posted && r.status === 'Open' && canCreate && isOwn;
+  // As on the receipt: at or above the voucher approval limit it must be approved first; below
+  // it the creator posts it themselves, so only one of the two buttons is ever offered.
+  const needsApproval = r.total_amount >= r.approval_limit;
   const formProps = editable ? await docFormProps() : null;
 
   return (
@@ -39,11 +42,14 @@ export default async function PvDetailPage({ params }: { params: Promise<{ no: s
           </a>
         ) : null}
         <Spacer />
-        {editable ? (<><SubmitButton no={r.no} kind="pv" /><DeleteButton no={r.no} kind="pv" /></>) : null}
+        {editable ? <DeleteButton no={r.no} kind="pv" /> : null}
+        {editable && needsApproval ? <SubmitButton no={r.no} kind="pv" /> : null}
         {r.status === 'Pending Approval' && canCreate && isOwn ? <CancelApprovalButton no={r.no} kind="pv" /> : null}
         {r.status === 'Pending Approval' && canApprove ? (<><ApproveButton no={r.no} kind="pv" /><RejectButton no={r.no} kind="pv" /></>) : null}
         {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="pv" /> : null}
-        {!r.posted && (r.status === 'Approved' || r.status === 'Open') && canPost ? <PostPvButton no={r.no} /> : null}
+        {!r.posted && canPost && (needsApproval ? r.status === 'Approved' : r.status === 'Open')
+          ? <PostPvButton no={r.no} />
+          : null}
       </Toolbar>
 
       <PaymentVoucherCard pv={r} lookups={formProps} canEdit={editable} />

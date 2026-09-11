@@ -89,9 +89,11 @@ export async function buildBankersChequeScheduleDocument(meta: ScheduleMeta = {}
       { label: 'Charges', value: money(total.charge) },
       { label: 'Net amount', value: money(total.net), grand: true },
     ],
+    // A schedule covers many cheques, so it carries the three roles as blank rules for whoever
+    // signs the batch rather than any one document's approval trail.
     signatures: [
-      { label: 'Prepared by', block: null },
       { label: 'Checked by', block: null },
+      { label: 'Approved by', block: null },
       { label: 'Authorised by', block: null },
     ],
   };

@@ -23,9 +23,8 @@
 import { one, all } from './db.ts';
 import { formatDate, formatMoney } from './format.ts';
 import { amountInWords } from './numberToWords.ts';
-import { signaturesFor } from './userSignatures.ts';
 import {
-  printBrand, documentMoney, currencyLabel, renderDocument,
+  printBrand, documentMoney, documentSignatories, currencyLabel, renderDocument,
 } from './documentPrint.ts';
 import type { PrintDocument, PrintColumn, PrintRow } from './documentPrint.ts';
 import type {
@@ -96,7 +95,7 @@ export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocu
   const money = documentMoney(brand, doc.currency_code);
   const bare = (c: number): string => formatMoney(c, { showSymbol: false });
 
-  const [lines, bank, branch, signatures] = await Promise.all([
+  const [lines, bank, branch] = await Promise.all([
     all<PostedPaymentVoucherLine>(
       'SELECT * FROM posted_payment_voucher_line WHERE posted_payment_voucher_id = ? ORDER BY line_no',
       doc.id,
@@ -110,8 +109,6 @@ export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocu
         doc.payee_external_bank_code, doc.payee_bank_branch_code,
       )
       : Promise.resolve(undefined),
-    // Whoever prepared, approved and paid it signs the printout, if they have a signature on file.
-    signaturesFor([doc.prepared_by, doc.approved_by, doc.created_by]),
   ]);
 
   const gross = lines.reduce((s, l) => s + l.amount, 0);
@@ -187,11 +184,10 @@ export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocu
     ],
     amount_words: amountInWords(doc.total_amount, currencyLabel(doc.currency_code)),
     notes: doc.description ? [{ heading: 'Being payment for', body: doc.description }] : [],
+    // Checked / Approved / Authorised from the approval trail, then the payee's own receipt of
+    // the money — a member signs for their own, anyone else signs as the payee.
     signatures: [
-      { label: 'Prepared by', block: signatures.get(doc.prepared_by?.trim() ?? '') ?? null },
-      { label: 'Approved by', block: signatures.get(doc.approved_by?.trim() ?? '') ?? null },
-      { label: 'Paid by', block: signatures.get(doc.created_by?.trim() ?? '') ?? null },
-      // A member signs for their own money; anyone else signs as the payee.
+      ...(await documentSignatories('PAYMENT_VOUCHER', doc.pv_no, doc.prepared_by ?? doc.created_by)),
       { label: isMember ? 'Received by (member)' : 'Received by (payee)', block: null },
     ],
     footnote: isMember

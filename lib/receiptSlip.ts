@@ -15,9 +15,8 @@
 import { one, all } from './db.ts';
 import { formatDate } from './format.ts';
 import { amountInWords } from './numberToWords.ts';
-import { signatureFor } from './userSignatures.ts';
 import {
-  printBrand, documentMoney, currencyLabel, renderDocument,
+  printBrand, documentMoney, documentSignatories, currencyLabel, renderDocument,
 } from './documentPrint.ts';
 import type { PrintDocument, PrintColumn, PrintRow } from './documentPrint.ts';
 import type { PostedReceipt, PostedReceiptLine } from './types.ts';
@@ -79,13 +78,9 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
   if (!brand) return null;
   const money = documentMoney(brand, doc.currency_code);
 
-  const [lines, issuedBy] = await Promise.all([
-    all<PostedReceiptLine>(
-      'SELECT * FROM posted_receipt_line WHERE posted_receipt_id = ? ORDER BY line_no', doc.id,
-    ),
-    // The cashier who issued it signs the printout, if they have a signature on file.
-    signatureFor(doc.created_by),
-  ]);
+  const lines = await all<PostedReceiptLine>(
+    'SELECT * FROM posted_receipt_line WHERE posted_receipt_id = ? ORDER BY line_no', doc.id,
+  );
 
   const isMember = doc.receipt_type === 'Member';
   const loanNos = isMember ? await loanNumbersFor(lines) : new Map<number, string>();
@@ -141,9 +136,11 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
     rows,
     totals: [{ label: `Total received (${doc.currency_code})`, value: money(doc.amount), grand: true }],
     amount_words: amountInWords(doc.amount, currencyLabel(doc.currency_code)),
+    // Checked / Approved / Authorised, from the document's own approval trail, plus the line the
+    // person handing over the money signs.
     signatures: [
-      { label: 'Received by', block: issuedBy },
-      { label: 'Authorised signature', block: null },
+      ...(await documentSignatories('RECEIPT', doc.receipt_no, doc.created_by)),
+      { label: isMember ? 'Received from (member)' : 'Received from', block: null },
     ],
     footnote: 'This is a computer-generated receipt and is valid without a rubber stamp.',
   };
