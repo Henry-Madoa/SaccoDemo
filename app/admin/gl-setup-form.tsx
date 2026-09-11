@@ -39,6 +39,18 @@ export function GeneralLedgerSetupForm({ org }: { org: Organisation }) {
   return (
     <form ref={formRef} onSubmit={(e) => { e.preventDefault(); save(); }}>
       <Card>
+        <h3>Approvals</h3>
+        <div className="card-sub">
+          A receipt at or above this amount has to go through the approval workflow before it can
+          be posted. Below it, whoever raised the receipt may post it themselves. Set it to zero
+          to require approval for every receipt.
+        </div>
+        <div className="grid g2">
+          <Field name="receipt_approval_limit" label="Receipt approval limit" type="currency"
+            defaultValue={String(org.receipt_approval_limit / 100)} />
+        </div>
+      </Card>
+      <Card>
         <h3>Currency and locale</h3>
         <div className="card-sub">
           The local currency every ledger figure is kept in, and how amounts and dates are

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
@@ -59,9 +59,13 @@ const TABS: TabDefinition[] = [
   { key: 'ledger-entries', label: 'Vendor Ledger' },
   { key: 'aged-ap', label: 'Aged AP' },
   { key: 'statement', label: 'Statement' },
-  { key: 'posting-groups', label: 'Posting Groups' },
   { key: 'setup', label: 'Setup' },
 ];
+
+/** Vendor Posting Groups is Setup Pool master data now; the old tab link still lands on it. */
+const MOVED_TO_POOL: Record<string, string> = {
+  'posting-groups': '/admin/pool/finance/vendor-posting-groups',
+};
 
 export default async function PayablesPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
@@ -71,6 +75,8 @@ export default async function PayablesPage({ params, searchParams }: {
   const { tab: segments } = await params;
   const sp = await searchParams;
   const tab = segments?.[0] ?? 'vendors';
+  const moved = MOVED_TO_POOL[tab];
+  if (moved) redirect(moved);
   if (!TABS.some((t) => t.key === tab)) notFound();
 
   return (
@@ -85,7 +91,6 @@ export default async function PayablesPage({ params, searchParams }: {
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
       {tab === 'aged-ap' ? <AgedApTab asOf={sp.asOf} filtersRaw={sp.filters} /> : null}
       {tab === 'statement' ? <StatementTab vendorNo={sp.vendor} from={sp.from} to={sp.to} /> : null}
-      {tab === 'posting-groups' ? <PostingGroupsTab /> : null}
       {tab === 'setup' ? <SetupTab /> : null}
     </Page>
   );
@@ -451,37 +456,6 @@ async function StatementTab({ vendorNo, from, to }: { vendorNo?: string; from?: 
 }
 
 /* ----------------------------------------------------------------- Setup tabs */
-
-async function PostingGroupsTab() {
-  const [rows, canManage, accounts] = await Promise.all([
-    listVendorPostingGroups(), currentCanAction('PAYABLES_SETUP_MANAGE'), listPostableAccounts(),
-  ]);
-  return (
-    <Card>
-      <CardHead title="Vendor Posting Groups" sub="Business Central Table 93 — the G/L accounts every vendor posting resolves against">
-        {canManage ? <VendorPostingGroupFormButton accounts={accounts}>New group</VendorPostingGroupFormButton> : null}
-      </CardHead>
-      {rows.length ? (
-        <TableWrap>
-          <thead><tr><th>Code</th><th>Description</th><th>Payables</th><th>Service charge</th><th>Pmt. disc. received</th><th className="num">Vendors</th><th /></tr></thead>
-          <tbody>
-            {rows.map((g) => (
-              <tr key={g.id}>
-                <td className="mono">{g.code}</td>
-                <td>{g.description}</td>
-                <td className="mono muted-cell">{g.payables_account_code}</td>
-                <td className="mono muted-cell">{g.service_charge_account_code}</td>
-                <td className="mono muted-cell">{g.payment_disc_credit_account_code}</td>
-                <td className="num">{g.vendors_using}</td>
-                <td>{canManage ? <VendorPostingGroupFormButton row={g} accounts={accounts} className="btn sm ghost">Edit</VendorPostingGroupFormButton> : null}</td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
-      ) : <EmptyState icon="⚖" title="No vendor posting groups yet" />}
-    </Card>
-  );
-}
 
 async function SetupTab() {
   return <PurchasesPayablesSetupCard />;

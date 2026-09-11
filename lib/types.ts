@@ -40,6 +40,9 @@ export interface Organisation {
   /** The name the account is held in — printed above the number on an invoice. */
   bank_account_name: string | null;
   bank_account_no: string | null;
+  /** General Ledger Setup: receipts at or above this need approval; below it the creator may
+   *  post their own. See lib/receipts.ts postReceipt(). */
+  receipt_approval_limit: Cents;
   logo: string | null;
   currency_code: string;
   currency_symbol: string;

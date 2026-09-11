@@ -10,7 +10,8 @@ import {
 } from '@/lib/bankMgmt';
 import {
   createBankAccPostingGroup, updateBankAccPostingGroup, createExternalBank, updateExternalBank,
-  createCurrency, updateCurrency, saveExchangeRate, deleteExchangeRate, saveCashManagementSetup,
+  createCurrency, updateCurrency, saveExchangeRate, deleteExchangeRate,
+  getCashManagementSetup, saveCashManagementSetup,
   adjustExchangeRates, type BankAccPostingGroupInput, type CurrencyInput, type CashManagementSetupInput,
 } from '@/lib/cashMgmtSetup';
 import {
@@ -51,6 +52,8 @@ export interface ReceiptLineDraft {
   lineType: string; accountNo: string; description?: string; amount: string; appliesToDocNo?: string;
   /** Receipt Type = Member only — the member account credited, and the loan being repaid. */
   savingsAccountId?: string; loanId?: string;
+  /** Whose account/loan the line is for; blank means the header's member. */
+  memberId?: string;
 }
 export interface PvLineDraft extends ReceiptLineDraft {
   vatProdPostingGroupCode?: string; whtCodeOne?: string; whtCodeTwo?: string;
@@ -66,6 +69,7 @@ function toReceiptLines(lines: ReceiptLineDraft[]): ReceiptLineInput[] {
     appliesToDocNo: opt(l.appliesToDocNo),
     savingsAccountId: numOrNull(l.savingsAccountId),
     loanId: numOrNull(l.loanId),
+    memberId: numOrNull(l.memberId),
   }));
 }
 function toReceiptInput(v: FormValues, lines: ReceiptLineDraft[]): ReceiptInput {
@@ -303,7 +307,10 @@ export async function saveCashMgmtSetupRequest(v: FormValues): Promise<ActionRes
   return actionResult(async () => {
     const u = await requireAction('CASH_MGMT_SETUP_MANAGE');
     const input: CashManagementSetupInput = {
-      receiptApprovalLimit: toCents(v.receiptApprovalLimit), pvApprovalLimit: toCents(v.pvApprovalLimit),
+      // The receipt limit is edited on General Ledger Setup now, so this screen carries it
+      // through untouched rather than blanking it.
+      receiptApprovalLimit: (await getCashManagementSetup()).receipt_approval_limit,
+      pvApprovalLimit: toCents(v.pvApprovalLimit),
       bankChargesAccountId: numOrNull(v.bankChargesAccountId), bankInterestIncomeAccountId: numOrNull(v.bankInterestIncomeAccountId),
       defaultReceiptBankAccountId: numOrNull(v.defaultReceiptBankAccountId),
       allowCmPostingFrom: opt(v.allowCmPostingFrom), allowCmPostingTo: opt(v.allowCmPostingTo),

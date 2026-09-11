@@ -13,7 +13,6 @@ import { listActiveTransactionCharges } from '@/lib/charges';
 import { listActiveSavingsProducts } from '@/lib/admin';
 import { listReceipts, hasAnyReceipts } from '@/lib/receipts';
 import { listPaymentVouchers, hasAnyPaymentVouchers } from '@/lib/paymentVouchers';
-import { findPendingRoutedTask } from '@/lib/workflow';
 import { Page } from '@/components/layout/page';
 import { Card, CardHead, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefinition } from '@/components/ui/primitives';
 import { SearchInput } from '@/components/ui/filters';
@@ -28,10 +27,6 @@ import { docFormProps } from '../doc-form-props';
 import { NewReceiptButton } from '../receipt-form';
 import { NewPvButton } from '../payment-voucher-form';
 import { StartReconciliationButton } from '../reconciliation-actions';
-import {
-  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, ReopenButton, DeleteButton,
-  PostReceiptButton, PostPvButton,
-} from '../document-actions';
 
 const TABS: TabDefinition[] = [
   { key: 'bank-accounts', label: 'Bank Accounts' },
@@ -62,8 +57,8 @@ export default async function CashManagementPage({ params, searchParams }: {
       {tab === 'bank-accounts' ? <BankAccountsTab /> : null}
       {tab === 'ledger-entries' ? <LedgerTab bank={sp.bank} /> : null}
       {tab === 'reconciliations' ? <ReconciliationsTab /> : null}
-      {tab === 'receipts' ? <ReceiptsTab search={sp.q ?? ''} username={user.username} /> : null}
-      {tab === 'payment-vouchers' ? <PvTab search={sp.q ?? ''} username={user.username} /> : null}
+      {tab === 'receipts' ? <ReceiptsTab search={sp.q ?? ''} /> : null}
+      {tab === 'payment-vouchers' ? <PvTab search={sp.q ?? ''} /> : null}
       {tab === 'currencies' ? <CurrenciesTab /> : null}
       {tab === 'exchange-rates' ? <ExchangeRatesTab /> : null}
       {tab === 'posting-groups' ? <PostingGroupsTab /> : null}
@@ -190,15 +185,13 @@ async function ReconciliationsTab() {
 
 /* ------------------------------------------------------------------ Receipts */
 
-async function ReceiptsTab({ search, username }: { search: string; username: string }) {
-  const [rows, empty, canCreate, canApprove, canPost, fp] = await Promise.all([
+/** The list only lists. Submitting, approving, posting and printing all happen on the receipt's
+ *  own card, so there is one place to act on a document instead of two that can disagree. */
+async function ReceiptsTab({ search }: { search: string }) {
+  const [rows, empty, canCreate, fp] = await Promise.all([
     listReceipts({ search }), hasAnyReceipts().then((a) => !a),
-    currentCanAction('CASH_MGMT_RECEIPT_CREATE'), currentCanAction('CASH_MGMT_RECEIPT_APPROVE'),
-    currentCanAction('CASH_MGMT_RECEIPT_POST'), docFormProps(),
+    currentCanAction('CASH_MGMT_RECEIPT_CREATE'), docFormProps(),
   ]);
-  const routed = new Map(await Promise.all(
-    rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('RECEIPT', r.no).then((t) => [r.no, !!t] as const)),
-  ));
   return (
     <>
       <Toolbar>
@@ -209,31 +202,19 @@ async function ReceiptsTab({ search, username }: { search: string; username: str
       <Card>
         {rows.length ? (
           <TableWrap>
-            <thead><tr><th>No.</th><th>Date</th><th>Bank</th><th>Received from</th><th className="num">Amount</th><th>Status</th><th className="num" /></tr></thead>
+            <thead><tr><th>No.</th><th>Date</th><th>Type</th><th>Bank</th><th>Received from</th><th className="num">Amount</th><th>Status</th></tr></thead>
             <tbody>
-              {rows.map((r) => {
-                const isOwn = r.created_by === username;
-                return (
-                  <tr key={r.no} className={r.posted ? 'muted' : undefined}>
-                    <td className="mono"><a href={`/cash-management/receipts/${r.no}`}>{r.no}</a></td>
-                    <td>{formatDate(r.posting_date)}</td>
-                    <td className="mono muted-cell">{r.bank_account_code}</td>
-                    <td>{r.description ?? '—'}</td>
-                    <td className="num"><Money cents={r.amount} /> <span className="tiny muted-cell">{r.currency_code}</span></td>
-                    <td>{r.posted ? <Pill status="ok">Posted</Pill> : <Pill status={r.status} />}</td>
-                    <td className="num">
-                      <div className="inline" style={{ justifyContent: 'flex-end' }}>
-                        {!r.posted && r.status === 'Open' && canCreate && isOwn ? (<><SubmitButton no={r.no} kind="receipt" /><DeleteButton no={r.no} kind="receipt" /></>) : null}
-                        {r.status === 'Pending Approval' && canCreate && isOwn && !routed.get(r.no) ? <CancelApprovalButton no={r.no} kind="receipt" /> : null}
-                        {r.status === 'Pending Approval' && (canApprove || routed.get(r.no)) ? (<><ApproveButton no={r.no} kind="receipt" /><RejectButton no={r.no} kind="receipt" /></>) : null}
-                        {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="receipt" /> : null}
-                        {!r.posted && (r.status === 'Approved' || r.status === 'Open') && canPost ? <PostReceiptButton no={r.no} /> : null}
-                        {r.posted ? <a className="btn sm ghost" href={`/receipt-slip/${r.no}`} target="_blank" rel="noreferrer">Print</a> : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((r) => (
+                <tr key={r.no} className={r.posted ? 'muted' : undefined}>
+                  <td className="mono"><a href={`/cash-management/receipts/${r.no}`}>{r.no}</a></td>
+                  <td>{formatDate(r.posting_date)}</td>
+                  <td className="muted-cell">{r.receipt_type}</td>
+                  <td className="mono muted-cell">{r.bank_account_code}</td>
+                  <td>{r.member_no ? <>{r.member_name} <span className="tiny mono muted-cell">{r.member_no}</span></> : (r.description ?? '—')}</td>
+                  <td className="num"><Money cents={r.amount} /> <span className="tiny muted-cell">{r.currency_code}</span></td>
+                  <td>{r.posted ? <Pill status="ok">Posted</Pill> : <Pill status={r.status} />}</td>
+                </tr>
+              ))}
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="🧾" title={empty ? 'No receipts yet' : 'Nothing matches'} />}
@@ -242,15 +223,12 @@ async function ReceiptsTab({ search, username }: { search: string; username: str
   );
 }
 
-async function PvTab({ search, username }: { search: string; username: string }) {
-  const [rows, empty, canCreate, canApprove, canPost, fp] = await Promise.all([
+/** Lists only; every action is on the voucher's own card. See ReceiptsTab. */
+async function PvTab({ search }: { search: string }) {
+  const [rows, empty, canCreate, fp] = await Promise.all([
     listPaymentVouchers({ search }), hasAnyPaymentVouchers().then((a) => !a),
-    currentCanAction('CASH_MGMT_PV_CREATE'), currentCanAction('CASH_MGMT_PV_APPROVE'),
-    currentCanAction('CASH_MGMT_PV_POST'), docFormProps(),
+    currentCanAction('CASH_MGMT_PV_CREATE'), docFormProps(),
   ]);
-  const routed = new Map(await Promise.all(
-    rows.filter((r) => r.status === 'Pending Approval').map((r) => findPendingRoutedTask('PAYMENT_VOUCHER', r.no).then((t) => [r.no, !!t] as const)),
-  ));
   return (
     <>
       <Toolbar>
@@ -261,32 +239,20 @@ async function PvTab({ search, username }: { search: string; username: string })
       <Card>
         {rows.length ? (
           <TableWrap>
-            <thead><tr><th>No.</th><th>Date</th><th>Paying bank</th><th>Payee</th><th>Cheque</th><th className="num">Net paid</th><th>Status</th><th className="num" /></tr></thead>
+            <thead><tr><th>No.</th><th>Date</th><th>Payment type</th><th>Paying bank</th><th>Payee</th><th>Cheque</th><th className="num">Net paid</th><th>Status</th></tr></thead>
             <tbody>
-              {rows.map((r) => {
-                const isOwn = r.created_by === username;
-                return (
-                  <tr key={r.no} className={r.posted ? 'muted' : undefined}>
-                    <td className="mono"><a href={`/cash-management/payment-vouchers/${r.no}`}>{r.no}</a></td>
-                    <td>{formatDate(r.date)}</td>
-                    <td className="mono muted-cell">{r.paying_bank_account_code}</td>
-                    <td>{r.payee_name ?? '—'}</td>
-                    <td className="mono muted-cell">{r.cheque_no ?? '—'}</td>
-                    <td className="num"><Money cents={r.total_amount} /> <span className="tiny muted-cell">{r.currency_code}</span></td>
-                    <td>{r.posted ? <Pill status="ok">Posted</Pill> : <Pill status={r.status} />}</td>
-                    <td className="num">
-                      <div className="inline" style={{ justifyContent: 'flex-end' }}>
-                        {!r.posted && r.status === 'Open' && canCreate && isOwn ? (<><SubmitButton no={r.no} kind="pv" /><DeleteButton no={r.no} kind="pv" /></>) : null}
-                        {r.status === 'Pending Approval' && canCreate && isOwn && !routed.get(r.no) ? <CancelApprovalButton no={r.no} kind="pv" /> : null}
-                        {r.status === 'Pending Approval' && (canApprove || routed.get(r.no)) ? (<><ApproveButton no={r.no} kind="pv" /><RejectButton no={r.no} kind="pv" /></>) : null}
-                        {!r.posted && r.status === 'Approved' && canApprove ? <ReopenButton no={r.no} kind="pv" /> : null}
-                        {!r.posted && (r.status === 'Approved' || r.status === 'Open') && canPost ? <PostPvButton no={r.no} /> : null}
-                        {r.posted ? <a className="btn sm ghost" href={`/pv-slip/${r.no}`} target="_blank" rel="noreferrer">Slip</a> : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((r) => (
+                <tr key={r.no} className={r.posted ? 'muted' : undefined}>
+                  <td className="mono"><a href={`/cash-management/payment-vouchers/${r.no}`}>{r.no}</a></td>
+                  <td>{formatDate(r.date)}</td>
+                  <td className="muted-cell">{r.pv_type ?? '—'}</td>
+                  <td className="mono muted-cell">{r.paying_bank_account_code}</td>
+                  <td>{r.member_no ? <>{r.member_name} <span className="tiny mono muted-cell">{r.member_no}</span></> : (r.payee_name ?? '—')}</td>
+                  <td className="mono muted-cell">{r.cheque_no ?? '—'}</td>
+                  <td className="num"><Money cents={r.total_amount} /> <span className="tiny muted-cell">{r.currency_code}</span></td>
+                  <td>{r.posted ? <Pill status="ok">Posted</Pill> : <Pill status={r.status} />}</td>
+                </tr>
+              ))}
             </tbody>
           </TableWrap>
         ) : <EmptyState icon="💸" title={empty ? 'No payment vouchers yet' : 'Nothing matches'} />}

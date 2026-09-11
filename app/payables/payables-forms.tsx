@@ -2,10 +2,11 @@
 
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useRunAction } from '@/components/ui/run-action';
 import { Field } from '@/components/ui/field';
 import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import {
-  createVpgRequest, updateVpgRequest,
+  createVpgRequest, updateVpgRequest, deleteVpgRequest,
   requestVendor, savePurchasesPayablesSetupRequest,
 } from '@/app/actions/payables';
 import type {
@@ -146,5 +147,23 @@ export function PurchasesPayablesSetupButton({ setup, postingGroups, paymentTerm
         </FormModal>
       ) : null}
     </>
+  );
+}
+
+/** Removable only while no vendor still names it — see receivables-forms.tsx for the pattern. */
+export function DeleteVendorPostingGroupButton({ id, className = 'btn sm ghost' }: { id: number; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => deleteVpgRequest(id), {
+        confirm: {
+          title: 'Delete this posting group?',
+          message: 'Refused while any vendor still names it.',
+          confirmLabel: 'Delete', danger: true,
+        },
+        successTitle: 'Posting group deleted',
+      })}>
+      {busy ? 'Working…' : 'Delete'}
+    </button>
   );
 }

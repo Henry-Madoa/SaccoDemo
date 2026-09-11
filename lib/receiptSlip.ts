@@ -40,6 +40,26 @@ const MEMBER_COLUMNS: PrintColumn[] = [
   { key: 'amount', label: 'Amount', align: 'right', width: '15%' },
 ];
 
+/** The same, for a receipt whose lines are spread across several members — then whose account
+ *  each line went to is the first thing the person holding it needs to see. */
+const SHARED_MEMBER_COLUMNS: PrintColumn[] = [
+  { key: 'member', label: 'Member', width: '18%' },
+  { key: 'account', label: 'Account', width: '20%' },
+  { key: 'description', label: 'Being payment for' },
+  { key: 'owing', label: 'Was Owing', align: 'right', width: '14%' },
+  { key: 'amount', label: 'Amount', align: 'right', width: '15%' },
+];
+
+/** The member numbers behind a receipt's lines, in one read. */
+async function memberNumbersFor(lines: PostedReceiptLine[]): Promise<Map<number, string>> {
+  const ids = [...new Set(lines.map((l) => Number(l.member_id)).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await all<{ id: number; member_no: string }>(
+    `SELECT id, member_no FROM member WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids,
+  );
+  return new Map(rows.map((r) => [Number(r.id), r.member_no]));
+}
+
 /** The loan numbers behind a member receipt's lines, in one read. */
 async function loanNumbersFor(lines: PostedReceiptLine[]): Promise<Map<number, string>> {
   const ids = [...new Set(lines.map((l) => Number(l.loan_id)).filter(Boolean))];
@@ -69,10 +89,15 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
 
   const isMember = doc.receipt_type === 'Member';
   const loanNos = isMember ? await loanNumbersFor(lines) : new Map<number, string>();
+  // A receipt may collect for several members at once; only then is the member column earned.
+  const memberNos = isMember ? await memberNumbersFor(lines) : new Map<number, string>();
+  const spansMembers = isMember
+    && new Set(lines.map((l) => Number(l.member_id)).filter(Boolean)).size > 1;
 
   const rows: PrintRow[] = lines.map((l): PrintRow => ({
     cells: isMember
       ? {
+        member: memberNos.get(Number(l.member_id)) ?? doc.member_no ?? '',
         account: l.account_name || l.account_no || '',
         description: l.loan_id
           ? `Loan repayment — ${loanNos.get(Number(l.loan_id)) ?? ''}`
@@ -112,7 +137,7 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
       { label: 'Currency', value: doc.currency_code },
       { label: 'Amount Received', value: money(doc.amount), strong: true },
     ],
-    columns: isMember ? MEMBER_COLUMNS : COLUMNS,
+    columns: spansMembers ? SHARED_MEMBER_COLUMNS : isMember ? MEMBER_COLUMNS : COLUMNS,
     rows,
     totals: [{ label: `Total received (${doc.currency_code})`, value: money(doc.amount), grand: true }],
     amount_words: amountInWords(doc.amount, currencyLabel(doc.currency_code)),

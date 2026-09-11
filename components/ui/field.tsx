@@ -50,16 +50,22 @@ export function Field({
         <input type="checkbox" name={name} id={id} defaultChecked={!!Number(defaultValue)} value="1" disabled={disabled}
           onChange={onChange} />
         <label htmlFor={id}>{label}</label>
+        {/* readForm() reads checkboxes off the DOM, and a disabled one still answers. */}
       </div>
     );
   }
 
   if (type === 'currency') {
     return (
-      <CurrencyField
-        id={id} name={name} label={label} defaultValue={defaultValue} hint={hint} required={required}
-        min={min} max={max} disabled={disabled} className={className} placeholder={placeholder}
-      />
+      <>
+        <CurrencyField
+          id={id} name={name} label={label} defaultValue={defaultValue} hint={hint} required={required}
+          min={min} max={max} disabled={disabled} className={className} placeholder={placeholder}
+        />
+        {disabled && defaultValue !== null && defaultValue !== undefined
+          ? <input type="hidden" name={name} value={String(defaultValue)} />
+          : null}
+      </>
     );
   }
 
@@ -103,6 +109,12 @@ export function Field({
     <div className={`field ${className || ''}`}>
       <label htmlFor={id}>{label}{required ? <span className="req"> *</span> : null}</label>
       {control}
+      {/* A disabled control submits nothing, so its value rides along in a hidden input —
+          otherwise an uneditable Code on an edit form reaches the server as undefined and the
+          save is rejected for a field the user was never allowed to change. */}
+      {disabled && defaultValue !== null && defaultValue !== undefined
+        ? <input type="hidden" name={name} value={String(defaultValue)} />
+        : null}
       {hint ? <div className="hint">{hint}</div> : null}
     </div>
   );
@@ -263,7 +275,11 @@ function CurrencyField({
 export function readForm(form: HTMLFormElement): FormValues {
   const out: FormValues = {};
   for (const [key, value] of new FormData(form).entries()) {
-    if (typeof value === 'string') out[key] = value;
+    // A disabled Field submits only its hidden twin, but a control that is merely empty must not
+    // overwrite a value already read — last non-empty wins, so field order stops mattering.
+    if (typeof value !== 'string') continue;
+    if (value === '' && out[key] !== undefined && out[key] !== '') continue;
+    out[key] = value;
   }
   for (const el of form.querySelectorAll<HTMLInputElement>('input[type=checkbox][name]')) {
     out[el.name] = el.checked ? 1 : 0;

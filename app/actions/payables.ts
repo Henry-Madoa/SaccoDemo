@@ -5,7 +5,8 @@ import { requireAction, requireUser } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import { toCents } from '@/lib/format';
 import {
-  listVendorPostingGroups, createVendorPostingGroup, updateVendorPostingGroup, type VendorPostingGroupInput,
+  listVendorPostingGroups, createVendorPostingGroup, updateVendorPostingGroup, deleteVendorPostingGroup,
+  type VendorPostingGroupInput,
   getPurchasesPayablesSetup, savePurchasesPayablesSetup, type PurchasesPayablesSetupInput,
 } from '@/lib/payablesSetup';
 import {
@@ -49,6 +50,10 @@ export async function createVpgRequest(v: FormValues): Promise<ActionResult<{ id
 }
 export async function updateVpgRequest(id: number, v: FormValues): Promise<ActionResult<{ id: number }>> {
   return actionResult(async () => { const u = await requireAction('PAYABLES_SETUP_MANAGE'); await updateVendorPostingGroup(id, toVpg(v), u); revalidate(); return { id }; });
+}
+/** Removable only while no vendor still names it — the lib function counts them. */
+export async function deleteVpgRequest(id: number): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => { const u = await requireAction('PAYABLES_SETUP_MANAGE'); await deleteVendorPostingGroup(id, u); revalidate(); return { id }; });
 }
 
 export async function getPurchasesPayablesSetupRequest() {

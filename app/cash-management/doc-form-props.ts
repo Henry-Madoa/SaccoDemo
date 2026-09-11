@@ -27,7 +27,7 @@ export async function docFormProps() {
     vendors: vendors.map((v) => ({ no: v.no, name: v.name })),
     customers,
     currencies: currencies.map((c) => ({ code: c.code })),
-    payMethods: payMethods.map((m) => ({ code: m.code })),
+    payMethods: payMethods.map((m) => ({ code: m.code, description: m.description })),
     vatCodes: vatGroups.filter((g) => g.tax_type === 'VAT').map((g) => ({ code: g.code, description: g.description })),
     whtCodes: vatGroups.filter((g) => g.tax_type === 'WHT').map((g) => ({ code: g.code, description: g.description })),
     externalBanks: extBanks.map((b) => ({ code: b.code, name: b.name })),

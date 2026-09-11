@@ -2,12 +2,14 @@
 
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useRunAction } from '@/components/ui/run-action';
 import { Field } from '@/components/ui/field';
 import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import {
   createCpgRequest, updateCpgRequest,
   createPaymentTermsRequest, updatePaymentTermsRequest,
   createPaymentMethodRequest, updatePaymentMethodRequest,
+  deleteCustomerPostingGroupRequest, deletePaymentTermsRequest, deletePaymentMethodRequest,
   createFinanceChargeTermsRequest, updateFinanceChargeTermsRequest,
   createReminderTermsRequest, updateReminderTermsRequest,
   requestCustomer, saveSalesReceivablesSetupRequest,
@@ -346,5 +348,63 @@ export function SalesReceivablesSetupButton({ setup, postingGroups, paymentTerms
         </FormModal>
       ) : null}
     </>
+  );
+}
+
+/* --------------------------------------------------------- Setup Pool: delete buttons
+ *
+ * The Admin may add, change and remove Finance master data. A remove is refused while anything
+ * still points at the row — the lib functions count the dependants and name them — so the
+ * confirmation says so rather than promising something the server may decline.
+ */
+
+export function DeleteCustomerPostingGroupButton({ id, className = 'btn sm ghost' }: { id: number; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => deleteCustomerPostingGroupRequest(id), {
+        confirm: {
+          title: 'Delete this posting group?',
+          message: 'Refused while any customer still names it.',
+          confirmLabel: 'Delete', danger: true,
+        },
+        successTitle: 'Posting group deleted',
+      })}>
+      {busy ? 'Working…' : 'Delete'}
+    </button>
+  );
+}
+
+export function DeletePaymentTermsButton({ id, className = 'btn sm ghost' }: { id: number; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => deletePaymentTermsRequest(id), {
+        confirm: {
+          title: 'Delete these payment terms?',
+          message: 'Refused while any customer, vendor or document still uses them — set them Inactive instead.',
+          confirmLabel: 'Delete', danger: true,
+        },
+        successTitle: 'Payment terms deleted',
+      })}>
+      {busy ? 'Working…' : 'Delete'}
+    </button>
+  );
+}
+
+export function DeletePaymentMethodButton({ id, className = 'btn sm ghost' }: { id: number; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => deletePaymentMethodRequest(id), {
+        confirm: {
+          title: 'Delete this payment method?',
+          message: 'Refused while any party, receipt or voucher still uses it — set it Inactive instead.',
+          confirmLabel: 'Delete', danger: true,
+        },
+        successTitle: 'Payment method deleted',
+      })}>
+      {busy ? 'Working…' : 'Delete'}
+    </button>
   );
 }

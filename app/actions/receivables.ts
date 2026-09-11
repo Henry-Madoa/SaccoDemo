@@ -5,7 +5,8 @@ import { requireAction, requireUser } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import { toCents } from '@/lib/format';
 import {
-  listCustomerPostingGroups, createCustomerPostingGroup, updateCustomerPostingGroup, type CustomerPostingGroupInput,
+  listCustomerPostingGroups, createCustomerPostingGroup, updateCustomerPostingGroup,
+  deleteCustomerPostingGroup, deletePaymentTerms, deletePaymentMethod, type CustomerPostingGroupInput,
   listPaymentTerms, createPaymentTerms, updatePaymentTerms, type PaymentTermsInput,
   listPaymentMethods, createPaymentMethod, updatePaymentMethod, type PaymentMethodInput,
   listReminderTerms, listReminderLevels, createReminderTerms, updateReminderTerms,
@@ -89,6 +90,18 @@ export async function createPaymentMethodRequest(v: FormValues): Promise<ActionR
 }
 export async function updatePaymentMethodRequest(id: number, v: FormValues): Promise<ActionResult<{ id: number }>> {
   return actionResult(async () => { const u = await requireAction('RECEIVABLES_SETUP_MANAGE'); await updatePaymentMethod(id, toPm(v), u); revalidate(); return { id }; });
+}
+
+/* Admin may remove a setup row, but only while nothing still points at it — the lib functions
+ * count the dependants and say which ones are in the way. */
+export async function deleteCustomerPostingGroupRequest(id: number): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => { const u = await requireAction('RECEIVABLES_SETUP_MANAGE'); await deleteCustomerPostingGroup(id, u); revalidate(); return { id }; });
+}
+export async function deletePaymentTermsRequest(id: number): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => { const u = await requireAction('RECEIVABLES_SETUP_MANAGE'); await deletePaymentTerms(id, u); revalidate(); return { id }; });
+}
+export async function deletePaymentMethodRequest(id: number): Promise<ActionResult<{ id: number }>> {
+  return actionResult(async () => { const u = await requireAction('RECEIVABLES_SETUP_MANAGE'); await deletePaymentMethod(id, u); revalidate(); return { id }; });
 }
 
 export async function listReminderTermsRequest() {

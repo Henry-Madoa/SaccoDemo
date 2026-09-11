@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
-import { Field } from '@/components/ui/field';
+import { Field, MoneyInput } from '@/components/ui/field';
 import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { MemberSelect } from '@/components/ui/member-select';
 import { useFormat } from '@/components/ui/format-provider';
@@ -13,6 +13,9 @@ import {
 import type {
   MemberReceiptAccount, MemberReceiptLoan, Member, ReceiptDetail, ReceiptLineType,
 } from '@/lib/types';
+
+interface MemberOptions { accounts: MemberReceiptAccount[]; loans: MemberReceiptLoan[] }
+const EMPTY_OPTIONS: MemberOptions = { accounts: [], loans: [] };
 
 /**
  * AL Enum-Ext52204000: the header's Receipt Type is what a line's Account No relates to, so the
@@ -29,19 +32,20 @@ export interface ReceiptFormProps {
   customers: { no: string; name: string }[];
   vendors: { no: string; name: string }[];
   currencies: { code: string }[];
-  payMethods: { code: string }[];
+  payMethods: { code: string; description: string }[];
   members: EligibleMember[];
 }
 
 const emptyLine = (): ReceiptLineDraft => ({
   lineType: '', accountNo: '', description: '', amount: '', appliesToDocNo: '',
-  savingsAccountId: '', loanId: '',
+  savingsAccountId: '', loanId: '', memberId: '',
 });
 
 const sumLines = (lines: ReceiptLineDraft[]): number =>
   lines.reduce((s, l) => s + Math.round((Number(l.amount) || 0) * 100), 0);
 
-function Body({ p, initial, lines, setLines }: {
+/** The receipt's own fields, shared by the New modal and the card's in-place editor. */
+export function ReceiptFields({ p, initial, lines, setLines }: {
   p: ReceiptFormProps; initial?: ReceiptDetail | null;
   lines: ReceiptLineDraft[]; setLines: (l: ReceiptLineDraft[]) => void;
 }) {
@@ -49,26 +53,42 @@ function Body({ p, initial, lines, setLines }: {
   const [receiptType, setReceiptType] = useState<ReceiptLineType>(initial?.receipt_type ?? 'G/L Account');
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
   const [received, setReceived] = useState(initial?.received_amount ? String(initial.received_amount / 100) : '');
-  const [accounts, setAccounts] = useState<MemberReceiptAccount[]>([]);
-  const [loans, setLoans] = useState<MemberReceiptLoan[]>([]);
+  const [narration, setNarration] = useState(initial?.description ?? '');
+  /** Accounts and loans per member — a receipt can collect for several, so one list will not do. */
+  const [optionsByMember, setOptions] = useState<Record<string, MemberOptions>>({});
 
   const isMember = receiptType === 'Member';
+  /** The line's own member, falling back to the header's — see lib/receipts.ts resolveLine(). */
+  const memberOf = (l: ReceiptLineDraft): string => l.memberId || memberId;
+  const optionsFor = (l: ReceiptLineDraft): MemberOptions => optionsByMember[memberOf(l)] ?? EMPTY_OPTIONS;
 
-  // The member's own accounts and loans, loaded when a member is chosen — AL's Member No. lookup
-  // on the line is filtered to that member's Sacco and Loan accounts.
+  // Every member in play — the header's and each line's — has their accounts and loans fetched
+  // once and cached, so retyping a line does not re-hit the server.
+  const wanted = isMember
+    ? [...new Set([memberId, ...lines.map((l) => l.memberId ?? '')].filter(Boolean))]
+    : [];
   useEffect(() => {
     let cancelled = false;
-    if (!isMember || !memberId) { setAccounts([]); setLoans([]); return; }
-    memberReceiptOptions(Number(memberId)).then((res) => {
-      if (cancelled || !res.ok) return;
-      setAccounts(res.data.accounts);
-      setLoans(res.data.loans);
-    });
+    const missing = wanted.filter((id) => !optionsByMember[id]);
+    if (!missing.length) return;
+    Promise.all(missing.map(async (id) => [id, await memberReceiptOptions(Number(id))] as const))
+      .then((results) => {
+        if (cancelled) return;
+        setOptions((prev) => {
+          const next = { ...prev };
+          for (const [id, res] of results) if (res.ok) next[id] = res.data;
+          return next;
+        });
+      });
     return () => { cancelled = true; };
-  }, [isMember, memberId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted.join(',')]);
 
   const set = (i: number, k: keyof ReceiptLineDraft, v: string) =>
     setLines(lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)));
+
+  /** AL Tab-Ext52204015: the line description follows the header unless the user has typed one. */
+  const defaultDescription = (): string => (isMember ? 'Member Receipt' : narration.trim());
 
   /**
    * A member line pays into one of two things, so the picker offers both and the value says
@@ -76,13 +96,14 @@ function Body({ p, initial, lines, setLines }: {
    */
   const pickTarget = (i: number, value: string) => {
     const [kind, rawId] = value.split(':');
-    const acc = kind === 'acct' ? accounts.find((a) => String(a.id) === rawId) : undefined;
+    const acc = kind === 'acct' ? optionsFor(lines[i]).accounts.find((a) => String(a.id) === rawId) : undefined;
     setLines(lines.map((l, idx) => (idx === i
       ? {
         ...l,
         savingsAccountId: kind === 'acct' ? rawId : '',
         loanId: kind === 'loan' ? rawId : '',
         accountNo: acc?.account_no ?? '',
+        description: l.description || defaultDescription(),
       }
       : l)));
   };
@@ -92,10 +113,11 @@ function Body({ p, initial, lines, setLines }: {
 
   const accountPicker = (l: ReceiptLineDraft, i: number): ReactNode => {
     if (isMember) {
+      const { accounts, loans } = optionsFor(l);
       return (
         <select value={targetOf(l)} onChange={(e) => pickTarget(i, e.target.value)}
-          aria-label="Pay into" disabled={!memberId}>
-          <option value="">{memberId ? '…' : 'Pick the member first'}</option>
+          aria-label="Pay into" style={{ width: '100%' }} disabled={!memberOf(l)} required>
+          <option value="">{memberOf(l) ? '…' : 'Pick the member first'}</option>
           {accounts.length ? (
             <optgroup label="Deposit into">
               {accounts.map((a) => (
@@ -118,7 +140,10 @@ function Body({ p, initial, lines, setLines }: {
         : receiptType === 'Bank Account' ? p.banks.map((c) => ({ v: c.code, t: `${c.code} — ${c.name}` }))
           : p.accounts.map((c) => ({ v: c.code, t: `${c.code} — ${c.name}` }));
     return (
-      <select value={l.accountNo} onChange={(e) => set(i, 'accountNo', e.target.value)} aria-label="Account">
+      <select value={l.accountNo} aria-label="Account" style={{ width: '100%' }}
+        onChange={(e) => setLines(lines.map((x, idx) => (idx === i
+          ? { ...x, accountNo: e.target.value, description: x.description || defaultDescription() }
+          : x)))}>
         <option value="">…</option>
         {rows.map((r) => <option key={r.v} value={r.v}>{r.t}</option>)}
       </select>
@@ -151,8 +176,15 @@ function Body({ p, initial, lines, setLines }: {
 
       {isMember ? (
         <div className="grid g2">
-          <MemberSelect id="f_memberId" name="memberId" label="Member" members={p.members}
-            value={memberId} onChange={(id) => { setMemberId(id); setLines([emptyLine()]); }} required />
+          <MemberSelect id="f_memberId" name="memberId" label="Member (receipt issued to)" members={p.members}
+            value={memberId}
+            onChange={(id) => {
+              setMemberId(id);
+              // Lines that were following the header follow the new member too; ones set to
+              // somebody else explicitly are left alone.
+              setLines(lines.map((l) => (l.memberId ? l : { ...emptyLine(), description: l.description, amount: l.amount })));
+            }}
+            required />
           <Field name="receivedAmount" label="Amount received" type="currency" required
             defaultValue={received} onChange={(e) => setReceived(e.target.value)}
             hint="What was counted at the counter — it must equal the lines below" />
@@ -163,35 +195,63 @@ function Body({ p, initial, lines, setLines }: {
 
       <div className="grid g3">
         <Field name="currencyCode" label="Currency" type="select" defaultValue={initial?.currency_code ?? ''} options={[{ value: '', label: '(bank currency)' }, ...p.currencies.map((c) => ({ value: c.code, label: c.code }))]} />
-        <Field name="payModeCode" label="Payment mode" type="select" defaultValue={initial?.pay_mode_code ?? ''} options={[{ value: '', label: '(none)' }, ...p.payMethods.map((m) => ({ value: m.code, label: m.code }))]} />
+        <Field name="payModeCode" label="Payment mode" type="select" defaultValue={initial?.pay_mode_code ?? ''} options={[{ value: '', label: '(none)' }, ...p.payMethods.map((m) => ({ value: m.code, label: `${m.code} — ${m.description}` }))]} />
         <Field name="externalDocumentNo" label="Cheque / M-Pesa ref." defaultValue={initial?.external_document_no ?? ''} />
       </div>
       <div className="grid g2">
         <Field name="manualReceiptNo" label="Manual receipt no." defaultValue={initial?.manual_receipt_no ?? ''} placeholder="Optional" />
-        <Field name="description" label="Received from / narration" required defaultValue={initial?.description ?? ''} />
+        <Field name="description" label="Received from / narration" required
+          defaultValue={narration} onChange={(e) => setNarration(e.target.value)} />
       </div>
-      {isMember ? null : <input type="hidden" name="receivedAmount" value="" />}
+      {isMember ? null : (
+        <div className="grid g2">
+          <Field name="receivedAmount" label="Amount received" type="currency"
+            defaultValue={received} onChange={(e) => setReceived(e.target.value)}
+            hint="Optional control total — if set, the lines must add up to it" />
+        </div>
+      )}
 
       <div className="hint" style={{ marginTop: 8 }}>Lines</div>
       <table>
         <thead>
           <tr>
-            <th>{isMember ? 'Pay into' : receiptType}</th>
-            <th>Description</th>
-            <th style={{ width: 130 }}>Amount</th>
-            {isMember ? <th style={{ width: 150 }}>Owing</th> : <th>Applies to</th>}
+            {isMember ? <th style={{ width: '20%' }}>Member No.</th> : null}
+            <th style={{ width: '22%' }}>{isMember ? 'Pay into' : receiptType}</th>
+            <th>Description <span className="req">*</span></th>
+            {isMember
+              ? <th style={{ width: 150 }}>Owing</th>
+              : <th style={{ width: '20%' }}>Applies to Doc. No.</th>}
+            <th className="num" style={{ width: 130 }}>Amount</th>
             <th style={{ width: 32 }} />
           </tr>
         </thead>
         <tbody>
           {lines.map((l, i) => {
-            const acc = accounts.find((a) => String(a.id) === l.savingsAccountId);
-            const loan = loans.find((x) => String(x.id) === l.loanId);
+            const opts = optionsFor(l);
+            const acc = opts.accounts.find((a) => String(a.id) === l.savingsAccountId);
+            const loan = opts.loans.find((x) => String(x.id) === l.loanId);
             return (
               <tr key={i}>
+                {isMember ? (
+                  <td>
+                    <select value={l.memberId ?? ''} aria-label="Member" style={{ width: '100%' }}
+                      onChange={(e) => setLines(lines.map((x, idx) => (idx === i
+                        // A different member means a different set of accounts, so the target clears.
+                        ? { ...x, memberId: e.target.value, savingsAccountId: '', loanId: '', accountNo: '' }
+                        : x)))}>
+                      <option value="">Same as header</option>
+                      {p.members.map((m) => (
+                        <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
+                      ))}
+                    </select>
+                  </td>
+                ) : null}
                 <td>{accountPicker(l, i)}</td>
-                <td><input value={l.description} onChange={(e) => set(i, 'description', e.target.value)} aria-label="Description" /></td>
-                <td><input type="number" step="0.01" min={0} value={l.amount} onChange={(e) => set(i, 'amount', e.target.value)} aria-label="Amount" /></td>
+                <td>
+                  <input value={l.description} onChange={(e) => set(i, 'description', e.target.value)}
+                    aria-label="Description" required style={{ width: '100%' }}
+                    placeholder={defaultDescription() || 'What this line is for'} />
+                </td>
                 {isMember ? (
                   <td className="tiny muted-cell">
                     {loan ? (
@@ -211,6 +271,10 @@ function Body({ p, initial, lines, setLines }: {
                     />
                   </td>
                 )}
+                <td className="num">
+                  <MoneyInput value={l.amount} onChange={(v) => set(i, 'amount', v)}
+                    ariaLabel="Amount" required min={0} style={{ width: '100%', textAlign: 'right' }} />
+                </td>
                 <td><button type="button" className="btn sm ghost" onClick={() => setLines(lines.filter((_, idx) => idx !== i))} aria-label="Remove">×</button></td>
               </tr>
             );
@@ -225,6 +289,13 @@ function Body({ p, initial, lines, setLines }: {
           {outOfBalance ? ` · out by ${cur(Math.abs(receivedCents - lineTotal))}` : ''}
         </span>
       </div>
+      {isMember ? (
+        <div className="note">
+          Each line may name its own member, so one receipt can take money for several — leave it
+          as <b>Same as header</b> for the usual case. The receipt itself stays issued to the member
+          on the header, who is who any notification reaches.
+        </div>
+      ) : null}
       {isMember ? (
         <div className="note">
           A line against a loan repays it — penalties first, then interest, then principal — and the
@@ -245,33 +316,38 @@ export function NewReceiptButton(p: ReceiptFormProps) {
       {open ? (
         <FormModal title="New receipt" wide onClose={() => setOpen(false)} onSubmit={(v) => createReceiptRequest(v, lines)}
           submitLabel="Create" successTitle="Receipt created" successDetail={(d) => `${d.no} created — submit it for approval`}>
-          <Body p={p} lines={lines} setLines={setLines} />
+          <ReceiptFields p={p} lines={lines} setLines={setLines} />
         </FormModal>
       ) : null}
     </>
   );
 }
 
+/** The saved lines as editable drafts — used by the card when Edit is pressed. */
+export const receiptLinesOf = (receipt: ReceiptDetail): ReceiptLineDraft[] => (receipt.lines.length
+  ? receipt.lines.map((l) => ({
+    lineType: l.line_type,
+    accountNo: l.account_no ?? '',
+    description: l.description ?? '',
+    amount: String(l.amount / 100),
+    appliesToDocNo: l.applies_to_doc_no ?? '',
+    savingsAccountId: l.savings_account_id ? String(l.savings_account_id) : '',
+    loanId: l.loan_id ? String(l.loan_id) : '',
+    // Only shown as an override when it differs from the header's member.
+    memberId: l.member_id && l.member_id !== receipt.member_id ? String(l.member_id) : '',
+  }))
+  : [emptyLine()]);
+
 export function EditReceiptButton({ receipt, className = 'btn sm ghost', p }: { receipt: ReceiptDetail; className?: string; p: ReceiptFormProps }) {
   const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<ReceiptLineDraft[]>(() => (receipt.lines.length
-    ? receipt.lines.map((l) => ({
-      lineType: l.line_type,
-      accountNo: l.account_no ?? '',
-      description: l.description ?? '',
-      amount: String(l.amount / 100),
-      appliesToDocNo: l.applies_to_doc_no ?? '',
-      savingsAccountId: l.savings_account_id ? String(l.savings_account_id) : '',
-      loanId: l.loan_id ? String(l.loan_id) : '',
-    }))
-    : [emptyLine()]));
+  const [lines, setLines] = useState<ReceiptLineDraft[]>(() => receiptLinesOf(receipt));
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
       {open ? (
         <FormModal title={`Edit ${receipt.no}`} wide onClose={() => setOpen(false)} onSubmit={(v) => updateReceiptRequest(receipt.no, v, lines)}
           submitLabel="Save changes" successTitle="Receipt updated">
-          <Body p={p} initial={receipt} lines={lines} setLines={setLines} />
+          <ReceiptFields p={p} initial={receipt} lines={lines} setLines={setLines} />
         </FormModal>
       ) : null}
     </>

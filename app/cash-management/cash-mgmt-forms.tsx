@@ -155,8 +155,14 @@ export function CashMgmtSetupButton({ setup, banks, accounts, charges, products,
         <FormModal title="Cash Management Setup" onClose={() => setOpen(false)} onSubmit={(v) => saveCashMgmtSetupRequest(v)}
           submitLabel="Save" successTitle="Setup saved">
           <div className="grid g2">
-            <Field name="receiptApprovalLimit" label="Receipt approval limit" type="currency" defaultValue={String(setup.receipt_approval_limit / 100)} />
             <Field name="pvApprovalLimit" label="Payment voucher approval limit" type="currency" defaultValue={String(setup.pv_approval_limit / 100)} />
+            {/* One editable copy only: the receipt limit lives on General Ledger Setup, so it is
+                shown here for reference and submitted unchanged. */}
+            <div className="field">
+              <label htmlFor="f_receiptLimitRef">Receipt approval limit</label>
+              <input id="f_receiptLimitRef" value={(setup.receipt_approval_limit / 100).toFixed(2)} readOnly disabled />
+              <div className="hint">Set on Admin Centre → Setup Pool → General Ledger Setup</div>
+            </div>
           </div>
           <div className="grid g2">
             <Field name="bankChargesAccountId" label="Bank charges account" type="select" defaultValue={String(setup.bank_charges_account_id ?? '')} options={acctOpts(accounts)} />

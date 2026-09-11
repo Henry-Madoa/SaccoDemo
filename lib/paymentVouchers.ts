@@ -436,10 +436,27 @@ async function resolveHeaderMember(
   return { id: m.id, member_no: m.member_no, name: m.name.split(' ').filter(Boolean).join(' ') };
 }
 
+/**
+ * The Payment Method a cash document was settled by — a real relation to the Setup Pool table,
+ * not free text, so a code that was renamed or blocked cannot quietly stay on new documents.
+ * Blank is allowed: not every receipt or voucher records how the money moved.
+ */
+async function assertPaymentMethod(code: string | null | undefined): Promise<string | null> {
+  const value = code?.trim();
+  if (!value) return null;
+  const m = await one<{ code: string; status: string }>(
+    'SELECT code, status FROM payment_method WHERE code = ?', value,
+  );
+  if (!m) throw new AppError(`Payment method ${value} is not defined`, 'NOT_FOUND');
+  if (m.status !== 'ACTIVE') throw new AppError(`Payment method ${value} is not active`, 'VALIDATION');
+  return m.code;
+}
+
 export async function createPaymentVoucher(input: PaymentVoucherInput, user: Actor): Promise<{ no: string }> {
   if (!input.date) throw new AppError('A voucher date is required', 'VALIDATION');
   if (!input.description?.trim()) throw new AppError('A narration is required', 'VALIDATION');
   const member = await resolveHeaderMember(input);
+  const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.payingBankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? bank.currency_code, input.date);
   if (cur.code !== bank.currency_code) throw new AppError(`The voucher is in ${cur.code} but bank account ${bank.code} is a ${bank.currency_code} account`, 'VALIDATION');
@@ -452,7 +469,7 @@ export async function createPaymentVoucher(input: PaymentVoucherInput, user: Act
           currency_code, currency_factor, description, payee_name, payee_external_bank_code, payee_bank_branch_code,
           payee_account_no, approval_limit, prepared_by, member_id, member_no, member_name, created_at, created_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      no, input.date, input.pvType?.trim() || null, input.payModeCode || null, input.chequeNo?.trim() || null,
+      no, input.date, input.pvType?.trim() || null, payMode, input.chequeNo?.trim() || null,
       input.chequeDate || null, input.chequeReceivedBy?.trim() || null, bank.id, cur.code, cur.factor,
       input.description.trim(), input.payeeName?.trim() || null, input.payeeExternalBankCode || null,
       input.payeeBankBranchCode || null, input.payeeAccountNo?.trim() || null, setup.pv_approval_limit,
@@ -471,6 +488,7 @@ export async function updatePaymentVoucher(no: string, input: PaymentVoucherInpu
   if (before.status !== 'Open') throw new AppError('Only an open voucher can be edited', 'VALIDATION');
   if (before.created_by !== user.username) throw new AppError('Only the person who created this can edit it', 'NOT_CREATOR');
   const member = await resolveHeaderMember(input);
+  const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.payingBankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? before.currency_code, input.date);
   if (cur.code !== bank.currency_code) throw new AppError('The voucher currency must match the bank account currency', 'VALIDATION');
@@ -481,7 +499,7 @@ export async function updatePaymentVoucher(no: string, input: PaymentVoucherInpu
          cheque_received_by = ?, paying_bank_account_id = ?, currency_code = ?, currency_factor = ?, description = ?,
          payee_name = ?, payee_external_bank_code = ?, payee_bank_branch_code = ?, payee_account_no = ?,
          member_id = ?, member_no = ?, member_name = ? WHERE id = ?`,
-      input.date, input.pvType?.trim() || null, input.payModeCode || null, input.chequeNo?.trim() || null,
+      input.date, input.pvType?.trim() || null, payMode, input.chequeNo?.trim() || null,
       input.chequeDate || null, input.chequeReceivedBy?.trim() || null, bank.id, cur.code, cur.factor,
       input.description.trim(), input.payeeName?.trim() || null, input.payeeExternalBankCode || null,
       input.payeeBankBranchCode || null, input.payeeAccountNo?.trim() || null,
@@ -516,6 +534,10 @@ async function replaceLines(
     }
     if (!(l.amount > 0)) continue;
     const resolved = await resolveLine(l, rule, currencyCode, defaultVatBus, { memberId: input.memberId ?? null });
+    // A line always carries a description, defaulted from the header narration. The form asks
+    // for one; this is the backstop, so a posted line can never print blank.
+    const description = l.description?.trim() || input.description.trim();
+    if (!description) throw new AppError('Every voucher line needs a description', 'VALIDATION');
     // Only a supplier payment carries tax: nothing else has a VAT or WHT base behind it.
     const tax = rule.lineType === 'Member' || rule.lineType === 'Bank Account'
       ? blankLineTax(Math.round(l.amount))
@@ -527,7 +549,7 @@ async function replaceLines(
           vat_prod_posting_group_code, wht_code_one, wht_code_two, vat_amount, wht_amount_one, wht_amount_two, wht_base, net_amount,
           member_id, savings_account_id, available_balance)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      headerId, lineNo, rule.lineType, l.accountNo?.trim() || null, resolved.accountName, l.description?.trim() || null,
+      headerId, lineNo, rule.lineType, l.accountNo?.trim() || null, resolved.accountName, description,
       Math.round(l.amount), l.appliesToDocNo?.trim() || null, tax.vatProd, tax.whtOne, tax.whtTwo,
       tax.vatAmount, tax.whtAmountOne, tax.whtAmountTwo, tax.whtBase, tax.netAmount,
       resolved.memberId, resolved.savingsAccountId, resolved.availableBalance,

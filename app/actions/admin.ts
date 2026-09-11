@@ -32,6 +32,7 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
       allow_posting_from: String(values.allow_posting_from || '').trim() || null,
       allow_posting_to: String(values.allow_posting_to || '').trim() || null,
       validate_cash_denomination: Number(values.validate_cash_denomination) ? 'true' : 'false',
+      receipt_approval_limit: Math.round(Number(values.receipt_approval_limit || 0) * 100),
     }, user);
     // The society's name, logo and currency appear in the shell on every page.
     revalidatePath('/', 'layout');

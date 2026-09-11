@@ -94,6 +94,23 @@ export async function updateVendorPostingGroup(id: number, i: VendorPostingGroup
   await audit(user, 'VENDOR_POSTING_GROUP_UPDATE', 'vendor_posting_group', id, {});
 }
 
+/** As with the customer side: removable only while no vendor still names it. */
+export async function deleteVendorPostingGroup(id: number, user: Actor): Promise<void> {
+  const before = await getVendorPostingGroupById(id);
+  if (!before) throw new AppError('Vendor posting group not found', 'NOT_FOUND');
+  const used = await one<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM vendor WHERE vendor_posting_group_code = ?', before.code,
+  );
+  if (Number(used?.n ?? 0)) {
+    throw new AppError(
+      `${before.code} is still on ${used!.n} vendor${Number(used!.n) === 1 ? '' : 's'} — move them to another group first`,
+      'IN_USE',
+    );
+  }
+  await run('DELETE FROM vendor_posting_group WHERE id = ?', id);
+  await audit(user, 'VENDOR_POSTING_GROUP_DELETE', 'vendor_posting_group', id, { code: before.code });
+}
+
 /* -------------------------------------------------------- Purchases & Payables Setup */
 
 const DEFAULT_SETUP: PurchasesPayablesSetup = {

@@ -20,6 +20,9 @@
 import { one, all, run, tx, nextSequence, audit, hasAnyRow } from './db.ts';
 import { AppError } from './errors.ts';
 import { postJournal } from './accounting.ts';
+import { sendMail } from './mailer.ts';
+import { sendSms } from './sms.ts';
+import { formatDate, formatMoney } from './format.ts';
 import { repay } from './loanService.ts';
 import { postTransactionCharges, previewTransactionChargeById } from './charges.ts';
 import { getEffectivePostingRange } from './postingDates.ts';
@@ -172,6 +175,10 @@ export interface ReceiptLineInput {
    *  deposited into, or the loan it repays. */
   savingsAccountId?: number | null;
   loanId?: number | null;
+  /** Whose account or loan this line is for. Defaults to the header's member; set it to take
+   *  money for somebody else on the same receipt (a parent paying a child's loan, a group
+   *  collection). The header's member stays the document's member of record. */
+  memberId?: number | null;
 }
 export interface ReceiptInput {
   receiptType: ReceiptLineType;
@@ -240,6 +247,9 @@ async function resolveLine(
     if (input.savingsAccountId && input.loanId) {
       throw new AppError('A line pays into an account or off a loan, not both', 'VALIDATION');
     }
+    // The line's own member, defaulting to the header's — one receipt can take money for several
+    // members, while the header's member remains who the receipt is issued to.
+    const lineMemberId = Number(input.memberId ?? header.memberId);
 
     // A loan repayment. The AL reaches the loan through a Vendor record on a "Loan Account"
     // product; here a loan is its own record and is picked directly, which is the same choice the
@@ -255,8 +265,8 @@ async function resolveLine(
         input.loanId,
       );
       if (!loan) throw new AppError('Loan not found', 'NOT_FOUND');
-      if (Number(loan.member_id) !== Number(header.memberId)) {
-        throw new AppError(`Loan ${loan.loan_no} does not belong to this member`, 'VALIDATION');
+      if (Number(loan.member_id) !== lineMemberId) {
+        throw new AppError(`Loan ${loan.loan_no} does not belong to the member on this line`, 'VALIDATION');
       }
       if (loan.status !== 'DISBURSED') throw new AppError(`Loan ${loan.loan_no} is ${loan.status} — nothing to repay`, 'VALIDATION');
 
@@ -281,7 +291,7 @@ async function resolveLine(
       return {
         ...BLANK_RESOLVED,
         accountName: `${loan.loan_no} — ${loan.product_name}`,
-        memberId: Number(header.memberId),
+        memberId: lineMemberId,
         loanId: loan.id,
         // AL's Product Posting Type for a loan line.
         productCategory: 'LOAN ACCOUNT',
@@ -304,8 +314,8 @@ async function resolveLine(
       input.savingsAccountId,
     );
     if (!acc) throw new AppError('Member account not found', 'NOT_FOUND');
-    if (Number(acc.member_id) !== Number(header.memberId)) {
-      throw new AppError(`Account ${acc.account_no} does not belong to this member`, 'VALIDATION');
+    if (Number(acc.member_id) !== lineMemberId) {
+      throw new AppError(`Account ${acc.account_no} does not belong to the member on this line`, 'VALIDATION');
     }
     if (acc.status === 'CLOSED') throw new AppError(`Account ${acc.account_no} is closed`, 'VALIDATION');
     if (acc.status === 'FROZEN') throw new AppError(`Account ${acc.account_no} is frozen`, 'VALIDATION');
@@ -315,7 +325,7 @@ async function resolveLine(
     return {
       ...BLANK_RESOLVED,
       accountName: `${acc.account_no} — ${acc.product_name}`,
-      memberId: Number(header.memberId),
+      memberId: lineMemberId,
       savingsAccountId: acc.id,
       productCategory: acc.category,
     };
@@ -347,15 +357,36 @@ async function resolveLine(
   if (acc.no_direct_posting) throw new AppError(`G/L account ${no} is a subledger control account`, 'VALIDATION');
   return { ...BLANK_RESOLVED, accountName: acc.name };
 }
+/**
+ * The Payment Method a cash document was settled by — a real relation to the Setup Pool table,
+ * not free text, so a code that was renamed or blocked cannot quietly stay on new documents.
+ * Blank is allowed: not every receipt or voucher records how the money moved.
+ */
+async function assertPaymentMethod(code: string | null | undefined): Promise<string | null> {
+  const value = code?.trim();
+  if (!value) return null;
+  const m = await one<{ code: string; status: string }>(
+    'SELECT code, status FROM payment_method WHERE code = ?', value,
+  );
+  if (!m) throw new AppError(`Payment method ${value} is not defined`, 'NOT_FOUND');
+  if (m.status !== 'ACTIVE') throw new AppError(`Payment method ${value} is not active`, 'VALIDATION');
+  return m.code;
+}
+
 export async function createReceipt(input: ReceiptInput, user: Actor): Promise<{ no: string }> {
   if (!input.postingDate) throw new AppError('A posting date is required', 'VALIDATION');
   if (!input.description?.trim()) throw new AppError('A description (received from) is required', 'VALIDATION');
   if (!RECEIPT_TYPES.includes(input.receiptType)) throw new AppError('Invalid receipt type', 'VALIDATION');
   const member = await resolveHeaderMember(input);
+  const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.bankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? bank.currency_code, input.postingDate);
   if (cur.code !== bank.currency_code) throw new AppError(`The receipt is in ${cur.code} but bank account ${bank.code} is a ${bank.currency_code} account`, 'VALIDATION');
-  const setup = await getCashManagementSetup();
+  // The approval threshold is General Ledger Setup's, stamped onto the header so a limit changed
+  // later cannot retrospectively change what an existing receipt needed.
+  const org = await one<{ receipt_approval_limit: Cents }>(
+    'SELECT receipt_approval_limit FROM organisation LIMIT 1',
+  );
   const no = await nextSequence('RECEIPT');
   return tx(async () => {
     const info = await run(
@@ -364,9 +395,9 @@ export async function createReceipt(input: ReceiptInput, user: Actor): Promise<{
           description, currency_code, currency_factor, approval_limit, member_id, member_no, member_name, received_amount,
           created_at, created_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      no, input.receiptType, input.postingDate, bank.id, bank.name, input.payModeCode || null, input.externalDocumentNo?.trim() || null,
+      no, input.receiptType, input.postingDate, bank.id, bank.name, payMode, input.externalDocumentNo?.trim() || null,
       input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor,
-      setup.receipt_approval_limit, member?.id ?? null, member?.member_no ?? null, member?.name ?? null,
+      org?.receipt_approval_limit ?? 0, member?.id ?? null, member?.member_no ?? null, member?.name ?? null,
       Math.round(input.receivedAmount ?? 0), new Date().toISOString(), user.username,
     );
     await replaceLines(Number(info.lastInsertRowid), input, cur.code);
@@ -382,6 +413,7 @@ export async function updateReceipt(no: string, input: ReceiptInput, user: Actor
   if (before.created_by !== user.username) throw new AppError('Only the person who created this can edit it', 'NOT_CREATOR');
   if (!RECEIPT_TYPES.includes(input.receiptType)) throw new AppError('Invalid receipt type', 'VALIDATION');
   const member = await resolveHeaderMember(input);
+  const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.bankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? before.currency_code, input.postingDate);
   if (cur.code !== bank.currency_code) throw new AppError('The receipt currency must match the bank account currency', 'VALIDATION');
@@ -390,7 +422,7 @@ export async function updateReceipt(no: string, input: ReceiptInput, user: Actor
       `UPDATE receipt_header SET receipt_type = ?, posting_date = ?, bank_account_id = ?, bank_account_name = ?, pay_mode_code = ?,
          external_document_no = ?, manual_receipt_no = ?, description = ?, currency_code = ?, currency_factor = ?,
          member_id = ?, member_no = ?, member_name = ?, received_amount = ? WHERE id = ?`,
-      input.receiptType, input.postingDate, bank.id, bank.name, input.payModeCode || null, input.externalDocumentNo?.trim() || null,
+      input.receiptType, input.postingDate, bank.id, bank.name, payMode, input.externalDocumentNo?.trim() || null,
       input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor,
       member?.id ?? null, member?.member_no ?? null, member?.name ?? null, Math.round(input.receivedAmount ?? 0), before.id,
     );
@@ -442,6 +474,12 @@ async function replaceLines(headerId: number, input: ReceiptInput, currencyCode:
     const r = await resolveLine(l, lineType, currencyCode, {
       memberId: input.memberId ?? null, postingDate: input.postingDate,
     });
+    // AL Tab-Ext52204015: a line always carries a description, defaulted from the header —
+    // 'Member Receipt' on a member receipt, the header's own narration otherwise. The form asks
+    // for one; this is the backstop, so a posted line can never print blank.
+    const description = l.description?.trim()
+      || (isMember ? 'Member Receipt' : input.description.trim());
+    if (!description) throw new AppError('Every receipt line needs a description', 'VALIDATION');
     total += Math.round(l.amount);
     await run(
       `INSERT INTO receipt_line
@@ -449,7 +487,7 @@ async function replaceLines(headerId: number, input: ReceiptInput, currencyCode:
           member_id, savings_account_id, loan_id, product_category, penalty_balance, accrued_interest,
           interest_balance, principal_balance, loan_balance, charge_id, charge_amount)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      headerId, lineNo, lineType, l.accountNo?.trim() || null, r.accountName, l.description?.trim() || null,
+      headerId, lineNo, lineType, l.accountNo?.trim() || null, r.accountName, description,
       Math.round(l.amount), l.appliesToDocNo?.trim() || null,
       r.memberId, r.savingsAccountId, r.loanId, r.productCategory, r.penaltyBalance, r.accruedInterest,
       r.interestBalance, r.principalBalance, r.loanBalance, r.chargeId, r.chargeAmount,
@@ -471,9 +509,12 @@ export async function deleteReceipt(no: string, user: Actor): Promise<void> {
 /* --------------------------------------------------------------- maker-checker */
 
 /**
- * AL Tab-Ext52204014's OnBeforeSendForApproval: the lines must add up to what the teller counted.
- * A Received Amount of zero means it was never captured, which is allowed on the non-member types
- * that have no cash drawer behind them.
+ * AL Tab-Ext52204014's OnBeforeSendForApproval: the lines must add up to what was received.
+ *
+ * This is the control total for the whole document — it matters most on a member receipt, where
+ * the lines may be spread across several members' accounts and loans and a miskeyed one would
+ * otherwise be invisible. A Received Amount of zero means it was never captured, which is still
+ * allowed on the types that have no cash drawer behind them.
  */
 function assertReceivedAmountAgrees(header: ReceiptHeader): void {
   if (header.receipt_type === 'Member' && !header.received_amount) {
@@ -666,10 +707,62 @@ const controlAccountFor = async (accountId: number): Promise<number> => {
   return Number(row.gl_control_id);
 };
 
+/* ----------------------------------------------------------- member notification */
+
+/**
+ * Tells the member their receipt has posted, by e-mail and SMS — AL's own
+ * `CommunicationMgmt` / `NotificationsMgt.SendSms` after posting.
+ *
+ * It goes to the member on the **header**, not to each line's member: a line may be for somebody
+ * else's account (a parent paying a child's loan), but the receipt is issued to one person, and
+ * that is who holds it and who is told about it.
+ *
+ * Never throws. The money has already moved and the document is already posted by the time this
+ * runs; a gateway that is down must not undo any of that.
+ */
+async function notifyMemberOfReceipt(header: ReceiptHeader, lines: ReceiptLine[]): Promise<void> {
+  try {
+    if (header.receipt_type !== 'Member' || !header.member_id) return;
+    const member = await one<{ first_name: string; phone: string | null; email: string | null }>(
+      'SELECT first_name, phone, email FROM member WHERE id = ?', header.member_id,
+    );
+    if (!member) return;
+    const org = await one<{ name: string }>('SELECT name FROM organisation LIMIT 1');
+    const sacco = org?.name ?? 'your SACCO';
+    const total = formatMoney(header.amount, { symbol: header.currency_code });
+
+    const detail = lines.map((l) => `${l.description || l.account_name}: `
+      + formatMoney(l.amount, { symbol: header.currency_code }));
+
+    if (member.phone) {
+      await sendSms({
+        to: member.phone,
+        source: 'RECEIPT',
+        message: `Dear ${member.first_name}, we have received ${total} on receipt ${header.no}`
+          + ` dated ${formatDate(header.posting_date)}. ${detail.slice(0, 2).join('; ')}.`
+          + ` Thank you — ${sacco}.`,
+      });
+    }
+    if (member.email) {
+      await sendMail({
+        to: member.email,
+        subject: `Receipt ${header.no} — ${total} received`,
+        html: `<p>Dear ${member.first_name},</p>`
+          + `<p>We have received <b>${total}</b> on receipt <b>${header.no}</b> dated`
+          + ` ${formatDate(header.posting_date)}.</p>`
+          + `<ul>${detail.map((d) => `<li>${d}</li>`).join('')}</ul>`
+          + `<p>Thank you,<br/>${sacco}</p>`,
+      });
+    }
+  } catch (err) {
+    console.error('[receipt] member notification failed', err);
+  }
+}
+
 /* ------------------------------------------------------------------- posting */
 
 export async function postReceipt(no: string, user: Actor): Promise<{ postedReceiptNo: string; journalNo: string | null }> {
-  return tx(async () => {
+  const result = await tx(async () => {
     const header = await one<ReceiptHeader>('SELECT * FROM receipt_header WHERE no = ?', no);
     if (!header) throw new AppError('Receipt not found', 'NOT_FOUND');
     if (header.posted) throw new AppError('This receipt has already been posted', 'VALIDATION');
@@ -824,6 +917,11 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
 
     await run("UPDATE receipt_header SET posted = true, journal_id = ?, posted_at = ?, posted_by = ? WHERE no = ?", j?.id ?? null, new Date().toISOString(), user.username, no);
     await audit(user, 'RECEIPT_POST', 'receipt_header', no, { postedNo, journalNo: j?.journal_no ?? null, loanRepaid, loanCharged });
-    return { postedReceiptNo: postedNo, journalNo: j?.journal_no ?? null };
+    return { postedReceiptNo: postedNo, journalNo: j?.journal_no ?? null, header, lines };
   });
+
+  // Outside the transaction: an SMS gateway that hangs must not hold a database connection, and
+  // a receipt that posted stays posted whether or not the message got through.
+  await notifyMemberOfReceipt(result.header, result.lines);
+  return { postedReceiptNo: result.postedReceiptNo, journalNo: result.journalNo };
 }

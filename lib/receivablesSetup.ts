@@ -147,6 +147,50 @@ export async function updatePaymentTerms(id: number, i: PaymentTermsInput, user:
   await audit(user, 'PAYMENT_TERMS_UPDATE', 'payment_terms', id, {});
 }
 
+/**
+ * Setup master data is the Admin's to add, change and remove — but only while nothing points at
+ * it. Deleting a posting group a customer still names, or terms an open invoice was raised on,
+ * would leave those documents unable to say what account they post to or when they fall due, so
+ * each delete counts its dependants first and names what is in the way.
+ */
+export async function deleteCustomerPostingGroup(id: number, user: Actor): Promise<void> {
+  const before = await getCustomerPostingGroupById(id);
+  if (!before) throw new AppError('Customer posting group not found', 'NOT_FOUND');
+  const used = await one<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM customer WHERE customer_posting_group_code = ?', before.code,
+  );
+  const n = Number(used?.n ?? 0);
+  if (n) {
+    throw new AppError(
+      `${before.code} is still on ${n} customer${n === 1 ? '' : 's'} — move them to another group first`,
+      'IN_USE',
+    );
+  }
+  await run('DELETE FROM customer_posting_group WHERE id = ?', id);
+  await audit(user, 'CUSTOMER_POSTING_GROUP_DELETE', 'customer_posting_group', id, { code: before.code });
+}
+
+export async function deletePaymentTerms(id: number, user: Actor): Promise<void> {
+  const before = await getPaymentTermsById(id);
+  if (!before) throw new AppError('Payment terms not found', 'NOT_FOUND');
+  const used = await one<{ n: number }>(
+    `SELECT (SELECT COUNT(*) FROM customer        WHERE payment_terms_code = @code)
+          + (SELECT COUNT(*) FROM vendor          WHERE payment_terms_code = @code)
+          + (SELECT COUNT(*) FROM sales_header    WHERE payment_terms_code = @code)
+          + (SELECT COUNT(*) FROM purchase_header WHERE payment_terms_code = @code) AS n`,
+    { code: before.code },
+  );
+  const n = Number(used?.n ?? 0);
+  if (n) {
+    throw new AppError(
+      `${before.code} is still used by ${n} customer, vendor or document — set it Inactive instead`,
+      'IN_USE',
+    );
+  }
+  await run('DELETE FROM payment_terms WHERE id = ?', id);
+  await audit(user, 'PAYMENT_TERMS_DELETE', 'payment_terms', id, { code: before.code });
+}
+
 /* ----------------------------------------------------------------- Payment Method */
 
 export const listPaymentMethods = (): Promise<PaymentMethod[]> =>
@@ -181,6 +225,26 @@ export async function updatePaymentMethod(id: number, i: PaymentMethodInput, use
     norm(i.code).toUpperCase(), norm(i.description), i.balAccountType, i.balAccountNo || null, i.status, id,
   );
   await audit(user, 'PAYMENT_METHOD_UPDATE', 'payment_method', id, {});
+}
+
+export async function deletePaymentMethod(id: number, user: Actor): Promise<void> {
+  const before = await getPaymentMethodById(id);
+  if (!before) throw new AppError('Payment method not found', 'NOT_FOUND');
+  const used = await one<{ n: number }>(
+    `SELECT (SELECT COUNT(*) FROM customer WHERE payment_method_code = @code)
+          + (SELECT COUNT(*) FROM vendor   WHERE payment_method_code = @code)
+          + (SELECT COUNT(*) FROM receipt_header         WHERE pay_mode_code = @code)
+          + (SELECT COUNT(*) FROM payment_voucher_header WHERE pay_mode_code = @code) AS n`,
+    { code: before.code },
+  );
+  if (Number(used?.n ?? 0)) {
+    throw new AppError(
+      `${before.code} is still used by ${used!.n} party, receipt or voucher — set it Inactive instead`,
+      'IN_USE',
+    );
+  }
+  await run('DELETE FROM payment_method WHERE id = ?', id);
+  await audit(user, 'PAYMENT_METHOD_DELETE', 'payment_method', id, { code: before.code });
 }
 
 /* ------------------------------------------------------ Reminder Terms + Levels */

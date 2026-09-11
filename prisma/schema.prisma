@@ -1601,6 +1601,10 @@ model organisation {
   bank_branch                      String?
   bank_account_name                String?
   bank_account_no                  String?
+  /// Receipts at or above this need approval before they can post; below it the creator may post
+  /// their own. Kept here rather than on Cash Management Setup because it is a General Ledger
+  /// Setup field in the AL. See lib/receipts.ts postReceipt().
+  receipt_approval_limit           BigInt                        @default(0)
   logo                             String?
   currency_code                    String?             @default("KES")
   currency_symbol                  String?             @default("KSh")

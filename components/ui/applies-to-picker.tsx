@@ -45,16 +45,22 @@ export function AppliesToPicker({
   }, [partyType, partyNo, disabled]);
 
   if (disabled || !partyType) {
-    return <input value="" disabled aria-label="Applies to doc" placeholder="Customer / vendor lines only" />;
+    return (
+      <input value="" disabled aria-label="Applies to doc" style={{ width: '100%' }}
+        placeholder="Customer / vendor lines only" />
+    );
   }
   if (!partyNo) {
-    return <input value="" disabled aria-label="Applies to doc" placeholder="Pick the party first" />;
+    return (
+      <input value="" disabled aria-label="Applies to doc" style={{ width: '100%' }}
+        placeholder="Pick the party first" />
+    );
   }
 
   const picked = entries.find((e) => e.document_no === value);
   return (
     <>
-      <select
+      <select style={{ width: '100%' }}
         value={value} aria-label="Applies to doc" disabled={loading}
         onChange={(e) => {
           const no = e.target.value;

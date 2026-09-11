@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
@@ -65,12 +65,16 @@ const TABS: TabDefinition[] = [
   { key: 'ledger-entries', label: 'Cust. Ledger' },
   { key: 'aged-ar', label: 'Aged AR' },
   { key: 'statement', label: 'Statement' },
-  { key: 'posting-groups', label: 'Posting Groups' },
-  { key: 'payment-terms', label: 'Payment Terms' },
-  { key: 'payment-methods', label: 'Payment Methods' },
   { key: 'reminder-terms', label: 'Reminder Terms' },
   { key: 'setup', label: 'Setup' },
 ];
+
+/** Screens that used to be tabs here and are now Setup Pool master data. */
+const MOVED_TO_POOL: Record<string, string> = {
+  'posting-groups': '/admin/pool/finance/customer-posting-groups',
+  'payment-terms': '/admin/pool/finance/payment-terms',
+  'payment-methods': '/admin/pool/finance/payment-methods',
+};
 
 export default async function ReceivablesPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
@@ -80,6 +84,10 @@ export default async function ReceivablesPage({ params, searchParams }: {
   const { tab: segments } = await params;
   const sp = await searchParams;
   const tab = segments?.[0] ?? 'customers';
+  // Payment Terms, Payment Methods and Customer Posting Groups are admin master data now, kept
+  // in Admin Centre → Setup Pool → Finance. Old links still work; they land where it lives.
+  const moved = MOVED_TO_POOL[tab];
+  if (moved) redirect(moved);
   if (!TABS.some((t) => t.key === tab)) notFound();
 
   return (
@@ -96,9 +104,6 @@ export default async function ReceivablesPage({ params, searchParams }: {
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
       {tab === 'aged-ar' ? <AgedArTab asOf={sp.asOf} filtersRaw={sp.filters} /> : null}
       {tab === 'statement' ? <StatementTab customerNo={sp.customer} from={sp.from} to={sp.to} /> : null}
-      {tab === 'posting-groups' ? <PostingGroupsTab /> : null}
-      {tab === 'payment-terms' ? <PaymentTermsTab /> : null}
-      {tab === 'payment-methods' ? <PaymentMethodsTab /> : null}
       {tab === 'reminder-terms' ? <ReminderTermsTab /> : null}
       {tab === 'setup' ? <SetupTab /> : null}
     </Page>
@@ -504,88 +509,6 @@ async function StatementTab({ customerNo, from, to }: { customerNo?: string; fro
 }
 
 /* ----------------------------------------------------------------- Setup tabs */
-
-async function PostingGroupsTab() {
-  const [rows, canManage, accounts] = await Promise.all([
-    listCustomerPostingGroups(), currentCanAction('RECEIVABLES_SETUP_MANAGE'), listPostableAccounts(),
-  ]);
-  return (
-    <Card>
-      <CardHead title="Customer Posting Groups" sub="Business Central Table 92 — the G/L accounts every customer posting resolves against">
-        {canManage ? <CustomerPostingGroupFormButton accounts={accounts}>New group</CustomerPostingGroupFormButton> : null}
-      </CardHead>
-      {rows.length ? (
-        <TableWrap>
-          <thead><tr><th>Code</th><th>Description</th><th>Receivables</th><th>Service charge</th><th>Additional fee</th><th className="num">Customers</th><th /></tr></thead>
-          <tbody>
-            {rows.map((g) => (
-              <tr key={g.id}>
-                <td className="mono">{g.code}</td>
-                <td>{g.description}</td>
-                <td className="mono muted-cell">{g.receivables_account_code}</td>
-                <td className="mono muted-cell">{g.service_charge_account_code}</td>
-                <td className="mono muted-cell">{g.additional_fee_account_code}</td>
-                <td className="num">{g.customers_using}</td>
-                <td>{canManage ? <CustomerPostingGroupFormButton row={g} accounts={accounts} className="btn sm ghost">Edit</CustomerPostingGroupFormButton> : null}</td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
-      ) : <EmptyState icon="⚖" title="No customer posting groups yet" />}
-    </Card>
-  );
-}
-
-async function PaymentTermsTab() {
-  const [rows, canManage] = await Promise.all([listPaymentTerms(), currentCanAction('RECEIVABLES_SETUP_MANAGE')]);
-  return (
-    <Card>
-      <CardHead title="Payment Terms" sub="Business Central Table 3 — Due Date / Discount Date calculations use a BC date formula (30D, CM, CM+10D)">
-        {canManage ? <PaymentTermsFormButton>New terms</PaymentTermsFormButton> : null}
-      </CardHead>
-      {rows.length ? (
-        <TableWrap>
-          <thead><tr><th>Code</th><th>Description</th><th>Due Date Calc.</th><th>Discount Date Calc.</th><th className="num">Discount %</th><th>Status</th><th /></tr></thead>
-          <tbody>
-            {rows.map((p) => (
-              <tr key={p.id}>
-                <td className="mono">{p.code}</td><td>{p.description}</td>
-                <td className="mono">{p.due_date_calculation || '—'}</td><td className="mono">{p.discount_date_calculation || '—'}</td>
-                <td className="num">{p.discount_pct}</td><td><Pill status={p.status} /></td>
-                <td>{canManage ? <PaymentTermsFormButton row={p} className="btn sm ghost">Edit</PaymentTermsFormButton> : null}</td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
-      ) : <EmptyState icon="🗓" title="No payment terms yet" />}
-    </Card>
-  );
-}
-
-async function PaymentMethodsTab() {
-  const [rows, canManage, banks] = await Promise.all([listPaymentMethods(), currentCanAction('RECEIVABLES_SETUP_MANAGE'), listActiveBankAccounts()]);
-  return (
-    <Card>
-      <CardHead title="Payment Methods" sub="Business Central Table 289">
-        {canManage ? <PaymentMethodFormButton banks={banks.map((b) => ({ code: b.code, name: b.name }))}>New method</PaymentMethodFormButton> : null}
-      </CardHead>
-      {rows.length ? (
-        <TableWrap>
-          <thead><tr><th>Code</th><th>Description</th><th>Bal. Account Type</th><th>Bal. Account No.</th><th>Status</th><th /></tr></thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.id}>
-                <td className="mono">{m.code}</td><td>{m.description}</td><td>{m.bal_account_type}</td>
-                <td className="mono muted-cell">{m.bal_account_no ?? '—'}</td><td><Pill status={m.status} /></td>
-                <td>{canManage ? <PaymentMethodFormButton row={m} banks={banks.map((b) => ({ code: b.code, name: b.name }))} className="btn sm ghost">Edit</PaymentMethodFormButton> : null}</td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
-      ) : <EmptyState icon="💳" title="No payment methods yet" />}
-    </Card>
-  );
-}
 
 async function ReminderTermsTab() {
   const [terms, fcTerms, canManage] = await Promise.all([
