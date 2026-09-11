@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requirePage } from '@/lib/session';
 import { all } from '@/lib/db';
 import { getReceipt } from '@/lib/receipts';
 import { Page } from '@/components/layout/page';
@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ReceiptDetailPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('CASH_MGMT_READ');
+  await requirePage('CASH_MGMT_RECEIPTS');
   const { no } = await params;
   const r = await getReceipt(no);
   if (!r) notFound();

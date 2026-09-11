@@ -687,12 +687,15 @@ async function writePostedDocument(
   const info = await run(
     `INSERT INTO posted_sales_document
        (document_type, no, customer_id, sell_to_name, sell_to_address, sell_to_city, sell_to_contact,
-        posting_date, document_date, due_date, order_no, payment_terms_code, your_reference,
+        posting_date, document_date, due_date, order_no, source_no, payment_terms_code, your_reference,
         applies_to_doc_no, currency_code, currency_factor, amount,
         cust_ledger_entry_id, journal_id, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     documentType, postedNo, customer.id, customer.name, customer.address, customer.city, customer.contact,
-    vd, header.document_date, header.due_date, orderNo, header.payment_terms_code, header.your_reference,
+    // source_no is what the approval trail was recorded against — order_no is null on an
+    // invoice raised directly, and the printout still has to name who approved it.
+    vd, header.document_date, header.due_date, orderNo, header.no, header.payment_terms_code,
+    header.your_reference,
     header.applies_to_doc_no, header.currency_code, header.currency_factor, total,
     custLedgerEntryId, journalId, new Date().toISOString(), _user.username,
   );

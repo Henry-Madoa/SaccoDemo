@@ -4547,6 +4547,8 @@ export interface PostedSalesDocument {
   document_date: IsoDate;
   due_date: IsoDate | null;
   order_no: string | null;
+  /** The open document this was posted from — what its approval trail is recorded against. */
+  source_no: string | null;
   payment_terms_code: string | null;
   your_reference: string | null;
   /** The invoice a posted Credit Memo corrected. */
@@ -4914,6 +4916,8 @@ export interface PostedPurchaseDocument {
   document_date: IsoDate;
   due_date: IsoDate | null;
   order_no: string | null;
+  /** The open document this was posted from — what its approval trail is recorded against. */
+  source_no: string | null;
   vendor_invoice_no: string | null;
   payment_terms_code: string | null;
   vat_bus_posting_group_code: string | null;

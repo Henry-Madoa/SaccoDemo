@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requireModuleTab } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { listPostableAccounts, listActiveBankAccounts } from '@/lib/gl';
@@ -32,7 +32,7 @@ import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { ExportButton } from '@/components/ui/export-button';
 import { formatDate } from '@/lib/format';
-import type { SalesDocumentType } from '@/lib/types';
+import type { PostedSalesDocumentType, SalesDocumentType } from '@/lib/types';
 import {
   NewCustomerButton, CustomerPostingGroupFormButton, PaymentTermsFormButton, PaymentMethodFormButton,
   FinanceChargeTermsFormButton, ReminderTermsFormButton,
@@ -51,6 +51,24 @@ import { CustomerStatementPanel } from '../statement-panel';
  *  .ts's VIEW_CLAUSE) — the four buckets are disjoint, so All is their sum. */
 const VIEW_LABELS: Record<SalesDocView, string> = {
   all: 'All', open: 'Open', pending: 'Pending Approval', released: 'Approved', rejected: 'Rejected',
+};
+
+/** Each tab is a page of its own (lib/permissions.ts PAGES, parent RECEIVABLES), so a permission
+ *  set can open this module and still be kept out of particular screens. */
+const TAB_PAGE: Record<string, string> = {
+  customers: 'RECEIVABLES_CUSTOMERS',
+  quotes: 'RECEIVABLES_QUOTES',
+  orders: 'RECEIVABLES_ORDERS',
+  'sales-invoices': 'RECEIVABLES_SALES_INVOICES',
+  'credit-memos': 'RECEIVABLES_CREDIT_MEMOS',
+  'posted-documents': 'RECEIVABLES_POSTED',
+  reminders: 'RECEIVABLES_REMINDERS',
+  'finance-charges': 'RECEIVABLES_FINANCE_CHARGES',
+  'ledger-entries': 'RECEIVABLES_LEDGER',
+  'aged-ar': 'RECEIVABLES_AGED_AR',
+  statement: 'RECEIVABLES_STATEMENT',
+  'reminder-terms': 'RECEIVABLES_REMINDER_TERMS',
+  setup: 'RECEIVABLES_SETUP',
 };
 
 const TABS: TabDefinition[] = [
@@ -89,16 +107,18 @@ export default async function ReceivablesPage({ params, searchParams }: {
   const moved = MOVED_TO_POOL[tab];
   if (moved) redirect(moved);
   if (!TABS.some((t) => t.key === tab)) notFound();
+  const hrefFor = (k: string) => `/receivables/${k === 'customers' ? '' : k}`;
+  const tabs = requireModuleTab(user, TABS, TAB_PAGE, tab, !segments?.[0], hrefFor);
 
   return (
     <Page title="Receivables" crumb="Customers, sales invoices, cash receipts, reminders and aging" user={user}>
-      <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/receivables/${k === 'customers' ? '' : k}`} />
+      <Tabs tabs={tabs} active={tab} hrefFor={hrefFor} />
       {tab === 'customers' ? <CustomersTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
       {tab === 'quotes' ? <SalesDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'orders' ? <SalesDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'sales-invoices' ? <SalesDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'credit-memos' ? <SalesDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
-      {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} /> : null}
+      {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} view={sp.view} /> : null}
       {tab === 'reminders' ? <RemindersTab kind="Reminder" search={sp.q ?? ''} /> : null}
       {tab === 'finance-charges' ? <RemindersTab kind="Finance Charge Memo" search={sp.q ?? ''} /> : null}
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
@@ -306,31 +326,49 @@ async function SalesDocTab({ documentType, tab, view: viewRaw, search, filtersRa
   );
 }
 
-async function PostedDocsTab({ search }: { search: string }) {
+/** The posted record is one table, but nobody browses it as one list: shipments, invoices and
+ *  credit memos are looked up for different reasons, so each gets its own sub-tab, as in BC. */
+const POSTED_SALES_VIEWS: { key: string; type: PostedSalesDocumentType; label: string; sub: string }[] = [
+  { key: 'invoices', type: 'Invoice', label: 'Posted Sales Invoices', sub: 'Invoices posted to the customer ledger' },
+  { key: 'shipments', type: 'Shipment', label: 'Posted Sales Shipments', sub: 'Goods shipped — the delivery record behind each order' },
+  { key: 'credit-memos', type: 'Credit Memo', label: 'Posted Sales Credit Memos', sub: 'Credit memos posted against the customer ledger' },
+];
+
+async function PostedDocsTab({ search, view }: { search: string; view?: string }) {
   const { all } = await import('@/lib/db');
-  const rows = await all<{
-    id: number; document_type: string; no: string; posting_date: string; amount: number;
-    customer_no: string; customer_name: string; order_no: string | null;
-  }>(
-    `SELECT d.id, d.document_type, d.no, d.posting_date, d.amount, d.order_no, c.no AS customer_no, c.name AS customer_name
-     FROM posted_sales_document d JOIN customer c ON c.id = d.customer_id
-     WHERE d.no LIKE @like OR c.no LIKE @like OR c.name LIKE @like
-     ORDER BY d.id DESC LIMIT 500`,
-    { like: `%${String(search).trim()}%` },
-  );
+  const current = POSTED_SALES_VIEWS.find((v) => v.key === view) ?? POSTED_SALES_VIEWS[0];
+  const [rows, countRows] = await Promise.all([
+    all<{
+      id: number; no: string; posting_date: string; amount: number;
+      customer_no: string; customer_name: string; order_no: string | null;
+    }>(
+      `SELECT d.id, d.no, d.posting_date, d.amount, d.order_no, c.no AS customer_no, c.name AS customer_name
+       FROM posted_sales_document d JOIN customer c ON c.id = d.customer_id
+       WHERE d.document_type = @type AND (d.no LIKE @like OR c.no LIKE @like OR c.name LIKE @like)
+       ORDER BY d.id DESC LIMIT 500`,
+      { type: current.type, like: `%${String(search).trim()}%` },
+    ),
+    all<{ document_type: string; n: number }>(
+      'SELECT document_type, COUNT(*)::int AS n FROM posted_sales_document GROUP BY document_type',
+    ),
+  ]);
+  const counts = new Map(countRows.map((r) => [r.document_type, r.n]));
   return (
     <>
+      <Tabs
+        tabs={POSTED_SALES_VIEWS.map((v) => ({ key: v.key, label: `${v.label.replace('Posted Sales ', '')} (${counts.get(v.type) ?? 0})` }))}
+        active={current.key} hrefFor={(k) => `/receivables/posted-documents?view=${k}`}
+      />
       <Toolbar><SearchInput placeholder="Search posted document no. or customer…" /><Spacer /></Toolbar>
       <Card>
-        <CardHead title="Posted Sales Documents" sub="Shipments, invoices and credit memos — the immutable record behind the customer ledger" />
+        <CardHead title={current.label} sub={current.sub} />
         {rows.length ? (
           <TableWrap>
-            <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Order</th><th>Date</th><th className="num">Amount</th><th /></tr></thead>
+            <thead><tr><th>No.</th><th>Customer</th><th>Order</th><th>Date</th><th className="num">Amount</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono"><Link href={`/receivables/posted/${encodeURIComponent(r.no)}`}>{r.no}</Link></td>
-                  <td>{r.document_type}</td>
                   <td>{r.customer_no} <span className="tiny muted-cell">{r.customer_name}</span></td>
                   <td className="mono muted-cell">{r.order_no ?? '—'}</td>
                   <td>{formatDate(r.posting_date)}</td>
@@ -342,7 +380,7 @@ async function PostedDocsTab({ search }: { search: string }) {
               ))}
             </tbody>
           </TableWrap>
-        ) : <EmptyState icon="📄" title="Nothing posted yet" />}
+        ) : <EmptyState icon="📄" title={search ? `No ${current.label.toLowerCase()} match` : `No ${current.label.toLowerCase()} yet`} />}
       </Card>
     </>
   );

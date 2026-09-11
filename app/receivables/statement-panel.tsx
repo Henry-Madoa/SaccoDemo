@@ -29,7 +29,7 @@ export function CustomerStatementPanel({ customers, customerNo, from, to }: {
 
   return (
     <>
-      <div className="grid g3" style={{ alignItems: 'end' }}>
+      <div className="grid g3 form-row">
         <Field name="customer" label="Customer" type="select" defaultValue={no} onChange={(e) => setNo(e.target.value)}
           options={customers.map((c) => ({ value: c.no, label: `${c.no} — ${c.name}` }))} />
         <Field name="from" label="From" type="date" defaultValue={fromDate} onChange={(e) => setFromDate(e.target.value)} />

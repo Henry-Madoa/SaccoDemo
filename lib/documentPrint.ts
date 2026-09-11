@@ -101,6 +101,16 @@ export interface PrintNote {
 }
 
 /**
+ * "Acknowledge receipt of the payment" — a caption and the fields the recipient fills in by
+ * hand. Printed under the approval table and never pre-filled: the point is the wet signature.
+ */
+export interface PrintAcknowledgement {
+  title: string;
+  /** Defaults to Name / Signature / Date. */
+  fields?: string[];
+}
+
+/**
  * A further table under the main one, with its own heading — a document that states several
  * ledgers rather than one list of lines (the Member Statement's per-account and per-loan
  * activity). An invoice has no sections; it is all one table.
@@ -137,6 +147,15 @@ export interface PrintDocument {
   sections?: PrintSection[];
   amount_words?: string | null;
   notes?: PrintNote[];
+  /**
+   * The approval trail, printed as the ruled "Approval Details" table — a row per role with
+   * Name, Date & Time and Signature. This is for documents that people actually cleared; a
+   * payslip or a loan form wants the plain strip below instead.
+   */
+  approvals?: PrintSignature[];
+  /** The panel under the approval table where the recipient signs for what they got. */
+  acknowledgement?: PrintAcknowledgement | null;
+  /** Side-by-side ruled signature blocks — statements, payslips, loan agreements. */
   signatures?: PrintSignature[];
   footnote?: string | null;
 }
@@ -215,7 +234,20 @@ export async function documentSignatories(
   documentType: WorkflowDocumentType,
   entityId: string,
   preparedBy: string | null | undefined,
-  labels: { prepared?: string; approved?: string; authorised?: string } = {},
+  opts: {
+    /**
+     * When the document was raised. Falls back to the first approval request, but a document
+     * below its approval limit never raised one — so the builder passes its own date and the
+     * first row still carries a date rather than an empty rule.
+     */
+    raisedAt?: string | Date | null;
+    /**
+     * Who put the document through when no workflow was involved — a receipt under the approval
+     * limit is posted outright. There is no approver to name, and the page still has to say who
+     * is answerable, so that person signs all three rows.
+     */
+    clearedBy?: string | null;
+  } = {},
 ): Promise<PrintSignature[]> {
   const decided = await all<{ decided_by: string; decided_at: string | null }>(
     `SELECT decided_by, decided_at FROM workflow_task
@@ -229,25 +261,36 @@ export async function documentSignatories(
   for (const d of decided) if (!seen.has(d.decided_by)) seen.set(d.decided_by, d.decided_at);
   const approvers = [...seen.entries()].map(([username, at]) => ({ username, at }));
 
+  const raised = await documentRaisedAt(documentType, String(entityId));
+  const created = raised?.at ?? (opts.raisedAt ? String(opts.raisedAt) : null);
+  // Checked by is whoever sent it for approval. On a document that never went for approval
+  // that is the person who put it through instead.
+  const checkedBy = raised?.by ?? opts.clearedBy ?? preparedBy;
+
+  // Nobody approved it because nobody had to: below its limit the document posts outright, and
+  // the person who posted it answers for every role rather than the page showing three blanks.
+  if (!approvers.length && opts.clearedBy) {
+    approvers.push({ username: opts.clearedBy, at: created });
+  }
+
   const authoriser = approvers.length ? approvers[approvers.length - 1] : null;
   // One approver signs both lines; two or more and the roles separate.
   const approver = approvers.length > 1 ? approvers[approvers.length - 2] : authoriser;
 
-  const blocks = await signaturesFor([preparedBy, ...approvers.map((a) => a.username)]);
+  const blocks = await signaturesFor([checkedBy, ...approvers.map((a) => a.username)]);
   const of = (username: string | null | undefined): SignatureBlock | null =>
     blocks.get(username?.trim() ?? '') ?? null;
   const nameOf = (username: string | null | undefined): string | null =>
     (username ? of(username)?.full_name || username : null);
 
-  const created = await documentRaisedAt(documentType, String(entityId));
   return [
-    { label: labels.prepared ?? 'Checked by', block: of(preparedBy), name: nameOf(preparedBy), date: created },
+    { label: 'Checked by', block: of(checkedBy), name: nameOf(checkedBy), date: created },
     {
-      label: labels.approved ?? 'Approved by',
+      label: 'Approved by',
       block: of(approver?.username), name: nameOf(approver?.username), date: approver?.at ?? null,
     },
     {
-      label: labels.authorised ?? 'Authorised by',
+      label: 'Authorised by',
       block: of(authoriser?.username), name: nameOf(authoriser?.username), date: authoriser?.at ?? null,
     },
   ];
@@ -257,13 +300,16 @@ export async function documentSignatories(
  * When the document was raised, for the Checked by date. Read from the requesting task rather
  * than each document's own table, so one query serves every document type.
  */
-async function documentRaisedAt(documentType: WorkflowDocumentType, entityId: string): Promise<string | null> {
-  const row = await one<{ requested_at: string | null }>(
-    `SELECT requested_at FROM workflow_task
+async function documentRaisedAt(
+  documentType: WorkflowDocumentType,
+  entityId: string,
+): Promise<{ by: string | null; at: string | null } | null> {
+  const row = await one<{ requested_by: string | null; requested_at: string | null }>(
+    `SELECT requested_by, requested_at FROM workflow_task
      WHERE document_type = ? AND entity_id = ? ORDER BY id LIMIT 1`,
     documentType, entityId,
   );
-  return row?.requested_at ?? null;
+  return row ? { by: row.requested_by, at: row.requested_at } : null;
 }
 
 /* ------------------------------------------------------------------------ rendering */
@@ -416,9 +462,61 @@ function notesBlock(doc: PrintDocument): string {
 }
 
 /**
- * The signature strip: a column per signatory, each with the three things a cleared document has
- * to show — who, when, and their mark. A line with nobody on it prints the same rules, so the
- * page can be signed by hand.
+ * Approval Details — a ruled table, a row per role, carrying the three things a cleared document
+ * has to show: who, when, and their mark. A role nobody has filled yet still prints its row with
+ * a rule to sign on, so the page works on paper too.
+ *
+ * A table rather than side-by-side blocks because the roles are a sequence, not a set: read down
+ * the column and the order the document travelled in is plain, and every name lines up under one
+ * heading instead of each block setting its own width.
+ */
+function approvalBlock(doc: PrintDocument): string {
+  const rows = doc.approvals ?? [];
+  const ack = doc.acknowledgement;
+  if (!rows.length && !ack) return '';
+
+  const rule = '<span class="dp-appr-blank"></span>';
+  const table = rows.length ? `
+    <table class="dp-appr-table">
+      <thead>
+        <tr>
+          <th class="dp-appr-role"></th><th>Name</th><th>Date &amp; Time</th><th>Signature</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((sig) => {
+    const name = sig.name ?? sig.block?.full_name ?? sig.block?.username ?? '';
+    const when = sig.date ? formatDateTime(String(sig.date)) : '';
+    const mark = sig.block?.src
+      ? `<img class="dp-appr-sig" src="${esc(sig.block.src)}" alt="" />`
+      : rule;
+    return `<tr>
+          <th class="dp-appr-role">${esc(sig.label)}</th>
+          <td class="dp-appr-name">${name ? esc(name) : rule}</td>
+          <td class="dp-appr-when">${when ? esc(when) : rule}</td>
+          <td class="dp-appr-mark">${mark}</td>
+        </tr>`;
+  }).join('')}
+      </tbody>
+    </table>` : '';
+
+  const fields = ack?.fields ?? ['Name', 'Signature', 'Date'];
+  const ackBlock = ack ? `
+    <div class="dp-ack">
+      <div class="dp-ack-t">${esc(ack.title)}</div>
+      <div class="dp-ack-fields">${fields.map((f) => `<span class="dp-ack-field">`
+    + `<span class="dp-ack-cap">${esc(f)}</span><span class="dp-ack-rule"></span></span>`).join('')}</div>
+    </div>` : '';
+
+  return `<section class="dp-appr">
+    <div class="dp-appr-h"><span class="dp-appr-t">Approval Details</span></div>
+    <div class="dp-appr-card">${table}${ackBlock}</div>
+  </section>`;
+}
+
+/**
+ * The plain signature strip — a column per signatory, for documents that get signed rather than
+ * approved: a payslip, a member statement, a loan agreement.
  */
 function signBlock(doc: PrintDocument): string {
   const sigs = doc.signatures ?? [];
@@ -455,6 +553,7 @@ function documentBody(doc: PrintDocument): string {
   ${totalsBlock(doc)}
   ${sectionsBlock(doc)}
   ${notesBlock(doc)}
+  ${approvalBlock(doc)}
   ${signBlock(doc)}
   <footer class="dp-footer">
     <div>${esc(doc.footnote || b.footer || 'This is a computer-generated document.')}</div>
@@ -598,6 +697,41 @@ function documentStyles(doc: PrintDocument): string {
   .dp-note-b { font-size: 10.5px; white-space: pre-wrap; }
 
   /* ---------------------------------------------------------------- signatures */
+  /* ------------------------------------------------------------ approval details */
+  .dp-appr { margin-top: 20px; page-break-inside: avoid; }
+  .dp-appr-h { display: flex; align-items: center; gap: 9px; padding-bottom: 6px; }
+  .dp-appr-h::after { content: ""; flex: 1; height: 1px; background: var(--dp-rule); }
+  .dp-appr-t { font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--dp-primary); white-space: nowrap; }
+  .dp-appr-card { border: 1px solid var(--dp-rule); border-radius: 5px; overflow: hidden; }
+  .dp-appr-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  .dp-appr-table thead th { background: var(--dp-primary); color: #fff; font-size: 9px;
+    font-weight: 700; letter-spacing: .07em; text-transform: uppercase; text-align: left;
+    padding: 6px 10px; white-space: nowrap; }
+  .dp-appr-table tbody th, .dp-appr-table tbody td { padding: 7px 10px; text-align: left;
+    vertical-align: middle; border-bottom: 1px solid var(--dp-rule); }
+  .dp-appr-table tbody tr:last-child th, .dp-appr-table tbody tr:last-child td {
+    border-bottom: 0; }
+  /* Tall enough that a row nobody has signed yet has somewhere to put a pen. */
+  .dp-appr-table tbody tr { height: 34px; }
+  .dp-appr-table .dp-appr-role { width: 22%; background: #f5f7f6; color: var(--dp-primary);
+    font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    border-right: 1px solid var(--dp-rule); }
+  .dp-appr-name { font-weight: 600; }
+  .dp-appr-when { color: var(--dp-muted); white-space: nowrap; }
+  .dp-appr-table .dp-appr-mark { width: 25%; }
+  .dp-appr-sig { display: block; max-width: 140px; max-height: 28px; }
+  /* An unfilled cell prints the rule to write on instead of reading as a mistake. */
+  .dp-appr-blank { display: block; height: 13px; max-width: 150px;
+    border-bottom: 1px dotted #8b9490; }
+  .dp-ack { border-top: 1px solid var(--dp-rule); background: #fbfaf5; padding: 8px 10px 10px; }
+  .dp-ack-t { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--dp-muted); padding-bottom: 9px; }
+  .dp-ack-fields { display: flex; gap: 16px; }
+  .dp-ack-field { flex: 1; display: flex; align-items: flex-end; gap: 6px; font-size: 10px; }
+  .dp-ack-cap { white-space: nowrap; color: var(--dp-muted); }
+  .dp-ack-rule { flex: 1; height: 14px; border-bottom: 1px dotted #8b9490; }
+
   .dp-sign { display: flex; justify-content: space-between; gap: 18px; margin-top: 26px;
     page-break-inside: avoid; }
   .dp-sig-block { flex: 1; min-width: 150px; }
@@ -643,7 +777,8 @@ function documentStyles(doc: PrintDocument): string {
     .dp-lines tr, .dp-party, .dp-foot-grid { page-break-inside: avoid; }
     .dp-sec-h { page-break-after: avoid; break-after: avoid; }
     .dp-lines thead th, .dp-totals tr.dp-grand td, .dp-lines tbody tr:nth-child(even) td,
-    .dp-lines tbody tr.dp-strong-row td, .dp-sec-h {
+    .dp-lines tbody tr.dp-strong-row td, .dp-sec-h,
+    .dp-appr-table thead th, .dp-appr-table .dp-appr-role, .dp-ack {
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
   }

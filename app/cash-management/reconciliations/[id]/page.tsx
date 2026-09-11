@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requirePage } from '@/lib/session';
 import { getBankReconciliationDetail } from '@/lib/bankMgmt';
 import { listPostableAccounts } from '@/lib/gl';
 import { Page } from '@/components/layout/page';
@@ -12,6 +12,7 @@ import {
 
 export default async function ReconciliationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireAction('CASH_MGMT_READ');
+  await requirePage('CASH_MGMT_RECONCILIATIONS');
   const { id } = await params;
   const detail = await getBankReconciliationDetail(Number(id));
   if (!detail) notFound();

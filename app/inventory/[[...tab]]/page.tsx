@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requireModuleTab } from '@/lib/session';
 import {
   listItems, hasAnyItems, ITEM_FILTER_FIELDS,
   listItemQuantitiesByLocation, hasAnyItemQuantities, ITEM_QUANTITY_FILTER_FIELDS,
@@ -33,6 +33,19 @@ import { LocationFormButton } from '../location-form';
 import { UnitOfMeasureFormButton } from '../unit-of-measure-form';
 import { InventoryPostingGroupFormButton, ProductPostingGroupFormButton } from '../posting-group-form';
 
+/** Each tab is a page of its own (lib/permissions.ts PAGES, parent INVENTORY), so a permission
+ *  set can open this module and still be kept out of particular screens. */
+const TAB_PAGE: Record<string, string> = {
+  items: 'INVENTORY_ITEMS',
+  'item-journal': 'INVENTORY_ITEM_JOURNAL',
+  'item-quantities': 'INVENTORY_ITEM_QUANTITIES',
+  'ledger-entries': 'INVENTORY_LEDGER',
+  'reorder-suggestions': 'INVENTORY_REORDER',
+  locations: 'INVENTORY_LOCATIONS',
+  'units-of-measure': 'INVENTORY_UNITS',
+  'posting-groups': 'INVENTORY_POSTING_GROUPS',
+};
+
 const TABS: TabDefinition[] = [
   { key: 'items', label: 'Items' },
   { key: 'item-journal', label: 'Item Journal' },
@@ -53,10 +66,12 @@ export default async function InventoryPage({ params, searchParams }: {
   const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
   const tab = segments?.[0] ?? 'items';
   if (!TABS.some((t) => t.key === tab)) notFound();
+  const hrefFor = (k: string) => `/inventory/${k}`;
+  const tabs = requireModuleTab(user, TABS, TAB_PAGE, tab, !segments?.[0], hrefFor);
 
   return (
     <Page title="Inventory" crumb="Items, stock levels and Item Journal adjustments" user={user}>
-      <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/inventory/${k}`} />
+      <Tabs tabs={tabs} active={tab} hrefFor={hrefFor} />
       {tab === 'items' ? <ItemsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
       {tab === 'item-journal' ? <ItemJournalTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} username={user.username} /> : null}
       {tab === 'item-quantities' ? <ItemQuantitiesTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}

@@ -138,10 +138,10 @@ export async function buildReceiptDocument(no: string): Promise<PrintDocument | 
     amount_words: amountInWords(doc.amount, currencyLabel(doc.currency_code)),
     // Checked / Approved / Authorised, from the document's own approval trail, plus the line the
     // person handing over the money signs.
-    signatures: [
-      ...(await documentSignatories('RECEIPT', doc.receipt_no, doc.created_by)),
-      { label: isMember ? 'Received from (member)' : 'Received from', block: null },
-    ],
+    approvals: await documentSignatories('RECEIPT', doc.receipt_no, doc.created_by, {
+      raisedAt: doc.created_at, clearedBy: doc.created_by,
+    }),
+    acknowledgement: { title: isMember ? 'Received from (member)' : 'Received from' },
     footnote: 'This is a computer-generated receipt and is valid without a rubber stamp.',
   };
 }

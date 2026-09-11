@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requirePage } from '@/lib/session';
 import { getVendor, vendorStatistics, getVendorLedgerEntries } from '@/lib/vendors';
 import { listVendorPostingGroups } from '@/lib/payablesSetup';
 import { listActivePaymentTerms, listActivePaymentMethods } from '@/lib/receivablesSetup';
@@ -16,6 +16,7 @@ import { VendorCard, type VendorLookups } from '../../vendor-card';
 
 export default async function VendorCardPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('PAYABLES_READ');
+  await requirePage('PAYABLES_VENDORS');
   const { no } = await params;
   const vendor = await getVendor(no);
   if (!vendor) notFound();

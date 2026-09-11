@@ -62,7 +62,7 @@ export function CalculateDepreciationPanel({ books, defaultBookCode }: {
 
   return (
     <>
-      <div className="grid g3" style={{ alignItems: 'end' }}>
+      <div className="grid g3 form-row">
         <Field
           name="bookCode" label="Depreciation book" type="select" defaultValue={bookCode}
           options={books.map((b) => ({ value: b.code, label: `${b.code} — ${b.description}` }))}

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requireModuleTab } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { listPostableAccounts, listActiveBankAccounts } from '@/lib/gl';
@@ -30,7 +30,7 @@ import { SortLink } from '@/components/ui/sort-link';
 import { Money } from '@/components/ui/money';
 import { ExportButton } from '@/components/ui/export-button';
 import { formatDate } from '@/lib/format';
-import type { PurchaseDocumentType } from '@/lib/types';
+import type { PostedPurchaseDocumentType, PurchaseDocumentType } from '@/lib/types';
 import {
   NewVendorButton, VendorPostingGroupFormButton,
 } from '../payables-forms';
@@ -47,6 +47,21 @@ import { VendorStatementPanel } from '../statement-panel';
  *  .ts's VIEW_CLAUSE) — the four buckets are disjoint, so All is their sum. */
 const VIEW_LABELS: Record<PurchaseDocView, string> = {
   all: 'All', open: 'Open', pending: 'Pending Approval', released: 'Approved', rejected: 'Rejected',
+};
+
+/** Each tab is a page of its own (lib/permissions.ts PAGES, parent PAYABLES), so a permission
+ *  set can open this module and still be kept out of particular screens. */
+const TAB_PAGE: Record<string, string> = {
+  vendors: 'PAYABLES_VENDORS',
+  quotes: 'PAYABLES_QUOTES',
+  orders: 'PAYABLES_ORDERS',
+  'purchase-invoices': 'PAYABLES_PURCHASE_INVOICES',
+  'credit-memos': 'PAYABLES_CREDIT_MEMOS',
+  'posted-documents': 'PAYABLES_POSTED',
+  'ledger-entries': 'PAYABLES_LEDGER',
+  'aged-ap': 'PAYABLES_AGED_AP',
+  statement: 'PAYABLES_STATEMENT',
+  setup: 'PAYABLES_SETUP',
 };
 
 const TABS: TabDefinition[] = [
@@ -78,16 +93,18 @@ export default async function PayablesPage({ params, searchParams }: {
   const moved = MOVED_TO_POOL[tab];
   if (moved) redirect(moved);
   if (!TABS.some((t) => t.key === tab)) notFound();
+  const hrefFor = (k: string) => `/payables/${k === 'vendors' ? '' : k}`;
+  const tabs = requireModuleTab(user, TABS, TAB_PAGE, tab, !segments?.[0], hrefFor);
 
   return (
     <Page title="Payables" crumb="Vendors, purchase invoices, payments and aging" user={user}>
-      <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/payables/${k === 'vendors' ? '' : k}`} />
+      <Tabs tabs={tabs} active={tab} hrefFor={hrefFor} />
       {tab === 'vendors' ? <VendorsTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
       {tab === 'quotes' ? <PurchaseDocTab documentType="Quote" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'orders' ? <PurchaseDocTab documentType="Order" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'purchase-invoices' ? <PurchaseDocTab documentType="Invoice" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
       {tab === 'credit-memos' ? <PurchaseDocTab documentType="Credit Memo" tab={tab} view={sp.view} search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} userId={user.id} /> : null}
-      {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} /> : null}
+      {tab === 'posted-documents' ? <PostedDocsTab search={sp.q ?? ''} view={sp.view} /> : null}
       {tab === 'ledger-entries' ? <LedgerTab /> : null}
       {tab === 'aged-ap' ? <AgedApTab asOf={sp.asOf} filtersRaw={sp.filters} /> : null}
       {tab === 'statement' ? <StatementTab vendorNo={sp.vendor} from={sp.from} to={sp.to} /> : null}
@@ -298,32 +315,50 @@ async function PurchaseDocTab({ documentType, tab, view: viewRaw, search, filter
   );
 }
 
-async function PostedDocsTab({ search }: { search: string }) {
+/** One posted table, three lists: a goods receipt, an invoice and a credit memo are looked up
+ *  for different reasons, so each gets its own sub-tab, as in BC. */
+const POSTED_PURCHASE_VIEWS: { key: string; type: PostedPurchaseDocumentType; label: string; sub: string }[] = [
+  { key: 'invoices', type: 'Invoice', label: 'Posted Purchase Invoices', sub: 'Invoices posted to the vendor ledger' },
+  { key: 'receipts', type: 'Receipt', label: 'Posted Purchase Receipts', sub: 'Goods received — the receipt record behind each order' },
+  { key: 'credit-memos', type: 'Credit Memo', label: 'Posted Purchase Credit Memos', sub: 'Credit memos posted against the vendor ledger' },
+];
+
+async function PostedDocsTab({ search, view }: { search: string; view?: string }) {
   const { all } = await import('@/lib/db');
-  const rows = await all<{
-    id: number; document_type: string; no: string; posting_date: string; amount: number;
-    vendor_no: string; vendor_name: string; order_no: string | null; vendor_invoice_no: string | null;
-  }>(
-    `SELECT d.id, d.document_type, d.no, d.posting_date, d.amount, d.order_no, d.vendor_invoice_no,
-            v.no AS vendor_no, v.name AS vendor_name
-     FROM posted_purchase_document d JOIN vendor v ON v.id = d.vendor_id
-     WHERE d.no LIKE @like OR v.no LIKE @like OR v.name LIKE @like
-     ORDER BY d.id DESC LIMIT 500`,
-    { like: `%${String(search).trim()}%` },
-  );
+  const current = POSTED_PURCHASE_VIEWS.find((v) => v.key === view) ?? POSTED_PURCHASE_VIEWS[0];
+  const [rows, countRows] = await Promise.all([
+    all<{
+      id: number; no: string; posting_date: string; amount: number;
+      vendor_no: string; vendor_name: string; order_no: string | null; vendor_invoice_no: string | null;
+    }>(
+      `SELECT d.id, d.no, d.posting_date, d.amount, d.order_no, d.vendor_invoice_no,
+              v.no AS vendor_no, v.name AS vendor_name
+       FROM posted_purchase_document d JOIN vendor v ON v.id = d.vendor_id
+       WHERE d.document_type = @type AND (d.no LIKE @like OR v.no LIKE @like OR v.name LIKE @like)
+       ORDER BY d.id DESC LIMIT 500`,
+      { type: current.type, like: `%${String(search).trim()}%` },
+    ),
+    all<{ document_type: string; n: number }>(
+      'SELECT document_type, COUNT(*)::int AS n FROM posted_purchase_document GROUP BY document_type',
+    ),
+  ]);
+  const counts = new Map(countRows.map((r) => [r.document_type, r.n]));
   return (
     <>
+      <Tabs
+        tabs={POSTED_PURCHASE_VIEWS.map((v) => ({ key: v.key, label: `${v.label.replace('Posted Purchase ', '')} (${counts.get(v.type) ?? 0})` }))}
+        active={current.key} hrefFor={(k) => `/payables/posted-documents?view=${k}`}
+      />
       <Toolbar><SearchInput placeholder="Search posted document no. or vendor…" /><Spacer /></Toolbar>
       <Card>
-        <CardHead title="Posted Purchase Documents" sub="Receipts, invoices and credit memos — the immutable record behind the vendor ledger" />
+        <CardHead title={current.label} sub={current.sub} />
         {rows.length ? (
           <TableWrap>
-            <thead><tr><th>No.</th><th>Type</th><th>Vendor</th><th>Vendor Inv.</th><th>Order</th><th>Date</th><th className="num">Amount</th><th /></tr></thead>
+            <thead><tr><th>No.</th><th>Vendor</th><th>Vendor Inv.</th><th>Order</th><th>Date</th><th className="num">Amount</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono"><Link href={`/payables/posted/${encodeURIComponent(r.no)}`}>{r.no}</Link></td>
-                  <td>{r.document_type}</td>
                   <td>{r.vendor_no} <span className="tiny muted-cell">{r.vendor_name}</span></td>
                   <td className="mono muted-cell">{r.vendor_invoice_no ?? '—'}</td>
                   <td className="mono muted-cell">{r.order_no ?? '—'}</td>
@@ -336,7 +371,7 @@ async function PostedDocsTab({ search }: { search: string }) {
               ))}
             </tbody>
           </TableWrap>
-        ) : <EmptyState icon="📄" title="Nothing posted yet" />}
+        ) : <EmptyState icon="📄" title={search ? `No ${current.label.toLowerCase()} match` : `No ${current.label.toLowerCase()} yet`} />}
       </Card>
     </>
   );

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requirePage } from '@/lib/session';
 import { getPurchaseDocument } from '@/lib/purchaseDocuments';
 import { listPostableAccounts } from '@/lib/gl';
 import { listItems } from '@/lib/items';
@@ -34,6 +34,10 @@ export default async function PurchaseDocumentPage({ params }: { params: Promise
   const { no } = await params;
   const doc = await getPurchaseDocument(no);
   if (!doc) notFound();
+  // The card belongs to the list it came from: a Sales Invoice page grants Sales Invoice cards.
+  await requirePage(`PAYABLES_${{
+    Quote: 'QUOTES', Order: 'ORDERS', Invoice: 'PURCHASE_INVOICES', 'Credit Memo': 'CREDIT_MEMOS',
+  }[doc.document_type]}`);
 
   const [canCreate, canApprove, canPost, vendors, accounts, items, fixedAssets, locations, paymentTerms, paymentMethods, vatRates, setup, tasks] =
     await Promise.all([

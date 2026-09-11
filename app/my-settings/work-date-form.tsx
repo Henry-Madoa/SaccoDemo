@@ -29,8 +29,8 @@ export function WorkDateForm({ workDate, systemDate }: { workDate: string; syste
   };
 
   return (
-    <div className="inline" style={{ marginTop: 'calc(var(--sp)*1.5)', alignItems: 'end' }}>
-      <div className="field" style={{ marginBottom: 0 }}>
+    <div className="inline form-row" style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
+      <div className="field">
         <label htmlFor="f_workDate">Work date</label>
         <input id="f_workDate" type="date" value={date} disabled={busy}
           onChange={(e) => setDate(e.target.value)} />

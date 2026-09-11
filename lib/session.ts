@@ -57,3 +57,21 @@ export async function currentCanAction(key: ActionKey): Promise<boolean> {
 export async function currentCanPage(page: string): Promise<boolean> {
   return canPage(await getCurrentUser(), page);
 }
+
+/**
+ * The tab gate for a module whose screens are pages of their own (lib/permissions.ts PAGES,
+ * `parent`). Returns the tabs the user may open, for the tab strip. The requested tab must be
+ * one of them — except that the module's bare route lands on its default tab, and a user who
+ * cannot open that one is sent to the first tab they can rather than shown a wall.
+ */
+export function requireModuleTab<T extends { key: string }>(
+  user: SessionUser, tabs: T[], pageOf: Record<string, string>, tab: string,
+  atModuleRoot: boolean, hrefFor: (key: string) => string,
+): T[] {
+  const visible = tabs.filter((t) => canPage(user, pageOf[t.key]));
+  if (!canPage(user, pageOf[tab])) {
+    if (atModuleRoot && visible.length) redirect(hrefFor(visible[0].key));
+    throw new ForbiddenError(pageOf[tab]);
+  }
+  return visible;
+}

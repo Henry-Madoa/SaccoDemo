@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction, getCurrentUser } from '@/lib/session';
+import { requireAction, currentCanAction, getCurrentUser, requireModuleTab } from '@/lib/session';
 import { getWorkDate } from '@/lib/postingDates';
 import Link from 'next/link';
 import {
@@ -31,6 +31,17 @@ import { GlAccountFormButton } from '../gl-account-form';
 import { IndentAccountsButton } from '../indent-accounts-button';
 import { PeriodToggle } from '../period-toggle';
 
+/** Each tab is a page of its own (lib/permissions.ts PAGES, parent GL), so a permission
+ *  set can open this module and still be kept out of particular screens. */
+const TAB_PAGE: Record<string, string> = {
+  'trial-balance': 'GL_TRIAL_BALANCE',
+  journals: 'GL_JOURNALS',
+  accounts: 'GL_ACCOUNTS',
+  'vendor-ledger': 'GL_VENDOR_LEDGER',
+  'customer-ledger': 'GL_CUSTOMER_LEDGER',
+  periods: 'GL_PERIODS',
+};
+
 const TABS: TabDefinition[] = [
   { key: 'trial-balance', label: 'Trial balance' },
   { key: 'journals', label: 'Journals' },
@@ -51,6 +62,8 @@ export default async function AccountingPage({ params, searchParams }: {
   const { q = '', filters: filtersRaw, sort: sortRaw, asOf, from, to } = await searchParams;
   const tab = segments?.[0] ?? 'trial-balance';
   if (!TABS.some((t) => t.key === tab)) notFound();
+  const hrefFor = (k: string) => `/accounting/${k}`;
+  const tabs = requireModuleTab(user, TABS, TAB_PAGE, tab, !segments?.[0], hrefFor);
 
   return (
     <Page
@@ -58,7 +71,7 @@ export default async function AccountingPage({ params, searchParams }: {
       crumb="Financial system of record — every module posts here"
       user={user}
     >
-      <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/accounting/${k}`} />
+      <Tabs tabs={tabs} active={tab} hrefFor={hrefFor} />
       {tab === 'trial-balance' ? <TrialBalanceTab filtersRaw={filtersRaw} asOf={asOf} from={from} /> : null}
       {tab === 'journals' ? <JournalsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
       {tab === 'accounts' ? <AccountsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} asOf={asOf} from={from} /> : null}

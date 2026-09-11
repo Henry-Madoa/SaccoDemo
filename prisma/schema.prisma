@@ -3910,6 +3910,7 @@ model posted_sales_document {
   document_date        String
   due_date             String?
   order_no             String?
+  source_no            String?
   payment_terms_code   String?
   your_reference       String?
   applies_to_doc_no                String?
@@ -4232,6 +4233,7 @@ model posted_purchase_document {
   document_date              String
   due_date                   String?
   order_no                   String?
+  source_no                  String?
   vendor_invoice_no          String?
   payment_terms_code         String?
   vat_bus_posting_group_code String?

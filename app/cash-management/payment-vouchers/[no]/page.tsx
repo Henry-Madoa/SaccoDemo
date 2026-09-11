@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requirePage } from '@/lib/session';
 import { getPaymentVoucher } from '@/lib/paymentVouchers';
 import { getWhtCertificatesForVoucher } from '@/lib/whtCertificate';
 import { Page } from '@/components/layout/page';
@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function PvDetailPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('CASH_MGMT_READ');
+  await requirePage('CASH_MGMT_PAYMENT_VOUCHERS');
   const { no } = await params;
   const r = await getPaymentVoucher(no);
   if (!r) notFound();

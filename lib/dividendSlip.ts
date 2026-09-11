@@ -237,7 +237,9 @@ async function buildSlip(header: Dividend, line: SlipLine): Promise<PrintDocumen
     totals,
     amount_words: amountInWords(Number(line.net_amount), currencyLabel(brand.currency_code)),
     notes: [{ heading: 'How this was worked out', body: MODEL_NOTES[model] }],
-    signatures: await documentSignatories('DIVIDEND', header.no, header.created_by),
+    approvals: await documentSignatories('DIVIDEND', header.no, header.created_by, {
+      raisedAt: header.created_at, clearedBy: header.posted_by ?? header.created_by,
+    }),
     footnote: posted ? null : 'Provisional — this dividend has not yet been posted.',
   };
 }

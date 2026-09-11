@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requireModuleTab } from '@/lib/session';
 import { parseFilters } from '@/lib/listFilters';
 import { parseSort } from '@/lib/listSort';
 import { listPostableAccounts } from '@/lib/gl';
@@ -37,6 +37,21 @@ import {
   DepreciationBookFormButton, FaPostingGroupFormButton, FaSetupFormButton,
 } from '../fa-setup-forms';
 
+/** Each tab is a page of its own (lib/permissions.ts PAGES, parent FIXED_ASSETS), so a permission
+ *  set can open this module and still be kept out of particular screens. */
+const TAB_PAGE: Record<string, string> = {
+  assets: 'FA_ASSETS',
+  journal: 'FA_JOURNAL',
+  depreciation: 'FA_DEPRECIATION',
+  'ledger-entries': 'FA_LEDGER',
+  'book-value': 'FA_BOOK_VALUE',
+  maintenance: 'FA_MAINTENANCE',
+  classes: 'FA_CLASSES',
+  locations: 'FA_LOCATIONS',
+  'posting-groups': 'FA_POSTING_GROUPS',
+  'depreciation-books': 'FA_BOOKS',
+};
+
 const TABS: TabDefinition[] = [
   { key: 'assets', label: 'Assets' },
   { key: 'journal', label: 'FA Journal' },
@@ -59,10 +74,12 @@ export default async function FixedAssetsPage({ params, searchParams }: {
   const sp = await searchParams;
   const tab = segments?.[0] ?? 'assets';
   if (!TABS.some((t) => t.key === tab)) notFound();
+  const hrefFor = (k: string) => `/fixed-assets/${k === 'assets' ? '' : k}`;
+  const tabs = requireModuleTab(user, TABS, TAB_PAGE, tab, !segments?.[0], hrefFor);
 
   return (
     <Page title="Fixed Assets" crumb="Asset register, depreciation and disposal" user={user}>
-      <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/fixed-assets/${k === 'assets' ? '' : k}`} />
+      <Tabs tabs={tabs} active={tab} hrefFor={hrefFor} />
       {tab === 'assets' ? <AssetsTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} /> : null}
       {tab === 'journal' ? <JournalTab search={sp.q ?? ''} filtersRaw={sp.filters} sortRaw={sp.sort} username={user.username} /> : null}
       {tab === 'depreciation' ? <DepreciationTab /> : null}

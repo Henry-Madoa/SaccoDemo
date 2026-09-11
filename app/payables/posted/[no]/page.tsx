@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction } from '@/lib/session';
+import { requireAction, requirePage } from '@/lib/session';
 import { getPostedPurchaseDocument } from '@/lib/purchaseDocuments';
 import { formatDate } from '@/lib/format';
 import { Page } from '@/components/layout/page';
@@ -13,6 +13,7 @@ import { Money } from '@/components/ui/money';
  */
 export default async function PostedPurchaseDocumentPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('PAYABLES_READ');
+  await requirePage('PAYABLES_POSTED');
   const { no } = await params;
   const doc = await getPostedPurchaseDocument(decodeURIComponent(no));
   if (!doc) notFound();
@@ -27,7 +28,12 @@ export default async function PostedPurchaseDocumentPage({ params }: { params: P
       user={user}
     >
       <Toolbar>
-        <Link href="/payables/posted-documents" className="btn ghost sm">← All posted documents</Link>
+        <Link
+          href={`/payables/posted-documents?view=${isReceipt ? 'receipts' : doc.document_type === 'Credit Memo' ? 'credit-memos' : 'invoices'}`}
+          className="btn ghost sm"
+        >
+          ← All posted {isReceipt ? 'receipts' : doc.document_type === 'Credit Memo' ? 'credit memos' : 'invoices'}
+        </Link>
         <Link href={`/payables/vendors/${encodeURIComponent(doc.vendor_no)}`} className="btn ghost sm">Vendor card</Link>
         <Spacer />
         <a className="btn" href={`/print/posted-purchase/${encodeURIComponent(doc.no)}`} target="_blank" rel="noreferrer">Print</a>

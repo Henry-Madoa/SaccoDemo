@@ -43,11 +43,27 @@ export async function listPermissionTables(): Promise<{ name: string; label: str
     .map((r) => ({ name: r.table_name, label: humanize(r.table_name) }));
 }
 
+export interface PageObject {
+  code: string;
+  label: string;
+  route: string;
+  /**
+   * The module page this screen sits inside. A finance module is one route with a tab per
+   * screen — Sales Invoices, Posted documents, Aged AR — and BC grants each of those pages on
+   * its own, so each tab is a page here too. Execute on the parent opens the module; Execute on
+   * the child opens that screen. Granting the parent also grants every child (see
+   * expandActionsToLines and the backfill in migration 20260930000000), so a permission set
+   * starts with the whole module and the admin takes screens away, or builds one up screen by
+   * screen from the parent alone.
+   */
+  parent?: string;
+}
+
 /** Pages are compiled routes, not database rows, so — unlike tables — this
  *  catalogue is maintained by hand: the BC equivalent of compiled Page
  *  objects. `/approvals` previously had no permission gate at all; giving it
  *  its own page closes that gap. */
-export const PAGES: { code: string; label: string; route: string }[] = [
+export const PAGES: PageObject[] = [
   { code: 'DASHBOARD', label: 'Dashboard', route: '/dashboard' },
   { code: 'APPROVALS', label: 'Approvals', route: '/approvals' },
   { code: 'SAVINGS', label: 'Member Accounts List', route: '/savings' },
@@ -80,11 +96,68 @@ export const PAGES: { code: string; label: string; route: string }[] = [
   { code: 'COLLATERAL_RELEASES', label: 'Collateral Releases', route: '/collateral-releases' },
   { code: 'GUARANTOR_CHANGES', label: 'Guarantor Changes', route: '/guarantor-changes' },
   { code: 'GL', label: 'General Ledger', route: '/accounting' },
+  { code: 'GL_TRIAL_BALANCE', label: 'General Ledger › Trial Balance', route: '/accounting/trial-balance', parent: 'GL' },
+  { code: 'GL_JOURNALS', label: 'General Ledger › Journals', route: '/accounting/journals', parent: 'GL' },
+  { code: 'GL_ACCOUNTS', label: 'General Ledger › Chart of Accounts', route: '/accounting/accounts', parent: 'GL' },
+  { code: 'GL_VENDOR_LEDGER', label: 'General Ledger › Vendor Ledger Entries', route: '/accounting/vendor-ledger', parent: 'GL' },
+  { code: 'GL_CUSTOMER_LEDGER', label: 'General Ledger › Customer Ledger Entries', route: '/accounting/customer-ledger', parent: 'GL' },
+  { code: 'GL_PERIODS', label: 'General Ledger › Accounting Periods', route: '/accounting/periods', parent: 'GL' },
   { code: 'INVENTORY', label: 'Inventory', route: '/inventory' },
+  { code: 'INVENTORY_ITEMS', label: 'Inventory › Items', route: '/inventory/items', parent: 'INVENTORY' },
+  { code: 'INVENTORY_ITEM_JOURNAL', label: 'Inventory › Item Journal', route: '/inventory/item-journal', parent: 'INVENTORY' },
+  { code: 'INVENTORY_ITEM_QUANTITIES', label: 'Inventory › Qty per Location', route: '/inventory/item-quantities', parent: 'INVENTORY' },
+  { code: 'INVENTORY_LEDGER', label: 'Inventory › Ledger Entries', route: '/inventory/ledger-entries', parent: 'INVENTORY' },
+  { code: 'INVENTORY_REORDER', label: 'Inventory › Reorder Suggestions', route: '/inventory/reorder-suggestions', parent: 'INVENTORY' },
+  { code: 'INVENTORY_LOCATIONS', label: 'Inventory › Locations', route: '/inventory/locations', parent: 'INVENTORY' },
+  { code: 'INVENTORY_UNITS', label: 'Inventory › Units of Measure', route: '/inventory/units-of-measure', parent: 'INVENTORY' },
+  { code: 'INVENTORY_POSTING_GROUPS', label: 'Inventory › Posting Groups', route: '/inventory/posting-groups', parent: 'INVENTORY' },
   { code: 'FIXED_ASSETS', label: 'Fixed Assets', route: '/fixed-assets' },
+  { code: 'FA_ASSETS', label: 'Fixed Assets › Assets', route: '/fixed-assets/assets', parent: 'FIXED_ASSETS' },
+  { code: 'FA_JOURNAL', label: 'Fixed Assets › FA Journal', route: '/fixed-assets/journal', parent: 'FIXED_ASSETS' },
+  { code: 'FA_DEPRECIATION', label: 'Fixed Assets › Calculate Depreciation', route: '/fixed-assets/depreciation', parent: 'FIXED_ASSETS' },
+  { code: 'FA_LEDGER', label: 'Fixed Assets › Ledger Entries', route: '/fixed-assets/ledger-entries', parent: 'FIXED_ASSETS' },
+  { code: 'FA_BOOK_VALUE', label: 'Fixed Assets › Book Value', route: '/fixed-assets/book-value', parent: 'FIXED_ASSETS' },
+  { code: 'FA_MAINTENANCE', label: 'Fixed Assets › Maintenance', route: '/fixed-assets/maintenance', parent: 'FIXED_ASSETS' },
+  { code: 'FA_CLASSES', label: 'Fixed Assets › Classes', route: '/fixed-assets/classes', parent: 'FIXED_ASSETS' },
+  { code: 'FA_LOCATIONS', label: 'Fixed Assets › Locations', route: '/fixed-assets/locations', parent: 'FIXED_ASSETS' },
+  { code: 'FA_POSTING_GROUPS', label: 'Fixed Assets › Posting Groups', route: '/fixed-assets/posting-groups', parent: 'FIXED_ASSETS' },
+  { code: 'FA_BOOKS', label: 'Fixed Assets › Books & Setup', route: '/fixed-assets/depreciation-books', parent: 'FIXED_ASSETS' },
   { code: 'RECEIVABLES', label: 'Receivables', route: '/receivables' },
+  { code: 'RECEIVABLES_CUSTOMERS', label: 'Receivables › Customers', route: '/receivables', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_QUOTES', label: 'Receivables › Sales Quotes', route: '/receivables/quotes', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_ORDERS', label: 'Receivables › Sales Orders', route: '/receivables/orders', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_SALES_INVOICES', label: 'Receivables › Sales Invoices', route: '/receivables/sales-invoices', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_CREDIT_MEMOS', label: 'Receivables › Sales Credit Memos', route: '/receivables/credit-memos', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_POSTED', label: 'Receivables › Posted Sales Documents', route: '/receivables/posted-documents', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_REMINDERS', label: 'Receivables › Reminders', route: '/receivables/reminders', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_FINANCE_CHARGES', label: 'Receivables › Finance Charge Memos', route: '/receivables/finance-charges', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_LEDGER', label: 'Receivables › Customer Ledger Entries', route: '/receivables/ledger-entries', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_AGED_AR', label: 'Receivables › Aged Accounts Receivable', route: '/receivables/aged-ar', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_STATEMENT', label: 'Receivables › Customer Statement', route: '/receivables/statement', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_REMINDER_TERMS', label: 'Receivables › Reminder Terms', route: '/receivables/reminder-terms', parent: 'RECEIVABLES' },
+  { code: 'RECEIVABLES_SETUP', label: 'Receivables › Sales & Receivables Setup', route: '/receivables/setup', parent: 'RECEIVABLES' },
   { code: 'PAYABLES', label: 'Payables', route: '/payables' },
+  { code: 'PAYABLES_VENDORS', label: 'Payables › Vendors', route: '/payables', parent: 'PAYABLES' },
+  { code: 'PAYABLES_QUOTES', label: 'Payables › Purchase Quotes', route: '/payables/quotes', parent: 'PAYABLES' },
+  { code: 'PAYABLES_ORDERS', label: 'Payables › Purchase Orders', route: '/payables/orders', parent: 'PAYABLES' },
+  { code: 'PAYABLES_PURCHASE_INVOICES', label: 'Payables › Purchase Invoices', route: '/payables/purchase-invoices', parent: 'PAYABLES' },
+  { code: 'PAYABLES_CREDIT_MEMOS', label: 'Payables › Purchase Credit Memos', route: '/payables/credit-memos', parent: 'PAYABLES' },
+  { code: 'PAYABLES_POSTED', label: 'Payables › Posted Purchase Documents', route: '/payables/posted-documents', parent: 'PAYABLES' },
+  { code: 'PAYABLES_LEDGER', label: 'Payables › Vendor Ledger Entries', route: '/payables/ledger-entries', parent: 'PAYABLES' },
+  { code: 'PAYABLES_AGED_AP', label: 'Payables › Aged Accounts Payable', route: '/payables/aged-ap', parent: 'PAYABLES' },
+  { code: 'PAYABLES_STATEMENT', label: 'Payables › Vendor Statement', route: '/payables/statement', parent: 'PAYABLES' },
+  { code: 'PAYABLES_SETUP', label: 'Payables › Purchases & Payables Setup', route: '/payables/setup', parent: 'PAYABLES' },
   { code: 'CASH_MGMT', label: 'Cash Management', route: '/cash-management' },
+  { code: 'CASH_MGMT_BANK_ACCOUNTS', label: 'Cash Management › Bank Accounts', route: '/cash-management', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_BANK_LEDGER', label: 'Cash Management › Bank Ledger Entries', route: '/cash-management/ledger-entries', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_RECONCILIATIONS', label: 'Cash Management › Bank Reconciliation', route: '/cash-management/reconciliations', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_RECEIPTS', label: 'Cash Management › Receipts', route: '/cash-management/receipts', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_PAYMENT_VOUCHERS', label: 'Cash Management › Payment Vouchers', route: '/cash-management/payment-vouchers', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_CURRENCIES', label: 'Cash Management › Currencies', route: '/cash-management/currencies', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_EXCHANGE_RATES', label: 'Cash Management › Exchange Rates', route: '/cash-management/exchange-rates', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_POSTING_GROUPS', label: 'Cash Management › Bank Posting Groups', route: '/cash-management/posting-groups', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_EXTERNAL_BANKS', label: 'Cash Management › External Banks', route: '/cash-management/external-banks', parent: 'CASH_MGMT' },
+  { code: 'CASH_MGMT_SETUP', label: 'Cash Management › Cash Management Setup', route: '/cash-management/setup', parent: 'CASH_MGMT' },
   { code: 'DIVIDENDS', label: 'Dividends', route: '/dividends' },
   { code: 'VAT_REPORTS', label: 'VAT & Withholding Tax', route: '/finance/vat' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
@@ -1446,6 +1519,20 @@ export function canPage(user: SessionUser | null | undefined, page: string): boo
   return !!user.permissionSet.pages[page];
 }
 
+/** The screens inside a module page — the tabs of /receivables, /payables, and so on. */
+export function childPages(parent: string): PageObject[] {
+  return PAGES.filter((p) => p.parent === parent);
+}
+
+/**
+ * Which of a module's tabs this user may open, keyed by the tab's page code. A module's tab strip
+ * is built from this so a screen the user cannot execute is not offered, and the module's default
+ * tab can fall through to the first one they can.
+ */
+export function allowedChildPages(user: SessionUser | null | undefined, parent: string): Set<string> {
+  return new Set(childPages(parent).filter((p) => canPage(user, p.code)).map((p) => p.code));
+}
+
 export function canAction(user: SessionUser | null | undefined, key: ActionKey): boolean {
   if (!user) return false;
   if (user.is_system) return true;
@@ -1500,6 +1587,8 @@ export function expandActionsToLines(
   for (const key of actionKeys) {
     const grant = ACTIONS[key];
     pages.set(grant.page, true);
+    // The module's screens come with the module, so a seeded role opens every tab.
+    for (const child of childPages(grant.page)) pages.set(child.code, true);
     for (const [table, right] of grant.tables) {
       const row = tables.get(table) ?? { read: false, insert: false, modify: false, delete: false };
       row[right] = true;

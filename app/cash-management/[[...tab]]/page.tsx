@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requireModuleTab } from '@/lib/session';
 import { all } from '@/lib/db';
 import { listPostableAccounts } from '@/lib/gl';
 import {
@@ -28,6 +28,21 @@ import { NewReceiptButton } from '../receipt-form';
 import { NewPvButton } from '../payment-voucher-form';
 import { StartReconciliationButton } from '../reconciliation-actions';
 
+/** Each tab is a page of its own (lib/permissions.ts PAGES, parent CASH_MGMT), so a permission
+ *  set can open this module and still be kept out of particular screens. */
+const TAB_PAGE: Record<string, string> = {
+  'bank-accounts': 'CASH_MGMT_BANK_ACCOUNTS',
+  'ledger-entries': 'CASH_MGMT_BANK_LEDGER',
+  reconciliations: 'CASH_MGMT_RECONCILIATIONS',
+  receipts: 'CASH_MGMT_RECEIPTS',
+  'payment-vouchers': 'CASH_MGMT_PAYMENT_VOUCHERS',
+  currencies: 'CASH_MGMT_CURRENCIES',
+  'exchange-rates': 'CASH_MGMT_EXCHANGE_RATES',
+  'posting-groups': 'CASH_MGMT_POSTING_GROUPS',
+  'external-banks': 'CASH_MGMT_EXTERNAL_BANKS',
+  setup: 'CASH_MGMT_SETUP',
+};
+
 const TABS: TabDefinition[] = [
   { key: 'bank-accounts', label: 'Bank Accounts' },
   { key: 'ledger-entries', label: 'Bank Ledger' },
@@ -50,10 +65,12 @@ export default async function CashManagementPage({ params, searchParams }: {
   const sp = await searchParams;
   const tab = segments?.[0] ?? 'bank-accounts';
   if (!TABS.some((t) => t.key === tab)) notFound();
+  const hrefFor = (k: string) => `/cash-management/${k === 'bank-accounts' ? '' : k}`;
+  const tabs = requireModuleTab(user, TABS, TAB_PAGE, tab, !segments?.[0], hrefFor);
 
   return (
     <Page title="Cash Management" crumb="Bank accounts, reconciliation, receipts, payment vouchers and currencies" user={user}>
-      <Tabs tabs={TABS} active={tab} hrefFor={(k) => `/cash-management/${k === 'bank-accounts' ? '' : k}`} />
+      <Tabs tabs={tabs} active={tab} hrefFor={hrefFor} />
       {tab === 'bank-accounts' ? <BankAccountsTab /> : null}
       {tab === 'ledger-entries' ? <LedgerTab bank={sp.bank} /> : null}
       {tab === 'reconciliations' ? <ReconciliationsTab /> : null}

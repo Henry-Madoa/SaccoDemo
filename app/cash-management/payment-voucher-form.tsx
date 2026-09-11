@@ -5,6 +5,7 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field, MoneyInput } from '@/components/ui/field';
 import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { today } from '@/lib/format';
 import {
@@ -131,11 +132,12 @@ export function PvFields({ p, initial, lines, setLines }: {
       : pvType === 'Supplier Payment' ? p.vendors.map((c) => ({ v: c.no, t: `${c.no} — ${c.name}` }))
         : pvType === 'Bank Transfer' ? p.banks.map((c) => ({ v: c.code, t: `${c.code} — ${c.name}` }))
           : p.accounts.map((c) => ({ v: c.code, t: `${c.code} — ${c.name}` }));
+    // Searchable, as on the receipt: a chart of accounts or a vendor list is too long to scroll
+    // by eye. The hidden input's name is per-row scratch — the lines travel as state.
     return (
-      <select value={l.accountNo} onChange={(e) => pickAccount(i, 'accountNo', e.target.value)} aria-label="Account" style={{ width: '100%' }}>
-        <option value="">…</option>
-        {rows.map((r) => <option key={r.v} value={r.v}>{r.t}</option>)}
-      </select>
+      <SearchableSelect name={`_lineAccount${i}`} ariaLabel="Account" items={rows} value={l.accountNo}
+        getValue={(r) => r.v} getLabel={(r) => r.t} placeholder="Search…" emptyText="No matches"
+        onChange={(v) => pickAccount(i, 'accountNo', v)} />
     );
   };
 

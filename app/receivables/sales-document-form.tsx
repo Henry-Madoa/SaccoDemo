@@ -119,12 +119,18 @@ export function DocFields({ documentType, customers, paymentTerms, paymentMethod
                 </select>
               </td>
               <td>
+                {/* Searchable, as the journal's account picker is: a chart of accounts or an item
+                    list runs too long to scroll a native dropdown by eye. The hidden input's name
+                    is per-row scratch — the lines themselves travel as state, not form fields. */}
                 {l.type === 'Comment' ? null
                   : l.type === 'G/L Account'
-                    ? <select value={l.no} onChange={(e) => pickNo(i, l, e.target.value)} aria-label="Account"><option value="">…</option>{accounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select>
+                    ? <SearchableSelect name={`_lineNo${i}`} ariaLabel="Account" items={accounts} value={l.no} onChange={(v) => pickNo(i, l, v)}
+                        getValue={(a) => a.code} getLabel={(a) => `${a.code} — ${a.name}`} placeholder="Search account…" emptyText="No matching accounts" />
                     : l.type === 'Item'
-                      ? <select value={l.no} onChange={(e) => pickNo(i, l, e.target.value)} aria-label="Item"><option value="">…</option>{items.map((a) => <option key={a.no} value={a.no}>{a.no} — {a.description}</option>)}</select>
-                      : <select value={l.no} onChange={(e) => pickNo(i, l, e.target.value)} aria-label="Fixed asset"><option value="">…</option>{fixedAssets.map((a) => <option key={a.no} value={a.no}>{a.no} — {a.description}</option>)}</select>}
+                      ? <SearchableSelect name={`_lineNo${i}`} ariaLabel="Item" items={items} value={l.no} onChange={(v) => pickNo(i, l, v)}
+                          getValue={(a) => a.no} getLabel={(a) => `${a.no} — ${a.description}`} placeholder="Search item…" emptyText="No matching items" />
+                      : <SearchableSelect name={`_lineNo${i}`} ariaLabel="Fixed asset" items={fixedAssets} value={l.no} onChange={(v) => pickNo(i, l, v)}
+                          getValue={(a) => a.no} getLabel={(a) => `${a.no} — ${a.description}`} placeholder="Search fixed asset…" emptyText="No matching fixed assets" />}
               </td>
               <td>
                 <input type="text" value={l.description} required maxLength={100}

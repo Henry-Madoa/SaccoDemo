@@ -173,7 +173,9 @@ export async function buildPurchaseDocumentPrint(no: string): Promise<PrintDocum
           + 'inspection on delivery; invoices are settled per the payment terms shown above.',
       }]
       : [],
-    signatures: await documentSignatories('PURCHASE_DOCUMENT', doc.no, doc.created_by),
+    approvals: await documentSignatories('PURCHASE_DOCUMENT', doc.no, doc.created_by, {
+      raisedAt: doc.created_at,
+    }),
     footnote: released
       ? null
       : 'Not yet released — this copy is for internal review and is not a commitment to the vendor.',
@@ -273,11 +275,9 @@ export async function buildPostedPurchaseDocumentPrint(no: string): Promise<Prin
           + 'an authority to pay — payment follows the vendor invoice.',
       }]
       : [],
-    signatures: [
-      ...(await documentSignatories('PURCHASE_DOCUMENT', doc.order_no ?? doc.no, doc.created_by, {
-        prepared: isReceipt ? 'Received by' : 'Posted by', approved: 'Approved by',
-      })),
-      ...(isReceipt ? [{ label: 'Inspected by', block: null }] : []),
-    ],
+    approvals: await documentSignatories('PURCHASE_DOCUMENT', doc.source_no ?? doc.order_no ?? doc.no, doc.created_by, {
+      raisedAt: doc.created_at, clearedBy: doc.created_by,
+    }),
+    acknowledgement: isReceipt ? { title: 'Inspected by' } : null,
   };
 }

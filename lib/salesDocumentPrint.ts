@@ -137,7 +137,9 @@ export async function buildSalesDocumentPrint(no: string): Promise<PrintDocument
     ],
     amount_words: amountInWords(doc.amount, currencyLabel(doc.currency_code)),
     notes: paymentNotes(brand, doc.document_type),
-    signatures: await documentSignatories('SALES_DOCUMENT', doc.no, doc.created_by),
+    approvals: await documentSignatories('SALES_DOCUMENT', doc.no, doc.created_by, {
+      raisedAt: doc.created_at,
+    }),
     footnote: released
       ? null
       : 'Not yet released — this copy is for internal review and is not a demand for payment.',
@@ -219,12 +221,10 @@ export async function buildPostedSalesDocumentPrint(no: string): Promise<PrintDo
     ],
     amount_words: isShipment ? null : amountInWords(doc.amount, currencyLabel(doc.currency_code)),
     notes: isShipment ? [] : paymentNotes(brand, doc.document_type),
-    signatures: [
-      ...(await documentSignatories('SALES_DOCUMENT', doc.order_no ?? doc.no, doc.created_by, {
-        prepared: 'Posted by', approved: 'Approved by',
-      })),
-      { label: isShipment ? 'Received by' : 'Customer acknowledgement', block: null },
-    ],
+    approvals: await documentSignatories('SALES_DOCUMENT', doc.source_no ?? doc.order_no ?? doc.no, doc.created_by, {
+      raisedAt: doc.created_at, clearedBy: doc.created_by,
+    }),
+    acknowledgement: { title: isShipment ? 'Received by' : 'Customer acknowledgement' },
   };
 }
 

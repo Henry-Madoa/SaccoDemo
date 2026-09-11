@@ -456,6 +456,11 @@ tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight
 .btn.block { width: 100%; justify-content: center; }
 
 .field { margin-bottom: calc(var(--sp) * 1.8); }
+/* A row of fields with its button(s) at the end — a statement panel, a batch job's parameters.
+   The field's stacking margin would otherwise drop the button 14px below the inputs' baseline;
+   here every field and the button share one bottom edge. */
+.form-row, .form-row .inline { align-items: end; }
+.form-row .field { margin-bottom: 0; }
 .field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; color: var(--text); }
 .field .hint { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
 .field .req, th .req { color: var(--danger); }

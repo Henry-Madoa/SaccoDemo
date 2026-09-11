@@ -749,11 +749,13 @@ async function writePostedDocument(
   const info = await run(
     `INSERT INTO posted_purchase_document
        (document_type, no, vendor_id, buy_from_name, buy_from_address, buy_from_city, buy_from_contact,
-        posting_date, document_date, due_date, order_no, vendor_invoice_no, payment_terms_code, vat_bus_posting_group_code,
+        posting_date, document_date, due_date, order_no, source_no, vendor_invoice_no, payment_terms_code, vat_bus_posting_group_code,
         currency_code, currency_factor, amount, amount_incl_vat, vendor_ledger_entry_id, journal_id, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     documentType, postedNo, vendor.id, vendor.name, vendor.address, vendor.city, vendor.contact,
-    vd, header.document_date, header.due_date, orderNo, header.vendor_invoice_no, header.payment_terms_code,
+    // As on the sales side: the trail is against the open document, so keep its number.
+    vd, header.document_date, header.due_date, orderNo, header.no, header.vendor_invoice_no,
+    header.payment_terms_code,
     header.vat_bus_posting_group_code, header.currency_code, header.currency_factor, total, totalInclVat,
     vendorLedgerEntryId, journalId, new Date().toISOString(), _user.username,
   );

@@ -32,7 +32,7 @@ export function ReminderBatchPanel({ customers, kind }: {
   };
 
   return (
-    <div className="grid g3" style={{ alignItems: 'end' }}>
+    <div className="grid g3 form-row">
       <Field name="customerId" label="Customer" type="select" defaultValue={customerId} onChange={(e) => setCustomerId(e.target.value)}
         options={[{ value: '', label: 'All customers' }, ...customers.map((c) => ({ value: c.id, label: `${c.no} — ${c.name}` }))]} />
       <Field name="docDate" label="Document date" type="date" defaultValue={docDate} onChange={(e) => setDocDate(e.target.value)} />

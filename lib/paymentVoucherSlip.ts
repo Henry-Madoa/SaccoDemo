@@ -186,10 +186,14 @@ export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocu
     notes: doc.description ? [{ heading: 'Being payment for', body: doc.description }] : [],
     // Checked / Approved / Authorised from the approval trail, then the payee's own receipt of
     // the money — a member signs for their own, anyone else signs as the payee.
-    signatures: [
-      ...(await documentSignatories('PAYMENT_VOUCHER', doc.pv_no, doc.prepared_by ?? doc.created_by)),
-      { label: isMember ? 'Received by (member)' : 'Received by (payee)', block: null },
-    ],
+    approvals: await documentSignatories('PAYMENT_VOUCHER', doc.pv_no, doc.prepared_by ?? doc.created_by, {
+      raisedAt: doc.created_at, clearedBy: doc.prepared_by ?? doc.created_by,
+    }),
+    acknowledgement: {
+      title: isMember
+        ? 'Acknowledge receipt of the payment (member)'
+        : 'Acknowledge receipt of the payment (payee)',
+    },
     footnote: isMember
       ? 'Available is the account balance less any holds and the product’s minimum balance.'
       : null,

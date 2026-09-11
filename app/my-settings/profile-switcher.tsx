@@ -37,8 +37,8 @@ export function ProfileSwitcher({ profiles, activeId }: { profiles: Profile[]; a
     // there it made the field taller than the select, and the bottom-aligned button dropped with
     // it instead of lining up with the control it acts on.
     <div style={{ marginTop: 'calc(var(--sp)*1.5)' }}>
-      <div className="inline" style={{ alignItems: 'end', flexWrap: 'wrap' }}>
-        <div className="field" style={{ marginBottom: 0, minWidth: 280 }}>
+      <div className="inline form-row">
+        <div className="field" style={{ minWidth: 280 }}>
           <label htmlFor="f_activeProfile">Active Role Centre</label>
           <select id="f_activeProfile" value={choice} disabled={busy}
             onChange={(e) => setChoice(e.target.value)}>

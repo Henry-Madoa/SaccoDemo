@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAction, currentCanAction, requirePage } from '@/lib/session';
 import { getCustomer, customerStatistics, getCustomerLedgerEntries } from '@/lib/customers';
 import {
   listCustomerPostingGroups, listActivePaymentTerms, listActivePaymentMethods,
@@ -17,6 +17,7 @@ import { CustomerCard, type CustomerLookups } from '../../customer-card';
 
 export default async function CustomerCardPage({ params }: { params: Promise<{ no: string }> }) {
   const user = await requireAction('RECEIVABLES_READ');
+  await requirePage('RECEIVABLES_CUSTOMERS');
   const { no } = await params;
   const customer = await getCustomer(no);
   if (!customer) notFound();

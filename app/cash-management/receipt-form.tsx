@@ -5,6 +5,7 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field, MoneyInput } from '@/components/ui/field';
 import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { MemberSelect } from '@/components/ui/member-select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { today } from '@/lib/format';
 import {
@@ -139,14 +140,15 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
       : receiptType === 'Vendor' ? p.vendors.map((c) => ({ v: c.no, t: `${c.no} — ${c.name}` }))
         : receiptType === 'Bank Account' ? p.banks.map((c) => ({ v: c.code, t: `${c.code} — ${c.name}` }))
           : p.accounts.map((c) => ({ v: c.code, t: `${c.code} — ${c.name}` }));
+    // Searchable: a chart of accounts or a customer list is too long to scroll by eye. The hidden
+    // input's name is per-row scratch — the lines travel as state, not form fields.
     return (
-      <select value={l.accountNo} aria-label="Account" style={{ width: '100%' }}
-        onChange={(e) => setLines(lines.map((x, idx) => (idx === i
-          ? { ...x, accountNo: e.target.value, description: x.description || defaultDescription() }
-          : x)))}>
-        <option value="">…</option>
-        {rows.map((r) => <option key={r.v} value={r.v}>{r.t}</option>)}
-      </select>
+      <SearchableSelect name={`_lineAccount${i}`} ariaLabel="Account" items={rows} value={l.accountNo}
+        getValue={(r) => r.v} getLabel={(r) => r.t} placeholder={`Search ${receiptType.toLowerCase()}…`}
+        emptyText="No matches"
+        onChange={(v) => setLines(lines.map((x, idx) => (idx === i
+          ? { ...x, accountNo: v, description: x.description || defaultDescription() }
+          : x)))} />
     );
   };
 
@@ -234,16 +236,14 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
               <tr key={i}>
                 {isMember ? (
                   <td>
-                    <select value={l.memberId ?? ''} aria-label="Member" style={{ width: '100%' }}
-                      onChange={(e) => setLines(lines.map((x, idx) => (idx === i
+                    {/* Empty means the header's member — the placeholder says so. */}
+                    <SearchableSelect name={`_lineMember${i}`} ariaLabel="Member" items={p.members} value={l.memberId ?? ''}
+                      getValue={(m) => String(m.id)} getLabel={(m) => `${m.member_no} — ${m.first_name} ${m.last_name}`}
+                      placeholder="Same as header" emptyText="No matching members"
+                      onChange={(v) => setLines(lines.map((x, idx) => (idx === i
                         // A different member means a different set of accounts, so the target clears.
-                        ? { ...x, memberId: e.target.value, savingsAccountId: '', loanId: '', accountNo: '' }
-                        : x)))}>
-                      <option value="">Same as header</option>
-                      {p.members.map((m) => (
-                        <option key={m.id} value={m.id}>{m.member_no} — {m.first_name} {m.last_name}</option>
-                      ))}
-                    </select>
+                        ? { ...x, memberId: v, savingsAccountId: '', loanId: '', accountNo: '' }
+                        : x)))} />
                   </td>
                 ) : null}
                 <td>{accountPicker(l, i)}</td>

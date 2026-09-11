@@ -61,10 +61,10 @@ export async function buildChequeDepositSlipDocument(no: string): Promise<PrintD
     rows: [{ cells: { item: `Cheque ${doc.cheque_no || ''} banked for collection`.trim(), amount: money(doc.amount) } }],
     totals: [{ label: 'Amount banked', value: money(doc.amount), grand: true }],
     amount_words: amountInWords(doc.amount, currencyLabel(brand.currency_code)),
-    signatures: [
-      ...(await documentSignatories('CHEQUE_DEPOSIT', doc.no, doc.created_by)),
-      { label: 'Depositor', block: null },
-    ],
+    approvals: await documentSignatories('CHEQUE_DEPOSIT', doc.no, doc.created_by, {
+      raisedAt: doc.created_at, clearedBy: doc.created_by,
+    }),
+    acknowledgement: { title: 'Depositor' },
     footnote: 'This is an acknowledgement of receipt only. Funds are available after the cheque '
       + 'clears on its maturity date.',
   };
