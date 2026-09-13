@@ -405,6 +405,13 @@ model gl_account {
   product_posting_group                                          product_posting_group[]     @relation("ppg_adjustment_gl")
   fa_posting_group_acquisition_cost                              fa_posting_group[]          @relation("fapg_acquisition_cost")
   fa_posting_group_accum_depreciation                            fa_posting_group[]          @relation("fapg_accum_depreciation")
+  share_trading_window_clearing                                  share_trading_window[]      @relation("stw_clearing")
+  share_trading_window_holding                                   share_trading_window[]      @relation("stw_holding")
+  organisation_imprest_control                                   organisation[]              @relation("org_imprest_control")
+  imprest_request_line                                           imprest_request_line[]
+  petty_cash_line                                                petty_cash_line[]
+  staff_claim_line                                               staff_claim_line[]
+  requisition_line                                               requisition_line[]
   fa_posting_group_depreciation_expense                          fa_posting_group[]          @relation("fapg_depreciation_expense")
   fa_posting_group_write_down_expense                            fa_posting_group[]          @relation("fapg_write_down_expense")
   fa_posting_group_appreciation                                  fa_posting_group[]          @relation("fapg_appreciation")
@@ -472,6 +479,7 @@ model transaction_charge {
   organisation               organisation[]
   teller_transaction         teller_transaction[]
   inter_account_transfer     inter_account_transfer[]
+  share_trading_window       share_trading_window[]
   cheque_type_clearing       cheque_type[]                @relation("ct_clearing_charge")
   cheque_type_bouncing       cheque_type[]                @relation("ct_bouncing_charge")
   cheque_type_express        cheque_type[]                @relation("ct_express_charge")
@@ -589,6 +597,7 @@ model journal {
   bank_account_ledger_entry                     bank_account_ledger_entry[]
   fosa_transaction                              fosa_transaction[]
   teller_transaction                            teller_transaction[]
+  employee_ledger_entry                         employee_ledger_entry[]
 
   @@index([value_date], map: "ix_journal_date")
   @@index([global_dimension_1_id], map: "ix_journal_gd1")
@@ -667,6 +676,11 @@ model bank_account {
   payment_voucher_header       payment_voucher_header[]
   posted_payment_voucher       posted_payment_voucher[]
   cash_management_setup        cash_management_setup[]
+  imprest_request_paying       imprest_request[]           @relation("imr_paying_bank")
+  imprest_request_receiving    imprest_request[]           @relation("imr_receiving_bank")
+  imprest_request_claim        imprest_request[]           @relation("imr_claim_bank")
+  petty_cash                   petty_cash[]
+  staff_claim                  staff_claim[]
 }
 
 /// One posted entry against a bank account's G/L control account — populated automatically by
@@ -1556,6 +1570,8 @@ model member {
   member_lien                        member_lien[]
   inter_account_transfer_source      inter_account_transfer[]            @relation("iat_source_member")
   inter_account_transfer_destination inter_account_transfer[]            @relation("iat_destination_member")
+  share_floating                     share_floating[]
+  share_bid                          share_bid[]
   bankers_cheque                     bankers_cheque[]
   cheque_deposit                     cheque_deposit[]
   receipt_header                     receipt_header[]
@@ -1645,6 +1661,15 @@ model organisation {
   /// denomination breakdown total exactly equals the document amount. See lib/denominations.ts.
   validate_cash_denomination       Boolean             @default(false)
   instant_withdrawal_charge        transaction_charge? @relation(fields: [instant_withdrawal_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// AL General Ledger Setup "Petty Cash Limit": a petty cash request above it must be an imprest.
+  petty_cash_limit                 BigInt              @default(0)
+  /// AL "Max No Outstanding Imprests" an employee may hold unsurrendered.
+  max_outstanding_imprests         Int                 @default(1)
+  /// The employee subledger control account (1215) every imprest, refund and claim posts through.
+  imprest_control_account_id       Int?
+  /// Date formula from issue to the surrender due date.
+  imprest_surrender_period         String              @default("14D")
+  imprest_control_account          gl_account?         @relation("org_imprest_control", fields: [imprest_control_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updated_at                       String?
   updated_by                       String?
 }
@@ -1759,6 +1784,10 @@ model savings_account {
   member_lien                        member_lien[]
   inter_account_transfer_source      inter_account_transfer[]       @relation("iat_source_account")
   inter_account_transfer_destination inter_account_transfer[]       @relation("iat_destination_account")
+  share_floating_share               share_floating[]               @relation("sfl_share_account")
+  share_floating_proceeds            share_floating[]               @relation("sfl_proceeds_account")
+  share_bid                          share_bid[]
+  share_transfer_receipt             share_transfer_receipt[]
   bankers_cheque                     bankers_cheque[]
   cheque_deposit                     cheque_deposit[]
   cheque_instruction                 cheque_instruction[]
@@ -3037,6 +3066,449 @@ model inter_account_transfer {
   @@index([created_by], map: "ix_iat_created_by")
 }
 
+/// Share Trading — AL Tab52204133 "Share Trading Setup": the trading window a floating is sold
+/// in. Par (base) price, reserve price, the holding and clearing G/L, the charge, and the rules
+/// for expiry and payment. Only one window is Published at a time.
+model share_trading_window {
+  no                      String              @id
+  description             String
+  start_date              String
+  end_date                String
+  base_price              BigInt              @default(0)
+  reserve_price           BigInt              @default(0)
+  transaction_charge_id   Int?
+  clearing_account_id     Int
+  holding_account_id      Int
+  share_life              String?
+  tolerance_period        String?
+  /// Extend | Reverse — what happens to a floating that expires with no bid.
+  on_no_bid               String              @default("Extend")
+  minimum_shares_to_float Int                 @default(0)
+  published               Boolean             @default(false)
+  /// New | Published | Retired
+  status                  String              @default("New")
+  created_at              String?
+  created_by              String?
+  transaction_charge      transaction_charge? @relation(fields: [transaction_charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clearing_account        gl_account          @relation("stw_clearing", fields: [clearing_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  holding_account         gl_account          @relation("stw_holding", fields: [holding_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  share_floating          share_floating[]
+
+  @@index([status], map: "ix_stw_status")
+}
+
+/// Share Trading — AL Tab52204134 "Share Floating": a member's offer to sell some or all of
+/// their share capital. Maker-checker to Approved, then Publish → bids → award → Post Purchase →
+/// payment allocations → Transfer (or Take Down / the window's no-bid rule).
+model share_floating {
+  no                       String                   @id
+  window_no                String
+  member_id                Int
+  share_account_id         Int
+  /// Partial | Full
+  float_type               String                   @default("Partial")
+  par_value                BigInt                   @default(0)
+  reserve_price            BigInt                   @default(0)
+  share_life               String?
+  tolerance_period         String?
+  on_no_bid                String                   @default("Extend")
+  total_shares             Int                      @default(0)
+  shares_to_float          Int                      @default(0)
+  minimum_acceptable_price BigInt                   @default(0)
+  floated_value            BigInt                   @default(0)
+  charge_amount            BigInt                   @default(0)
+  /// FOSA Account | NWD Account — which of the seller's own accounts takes the proceeds.
+  proceeds_type            String                   @default("FOSA Account")
+  proceeds_account_id      Int?
+  payment_method_code      String?
+  external_reference_no    String?
+  payment_date             String?
+  /// Walking | App | USSD | Portal
+  source                   String                   @default("Walking")
+  narration                String?
+  status                   String                   @default("Open")
+  decision_reason          String?
+  published                Boolean                  @default(false)
+  published_on             String?
+  expiry_date              String?
+  awarded                  Boolean                  @default(false)
+  purchase_date            String?
+  payment_due_date         String?
+  archived                 Boolean                  @default(false)
+  /// Transferred | Taken Down | Reversed
+  outcome                  String?
+  publish_journal_id       Int?
+  purchase_journal_id      Int?
+  transfer_journal_id      Int?
+  takedown_journal_id      Int?
+  global_dimension_1_id    Int?
+  global_dimension_2_id    Int?
+  created_at               String?
+  created_by               String?
+  transferred_at           String?
+  transferred_by           String?
+  window                   share_trading_window     @relation(fields: [window_no], references: [no], onDelete: NoAction, onUpdate: NoAction)
+  member                   member                   @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  share_account            savings_account          @relation("sfl_share_account", fields: [share_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  proceeds_account         savings_account?         @relation("sfl_proceeds_account", fields: [proceeds_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  share_bid                share_bid[]
+  share_transfer_receipt   share_transfer_receipt[]
+
+  @@index([member_id], map: "ix_sfl_member")
+  @@index([window_no], map: "ix_sfl_window")
+  @@index([status], map: "ix_sfl_status")
+  @@index([created_by], map: "ix_sfl_created_by")
+}
+
+/// Share Trading — AL Tab52204135 "Share Trading Lines": one member's bid on a floating.
+model share_bid {
+  id               Int             @id @default(autoincrement())
+  floating_no      String
+  member_id        Int
+  share_account_id Int
+  bid_price        BigInt          @default(0)
+  bid_date         String
+  shares           Int             @default(0)
+  charges          BigInt          @default(0)
+  total_amount     BigInt          @default(0)
+  awarded          Boolean         @default(false)
+  bought           Boolean         @default(false)
+  source           String          @default("Walking")
+  created_by       String?
+  floating         share_floating  @relation(fields: [floating_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  member           member          @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  share_account    savings_account @relation(fields: [share_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([floating_no, member_id], map: "sbid_one_per_member")
+  @@index([floating_no], map: "ix_sbid_floating")
+}
+
+/// Share Trading — AL Tab52204136 "Share Transfer Receipt": the awarded buyer's payment, as
+/// amounts allocated from their deposit accounts and taken on transfer.
+model share_transfer_receipt {
+  id                 Int             @id @default(autoincrement())
+  floating_no        String
+  savings_account_id Int
+  allocated_amount   BigInt          @default(0)
+  description        String?
+  created_at         String?
+  created_by         String?
+  floating           share_floating  @relation(fields: [floating_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  savings_account    savings_account @relation(fields: [savings_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([floating_no, savings_account_id], map: "str_one_per_account")
+}
+
+/// Employee subledger — AL "Employee Ledger Entry" / "Detailed Employee Ledger Entry": every
+/// imprest issue, surrender, refund, claim, payroll recovery and staff receipt or payment, against
+/// the imprest control G/L. Positive = the employee owes the SACCO.
+model employee_ledger_entry {
+  id           Int      @id @default(autoincrement())
+  employee_id  Int
+  entry_type   String
+  document_no  String
+  posting_date String
+  amount       BigInt   @default(0)
+  description  String?
+  journal_id   Int?
+  created_at   String?
+  created_by   String?
+  employee     employee @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal      journal? @relation(fields: [journal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([employee_id], map: "ix_ele_employee")
+  @@index([document_no], map: "ix_ele_document")
+}
+
+/// AL Tab52203660 "Imprest Purpose" — master data under Setup Pool → Finance.
+model imprest_purpose {
+  code            String            @id
+  description     String
+  status          String            @default("ACTIVE")
+  imprest_request imprest_request[]
+}
+
+/// AL Tab52203447 "Request Header" (Request Type Imprest, then Surrender). The request is
+/// approved and issued; the same document then carries the surrender through its own approval
+/// and posting, with a refund received now or deducted from payroll, or a claim paid now or
+/// through payroll.
+model imprest_request {
+  no                           String                 @id
+  employee_id                  Int
+  request_date                 String
+  purpose_code                 String?
+  purpose                      String
+  description                  String?
+  /// Self | Other
+  request_for                  String                 @default("Self")
+  departure_location           String?
+  departure_date               String?
+  return_date                  String?
+  total_days                   Int                    @default(0)
+  justification                String?
+  phone_no                     String?
+  currency_code                String                 @default("KES")
+  paying_bank_account_id       Int?
+  pay_mode_code                String?
+  payment_tx_no                String?
+  cheque_date                  String?
+  due_date                     String?
+  status                       String                 @default("Open")
+  decision_reason              String?
+  posted                       Boolean                @default(false)
+  posted_at                    String?
+  posted_by                    String?
+  posted_journal_id            Int?
+  pv_no                        String?
+  /// Open | Pending Approval | Approved | Closed
+  surrender_status             String                 @default("Open")
+  surrender_date               String?
+  surrender_decision_reason    String?
+  surrendered                  Boolean                @default(false)
+  surrender_posted_at          String?
+  surrender_posted_by          String?
+  surrender_journal_id         Int?
+  /// Receive Now | Deduct from Payroll | Pay Now | Pay from Payroll
+  settlement                   String?
+  receiving_bank_account_id    Int?
+  receipt_mode_code            String?
+  receipt_tx_no                String?
+  claim_paying_bank_account_id Int?
+  claim_pay_mode_code          String?
+  claim_payment_tx_no          String?
+  transfer_to_payroll          Boolean                @default(false)
+  transferred_to_payroll       Boolean                @default(false)
+  payroll_transaction_id       Int?
+  payroll_transferred_at       String?
+  payroll_transferred_by       String?
+  global_dimension_1_id        Int?
+  global_dimension_2_id        Int?
+  created_at                   String?
+  created_by                   String?
+  employee                     employee               @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  imprest_purpose              imprest_purpose?       @relation(fields: [purpose_code], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  paying_bank_account          bank_account?          @relation("imr_paying_bank", fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  receiving_bank_account       bank_account?          @relation("imr_receiving_bank", fields: [receiving_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  claim_paying_bank_account    bank_account?          @relation("imr_claim_bank", fields: [claim_paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  imprest_request_line         imprest_request_line[]
+
+  @@index([employee_id], map: "ix_imr_employee")
+  @@index([status], map: "ix_imr_status")
+  @@index([created_by], map: "ix_imr_created_by")
+}
+
+/// AL Tab52203449 "Request Lines" — what the money is for, then what was actually spent.
+model imprest_request_line {
+  id             Int             @id @default(autoincrement())
+  request_no     String
+  line_no        Int
+  gl_account_id  Int
+  narration      String?
+  quantity       Int             @default(1)
+  unit_cost      BigInt          @default(0)
+  request_amount BigInt          @default(0)
+  actual_spent   BigInt          @default(0)
+  surrender_note String?
+  request        imprest_request @relation(fields: [request_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  gl_account     gl_account      @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([request_no], map: "ix_imrl_request")
+}
+
+/// AL Tab52203444 "Petty Cash Header" — a small expense paid from a petty cash float, under
+/// the General Ledger Setup limit; above it the employee raises an imprest instead.
+model petty_cash {
+  no                     String            @id
+  employee_id            Int
+  request_date           String
+  posting_date           String?
+  paying_bank_account_id Int?
+  payment_to             String?
+  on_behalf_of           String?
+  payment_narration      String
+  pay_mode_code          String?
+  payment_tx_no          String?
+  cheque_date            String?
+  currency_code          String            @default("KES")
+  status                 String            @default("Open")
+  decision_reason        String?
+  posted                 Boolean           @default(false)
+  posted_at              String?
+  posted_by              String?
+  journal_id             Int?
+  paid                   Boolean           @default(false)
+  paid_at                String?
+  paid_by                String?
+  global_dimension_1_id  Int?
+  global_dimension_2_id  Int?
+  created_at             String?
+  created_by             String?
+  employee               employee          @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paying_bank_account    bank_account?     @relation(fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  petty_cash_line        petty_cash_line[]
+
+  @@index([employee_id], map: "ix_pc_employee")
+  @@index([status], map: "ix_pc_status")
+  @@index([created_by], map: "ix_pc_created_by")
+}
+
+/// AL Tab52203445 "Petty Cash Details".
+model petty_cash_line {
+  id            Int        @id @default(autoincrement())
+  petty_cash_no String
+  line_no       Int
+  gl_account_id Int
+  description   String?
+  amount        BigInt     @default(0)
+  petty_cash    petty_cash @relation(fields: [petty_cash_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  gl_account    gl_account @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([petty_cash_no], map: "ix_pcl_petty_cash")
+}
+
+/// AL Tab52203447 "Request Header" with Request Type Staff Claim — money an employee spent on
+/// the SACCO's business and claims back; paid from a bank account or through payroll.
+model staff_claim {
+  no                     String             @id
+  employee_id            Int
+  claim_date             String
+  description            String
+  justification          String?
+  currency_code          String             @default("KES")
+  /// Pay Now | Pay from Payroll
+  settlement             String             @default("Pay Now")
+  paying_bank_account_id Int?
+  pay_mode_code          String?
+  payment_tx_no          String?
+  status                 String             @default("Open")
+  decision_reason        String?
+  posted                 Boolean            @default(false)
+  posted_at              String?
+  posted_by              String?
+  journal_id             Int?
+  payment_stopped        Boolean            @default(false)
+  stopped_at             String?
+  stopped_by             String?
+  stop_reason            String?
+  transferred_to_payroll Boolean            @default(false)
+  payroll_transaction_id Int?
+  global_dimension_1_id  Int?
+  global_dimension_2_id  Int?
+  created_at             String?
+  created_by             String?
+  employee               employee           @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paying_bank_account    bank_account?      @relation(fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  staff_claim_line       staff_claim_line[]
+
+  @@index([employee_id], map: "ix_scl_employee")
+  @@index([status], map: "ix_scl_status")
+  @@index([created_by], map: "ix_scl_created_by")
+}
+
+model staff_claim_line {
+  id            Int         @id @default(autoincrement())
+  claim_no      String
+  line_no       Int
+  gl_account_id Int
+  narration     String?
+  expense_date  String?
+  receipt_ref   String?
+  quantity      Int         @default(1)
+  unit_cost     BigInt      @default(0)
+  amount        BigInt      @default(0)
+  claim         staff_claim @relation(fields: [claim_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  gl_account    gl_account  @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([claim_no], map: "ix_scll_claim")
+}
+
+/// Store & Purchase Requisitions — AL (Sacco ERP) Tab52203515 "Requisition Header". One table
+/// carries both requisition types; see lib/requisitions.ts and the migration for the lifecycle.
+model requisition {
+  no                      String             @id
+  /// 'Store Requisition' | 'Purchase Requisition'
+  requisition_type        String
+  employee_id             Int
+  title                   String
+  description             String?
+  requisition_date        String
+  needed_by_date          String?
+  expiration_date         String?
+  requested_delivery_date String?
+  currency_code           String             @default("KES")
+  /// The store issuing (store req.) or receiving (purchase req.).
+  location_id             Int?
+  /// Purchase only — Enum52203430: RFQ | RFP | Direct Procurement | Restricted Tendering | Open Tendering | Low Value Procurement
+  procurement_method      String?
+  supplier_id             Int?
+  /// Open | Pending Approval | Approved | Received
+  status                  String             @default("Open")
+  decision_reason         String?
+  issued                  Boolean            @default(false)
+  issued_at               String?
+  issued_by               String?
+  received                Boolean            @default(false)
+  received_at             String?
+  received_by             String?
+  pr_closed               Boolean            @default(false)
+  /// Purchase Order | Direct Receipt of Goods/Services | Rejection
+  pr_closed_by            String?
+  pr_closed_at            String?
+  pr_closed_by_user       String?
+  pr_close_reason         String?
+  po_generated_directly   Boolean            @default(false)
+  po_generated_by         String?
+  po_generated_at         String?
+  po_number               String?
+  global_dimension_1_id   Int?
+  global_dimension_2_id   Int?
+  created_at              String?
+  created_by              String?
+  employee                employee           @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location                location?          @relation(fields: [location_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier                vendor?            @relation(fields: [supplier_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requisition_line        requisition_line[]
+
+  @@index([requisition_type, status], map: "ix_rq_type_status")
+  @@index([employee_id], map: "ix_rq_employee")
+  @@index([created_by], map: "ix_rq_created_by")
+}
+
+/// AL Tab52203516 "Requisition Lines".
+model requisition_line {
+  id                 Int              @id @default(autoincrement())
+  requisition_no     String
+  line_no            Int
+  /// 'Item' | 'G/L Account' | 'Fixed Asset'
+  type               String           @default("Item")
+  no                 String
+  description        String
+  item_id            Int?
+  gl_account_id      Int?
+  unit_of_measure_id Int?
+  quantity           Int              @default(1)
+  quantity_approved  Int              @default(0)
+  unit_price         BigInt           @default(0)
+  amount             BigInt           @default(0)
+  location_id        Int?
+  quantity_to_issue  Int              @default(0)
+  quantity_issued    Int              @default(0)
+  issued_at          String?
+  issued_by          String?
+  /// '' | RFQ | Order | Append to Order — Pag52203556 Requisitions Review
+  decision           String           @default("")
+  target_no          String?
+  processed          Boolean          @default(false)
+  order_no           String?
+  requisition        requisition      @relation(fields: [requisition_no], references: [no], onDelete: Cascade, onUpdate: NoAction)
+  item               item?            @relation(fields: [item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  gl_account         gl_account?      @relation(fields: [gl_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unit_of_measure    unit_of_measure? @relation(fields: [unit_of_measure_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location           location?        @relation(fields: [location_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([requisition_no], map: "ix_rql_requisition")
+}
+
 /// Cheque Types master — AL Tab52204122 (only the "Bankers Cheque" type is ported). One row per
 /// kind of banker's cheque the SACCO sells: its ceiling, the clearing G/L account the issued
 /// cheque is credited to, and the clearing charge deducted from the member.
@@ -3206,6 +3678,8 @@ model location {
   stockkeeping_unit stockkeeping_unit[]
   item_journal_line item_journal_line[]
   item_ledger_entry item_ledger_entry[]
+  requisition       requisition[]
+  requisition_line  requisition_line[]
 }
 
 /// Business Central Table 204. A global catalogue of units (EACH, BOX, KG, …); an item picks
@@ -3222,6 +3696,7 @@ model unit_of_measure {
   item_item_purch_unit_of_measure_idTounit_of_measure item[]                 @relation("item_purch_uom")
   item_item_sales_unit_of_measure_idTounit_of_measure item[]                 @relation("item_sales_uom")
   item_journal_line                                   item_journal_line[]
+  requisition_line                                    requisition_line[]
 }
 
 /// A simplification of Business Central's Inventory Posting Setup + General Posting Setup: one
@@ -3299,6 +3774,7 @@ model item {
   stockkeeping_unit          stockkeeping_unit[]
   item_journal_line          item_journal_line[]
   item_ledger_entry          item_ledger_entry[]
+  requisition_line           requisition_line[]
 
   @@index([status], map: "ix_item_status")
 }
@@ -3366,6 +3842,8 @@ model item_journal_line {
   posted                  Boolean             @default(false)
   /// The posted G/L journal, once posted. No FK constraint (see model comment).
   journal_id              Int?
+  /// The store requisition line this Negative Adjmt. issued (lib/requisitions.ts). No FK constraint.
+  requisition_line_id     Int?
   global_dimension_1_id   Int?
   global_dimension_2_id   Int?
   created_at              String?
@@ -4141,6 +4619,7 @@ model vendor {
   created_at                 String?
   created_by                 String?
   purchase_header            purchase_header[]
+  requisition                requisition[]
   posted_purchase_document   posted_purchase_document[]
   vendor_ledger_entry        vendor_ledger_entry[]
   wht_certificate            wht_certificate[]
@@ -4176,6 +4655,8 @@ model purchase_header {
   amount                     BigInt          @default(0)
   amount_incl_vat            BigInt          @default(0)
   decision_reason            String?
+  /// AL Purchase Header "Requisition No" — the purchase requisition this was raised from (lib/requisitions.ts).
+  requisition_no             String?
   created_at                 String?
   created_by                 String?
   vendor                     vendor          @relation(fields: [vendor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -4184,6 +4665,7 @@ model purchase_header {
   @@index([document_type, status], map: "ix_purchase_header_type_status")
   @@index([vendor_id], map: "ix_purchase_header_vendor")
   @@index([created_by], map: "ix_purchase_header_created_by")
+  @@index([requisition_no], map: "ix_purchase_header_requisition")
 }
 
 /// Business Central Table 39 "Purchase Line".
@@ -4502,8 +4984,11 @@ model receipt_header {
   /// AL "Received Amount" — what the teller counted. Checked against the sum of the lines before
   /// the receipt may be submitted, so a miskeyed line cannot post.
   received_amount       BigInt         @default(0)
+  /// The Employee receipt type: money received from a member of staff.
+  employee_id           Int?
   bank_account          bank_account   @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member                member?        @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employee              employee?      @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   receipt_line          receipt_line[]
 
   @@index([status], map: "ix_receipt_header_status")
@@ -4573,6 +5058,7 @@ model posted_receipt {
   member_id            Int?
   member_no            String?
   member_name          String?
+  employee_id          Int?
   bank_account         bank_account          @relation(fields: [bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member               member?               @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   posted_receipt_line  posted_receipt_line[]
@@ -4642,7 +5128,10 @@ model payment_voucher_header {
   created_by               String?
   posted_at                String?
   posted_by                String?
+  /// The Employee Payment voucher type: money paid out to a member of staff.
+  employee_id              Int?
   paying_bank_account      bank_account           @relation(fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employee                 employee?              @relation(fields: [employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   /// Payment Type = Member Payment / RTGS-SWIFT only.
   member_id                Int?
   member_no                String?
@@ -4718,6 +5207,7 @@ model posted_payment_voucher {
   member_id                   Int?
   member_no                   String?
   member_name                 String?
+  employee_id                 Int?
   paying_bank_account         bank_account                  @relation(fields: [paying_bank_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   member                      member?                       @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   posted_payment_voucher_line posted_payment_voucher_line[]
@@ -5057,6 +5547,14 @@ model employee {
   notes                    String?
   created_at               String?
   created_by               String?
+
+  employee_ledger_entry    employee_ledger_entry[]
+  imprest_request          imprest_request[]
+  petty_cash               petty_cash[]
+  staff_claim              staff_claim[]
+  requisition              requisition[]
+  receipt_header           receipt_header[]
+  payment_voucher_header   payment_voucher_header[]
 
   @@index([status], map: "ix_employee_status")
   @@index([manager_id], map: "ix_employee_manager")

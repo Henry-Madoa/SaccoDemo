@@ -13,7 +13,8 @@ import {
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
-import { EditButton, DeleteButton, PostButton } from '../../member-charging-actions';
+import { EditableCard } from '@/components/ui/editable-card';
+import { EditForm, DeleteButton, PostButton } from '../../member-charging-actions';
 
 const MEMBER_CHARGING_VIEWS: MemberChargingView[] = ['open', 'posted'];
 
@@ -58,14 +59,13 @@ export default async function MemberChargingDetailPage({ params, searchParams }:
         <Link href={`/savings/${request.source_account_id}`} className="btn ghost sm">View account</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {canEditFields ? <EditButton request={request} members={editMembers} className="btn ghost" /> : null}
         {canEditFields ? <DeleteButton no={request.no} className="btn ghost" /> : null}
         {isOpen && canPost ? <PostButton no={request.no} amount={request.amount_charged} /> : null}
         <DocumentActionsMenu />
       </Toolbar>
 
-      <Card>
-        <CardHead title="Document details" sub="Status" />
+      <EditableCard title="Document details" sub="Status"
+        canEdit={canEditFields} form={<EditForm request={request} members={editMembers} />}>
         <DefinitionList items={[
           ['Document no.', <span className="mono" key="no">{request.no}</span>],
           ['Member', <>{request.member_first_name} {request.member_last_name} <span className="mono">({request.member_no})</span></>],
@@ -78,7 +78,7 @@ export default async function MemberChargingDetailPage({ params, searchParams }:
           ['Amount charged', <Money cents={request.amount_charged} key="amount-charged" />],
           ['Status', <Pill status={request.status} key="status" />],
         ]} />
-      </Card>
+      </EditableCard>
 
       <Card>
         <CardHead title="Document trail" sub="Who created and posted this document, and when" />

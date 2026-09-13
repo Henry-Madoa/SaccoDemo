@@ -16,10 +16,11 @@ import {
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   ReopenButton, ProcessButton, RefreshLinesButton,
 } from '../../member-exit-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import type { Tone } from '@/lib/format';
 
@@ -86,9 +87,6 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
         <Link href={`/members/${exit.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
         {canEditFields ? <RefreshLinesButton no={exit.no} className="btn ghost" /> : null}
-        {canEditFields ? (
-          <EditButton exit={exit} members={eligibleMembers} instantWithdrawalChargeId={org?.instant_withdrawal_charge_id} className="btn ghost" />
-        ) : null}
         {canEditFields ? <SubmitButton no={exit.no} className="btn ghost" /> : null}
         {exit.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={exit.no} className="btn ghost" />
@@ -121,7 +119,8 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
       </div>
 
       <div className="grid g2">
-        <CollapsibleCard title="Member exit details">
+        <EditableCard collapsible title="Member exit details" canEdit={canEditFields}
+          form={<EditForm exit={exit} members={eligibleMembers} instantWithdrawalChargeId={org?.instant_withdrawal_charge_id} />}>
           <DefinitionList items={[
             ['No.', <span className="mono" key="no">{exit.no}</span>],
             ['Member', <Link href={`/members/${exit.member_id}`} key="m">{exit.member_first_name} {exit.member_last_name} <span className="mono">({exit.member_no})</span></Link>],
@@ -138,7 +137,7 @@ export default async function MemberExitDetailPage({ params, searchParams }: {
             ['Reason', exit.reason || '—'],
             exit.decision_reason ? ['Decision reason', exit.decision_reason] : null,
           ]} />
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard title="Document trail" sub="Who requested and processed this exit, and when">
           <DefinitionList items={[

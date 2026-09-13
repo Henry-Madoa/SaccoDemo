@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useRunAction } from '@/components/ui/run-action';
@@ -66,24 +67,21 @@ export function NewExitButton({ employees, reasons }: { employees: EmployeeLite[
   );
 }
 
-export function EditExitButton({ exit, reasons, className = 'btn ghost' }: {
-  exit: EmployeeExitView; reasons: HrTerminationReason[]; className?: string;
+export function EditExitForm({ exit, reasons }: {
+  exit: EmployeeExitView; reasons: HrTerminationReason[];
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${exit.no}`} wide
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => updateExitRequest(exit.no, values)}
           submitLabel="Save changes"
           successTitle="Updated"
         >
           <ExitFields reasons={reasons} initial={exit} />
         </FormModal>
-      ) : null}
     </>
   );
 }

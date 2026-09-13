@@ -94,6 +94,13 @@ export const NO_SERIES_DOCUMENTS: NoSeriesDocument[] = [
   { code: 'WHT_CERTIFICATE', label: 'Withholding Tax Certificate No.', category: 'Finance' },
   { code: 'BOSA_DIVIDEND', label: 'BOSA Dividend No.', category: 'Finance' },
   { code: 'FOSA_DIVIDEND', label: 'FOSA Interest Declaration No.', category: 'Finance' },
+  { code: 'SHARE_TRADING_WINDOW', label: 'Share Trading Window No.', category: 'Finance' },
+  { code: 'SHARE_FLOATING', label: 'Share Floating No.', category: 'Finance' },
+  { code: 'IMPREST_REQUEST', label: 'Imprest Request No.', category: 'Finance' },
+  { code: 'PETTY_CASH', label: 'Petty Cash No.', category: 'Finance' },
+  { code: 'STAFF_CLAIM', label: 'Staff Claim No.', category: 'Finance' },
+  { code: 'STORE_REQUISITION', label: 'Store Requisition No.', category: 'Payables' },
+  { code: 'PURCHASE_REQUISITION', label: 'Purchase Requisition No.', category: 'Payables' },
 ];
 
 const DOC_ORDER = new Map(NO_SERIES_DOCUMENTS.map((d, i) => [d.code, i]));

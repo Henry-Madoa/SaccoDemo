@@ -16,8 +16,9 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   TerminateButton, FreezeButton, UnfreezeButton,
 } from '../../standing-order-actions';
 
@@ -74,7 +75,6 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
         <Link href="/standing-orders" className="btn ghost sm">← All standing orders</Link>
         <Link href={`/members/${order.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {canEditFields ? <EditButton order={order} members={editMembers} className="btn ghost" /> : null}
         {canEditFields ? <SubmitButton no={order.no} className="btn ghost" /> : null}
         {order.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={order.no} className="btn ghost" />
@@ -95,7 +95,8 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
         <DocumentActionsMenu />
       </Toolbar>
 
-      <CollapsibleCard title="Order details" sub="What this order does">
+      <EditableCard collapsible title="Order details" sub="What this order does"
+        canEdit={canEditFields} form={<EditForm order={order} members={editMembers} />}>
         <div className="grid g2">
           <DefinitionList items={[
             ['Order no.', <span className="mono" key="no">{order.no}</span>],
@@ -126,7 +127,7 @@ export default async function StandingOrderDetailPage({ params, searchParams }: 
             order.decision_reason ? ['Decision reason', order.decision_reason] : null,
           ]} />
         </div>
-      </CollapsibleCard>
+      </EditableCard>
 
       <CollapsibleCard title="Document trail" sub="Who requested this order, and when">
         <DefinitionList items={[

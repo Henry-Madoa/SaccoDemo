@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field, MoneyInput, toTwoDp } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -200,24 +201,21 @@ export function NewTransferButton({ members, canCrossMember }: { members: Eligib
   );
 }
 
-export function EditButton({ transfer, members, canCrossMember, className = 'btn ghost' }: {
-  transfer: InterAccountTransferView; members: EligibleMember[]; canCrossMember: boolean; className?: string;
+export function EditForm({ transfer, members, canCrossMember }: {
+  transfer: InterAccountTransferView; members: EligibleMember[]; canCrossMember: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${transfer.no}`} wide
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveInterAccountTransfer(transfer.no, values)}
           submitLabel="Save changes"
           successTitle="Transfer updated"
         >
           <TransferFields members={members} canCrossMember={canCrossMember} initial={transfer} />
         </FormModal>
-      ) : null}
     </>
   );
 }

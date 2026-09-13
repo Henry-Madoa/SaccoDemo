@@ -17,10 +17,11 @@ import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
 import {
-  EditDividendButton, DeleteDividendButton, EditParamsButton, CalculateButton, SubmitButton,
+  DeleteDividendButton, EditParamsButton, CalculateButton, SubmitButton,
   CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ReopenButton, PostButton,
   EditLineButton, PrintSlipsLink,
 } from '../../dividend-actions';
+import { DividendDeclarationCard } from '../../dividend-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,7 +91,6 @@ export default async function DividendDetailPage({ params, searchParams }: {
           <Link href="/dividends" className="btn ghost sm">← All dividends</Link>
           {calculated ? <PrintSlipsLink no={dividend.no} /> : null}
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditDividendButton dividend={dividend} options={options} /> : null}
           {isOpen && canCreate && isOwn
             ? <EditParamsButton no={dividend.no} params={dividend.params} products={options.products} />
             : null}
@@ -116,33 +116,8 @@ export default async function DividendDetailPage({ params, searchParams }: {
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Declaration" sub="The period, the book and where it posts">
-          <div className="grid g2">
-            <DefinitionList items={[
-              ['Dividend no.', <span className="mono" key="no">{dividend.no}</span>],
-              ['Description', dividend.description],
-              ['Posting description', dividend.posting_description || '—'],
-              ['Book', dividend.document_type === 'FOSA' ? 'FOSA — interest on savings' : 'BOSA — dividend on deposits'],
-              ['Year', String(dividend.dividend_year)],
-              ['Period', `${dividend.start_date} → ${dividend.end_date}`],
-              ['Posting date', dividend.posting_date],
-              ['Status', <Pill status={posted ? 'Posted' : dividend.status} key="st" />],
-              dividend.decision_reason ? ['Decision reason', dividend.decision_reason] : null,
-            ]} />
-            <DefinitionList items={[
-              ['Posting type', dividend.posting_type],
-              ['Computation', dividend.computation_type],
-              ['Recover loans', Number(dividend.recover_loans) ? 'Yes' : 'No'],
-              ['Boost to minimum share capital', Number(dividend.boost_to_minimum) ? 'Yes' : 'No'],
-              ['Maximum boost', dividend.maximum_boost_amount
-                ? <Money cents={dividend.maximum_boost_amount} key="mb" />
-                : 'No ceiling'],
-              ['Preferential boost allowed', Number(dividend.preferential_boost) ? 'Yes' : 'No'],
-              ['Calculated', dividend.calculated_at ? formatDateTime(dividend.calculated_at) : 'Not yet'],
-              dividend.journal_no ? ['Journal', <span className="mono" key="j">{dividend.journal_no}</span>] : null,
-            ]} />
-          </div>
-        </CollapsibleCard>
+        {/* Edited on the card itself — the Edit button lives on its header. */}
+        <DividendDeclarationCard dividend={dividend} options={options} canEdit={isOpen && canCreate && isOwn} />
 
         <CollapsibleCard
           title="Rates"

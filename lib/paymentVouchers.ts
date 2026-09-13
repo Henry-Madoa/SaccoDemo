@@ -51,10 +51,12 @@ const CHEQUE_METHODS = new Set(['CHEQUE', 'CHQ', 'BANKERS CHEQUE']);
 const SELECT_ROW = `
   SELECT pvh.*, ba.code AS paying_bank_account_code,
          (SELECT COUNT(*) FROM payment_voucher_line l WHERE l.payment_voucher_header_id = pvh.id) AS line_count,
-         j.journal_no AS journal_no
+         j.journal_no AS journal_no,
+         e.employee_no, TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name
   FROM payment_voucher_header pvh
   JOIN bank_account ba ON ba.id = pvh.paying_bank_account_id
-  LEFT JOIN journal j ON j.id = pvh.journal_id`;
+  LEFT JOIN journal j ON j.id = pvh.journal_id
+  LEFT JOIN employee e ON e.id = pvh.employee_id`;
 
 export const PV_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'no', label: 'No.', type: 'text', column: 'pvh.no' },
@@ -170,6 +172,10 @@ export const PAYMENT_VOUCHER_TYPES: Record<PaymentVoucherType, PaymentVoucherTyp
     help: 'Remit a statutory or third-party liability the SACCO is holding.',
     glType: 'LIABILITY',
   },
+  'Employee Payment': {
+    lineType: 'Employee', label: 'Employee Payment',
+    help: 'Pay a member of staff — an imprest, an advance or a claim — through the employee subledger. A line applied to an approved imprest request issues it.',
+  },
 };
 
 export const PAYMENT_VOUCHER_TYPE_LIST = Object.keys(PAYMENT_VOUCHER_TYPES) as PaymentVoucherType[];
@@ -235,6 +241,8 @@ export interface PaymentVoucherInput {
   currencyCode?: string | null;
   /** Member Payment / RTGS-SWIFT only. */
   memberId?: number | null;
+  /** Employee Payment only. */
+  employeeId?: number | null;
   lines: PaymentVoucherLineInput[];
 }
 
@@ -251,6 +259,7 @@ interface ResolvedPvLine {
   memberId: number | null;
   savingsAccountId: number | null;
   availableBalance: Cents;
+  employeeId: number | null;
 }
 
 /**
@@ -262,14 +271,39 @@ interface ResolvedPvLine {
  */
 async function resolveLine(
   input: PaymentVoucherLineInput, rule: PaymentVoucherTypeRule, currencyCode: string,
-  defaultVatBus: string | null, header: { memberId: number | null },
+  defaultVatBus: string | null, header: { memberId: number | null; employeeId?: number | null },
 ): Promise<ResolvedPvLine> {
   if (!(input.amount > 0)) throw new AppError('Every line needs an amount greater than zero', 'VALIDATION');
   const base: ResolvedPvLine = {
     accountName: '', vendorId: null, vendorPin: null, vendorVatBus: null, vendorWhtExempt: false,
     customerId: null, otherBankGlAccountId: null, glAccountId: null, glVatBus: null,
-    memberId: null, savingsAccountId: null, availableBalance: 0,
+    memberId: null, savingsAccountId: null, availableBalance: 0, employeeId: null,
   };
+
+  // An Employee Payment pays the header's employee: the line's account is that employee, and
+  // an Applies-to Doc. No. names the approved imprest request the payment issues.
+  if (rule.lineType === 'Employee') {
+    if (!header.employeeId) throw new AppError('Pick the employee this voucher pays', 'VALIDATION');
+    const e = await one<{ id: number; employee_no: string; first_name: string; last_name: string; status: string }>(
+      'SELECT id, employee_no, first_name, last_name, status FROM employee WHERE id = ?', header.employeeId,
+    );
+    if (!e) throw new AppError('Employee not found', 'NOT_FOUND');
+    if (!['ACTIVE', 'ON_LEAVE'].includes(e.status)) throw new AppError(`${e.employee_no} is not an active employee`, 'VALIDATION');
+    const ref = input.appliesToDocNo?.trim();
+    if (ref) {
+      const imp = await one<{ employee_id: number; status: string; posted: boolean; amount: number }>(
+        `SELECT r.employee_id, r.status, r.posted,
+                COALESCE((SELECT SUM(l.request_amount) FROM imprest_request_line l WHERE l.request_no = r.no), 0)::bigint AS amount
+         FROM imprest_request r WHERE r.no = ?`, ref,
+      );
+      if (!imp) throw new AppError(`Imprest request ${ref} not found`, 'NOT_FOUND');
+      if (imp.employee_id !== e.id) throw new AppError(`Imprest ${ref} does not belong to ${e.employee_no}`, 'VALIDATION');
+      if (imp.posted) throw new AppError(`Imprest ${ref} has already been issued`, 'VALIDATION');
+      if (imp.status !== 'Approved') throw new AppError(`Imprest ${ref} is ${imp.status} — only an approved request can be paid`, 'VALIDATION');
+      if (Math.round(input.amount) !== Number(imp.amount)) throw new AppError(`Imprest ${ref} is for ${Number(imp.amount) / 100}; this line pays ${input.amount / 100}`, 'VALIDATION');
+    }
+    return { ...base, accountName: `${e.first_name} ${e.last_name}`, employeeId: e.id };
+  }
 
   if (rule.lineType === 'Member') {
     if (!header.memberId) throw new AppError('Pick the member this voucher pays', 'VALIDATION');
@@ -436,6 +470,16 @@ async function resolveHeaderMember(
   return { id: m.id, member_no: m.member_no, name: m.name.split(' ').filter(Boolean).join(' ') };
 }
 
+/** The employee an Employee Payment pays; cleared whenever the Payment Type is anything else. */
+async function resolveHeaderEmployee(input: PaymentVoucherInput): Promise<number | null> {
+  if (paymentVoucherRule(input.pvType).lineType !== 'Employee') return null;
+  if (!input.employeeId) throw new AppError('Pick the employee this voucher pays', 'VALIDATION');
+  const e = await one<{ id: number; employee_no: string; status: string }>('SELECT id, employee_no, status FROM employee WHERE id = ?', input.employeeId);
+  if (!e) throw new AppError('Employee not found', 'NOT_FOUND');
+  if (!['ACTIVE', 'ON_LEAVE'].includes(e.status)) throw new AppError(`${e.employee_no} is not an active employee`, 'VALIDATION');
+  return e.id;
+}
+
 /**
  * The Payment Method a cash document was settled by — a real relation to the Setup Pool table,
  * not free text, so a code that was renamed or blocked cannot quietly stay on new documents.
@@ -456,6 +500,7 @@ export async function createPaymentVoucher(input: PaymentVoucherInput, user: Act
   if (!input.date) throw new AppError('A voucher date is required', 'VALIDATION');
   if (!input.description?.trim()) throw new AppError('A narration is required', 'VALIDATION');
   const member = await resolveHeaderMember(input);
+  const employeeId = await resolveHeaderEmployee(input);
   const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.payingBankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? bank.currency_code, input.date);
@@ -467,13 +512,13 @@ export async function createPaymentVoucher(input: PaymentVoucherInput, user: Act
       `INSERT INTO payment_voucher_header
          (no, date, pv_type, pay_mode_code, cheque_no, cheque_date, cheque_received_by, paying_bank_account_id,
           currency_code, currency_factor, description, payee_name, payee_external_bank_code, payee_bank_branch_code,
-          payee_account_no, approval_limit, prepared_by, member_id, member_no, member_name, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          payee_account_no, approval_limit, prepared_by, member_id, member_no, member_name, employee_id, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       no, input.date, input.pvType?.trim() || null, payMode, input.chequeNo?.trim() || null,
       input.chequeDate || null, input.chequeReceivedBy?.trim() || null, bank.id, cur.code, cur.factor,
       input.description.trim(), input.payeeName?.trim() || null, input.payeeExternalBankCode || null,
       input.payeeBankBranchCode || null, input.payeeAccountNo?.trim() || null, setup.pv_approval_limit,
-      user.username, member?.id ?? null, member?.member_no ?? null, member?.name ?? null,
+      user.username, member?.id ?? null, member?.member_no ?? null, member?.name ?? null, employeeId,
       new Date().toISOString(), user.username,
     );
     await replaceLines(Number(info.lastInsertRowid), input, cur.code, cur.factor, input.date, setup.default_vat_bus_posting_group_code);
@@ -488,6 +533,7 @@ export async function updatePaymentVoucher(no: string, input: PaymentVoucherInpu
   if (before.status !== 'Open') throw new AppError('Only an open voucher can be edited', 'VALIDATION');
   if (before.created_by !== user.username) throw new AppError('Only the person who created this can edit it', 'NOT_CREATOR');
   const member = await resolveHeaderMember(input);
+  const employeeId = await resolveHeaderEmployee(input);
   const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.payingBankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? before.currency_code, input.date);
@@ -498,12 +544,12 @@ export async function updatePaymentVoucher(no: string, input: PaymentVoucherInpu
       `UPDATE payment_voucher_header SET date = ?, pv_type = ?, pay_mode_code = ?, cheque_no = ?, cheque_date = ?,
          cheque_received_by = ?, paying_bank_account_id = ?, currency_code = ?, currency_factor = ?, description = ?,
          payee_name = ?, payee_external_bank_code = ?, payee_bank_branch_code = ?, payee_account_no = ?,
-         member_id = ?, member_no = ?, member_name = ? WHERE id = ?`,
+         member_id = ?, member_no = ?, member_name = ?, employee_id = ? WHERE id = ?`,
       input.date, input.pvType?.trim() || null, payMode, input.chequeNo?.trim() || null,
       input.chequeDate || null, input.chequeReceivedBy?.trim() || null, bank.id, cur.code, cur.factor,
       input.description.trim(), input.payeeName?.trim() || null, input.payeeExternalBankCode || null,
       input.payeeBankBranchCode || null, input.payeeAccountNo?.trim() || null,
-      member?.id ?? null, member?.member_no ?? null, member?.name ?? null, before.id,
+      member?.id ?? null, member?.member_no ?? null, member?.name ?? null, employeeId, before.id,
     );
     await replaceLines(before.id, input, cur.code, cur.factor, input.date, setup.default_vat_bus_posting_group_code);
   });
@@ -520,7 +566,8 @@ async function replaceLines(
   let lineNo = 10000;
   let total = 0;
   for (const l of input.lines) {
-    const hasAccount = isMember ? !!l.savingsAccountId : !!l.accountNo?.trim();
+    const isEmployee = rule.lineType === 'Employee';
+    const hasAccount = isMember ? !!l.savingsAccountId : isEmployee ? !!input.employeeId : !!l.accountNo?.trim();
     // A blank row is dropped; one carrying money but no account is refused, so a line can never
     // be silently lost between the form and the document.
     if (!hasAccount && !(l.amount > 0)) continue;
@@ -533,13 +580,14 @@ async function replaceLines(
       );
     }
     if (!(l.amount > 0)) continue;
-    const resolved = await resolveLine(l, rule, currencyCode, defaultVatBus, { memberId: input.memberId ?? null });
+    const resolved = await resolveLine(l, rule, currencyCode, defaultVatBus, { memberId: input.memberId ?? null, employeeId: input.employeeId ?? null });
+    const employeeNo = isEmployee ? (await one<{ employee_no: string }>('SELECT employee_no FROM employee WHERE id = ?', resolved.employeeId))?.employee_no ?? null : null;
     // A line always carries a description, defaulted from the header narration. The form asks
     // for one; this is the backstop, so a posted line can never print blank.
     const description = l.description?.trim() || input.description.trim();
     if (!description) throw new AppError('Every voucher line needs a description', 'VALIDATION');
     // Only a supplier payment carries tax: nothing else has a VAT or WHT base behind it.
-    const tax = rule.lineType === 'Member' || rule.lineType === 'Bank Account'
+    const tax = rule.lineType === 'Member' || rule.lineType === 'Bank Account' || rule.lineType === 'Employee'
       ? blankLineTax(Math.round(l.amount))
       : await computeLineTaxFor(l, resolved, currencyFactor, docDate);
     total += tax.netAmount;
@@ -549,7 +597,7 @@ async function replaceLines(
           vat_prod_posting_group_code, wht_code_one, wht_code_two, vat_amount, wht_amount_one, wht_amount_two, wht_base, net_amount,
           member_id, savings_account_id, available_balance)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      headerId, lineNo, rule.lineType, l.accountNo?.trim() || null, resolved.accountName, description,
+      headerId, lineNo, rule.lineType, employeeNo ?? (l.accountNo?.trim() || null), resolved.accountName, description,
       Math.round(l.amount), l.appliesToDocNo?.trim() || null, tax.vatProd, tax.whtOne, tax.whtTwo,
       tax.vatAmount, tax.whtAmountOne, tax.whtAmountTwo, tax.whtBase, tax.netAmount,
       resolved.memberId, resolved.savingsAccountId, resolved.availableBalance,
@@ -691,6 +739,9 @@ export async function postPaymentVoucher(no: string, user: Actor): Promise<{ pos
       accountId: number; memberId: number; amount: Cents; balance: Cents; narration: string;
     }[] = [];
     const vatEntryRows: { vatProd: string; vatBus: string | null; pct: number; base: Cents; amount: Cents; taxType: 'VAT' | 'WHT'; vendorNo: string | null; vendorPin: string | null }[] = [];
+    /** Employee Payment lines — written to the employee subledger once the journal exists. */
+    const employeePayments: { amount: Cents; appliesTo: string | null; narration: string }[] = [];
+    const imprestControl = lines.some((l) => l.line_type === 'Employee') ? await (await import('./imprest.ts')).imprestControlAccountId() : null;
 
     for (const line of lines) {
       const narration = `Payment Voucher ${no} — ${line.description || line.account_name || line.account_no}`.slice(0, 250);
@@ -723,6 +774,12 @@ export async function postPaymentVoucher(no: string, user: Actor): Promise<{ pos
           accountId: Number(line.savings_account_id), memberId: Number(line.member_id),
           amount: gross, balance: Number(acct.balance), narration,
         });
+      } else if (line.line_type === 'Employee') {
+        // Money out to a member of staff sits on the employee subledger until it is surrendered,
+        // refunded or recovered — the control account is debited, not an expense.
+        if (!header.employee_id) throw new AppError('This voucher has no employee', 'VALIDATION');
+        glLines.push({ account: imprestControl!, debit: gross, credit: 0, narration });
+        employeePayments.push({ amount: gross, appliesTo: line.applies_to_doc_no, narration });
       } else if (line.line_type === 'G/L Account') {
         glLines.push({ account: (await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', line.account_no!))!.id, debit: netOfVat, credit: 0, narration });
         if (line.vat_amount > 0 && line.vat_prod_posting_group_code) {
@@ -814,6 +871,16 @@ export async function postPaymentVoucher(no: string, user: Actor): Promise<{ pos
         w.accountId, -w.amount, next, 'TELLER', w.narration.slice(0, 250), j.id, bank.id, user.username,
       );
     }
+    if (employeePayments.length) {
+      const imprest = await import('./imprest.ts');
+      for (const p of employeePayments) {
+        await imprest.writeEmployeeLedgerEntry({
+          employeeId: header.employee_id!, entryType: p.appliesTo ? 'IMPREST_ISSUE' : 'PAYMENT', documentNo: p.appliesTo ?? no,
+          postingDate: vd, amount: p.amount, description: p.narration, journalId: j.id, user,
+        });
+        if (p.appliesTo) await imprest.markImprestIssuedByVoucher(p.appliesTo, header.employee_id!, p.amount, no, j.id, vd, user);
+      }
+    }
     await run("UPDATE vendor_ledger_entry SET journal_id = ? WHERE source_type = 'Payment Voucher' AND source_id = ? AND journal_id IS NULL", j.id, header.id);
     await run("UPDATE cust_ledger_entry SET journal_id = ? WHERE source_type = 'Payment Voucher' AND source_id = ? AND journal_id IS NULL", j.id, header.id);
     for (const v of touchedVendors) await recomputeVendorBalance(v);
@@ -828,13 +895,13 @@ export async function postPaymentVoucher(no: string, user: Actor): Promise<{ pos
          (no, pv_no, date, pay_mode_code, cheque_no, cheque_date, cheque_received_by, paying_bank_account_id,
           currency_code, currency_factor, description, payee_name, payee_external_bank_code, payee_bank_branch_code,
           payee_account_no, posting_date, total_amount, journal_id, prepared_by, approved_by,
-          pv_type, member_id, member_no, member_name, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          pv_type, member_id, member_no, member_name, employee_id, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       postedNo, no, header.date, header.pay_mode_code, header.cheque_no, header.cheque_date, header.cheque_received_by,
       bank.id, header.currency_code, header.currency_factor, header.description, header.payee_name,
       header.payee_external_bank_code, header.payee_bank_branch_code, header.payee_account_no, vd, header.total_amount,
       j.id, header.prepared_by, approver, header.pv_type, header.member_id, header.member_no,
-      header.member_name, new Date().toISOString(), user.username,
+      header.member_name, header.employee_id, new Date().toISOString(), user.username,
     );
     const ppvId = Number(info.lastInsertRowid);
     let ln = 10000;

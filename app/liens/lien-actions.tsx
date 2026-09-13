@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -124,24 +125,21 @@ export function NewLienButton({ members }: { members: EligibleMember[] }) {
   );
 }
 
-export function EditButton({ lien, members, className = 'btn ghost' }: {
-  lien: MemberLienView; members: EligibleMember[]; className?: string;
+export function EditForm({ lien, members }: {
+  lien: MemberLienView; members: EligibleMember[];
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${lien.no}`} wide
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveLien(lien.no, values)}
           submitLabel="Save changes"
           successTitle="Lien updated"
         >
           <LienFields members={members} initial={lien} />
         </FormModal>
-      ) : null}
     </>
   );
 }

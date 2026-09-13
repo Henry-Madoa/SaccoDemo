@@ -43,6 +43,14 @@ export interface Organisation {
   /** General Ledger Setup: receipts at or above this need approval; below it the creator may
    *  post their own. See lib/receipts.ts postReceipt(). */
   receipt_approval_limit: Cents;
+  /** AL General Ledger Setup "Petty Cash Limit" — above it, raise an imprest instead. */
+  petty_cash_limit: Cents;
+  /** AL "Max No Outstanding Imprests" an employee may hold unsurrendered. */
+  max_outstanding_imprests: number;
+  /** The employee subledger control account every imprest, refund and claim posts through. */
+  imprest_control_account_id: number | null;
+  /** Date formula from issue to the surrender due date. */
+  imprest_surrender_period: string;
   logo: string | null;
   currency_code: string;
   currency_symbol: string;
@@ -971,7 +979,7 @@ export interface MemberChargingWithDimensions extends MemberCharging {
 /* ------------------------------------------------------- FOSA tellering */
 
 /** bank_account.account_type — see lib/cashManagement.ts. */
-export type BankAccountType = 'MAIN' | 'TREASURY' | 'TILL' | 'OTHER';
+export type BankAccountType = 'MAIN' | 'TREASURY' | 'TILL' | 'PETTY_CASH' | 'OTHER';
 
 /** AL "FOSA Transaction Types" (the five treasury/till cash movements). */
 export type FosaDocumentType =
@@ -1190,6 +1198,569 @@ export interface InterAccountTransferView extends InterAccountTransfer {
   journal_no: string | null;
   /** For PARTIAL: balance - hold - min_balance; for FULL: balance - hold. Clamped >= 0. */
   source_available: Cents;
+}
+
+/* --------------------------------------------------------- share trading */
+
+export type ShareWindowStatus = 'New' | 'Published' | 'Retired';
+export type ShareOnNoBid = 'Extend' | 'Reverse';
+export type ShareFloatType = 'Partial' | 'Full';
+export type ShareProceedsType = 'FOSA Account' | 'NWD Account';
+export type ShareTradeSource = 'Walking' | 'App' | 'USSD' | 'Portal';
+export type ShareFloatingOutcome = 'Transferred' | 'Taken Down' | 'Reversed';
+
+/** AL Tab52204133 "Share Trading Setup" — the trading window a floating is sold in. */
+export interface ShareTradingWindow {
+  no: string;
+  description: string;
+  start_date: IsoDate;
+  end_date: IsoDate;
+  /** Par value per share — the ceiling on any bid. */
+  base_price: Cents;
+  /** The floor on a seller's minimum acceptable price. */
+  reserve_price: Cents;
+  transaction_charge_id: number | null;
+  clearing_account_id: number;
+  holding_account_id: number;
+  share_life: string | null;
+  tolerance_period: string | null;
+  on_no_bid: ShareOnNoBid;
+  minimum_shares_to_float: number;
+  published: boolean;
+  status: ShareWindowStatus;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ShareTradingWindowView extends ShareTradingWindow {
+  transaction_charge_code: string | null;
+  clearing_account_code: string;
+  clearing_account_name: string;
+  holding_account_code: string;
+  holding_account_name: string;
+  /** FlowFields "Shares On Market" / "Total Value On Market": published, not yet archived. */
+  shares_on_market: number;
+  value_on_market: Cents;
+  floatings: number;
+}
+
+/** AL Tab52204134 "Share Floating" — a member's offer to sell share capital. */
+export interface ShareFloating {
+  no: string;
+  window_no: string;
+  member_id: number;
+  share_account_id: number;
+  float_type: ShareFloatType;
+  par_value: Cents;
+  reserve_price: Cents;
+  share_life: string | null;
+  tolerance_period: string | null;
+  on_no_bid: ShareOnNoBid;
+  total_shares: number;
+  shares_to_float: number;
+  minimum_acceptable_price: Cents;
+  floated_value: Cents;
+  charge_amount: Cents;
+  proceeds_type: ShareProceedsType;
+  proceeds_account_id: number | null;
+  payment_method_code: string | null;
+  external_reference_no: string | null;
+  payment_date: IsoDate | null;
+  source: ShareTradeSource;
+  narration: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  published: boolean;
+  published_on: IsoDate | null;
+  expiry_date: IsoDate | null;
+  awarded: boolean;
+  purchase_date: IsoDate | null;
+  payment_due_date: IsoDate | null;
+  archived: boolean;
+  outcome: ShareFloatingOutcome | null;
+  publish_journal_id: number | null;
+  purchase_journal_id: number | null;
+  transfer_journal_id: number | null;
+  takedown_journal_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+  transferred_at: IsoDateTime | null;
+  transferred_by: string | null;
+}
+
+/**
+ * Where a floating stands on the market — AL keeps this as three flags beside the document
+ * status; one word is easier to filter and print.
+ *   Draft      Open / Pending / Approved, not yet published
+ *   On Market  published, taking bids
+ *   Awarded    a bid has been posted as the purchase; waiting for payment and transfer
+ *   Closed     archived — Transferred, Taken Down or Reversed
+ */
+export type ShareFloatingStage = 'Draft' | 'On Market' | 'Awarded' | 'Closed';
+
+export interface ShareFloatingView extends ShareFloating {
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  member_phone: string | null;
+  member_email: string | null;
+  share_account_no: string;
+  share_product_name: string;
+  share_balance: Cents;
+  proceeds_account_no: string | null;
+  proceeds_product_name: string | null;
+  window_description: string;
+  window_status: ShareWindowStatus;
+  transaction_charge_code: string | null;
+  stage: ShareFloatingStage;
+  bids: number;
+  /** FlowField "Maximum Bid Price". */
+  maximum_bid_price: Cents;
+  /** FlowField "Payment Amount": the awarded bid's total. */
+  payment_amount: Cents;
+  /** FlowField "Allocated Amount": what the buyer has allocated towards it so far. */
+  allocated_amount: Cents;
+  publish_journal_no: string | null;
+  purchase_journal_no: string | null;
+  transfer_journal_no: string | null;
+  takedown_journal_no: string | null;
+}
+
+/** AL Tab52204135 "Share Trading Lines" — one member's bid. */
+export interface ShareBid {
+  id: number;
+  floating_no: string;
+  member_id: number;
+  share_account_id: number;
+  bid_price: Cents;
+  bid_date: IsoDateTime;
+  shares: number;
+  charges: Cents;
+  total_amount: Cents;
+  awarded: boolean;
+  bought: boolean;
+  source: ShareTradeSource;
+  created_by: string | null;
+}
+
+export interface ShareBidView extends ShareBid {
+  member_no: string;
+  first_name: string;
+  last_name: string;
+  member_phone: string | null;
+  member_email: string | null;
+  share_account_no: string;
+  share_balance: Cents;
+}
+
+/** AL Tab52204136 "Share Transfer Receipt" — the buyer's payment allocations. */
+export interface ShareTransferReceipt {
+  id: number;
+  floating_no: string;
+  savings_account_id: number;
+  allocated_amount: Cents;
+  description: string | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ShareTransferReceiptView extends ShareTransferReceipt {
+  account_no: string;
+  product_name: string;
+  balance: Cents;
+  available: Cents;
+}
+
+export interface ShareFloatingDetail extends ShareFloatingView {
+  bids: number;
+  bid_lines: ShareBidView[];
+  receipts: ShareTransferReceiptView[];
+}
+
+/* ------------------------------------------------------ imprest / petty cash */
+
+export type EmployeeLedgerEntryType =
+  | 'IMPREST_ISSUE' | 'IMPREST_SURRENDER' | 'IMPREST_REFUND' | 'CLAIM_PAID' | 'PAYROLL_RECOVERY'
+  | 'PAYROLL_CLAIM' | 'RECEIPT' | 'PAYMENT' | 'STAFF_CLAIM';
+
+/** The employee subledger — positive means the employee owes the SACCO. */
+export interface EmployeeLedgerEntry {
+  id: number;
+  employee_id: number;
+  entry_type: EmployeeLedgerEntryType;
+  document_no: string;
+  posting_date: IsoDate;
+  amount: Cents;
+  description: string | null;
+  journal_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface EmployeeLedgerEntryView extends EmployeeLedgerEntry {
+  employee_no: string;
+  first_name: string;
+  last_name: string;
+  journal_no: string | null;
+  running_balance: Cents;
+}
+
+export interface ImprestPurpose { code: string; description: string; status: 'ACTIVE' | 'INACTIVE' }
+
+export type ImprestRequestFor = 'Self' | 'Other';
+export type ImprestSurrenderStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Closed';
+export type ImprestSettlement = 'Receive Now' | 'Deduct from Payroll' | 'Pay Now' | 'Pay from Payroll';
+
+/**
+ * Where an imprest stands — the AL keeps Posted / Surrendered / Transfered To Payroll as flags
+ * beside two status fields; one word for the list.
+ *   Request     the request itself: Open, pending, approved, not yet issued
+ *   Issued      money paid out; the employee is in the field, surrender not yet submitted
+ *   Surrender   the surrender is in: pending approval, or approved and waiting to be posted
+ *   Closed      surrendered and posted (or recovered in full through payroll)
+ */
+export type ImprestStage = 'Request' | 'Issued' | 'Surrender' | 'Closed';
+
+/** AL Tab52203447 "Request Header" (Imprest / Surrender). */
+export interface ImprestRequest {
+  no: string;
+  employee_id: number;
+  request_date: IsoDate;
+  purpose_code: string | null;
+  purpose: string;
+  description: string | null;
+  request_for: ImprestRequestFor;
+  departure_location: string | null;
+  departure_date: IsoDate | null;
+  return_date: IsoDate | null;
+  total_days: number;
+  justification: string | null;
+  phone_no: string | null;
+  currency_code: string;
+  paying_bank_account_id: number | null;
+  pay_mode_code: string | null;
+  payment_tx_no: string | null;
+  cheque_date: IsoDate | null;
+  due_date: IsoDate | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+  posted_journal_id: number | null;
+  pv_no: string | null;
+  surrender_status: ImprestSurrenderStatus;
+  surrender_date: IsoDate | null;
+  surrender_decision_reason: string | null;
+  surrendered: boolean;
+  surrender_posted_at: IsoDateTime | null;
+  surrender_posted_by: string | null;
+  surrender_journal_id: number | null;
+  settlement: ImprestSettlement | null;
+  receiving_bank_account_id: number | null;
+  receipt_mode_code: string | null;
+  receipt_tx_no: string | null;
+  claim_paying_bank_account_id: number | null;
+  claim_pay_mode_code: string | null;
+  claim_payment_tx_no: string | null;
+  transfer_to_payroll: boolean;
+  transferred_to_payroll: boolean;
+  payroll_transaction_id: number | null;
+  payroll_transferred_at: IsoDateTime | null;
+  payroll_transferred_by: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface ImprestRequestView extends ImprestRequest {
+  employee_no: string;
+  first_name: string;
+  last_name: string;
+  employee_phone: string | null;
+  employee_email: string | null;
+  job_title: string | null;
+  purpose_description: string | null;
+  paying_bank_code: string | null;
+  paying_bank_name: string | null;
+  receiving_bank_code: string | null;
+  claim_bank_code: string | null;
+  stage: ImprestStage;
+  /** FlowFields: Sum of Request Amount / Actual Spent; Net = requested − spent. */
+  request_amount: Cents;
+  surrender_amount: Cents;
+  net_refund: Cents;
+  /** The employee's whole subledger balance, not just this imprest. */
+  employee_balance: Cents;
+  overdue_days: number;
+  posted_journal_no: string | null;
+  surrender_journal_no: string | null;
+  lines: number;
+}
+
+/** AL Tab52203449 "Request Lines". */
+export interface ImprestRequestLine {
+  id: number;
+  request_no: string;
+  line_no: number;
+  gl_account_id: number;
+  narration: string | null;
+  quantity: number;
+  unit_cost: Cents;
+  request_amount: Cents;
+  actual_spent: Cents;
+  surrender_note: string | null;
+}
+
+export interface ImprestRequestLineView extends ImprestRequestLine {
+  gl_account_code: string;
+  gl_account_name: string;
+  /** actual − requested: positive is a claim, negative a refund. */
+  difference: Cents;
+}
+
+export interface ImprestRequestDetail extends ImprestRequestView {
+  line_items: ImprestRequestLineView[];
+}
+
+/** AL Tab52203444 "Petty Cash Header". */
+export interface PettyCash {
+  no: string;
+  employee_id: number;
+  request_date: IsoDate;
+  posting_date: IsoDate | null;
+  paying_bank_account_id: number | null;
+  payment_to: string | null;
+  on_behalf_of: string | null;
+  payment_narration: string;
+  pay_mode_code: string | null;
+  payment_tx_no: string | null;
+  cheque_date: IsoDate | null;
+  currency_code: string;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+  journal_id: number | null;
+  paid: boolean;
+  paid_at: IsoDateTime | null;
+  paid_by: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface PettyCashView extends PettyCash {
+  employee_no: string;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  paying_bank_code: string | null;
+  paying_bank_name: string | null;
+  total_amount: Cents;
+  journal_no: string | null;
+  lines: number;
+}
+
+export interface PettyCashLine {
+  id: number;
+  petty_cash_no: string;
+  line_no: number;
+  gl_account_id: number;
+  description: string | null;
+  amount: Cents;
+}
+
+export interface PettyCashLineView extends PettyCashLine {
+  gl_account_code: string;
+  gl_account_name: string;
+}
+
+export interface PettyCashDetail extends PettyCashView {
+  line_items: PettyCashLineView[];
+}
+
+export type StaffClaimSettlement = 'Pay Now' | 'Pay from Payroll';
+
+/** AL Tab52203447 "Request Header" with Request Type Staff Claim. */
+export interface StaffClaim {
+  no: string;
+  employee_id: number;
+  claim_date: IsoDate;
+  description: string;
+  justification: string | null;
+  currency_code: string;
+  settlement: StaffClaimSettlement;
+  paying_bank_account_id: number | null;
+  pay_mode_code: string | null;
+  payment_tx_no: string | null;
+  status: DocumentStatus;
+  decision_reason: string | null;
+  posted: boolean;
+  posted_at: IsoDateTime | null;
+  posted_by: string | null;
+  journal_id: number | null;
+  payment_stopped: boolean;
+  stopped_at: IsoDateTime | null;
+  stopped_by: string | null;
+  stop_reason: string | null;
+  transferred_to_payroll: boolean;
+  payroll_transaction_id: number | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface StaffClaimView extends StaffClaim {
+  employee_no: string;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  paying_bank_code: string | null;
+  paying_bank_name: string | null;
+  total_amount: Cents;
+  journal_no: string | null;
+  lines: number;
+}
+
+export interface StaffClaimLine {
+  id: number;
+  claim_no: string;
+  line_no: number;
+  gl_account_id: number;
+  narration: string | null;
+  expense_date: IsoDate | null;
+  receipt_ref: string | null;
+  quantity: number;
+  unit_cost: Cents;
+  amount: Cents;
+}
+
+export interface StaffClaimLineView extends StaffClaimLine {
+  gl_account_code: string;
+  gl_account_name: string;
+}
+
+export interface StaffClaimDetail extends StaffClaimView {
+  line_items: StaffClaimLineView[];
+}
+
+/* ------------------------------------------------------- requisitions */
+
+export type RequisitionType = 'Store Requisition' | 'Purchase Requisition';
+export type RequisitionLineType = 'Item' | 'G/L Account' | 'Fixed Asset';
+/** Enum52203430 "Procurement Methods". */
+export type ProcurementMethod = 'RFQ' | 'RFP' | 'Direct Procurement' | 'Restricted Tendering' | 'Open Tendering' | 'Low Value Procurement';
+/** Pag52203556 Requisitions Review — what procurement does with an approved purchase requisition line. */
+export type RequisitionDecision = '' | 'RFQ' | 'Order' | 'Append to Order';
+/** AL "PR Closed By". */
+export type RequisitionCloseReason = 'Purchase Order' | 'Direct Receipt of Goods/Services' | 'Rejection';
+/** Open | Pending Approval | Approved, plus Received once the store requester confirms receipt. */
+export type RequisitionStatus = DocumentStatus | 'Received';
+
+/** AL Tab52203515 "Requisition Header". */
+export interface Requisition {
+  no: string;
+  requisition_type: RequisitionType;
+  employee_id: number;
+  title: string;
+  description: string | null;
+  requisition_date: IsoDate;
+  needed_by_date: IsoDate | null;
+  expiration_date: IsoDate | null;
+  requested_delivery_date: IsoDate | null;
+  currency_code: string;
+  location_id: number | null;
+  procurement_method: ProcurementMethod | null;
+  supplier_id: number | null;
+  status: RequisitionStatus;
+  decision_reason: string | null;
+  issued: boolean;
+  issued_at: IsoDateTime | null;
+  issued_by: string | null;
+  received: boolean;
+  received_at: IsoDateTime | null;
+  received_by: string | null;
+  pr_closed: boolean;
+  pr_closed_by: RequisitionCloseReason | null;
+  pr_closed_at: IsoDateTime | null;
+  pr_closed_by_user: string | null;
+  pr_close_reason: string | null;
+  po_generated_directly: boolean;
+  po_generated_by: string | null;
+  po_generated_at: IsoDateTime | null;
+  po_number: string | null;
+  global_dimension_1_id: number | null;
+  global_dimension_2_id: number | null;
+  created_at: IsoDateTime | null;
+  created_by: string | null;
+}
+
+export interface RequisitionView extends Requisition {
+  employee_no: string;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  location_code: string | null;
+  location_name: string | null;
+  supplier_no: string | null;
+  supplier_name: string | null;
+  /** AL flowfields "Quantity Requested" / Amount, plus the issue and processing progress. */
+  total_quantity: number;
+  total_quantity_approved: number;
+  total_quantity_issued: number;
+  total_amount: Cents;
+  lines: number;
+  lines_processed: number;
+}
+
+/** AL Tab52203516 "Requisition Lines". */
+export interface RequisitionLine {
+  id: number;
+  requisition_no: string;
+  line_no: number;
+  type: RequisitionLineType;
+  no: string;
+  description: string;
+  item_id: number | null;
+  gl_account_id: number | null;
+  unit_of_measure_id: number | null;
+  quantity: number;
+  quantity_approved: number;
+  unit_price: Cents;
+  amount: Cents;
+  location_id: number | null;
+  quantity_to_issue: number;
+  quantity_issued: number;
+  issued_at: IsoDateTime | null;
+  issued_by: string | null;
+  decision: RequisitionDecision;
+  target_no: string | null;
+  processed: boolean;
+  order_no: string | null;
+}
+
+export interface RequisitionLineView extends RequisitionLine {
+  unit_of_measure_code: string | null;
+  location_code: string | null;
+  /** AL "Quantity in Store" — on hand at the line's location, in the line's unit. */
+  quantity_in_store: number;
+  /** For Append to Order / RFQ / Order — the vendor or order the target resolves to. */
+  target_name: string | null;
+}
+
+export interface RequisitionDetail extends RequisitionView {
+  line_items: RequisitionLineView[];
+  /** Purchase documents raised from this requisition (purchase_header.requisition_no). */
+  documents: { no: string; document_type: PurchaseDocumentType; vendor_no: string; vendor_name: string; status: string; amount: Cents }[];
+  /** Store issues posted from this requisition (item_journal_line.requisition_line_id). */
+  issues: { no: string; line_no: number; item_no: string; description: string; quantity: number; posting_date: IsoDate; posted_by: string | null; location_code: string }[];
 }
 
 /* ------------------------------------------------------- bankers cheque */
@@ -3349,7 +3920,9 @@ export type WorkflowDocumentType =
   | 'ACCOUNT_ACTIVATION' | 'MEMBER_ACTIVATION' | 'MEMBER_READMISSION' | 'COLLATERAL_APPLICATION' | 'COLLATERAL_RELEASE'
   | 'GUARANTOR_CHANGE' | 'MEMBER_EXIT' | 'CHECKOFF_BATCH' | 'FIXED_DEPOSIT' | 'STANDING_ORDER'
   | 'FOSA_TRANSACTION' | 'TELLER_TRANSACTION' | 'MEMBER_LIEN' | 'INTER_ACCOUNT_TRANSFER' | 'BANKERS_CHEQUE'
-  | 'CHEQUE_DEPOSIT' | 'ITEM_JOURNAL' | 'FA_JOURNAL' | 'DIVIDEND'
+  | 'CHEQUE_DEPOSIT' | 'ITEM_JOURNAL' | 'FA_JOURNAL' | 'DIVIDEND' | 'SHARE_FLOATING'
+  | 'IMPREST_REQUEST' | 'IMPREST_SURRENDER' | 'PETTY_CASH' | 'STAFF_CLAIM'
+  | 'STORE_REQUISITION' | 'PURCHASE_REQUISITION'
   | 'SALES_DOCUMENT' | 'REMINDER'
   | 'PURCHASE_DOCUMENT'
   | 'RECEIPT' | 'PAYMENT_VOUCHER'
@@ -3940,6 +4513,8 @@ export interface ItemJournalLine {
   decision_reason: string | null;
   posted: boolean;
   journal_id: number | null;
+  /** The store requisition line this Negative Adjmt. issued, if any. */
+  requisition_line_id: number | null;
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
   created_at: IsoDateTime | null;
@@ -4859,6 +5434,8 @@ export interface PurchaseHeader {
   amount: Cents;
   amount_incl_vat: Cents;
   decision_reason: string | null;
+  /** AL "Requisition No" — the purchase requisition this was raised from. */
+  requisition_no: string | null;
   created_at: IsoDateTime | null;
   created_by: string | null;
 }
@@ -5060,9 +5637,9 @@ export interface VendorStatementReport {
  * AL's Receipt Type (Enum-Ext52204000 adds Member). It is set on the header and fixes what every
  * line may be posted to — a Receipt Type of G/L Account takes G/L lines and nothing else.
  */
-export type ReceiptLineType = 'Member' | 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account';
+export type ReceiptLineType = 'Member' | 'Employee' | 'Customer' | 'Vendor' | 'G/L Account' | 'Bank Account';
 export type ReceiptStatus = 'Open' | 'Pending Approval' | 'Approved';
-export type PaymentVoucherLineType = 'Member' | 'G/L Account' | 'Vendor' | 'Customer' | 'Bank Account';
+export type PaymentVoucherLineType = 'Member' | 'Employee' | 'G/L Account' | 'Vendor' | 'Customer' | 'Bank Account';
 
 /**
  * AL's Payment Type (Enum-Ext52204001 adds the SACCO ones). It is set on the header and fixes
@@ -5075,7 +5652,7 @@ export type PaymentVoucherLineType = 'Member' | 'G/L Account' | 'Vendor' | 'Cust
  */
 export type PaymentVoucherType =
   | 'Member Payment' | 'RTGS/SWIFT' | 'Supplier Payment' | 'Customer Refund' | 'Bank Transfer'
-  | 'Direct Expensing' | 'Payroll Settlement' | 'Remittance';
+  | 'Direct Expensing' | 'Payroll Settlement' | 'Remittance' | 'Employee Payment';
 export type BankLedgerDocumentType =
   '' | 'Payment' | 'Refund' | 'Receipt' | 'Transfer' | 'Reconciliation';
 export type BankRecLineType = 'Bank Account Ledger Entry' | 'G/L Adjustment';
@@ -5230,11 +5807,14 @@ export interface ReceiptHeader {
   member_id: number | null;
   member_no: string | null;
   member_name: string | null;
+  employee_id: number | null;
   /** AL "Received Amount" — what the teller counted, checked against the sum of the lines. */
   received_amount: Cents;
 }
 
 export interface ReceiptHeaderView extends ReceiptHeader {
+  employee_no: string | null;
+  employee_name: string | null;
   bank_account_code: string;
   line_count: number;
   journal_no: string | null;
@@ -5317,6 +5897,7 @@ export interface PostedReceipt {
   member_id: number | null;
   member_no: string | null;
   member_name: string | null;
+  employee_id: number | null;
 }
 
 export interface PostedReceiptLine {
@@ -5378,6 +5959,7 @@ export interface PaymentVoucherHeader {
   member_id: number | null;
   member_no: string | null;
   member_name: string | null;
+  employee_id: number | null;
 }
 
 /** One of a member's own accounts, as offered on a member payment line. */
@@ -5393,6 +5975,8 @@ export interface MemberPaymentAccount {
 
 export interface PaymentVoucherHeaderView extends PaymentVoucherHeader {
   paying_bank_account_code: string;
+  employee_no: string | null;
+  employee_name: string | null;
   line_count: number;
   journal_no: string | null;
 }
@@ -5457,6 +6041,7 @@ export interface PostedPaymentVoucher {
   member_id: number | null;
   member_no: string | null;
   member_name: string | null;
+  employee_id: number | null;
 }
 
 export interface PostedPaymentVoucherLine {

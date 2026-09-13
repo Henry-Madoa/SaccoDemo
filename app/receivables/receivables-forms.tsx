@@ -295,8 +295,8 @@ export function ReminderTermsFormButton({ row, initialLevels, className = 'btn',
             <fieldset key={i} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 'var(--sp)', marginBottom: 8 }}>
               <legend className="tiny muted-cell">Level {i + 1}</legend>
               <div className="grid g3">
-                <label className="tiny">Grace period<input value={l.grace_period} onChange={(e) => setLevel(i, 'grace_period', e.target.value)} placeholder="7D" /></label>
-                <label className="tiny">Due date calc.<input value={l.due_date_calculation} onChange={(e) => setLevel(i, 'due_date_calculation', e.target.value)} placeholder="7D" /></label>
+                <label className="tiny">Grace period<input type="text" value={l.grace_period} onChange={(e) => setLevel(i, 'grace_period', e.target.value)} placeholder="7D" /></label>
+                <label className="tiny">Due date calc.<input type="text" value={l.due_date_calculation} onChange={(e) => setLevel(i, 'due_date_calculation', e.target.value)} placeholder="7D" /></label>
                 <label className="tiny">Calculate interest <input type="checkbox" checked={l.calculate_interest === 'on'} onChange={(e) => setLevel(i, 'calculate_interest', e.target.checked ? 'on' : '')} /></label>
               </div>
               <div className="grid g2">

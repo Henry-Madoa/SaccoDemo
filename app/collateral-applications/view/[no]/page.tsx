@@ -16,11 +16,12 @@ import {
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, DeleteButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, DeleteButton, ApproveButton, RejectButton, DelegateButton,
   PostButton,
 } from '../../collateral-application-actions';
 import { CollateralAttachmentPanel } from './attachment-panel';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { PhoneLink } from '@/components/ui/contact-link';
 
@@ -75,9 +76,6 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
         <Link href="/collateral-applications" className="btn ghost sm">← All collateral applications</Link>
         <Link href={`/members/${application.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {canEditFields ? (
-          <EditButton application={application} members={editMembers} counties={counties} className="btn ghost" />
-        ) : null}
         {canEditFields ? <SubmitButton no={application.no} className="btn ghost" /> : null}
         {canEditFields ? <DeleteButton no={application.no} className="btn ghost" /> : null}
         {application.status === 'Pending Approval' && canCancelThis ? (
@@ -103,8 +101,8 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
 
       <div className="grid split-side-sm">
         <div>
-          <Card>
-            <CardHead title="Collateral details" />
+          <EditableCard title="Collateral details"
+            canEdit={canEditFields} form={<EditForm application={application} members={editMembers} counties={counties} />}>
             <DefinitionList items={[
               ['Application no.', <span className="mono" key="no">{application.no}</span>],
               ['Member', <>{application.member_first_name} {application.member_last_name} <span className="mono">({application.member_no})</span></>],
@@ -117,7 +115,7 @@ export default async function CollateralApplicationDetailPage({ params, searchPa
               ['Last valuation date', application.last_valuation_date ? formatDate(application.last_valuation_date) : '—'],
               ['Cheque no.', application.cheque_no || '—'],
             ]} />
-          </Card>
+          </EditableCard>
 
           <Card>
             <CardHead title="Owner details" />

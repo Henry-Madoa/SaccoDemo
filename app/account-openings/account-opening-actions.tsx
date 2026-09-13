@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -126,26 +127,25 @@ function JuniorFields({ defaults }: {
 /** Edits the member/product/notes/business/junior details of a still-Open request. Also carries
  *  the Junior Profile Picture upload, so a Junior account's details can be finished in one place
  *  rather than needing the detail page as well. */
-export function EditButton({ request, members, className = 'btn sm ghost', juniorPhotoSrc = null, mediaEnabled = false }: {
+export function EditForm({ request, members, juniorPhotoSrc = null, mediaEnabled = false }: {
   request: AccountOpeningRequestWithDimensions;
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
-  className?: string;
   juniorPhotoSrc?: string | null;
   mediaEnabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [memberId, setMemberId] = useState(String(request.member_id));
   const [products, setProducts] = useState<SavingsProduct[]>([]);
   const [productId, setProductId] = useState(String(request.savings_product_id));
 
   useEffect(() => {
-    if (!open || !memberId) return;
+    if (!memberId) return;
     let cancelled = false;
     eligibleProductsForMember(Number(memberId)).then((res) => {
       if (!cancelled && res.ok) setProducts(res.data);
     });
     return () => { cancelled = true; };
-  }, [open, memberId]);
+  }, [memberId]);
 
   // The currently-saved product is always offered too, even though eligibleProductsForMember()
   // (correctly) excludes it once it's picked — otherwise re-opening this form with the request's
@@ -164,11 +164,9 @@ export function EditButton({ request, members, className = 'btn sm ghost', junio
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${request.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveAccountOpeningRequest(request.no, values)}
           submitLabel="Save changes"
           successTitle="Request updated"
@@ -200,7 +198,6 @@ export function EditButton({ request, members, className = 'btn sm ghost', junio
             </>
           ) : null}
         </FormModal>
-      ) : null}
     </>
   );
 }

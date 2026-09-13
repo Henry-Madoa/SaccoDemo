@@ -48,15 +48,17 @@ const VIEW_CLAUSE: Record<ReceiptView, string> = {
 };
 
 /** AL's Receipt Type, which a receipt's lines all inherit — see resolveLine(). */
-const RECEIPT_TYPES: ReceiptLineType[] = ['Member', 'Customer', 'Vendor', 'G/L Account', 'Bank Account'];
+const RECEIPT_TYPES: ReceiptLineType[] = ['Member', 'Employee', 'Customer', 'Vendor', 'G/L Account', 'Bank Account'];
 
 const SELECT_ROW = `
   SELECT rh.*, ba.code AS bank_account_code,
          (SELECT COUNT(*) FROM receipt_line l WHERE l.receipt_header_id = rh.id) AS line_count,
-         j.journal_no AS journal_no
+         j.journal_no AS journal_no,
+         e.employee_no, TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name
   FROM receipt_header rh
   JOIN bank_account ba ON ba.id = rh.bank_account_id
-  LEFT JOIN journal j ON j.id = rh.journal_id`;
+  LEFT JOIN journal j ON j.id = rh.journal_id
+  LEFT JOIN employee e ON e.id = rh.employee_id`;
 
 export const RECEIPT_FILTER_FIELDS: FilterFieldDef[] = [
   { key: 'no', label: 'No.', type: 'text', column: 'rh.no' },
@@ -191,6 +193,8 @@ export interface ReceiptInput {
   currencyCode?: string | null;
   /** Receipt Type = Member only. */
   memberId?: number | null;
+  /** Receipt Type = Employee only. */
+  employeeId?: number | null;
   receivedAmount?: Cents;
   lines: ReceiptLineInput[];
 }
@@ -235,9 +239,24 @@ const BLANK_RESOLVED: Omit<ResolvedLine, 'accountName'> = {
  */
 async function resolveLine(
   input: ReceiptLineInput, lineType: ReceiptLineType, currencyCode: string,
-  header: { memberId: number | null; postingDate: IsoDate },
+  header: { memberId: number | null; employeeId?: number | null; postingDate: IsoDate },
 ): Promise<ResolvedLine> {
   if (!(input.amount > 0)) throw new AppError('Every line needs an amount greater than zero', 'VALIDATION');
+
+  // Money in from a member of staff: the line's account is the header's employee, and an
+  // Applies-to Doc. No. may name the imprest it settles.
+  if (lineType === 'Employee') {
+    if (!header.employeeId) throw new AppError('Pick the employee this receipt is from', 'VALIDATION');
+    const e = await one<{ id: number; employee_no: string; first_name: string; last_name: string }>('SELECT id, employee_no, first_name, last_name FROM employee WHERE id = ?', header.employeeId);
+    if (!e) throw new AppError('Employee not found', 'NOT_FOUND');
+    const ref = input.appliesToDocNo?.trim();
+    if (ref) {
+      const imp = await one<{ employee_id: number }>('SELECT employee_id FROM imprest_request WHERE no = ?', ref);
+      if (!imp) throw new AppError(`Imprest request ${ref} not found`, 'NOT_FOUND');
+      if (imp.employee_id !== e.id) throw new AppError(`Imprest ${ref} does not belong to ${e.employee_no}`, 'VALIDATION');
+    }
+    return { ...BLANK_RESOLVED, accountName: `${e.first_name} ${e.last_name}` };
+  }
 
   if (lineType === 'Member') {
     if (!header.memberId) throw new AppError('Pick the member this receipt is for', 'VALIDATION');
@@ -378,6 +397,7 @@ export async function createReceipt(input: ReceiptInput, user: Actor): Promise<{
   if (!input.description?.trim()) throw new AppError('A description (received from) is required', 'VALIDATION');
   if (!RECEIPT_TYPES.includes(input.receiptType)) throw new AppError('Invalid receipt type', 'VALIDATION');
   const member = await resolveHeaderMember(input);
+  const employeeId = await resolveHeaderEmployee(input);
   const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.bankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? bank.currency_code, input.postingDate);
@@ -393,12 +413,12 @@ export async function createReceipt(input: ReceiptInput, user: Actor): Promise<{
       `INSERT INTO receipt_header
          (no, receipt_type, posting_date, bank_account_id, bank_account_name, pay_mode_code, external_document_no, manual_receipt_no,
           description, currency_code, currency_factor, approval_limit, member_id, member_no, member_name, received_amount,
-          created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          employee_id, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       no, input.receiptType, input.postingDate, bank.id, bank.name, payMode, input.externalDocumentNo?.trim() || null,
       input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor,
       org?.receipt_approval_limit ?? 0, member?.id ?? null, member?.member_no ?? null, member?.name ?? null,
-      Math.round(input.receivedAmount ?? 0), new Date().toISOString(), user.username,
+      Math.round(input.receivedAmount ?? 0), employeeId, new Date().toISOString(), user.username,
     );
     await replaceLines(Number(info.lastInsertRowid), input, cur.code);
     await audit(user, 'RECEIPT_CREATE', 'receipt_header', no, { lineCount: input.lines.length, type: input.receiptType });
@@ -413,6 +433,7 @@ export async function updateReceipt(no: string, input: ReceiptInput, user: Actor
   if (before.created_by !== user.username) throw new AppError('Only the person who created this can edit it', 'NOT_CREATOR');
   if (!RECEIPT_TYPES.includes(input.receiptType)) throw new AppError('Invalid receipt type', 'VALIDATION');
   const member = await resolveHeaderMember(input);
+  const employeeId = await resolveHeaderEmployee(input);
   const payMode = await assertPaymentMethod(input.payModeCode);
   const bank = await loadBank(input.bankAccountId);
   const cur = await resolveDocCurrency(input.currencyCode ?? before.currency_code, input.postingDate);
@@ -421,14 +442,23 @@ export async function updateReceipt(no: string, input: ReceiptInput, user: Actor
     await run(
       `UPDATE receipt_header SET receipt_type = ?, posting_date = ?, bank_account_id = ?, bank_account_name = ?, pay_mode_code = ?,
          external_document_no = ?, manual_receipt_no = ?, description = ?, currency_code = ?, currency_factor = ?,
-         member_id = ?, member_no = ?, member_name = ?, received_amount = ? WHERE id = ?`,
+         member_id = ?, member_no = ?, member_name = ?, received_amount = ?, employee_id = ? WHERE id = ?`,
       input.receiptType, input.postingDate, bank.id, bank.name, payMode, input.externalDocumentNo?.trim() || null,
       input.manualReceiptNo?.trim() || null, input.description.trim(), cur.code, cur.factor,
-      member?.id ?? null, member?.member_no ?? null, member?.name ?? null, Math.round(input.receivedAmount ?? 0), before.id,
+      member?.id ?? null, member?.member_no ?? null, member?.name ?? null, Math.round(input.receivedAmount ?? 0), employeeId, before.id,
     );
     await replaceLines(before.id, input, cur.code);
   });
   await audit(user, 'RECEIPT_UPDATE', 'receipt_header', no, {});
+}
+
+/** The employee an Employee receipt is from; cleared whenever the type is anything else. */
+async function resolveHeaderEmployee(input: ReceiptInput): Promise<number | null> {
+  if (input.receiptType !== 'Employee') return null;
+  if (!input.employeeId) throw new AppError('Pick the employee this receipt is from', 'VALIDATION');
+  const e = await one<{ id: number }>('SELECT id FROM employee WHERE id = ?', input.employeeId);
+  if (!e) throw new AppError('Employee not found', 'NOT_FOUND');
+  return e.id;
 }
 
 /** AL Tab-Ext52204014's Member No. OnValidate — the name follows the number. */
@@ -458,7 +488,8 @@ async function replaceLines(headerId: number, input: ReceiptInput, currencyCode:
   let lineNo = 10000;
   let total = 0;
   for (const l of input.lines) {
-    const hasAccount = isMember ? !!(l.savingsAccountId || l.loanId) : !!l.accountNo?.trim();
+    const isEmployee = lineType === 'Employee';
+    const hasAccount = isMember ? !!(l.savingsAccountId || l.loanId) : isEmployee ? !!input.employeeId : !!l.accountNo?.trim();
     // A blank row the user never filled in is dropped; one carrying money but no account is
     // refused, so a line can never be silently lost between the form and the document.
     if (!hasAccount && !(l.amount > 0)) continue;
@@ -472,8 +503,9 @@ async function replaceLines(headerId: number, input: ReceiptInput, currencyCode:
     }
     if (!(l.amount > 0)) continue;
     const r = await resolveLine(l, lineType, currencyCode, {
-      memberId: input.memberId ?? null, postingDate: input.postingDate,
+      memberId: input.memberId ?? null, employeeId: input.employeeId ?? null, postingDate: input.postingDate,
     });
+    const employeeNo = isEmployee ? (await one<{ employee_no: string }>('SELECT employee_no FROM employee WHERE id = ?', input.employeeId))?.employee_no ?? null : null;
     // AL Tab-Ext52204015: a line always carries a description, defaulted from the header —
     // 'Member Receipt' on a member receipt, the header's own narration otherwise. The form asks
     // for one; this is the backstop, so a posted line can never print blank.
@@ -487,7 +519,7 @@ async function replaceLines(headerId: number, input: ReceiptInput, currencyCode:
           member_id, savings_account_id, loan_id, product_category, penalty_balance, accrued_interest,
           interest_balance, principal_balance, loan_balance, charge_id, charge_amount)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      headerId, lineNo, lineType, l.accountNo?.trim() || null, r.accountName, description,
+      headerId, lineNo, lineType, employeeNo ?? (l.accountNo?.trim() || null), r.accountName, description,
       Math.round(l.amount), l.appliesToDocNo?.trim() || null,
       r.memberId, r.savingsAccountId, r.loanId, r.productCategory, r.penaltyBalance, r.accruedInterest,
       r.interestBalance, r.principalBalance, r.loanBalance, r.chargeId, r.chargeAmount,
@@ -787,6 +819,8 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
     const bank = await loadBank(header.bank_account_id);
     const lines = await all<ReceiptLine>('SELECT * FROM receipt_line WHERE receipt_header_id = ? ORDER BY line_no', header.id);
     if (!lines.length) throw new AppError('This receipt has no lines', 'VALIDATION');
+    /** Employee lines — written to the employee subledger once the journal exists. */
+    const employeeReceipts: { amount: Cents; appliesTo: string | null; narration: string }[] = [];
 
     const glLines: { account: number; debit: Cents; credit: Cents; narration: string; bankDocumentType?: string; bankDocumentNo?: string; bankExternalDocumentNo?: string | null }[] = [];
     const memberCredits: MemberCredit[] = [];
@@ -817,6 +851,12 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
           glLines.push({ account: await controlAccountFor(line.savings_account_id!), debit: 0, credit: line.amount, narration });
           memberCredits.push({ accountId: line.savings_account_id!, memberId: line.member_id!, amount: line.amount, narration });
         }
+      } else if (line.line_type === 'Employee') {
+        // Settles what the employee owes on the subledger — the control account is credited.
+        if (!header.employee_id) throw new AppError('This receipt has no employee', 'VALIDATION');
+        const imprest = await import('./imprest.ts');
+        glLines.push({ account: await imprest.imprestControlAccountId(), debit: 0, credit: line.amount, narration });
+        employeeReceipts.push({ amount: line.amount, appliesTo: line.applies_to_doc_no, narration });
       } else if (line.line_type === 'G/L Account') {
         const acc = await one<{ id: number }>('SELECT id FROM gl_account WHERE code = ?', line.account_no!);
         glLines.push({ account: acc!.id, debit: 0, credit: line.amount, narration });
@@ -862,6 +902,7 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
     // The bank is debited with what this journal actually credits — which is the whole receipt
     // except the loan lines, whose own journals have already debited it for their share.
     const journalAmount = glLines.reduce((sum, l) => sum + l.credit, 0);
+    if (employeeReceipts.length && !(journalAmount > 0)) throw new AppError('Nothing to post', 'VALIDATION');
     let j: { id: number; journal_no: string } | null = null;
     if (journalAmount > 0) {
       j = await postJournal({
@@ -893,12 +934,21 @@ export async function postReceipt(no: string, user: Actor): Promise<{ postedRece
       `INSERT INTO posted_receipt
          (no, receipt_no, receipt_type, bank_account_id, bank_account_name, pay_mode_code, external_document_no,
           manual_receipt_no, description, currency_code, currency_factor, posting_date, amount, journal_id,
-          member_id, member_no, member_name, created_at, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          member_id, member_no, member_name, employee_id, created_at, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       postedNo, no, header.receipt_type, bank.id, header.bank_account_name, header.pay_mode_code, header.external_document_no,
       header.manual_receipt_no, header.description, header.currency_code, header.currency_factor, vd, header.amount, j?.id ?? null,
-      header.member_id, header.member_no, header.member_name, new Date().toISOString(), user.username,
+      header.member_id, header.member_no, header.member_name, header.employee_id, new Date().toISOString(), user.username,
     );
+    if (employeeReceipts.length && j) {
+      const imprest = await import('./imprest.ts');
+      for (const r of employeeReceipts) {
+        await imprest.writeEmployeeLedgerEntry({
+          employeeId: header.employee_id!, entryType: r.appliesTo ? 'IMPREST_REFUND' : 'RECEIPT', documentNo: r.appliesTo ?? no,
+          postingDate: vd, amount: -r.amount, description: r.narration, journalId: j.id, user,
+        });
+      }
+    }
     const prId = Number(info.lastInsertRowid);
     let ln = 10000;
     for (const line of lines) {

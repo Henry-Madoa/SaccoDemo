@@ -147,8 +147,8 @@ export async function buildPurchaseDocumentPrint(no: string): Promise<PrintDocum
     ],
     meta: [
       { label: 'Document No.', value: doc.no },
-      { label: 'Document Date', value: formatDate(doc.document_date) },
-      { label: 'Posting Date', value: formatDate(doc.posting_date) },
+      // One date, named for what the document is — Invoice Date, Order Date, Receipt Date.
+      { label: `${doc.document_type} Date`, value: formatDate(doc.posting_date) },
       ...(doc.due_date ? [{ label: 'Due Date', value: formatDate(doc.due_date) }] : []),
       ...(doc.vendor_invoice_no ? [{ label: 'Vendor Invoice No.', value: doc.vendor_invoice_no }] : []),
       ...(doc.payment_terms_code ? [{ label: 'Payment Terms', value: doc.payment_terms_code }] : []),
@@ -245,8 +245,8 @@ export async function buildPostedPurchaseDocumentPrint(no: string): Promise<Prin
     ],
     meta: [
       { label: 'Document No.', value: doc.no },
-      { label: 'Document Date', value: formatDate(doc.document_date) },
-      { label: 'Posting Date', value: formatDate(doc.posting_date) },
+      // One date, named for what the document is — Invoice Date, Order Date, Receipt Date.
+      { label: `${doc.document_type} Date`, value: formatDate(doc.posting_date) },
       ...(doc.due_date ? [{ label: 'Due Date', value: formatDate(doc.due_date) }] : []),
       ...(doc.order_no ? [{ label: 'Order No.', value: doc.order_no }] : []),
       ...(doc.vendor_invoice_no ? [{ label: 'Vendor Invoice No.', value: doc.vendor_invoice_no }] : []),

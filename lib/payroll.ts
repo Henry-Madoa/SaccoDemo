@@ -19,6 +19,7 @@ import { postJournal } from './accounting.ts';
 import { getEmployee, getCurrentContract } from './employees.ts';
 import { getPayrollSetup, listPayeBands, listNssfTiers } from './payrollSetup.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
+import { settleImprestsFromPayroll } from './imprest.ts';
 import type {
   Actor, PayrollPeriod, PayrollPeriodStatus, PayrollPostingGroup, PayrollTransactionCode,
   PayrollTransactionType, EmployeePayrollTransactionView, PayrollPeriodLineView, EmployeeExitDueType,
@@ -367,6 +368,8 @@ export async function closePayrollPeriod(id: number, nextPeriod: { periodName: s
       description: `Payroll — ${period.period_name}`, reference: period.period_name,
       lines: journalLines, user, idempotencyKey: `PAYROLL-${id}`,
     });
+    // Imprest recoveries and claim reimbursements on this payroll settle the employee subledger.
+    await settleImprestsFromPayroll(id, period.end_date, posted.id, user);
 
     const info = await run(
       'INSERT INTO payroll_period (period_name, start_date, end_date, created_at, created_by) VALUES (?,?,?,?,?)',

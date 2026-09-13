@@ -13,10 +13,11 @@ import {
 } from '@/components/ui/primitives';
 import { Money } from '@/components/ui/money';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, DeleteButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, DeleteButton, ApproveButton, RejectButton, DelegateButton,
   PostButton,
 } from '../../collateral-release-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 
 const VIEWS: CollateralReleaseView[] = ['open', 'pending', 'approved', 'processed'];
@@ -72,7 +73,6 @@ export default async function CollateralReleaseDetailPage({ params, searchParams
         <Link href={`/collateral-register/view/${release.collateral_no}`} className="btn ghost sm">View collateral</Link>
         <Link href={`/members/${release.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {canEditFields ? <EditButton release={release} collateral={editCollateral} className="btn ghost" /> : null}
         {canEditFields ? <SubmitButton no={release.no} className="btn ghost" /> : null}
         {canEditFields ? <DeleteButton no={release.no} className="btn ghost" /> : null}
         {release.status === 'Pending Approval' && canCancelThis ? (
@@ -100,8 +100,8 @@ export default async function CollateralReleaseDetailPage({ params, searchParams
 
       <div className="grid split-side-sm">
         <div>
-          <Card>
-            <CardHead title="Release details" />
+          <EditableCard title="Release details"
+            canEdit={canEditFields} form={<EditForm release={release} collateral={editCollateral} />}>
             <DefinitionList items={[
               ['Release no.', <span className="mono" key="no">{release.no}</span>],
               ['Collateral', <Link href={`/collateral-register/view/${release.collateral_no}`} key="col">{release.collateral_no}</Link>],
@@ -113,7 +113,7 @@ export default async function CollateralReleaseDetailPage({ params, searchParams
               ['Remarks', release.remarks || '—'],
               release.decision_reason ? ['Decision reason', release.decision_reason] : null,
             ]} />
-          </Card>
+          </EditableCard>
 
           <Card>
             <CardHead title="Document trail" sub="Who requested and processed this release, and when" />

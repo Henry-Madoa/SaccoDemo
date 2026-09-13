@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -279,24 +280,21 @@ export function NewCollateralApplicationButton({ members, counties, presetMember
   );
 }
 
-export function EditButton({ application, members, counties, className = 'btn sm ghost' }: {
+export function EditForm({ application, members, counties }: {
   application: CollateralApplicationWithDetails;
   members: MemberOption[];
   counties: CountyOption[];
-  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [memberId, setMemberId] = useState(String(application.member_id));
   const [category, setCategory] = useState<string>(application.category);
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           wide
           title={`Edit ${application.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveCollateralApplication(application.no, values)}
           submitLabel="Save changes"
           successTitle="Application updated"
@@ -305,7 +303,6 @@ export function EditButton({ application, members, counties, className = 'btn sm
             onChange={setMemberId} required />
           <CollateralFields defaults={application} category={category} setCategory={setCategory} counties={counties} />
         </FormModal>
-      ) : null}
     </>
   );
 }

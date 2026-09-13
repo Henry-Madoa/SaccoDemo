@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
@@ -216,12 +217,11 @@ export function NewCollateralReleaseButton({ collateral, presetCollateralNo }: {
 /** Lets an Open release's target Collateral item — and, since the member is only ever derived
  *  from whichever item is chosen (see lib/collateralReleases.ts's updateCollateralRelease()), the
  *  member — be changed, alongside the collector details, before it's sent for approval. */
-export function EditButton({ release, collateral, className = 'btn sm ghost' }: {
+export function EditForm({ release, collateral }: {
   release: CollateralReleaseWithDetails;
   collateral: ReleasableCollateral[];
-  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [collateralNo, setCollateralNo] = useState(release.collateral_no);
 
   // The item currently attached to this release is always offered, even if it's since been
@@ -241,12 +241,10 @@ export function EditButton({ release, collateral, className = 'btn sm ghost' }: 
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           wide
           title={`Edit ${release.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveCollateralRelease(release.no, values)}
           submitLabel="Save changes"
           successTitle="Release updated"
@@ -257,7 +255,6 @@ export function EditButton({ release, collateral, className = 'btn sm ghost' }: 
             placeholder="Search collateral…" emptyText="No matching collateral" />
           <CollectorFields defaults={release} />
         </FormModal>
-      ) : null}
     </>
   );
 }

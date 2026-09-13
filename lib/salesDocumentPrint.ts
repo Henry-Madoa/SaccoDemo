@@ -117,8 +117,8 @@ export async function buildSalesDocumentPrint(no: string): Promise<PrintDocument
     )],
     meta: [
       { label: 'Document No.', value: doc.no },
-      { label: 'Document Date', value: formatDate(doc.document_date) },
-      { label: 'Posting Date', value: formatDate(doc.posting_date) },
+      // One date, named for what the document is — Invoice Date, Order Date, Receipt Date.
+      { label: `${doc.document_type} Date`, value: formatDate(doc.posting_date) },
       ...(doc.due_date ? [{ label: 'Due Date', value: formatDate(doc.due_date) }] : []),
       ...(doc.applies_to_doc_no ? [{ label: 'Credits Invoice', value: doc.applies_to_doc_no }] : []),
       ...(doc.your_reference ? [{ label: 'Your Reference', value: doc.your_reference }] : []),
@@ -202,8 +202,8 @@ export async function buildPostedSalesDocumentPrint(no: string): Promise<PrintDo
     )],
     meta: [
       { label: 'Document No.', value: doc.no },
-      { label: 'Document Date', value: formatDate(doc.document_date) },
-      { label: 'Posting Date', value: formatDate(doc.posting_date) },
+      // One date, named for what the document is — Invoice Date, Order Date, Receipt Date.
+      { label: `${doc.document_type} Date`, value: formatDate(doc.posting_date) },
       ...(doc.due_date ? [{ label: 'Due Date', value: formatDate(doc.due_date) }] : []),
       ...(doc.order_no ? [{ label: 'Order No.', value: doc.order_no }] : []),
       ...(doc.applies_to_doc_no ? [{ label: 'Credits Invoice', value: doc.applies_to_doc_no }] : []),

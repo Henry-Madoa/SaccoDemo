@@ -33,6 +33,10 @@ export async function saveOrganisation(values: FormValues): Promise<ActionResult
       allow_posting_to: String(values.allow_posting_to || '').trim() || null,
       validate_cash_denomination: Number(values.validate_cash_denomination) ? 'true' : 'false',
       receipt_approval_limit: Math.round(Number(values.receipt_approval_limit || 0) * 100),
+      petty_cash_limit: Math.round(Number(values.petty_cash_limit || 0) * 100),
+      max_outstanding_imprests: Number(values.max_outstanding_imprests ?? 1) || 0,
+      imprest_control_account_id: values.imprest_control_account_id ? Number(values.imprest_control_account_id) : null,
+      imprest_surrender_period: String(values.imprest_surrender_period || '14D').trim() || '14D',
     }, user);
     // The society's name, logo and currency appear in the shell on every page.
     revalidatePath('/', 'layout');

@@ -159,6 +159,10 @@ export const PAGES: PageObject[] = [
   { code: 'CASH_MGMT_EXTERNAL_BANKS', label: 'Cash Management › External Banks', route: '/cash-management/external-banks', parent: 'CASH_MGMT' },
   { code: 'CASH_MGMT_SETUP', label: 'Cash Management › Cash Management Setup', route: '/cash-management/setup', parent: 'CASH_MGMT' },
   { code: 'DIVIDENDS', label: 'Dividends', route: '/dividends' },
+  { code: 'SHARE_TRADING', label: 'Share Trading', route: '/share-trading' },
+  { code: 'IMPREST', label: 'Staff Cash Desk (Imprest, Petty Cash & Claims)', route: '/imprest' },
+  { code: 'REQUISITIONS', label: 'Store & Purchase Requisitions', route: '/requisitions' },
+  { code: 'ADMIN_POOL_IMPREST_PURPOSES', label: 'Imprest Purposes', route: '/admin/pool/finance/imprest-purposes' },
   { code: 'VAT_REPORTS', label: 'VAT & Withholding Tax', route: '/finance/vat' },
   { code: 'REPORTS', label: 'Reports', route: '/reports' },
   { code: 'FINANCIAL_REPORTS', label: 'Financial Reports', route: '/finance/financial-reports' },
@@ -1473,6 +1477,90 @@ export const ACTIONS = {
   // Dividends — the annual declaration over member savings and share capital (lib/dividends.ts).
   // _CALCULATE runs the member sweep and writes the working; _POST raises the provision or pays
   // the members, which moves member accounts, loans and the G/L, so it is granted separately.
+  // Share Trading — lib/shareTrading.ts. _CREATE raises and edits a member’s floating and sends
+  // it for approval; _BID places bids for members; _PROCESS is the officer’s side of the market
+  // — publish, analyse, post the purchase, allocate payment, transfer, take down — which moves
+  // member accounts and the G/L; _WINDOW_MANAGE defines and publishes trading windows.
+  SHARE_TRADING_READ: { page: 'SHARE_TRADING', tables: [['share_floating', 'read'], ['share_trading_window', 'read'], ['share_bid', 'read']] },
+  SHARE_TRADING_CREATE: {
+    page: 'SHARE_TRADING',
+    tables: [
+      ['share_floating', 'insert'], ['share_floating', 'modify'], ['share_floating', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  SHARE_TRADING_APPROVE: { page: 'SHARE_TRADING', tables: [['share_floating', 'modify']] },
+  SHARE_TRADING_BID: { page: 'SHARE_TRADING', tables: [['share_bid', 'insert'], ['share_bid', 'modify'], ['share_bid', 'delete']] },
+  SHARE_TRADING_PROCESS: {
+    page: 'SHARE_TRADING',
+    tables: [
+      ['share_floating', 'modify'], ['share_bid', 'modify'],
+      ['share_transfer_receipt', 'insert'], ['share_transfer_receipt', 'modify'], ['share_transfer_receipt', 'delete'],
+      ['savings_account', 'modify'], ['journal', 'insert'], ['journal_line', 'insert'], ['txn', 'insert'],
+    ],
+  },
+  SHARE_TRADING_WINDOW_MANAGE: {
+    page: 'SHARE_TRADING',
+    tables: [['share_trading_window', 'insert'], ['share_trading_window', 'modify'], ['share_trading_window', 'delete']],
+  },
+  // Petty Cash & Imprest — lib/imprest.ts. _CREATE raises requests, petty cash and surrenders;
+  // _ISSUE pays an approved imprest out (moves a bank account and the employee subledger);
+  // _POST posts a surrender or a petty cash; _PAYROLL_RECOVER is HR sending an unsurrendered
+  // imprest to payroll.
+  IMPREST_READ: { page: 'IMPREST', tables: [['imprest_request', 'read'], ['petty_cash', 'read'], ['staff_claim', 'read'], ['employee_ledger_entry', 'read'], ['employee', 'read']] },
+  IMPREST_CREATE: {
+    page: 'IMPREST',
+    tables: [
+      ['imprest_request', 'insert'], ['imprest_request', 'modify'], ['imprest_request', 'delete'],
+      ['imprest_request_line', 'insert'], ['imprest_request_line', 'modify'], ['imprest_request_line', 'delete'],
+      ['petty_cash', 'insert'], ['petty_cash', 'modify'], ['petty_cash', 'delete'],
+      ['petty_cash_line', 'insert'], ['petty_cash_line', 'modify'], ['petty_cash_line', 'delete'],
+      ['staff_claim', 'insert'], ['staff_claim', 'modify'], ['staff_claim', 'delete'],
+      ['staff_claim_line', 'insert'], ['staff_claim_line', 'modify'], ['staff_claim_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  IMPREST_APPROVE: { page: 'IMPREST', tables: [['imprest_request', 'modify'], ['petty_cash', 'modify'], ['staff_claim', 'modify']] },
+  IMPREST_ISSUE: {
+    page: 'IMPREST',
+    tables: [['imprest_request', 'modify'], ['employee_ledger_entry', 'insert'], ['journal', 'insert'], ['journal_line', 'insert']],
+  },
+  IMPREST_POST: {
+    page: 'IMPREST',
+    tables: [
+      ['imprest_request', 'modify'], ['imprest_request_line', 'modify'], ['petty_cash', 'modify'], ['staff_claim', 'modify'],
+      ['employee_ledger_entry', 'insert'], ['journal', 'insert'], ['journal_line', 'insert'],
+      ['employee_payroll_transaction', 'insert'],
+    ],
+  },
+  IMPREST_PAYROLL_RECOVER: { page: 'IMPREST', tables: [['imprest_request', 'modify'], ['employee_payroll_transaction', 'insert']] },
+  // Store & Purchase Requisitions — lib/requisitions.ts. _CREATE raises and edits a requisition;
+  // _APPROVE decides it and trims quantities approved; _ISSUE is the store admin issuing stock
+  // (posts item journal lines); _PROCESS is procurement reviewing lines into purchase quotes /
+  // orders or closing the PR.
+  REQUISITIONS_READ: { page: 'REQUISITIONS', tables: [['requisition', 'read'], ['requisition_line', 'read'], ['employee', 'read'], ['item', 'read'], ['location', 'read'], ['vendor', 'read']] },
+  REQUISITIONS_CREATE: {
+    page: 'REQUISITIONS',
+    tables: [
+      ['requisition', 'insert'], ['requisition', 'modify'], ['requisition', 'delete'],
+      ['requisition_line', 'insert'], ['requisition_line', 'modify'], ['requisition_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  REQUISITIONS_APPROVE: { page: 'REQUISITIONS', tables: [['requisition', 'modify'], ['requisition_line', 'modify']] },
+  REQUISITIONS_ISSUE: {
+    page: 'REQUISITIONS',
+    tables: [
+      ['requisition', 'modify'], ['requisition_line', 'modify'], ['item_journal_line', 'insert'], ['item_journal_line', 'modify'],
+      ['item_ledger_entry', 'insert'], ['stockkeeping_unit', 'insert'], ['stockkeeping_unit', 'modify'], ['item', 'modify'],
+      ['journal', 'insert'], ['journal_line', 'insert'],
+    ],
+  },
+  REQUISITIONS_PROCESS: {
+    page: 'REQUISITIONS',
+    tables: [['requisition', 'modify'], ['requisition_line', 'modify'], ['purchase_header', 'insert'], ['purchase_header', 'modify'], ['purchase_line', 'insert'], ['purchase_line', 'delete']],
+  },
+  ADMIN_POOL_IMPREST_PURPOSES_MANAGE: { page: 'ADMIN_POOL_IMPREST_PURPOSES', tables: [['imprest_purpose', 'insert'], ['imprest_purpose', 'modify'], ['imprest_purpose', 'delete']] },
   DIVIDENDS_READ: { page: 'DIVIDENDS', tables: [['dividend', 'read']] },
   DIVIDENDS_CREATE: {
     page: 'DIVIDENDS',

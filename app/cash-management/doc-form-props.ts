@@ -6,6 +6,7 @@ import { listActiveCurrencies, listExternalBanks } from '@/lib/cashMgmtSetup';
 import { listActivePaymentMethods } from '@/lib/receivablesSetup';
 import { listVatProductPostingGroups } from '@/lib/vatSetup';
 import { listReceiptMembers } from '@/lib/receipts';
+import { listActiveEmployees } from '@/lib/employees';
 
 /**
  * The lookups a Receipt or Payment Voucher line editor needs — banks, postable accounts,
@@ -16,9 +17,9 @@ import { listReceiptMembers } from '@/lib/receipts';
  * wherever it is being worked on.
  */
 export async function docFormProps() {
-  const [banks, accounts, vendors, currencies, payMethods, vatGroups, extBanks, members] = await Promise.all([
+  const [banks, accounts, vendors, currencies, payMethods, vatGroups, extBanks, members, employees] = await Promise.all([
     listBankAccounts(), listPostableAccounts(), listActiveVendors(), listActiveCurrencies(),
-    listActivePaymentMethods(), listVatProductPostingGroups(), listExternalBanks(), listReceiptMembers(),
+    listActivePaymentMethods(), listVatProductPostingGroups(), listExternalBanks(), listReceiptMembers(), listActiveEmployees(),
   ]);
   const customers = await all<{ no: string; name: string }>('SELECT no, name FROM customer ORDER BY no LIMIT 500');
   return {
@@ -32,5 +33,6 @@ export async function docFormProps() {
     whtCodes: vatGroups.filter((g) => g.tax_type === 'WHT').map((g) => ({ code: g.code, description: g.description })),
     externalBanks: extBanks.map((b) => ({ code: b.code, name: b.name })),
     members,
+    employees,
   };
 }

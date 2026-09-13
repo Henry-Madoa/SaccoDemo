@@ -16,6 +16,7 @@ const ORG_FIELDS = [
   'global_dimension_1_caption', 'global_dimension_2_caption', 'guarantor_multiplier', 'self_guarantor_multiplier',
   'member_exit_notice_days', 'dormancy_days', 'instant_withdrawal_charge_id', 'inter_account_transfer_charge_id',
   'allow_posting_from', 'allow_posting_to', 'validate_cash_denomination', 'receipt_approval_limit',
+  'petty_cash_limit', 'max_outstanding_imprests', 'imprest_control_account_id', 'imprest_surrender_period',
 ] as const satisfies readonly (keyof Organisation)[];
 
 export type OrgField = (typeof ORG_FIELDS)[number];

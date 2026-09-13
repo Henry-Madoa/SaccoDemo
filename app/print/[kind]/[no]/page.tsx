@@ -6,6 +6,9 @@ import { buildPurchaseDocumentPrint, buildPostedPurchaseDocumentPrint } from '@/
 import { buildPaymentVoucherDocument } from '@/lib/paymentVoucherSlip';
 import { buildReceiptDocument } from '@/lib/receiptSlip';
 import { buildDividendSlipPrint, buildDividendSlipBatch } from '@/lib/dividendSlip';
+import { buildShareTransferPrint, buildShareMarketPrint } from '@/lib/shareTradingPrint';
+import { buildImprestRequestPrint, buildImprestSurrenderPrint, buildPettyCashPrint, buildStaffClaimPrint } from '@/lib/imprestPrint';
+import { buildStoreRequisitionPrint, buildPurchaseRequisitionPrint } from '@/lib/requisitionPrint';
 import { Printable } from '@/components/ui/printable';
 import type { PrintDocument } from '@/lib/documentPrint';
 import type { ActionKey } from '@/lib/permissions';
@@ -33,6 +36,14 @@ const KINDS: Record<string, {
   receipt: { action: 'CASH_MGMT_READ', build: buildReceiptDocument },
   'dividend-slip': { action: 'DIVIDENDS_READ', build: buildDividendSlipPrint },
   'dividend-slips': { action: 'DIVIDENDS_READ', build: buildDividendSlipBatch },
+  'share-transfer': { action: 'SHARE_TRADING_READ', build: buildShareTransferPrint },
+  'share-market': { action: 'SHARE_TRADING_READ', build: buildShareMarketPrint },
+  'imprest-request': { action: 'IMPREST_READ', build: buildImprestRequestPrint },
+  'imprest-surrender': { action: 'IMPREST_READ', build: buildImprestSurrenderPrint },
+  'petty-cash': { action: 'IMPREST_READ', build: buildPettyCashPrint },
+  'staff-claim': { action: 'IMPREST_READ', build: buildStaffClaimPrint },
+  'store-requisition': { action: 'REQUISITIONS_READ', build: buildStoreRequisitionPrint },
+  'purchase-requisition': { action: 'REQUISITIONS_READ', build: buildPurchaseRequisitionPrint },
 };
 
 export default async function PrintDocumentPage({ params }: { params: Promise<{ kind: string; no: string }> }) {

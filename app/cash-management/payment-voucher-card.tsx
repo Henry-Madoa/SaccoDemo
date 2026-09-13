@@ -60,6 +60,7 @@ export function PaymentVoucherCard({ pv, lookups, canEdit }: {
         sub={<>
           {pv.pv_type ?? 'Direct Expensing'} · {pv.description || '—'}
           {pv.member_no ? <> · {pv.member_no} {pv.member_name}</> : null}
+          {pv.employee_no ? <> · {pv.employee_no} {pv.employee_name}</> : null}
         </>}
       >
         {pv.posted ? <Pill status="ok">Posted</Pill> : <Pill status={pv.status} />}
@@ -76,7 +77,10 @@ export function PaymentVoucherCard({ pv, lookups, canEdit }: {
               ...(isMember
                 ? [['Member', <>{pv.member_no} <span className="muted-cell">{pv.member_name}</span></>] as [string, React.ReactNode]]
                 : []),
-              ['Payee', pv.payee_name || (isMember ? pv.member_name : null) || '—'],
+              ...(pv.pv_type === 'Employee Payment'
+                ? [['Employee', <>{pv.employee_no} <span className="muted-cell">{pv.employee_name}</span></>] as [string, React.ReactNode]]
+                : []),
+              ['Payee', pv.payee_name || (isMember ? pv.member_name : pv.pv_type === 'Employee Payment' ? pv.employee_name : null) || '—'],
               ['Narration', pv.description || '—'],
               ['Voucher date', formatDate(pv.date)],
               ['Paying bank', <span className="mono" key="b">{pv.paying_bank_account_code}</span>],

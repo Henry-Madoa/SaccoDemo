@@ -8,7 +8,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useRunAction } from '@/components/ui/run-action';
 import { useFormat } from '@/components/ui/format-provider';
 import {
-  createDividendRequest, saveDividend, deleteDividendRequest, saveDividendParams,
+  createDividendRequest, deleteDividendRequest, saveDividendParams,
   runDividendCalculation, submitDividendRequest, cancelDividendApprovalRequest,
   approveDividendRequest, rejectDividendRequest, reopenDividendRequest, postDividendRequest,
   saveDividendLine,
@@ -34,7 +34,7 @@ const yearOf = (d: string | null | undefined): number =>
 
 /* ------------------------------------------------------------------ the header */
 
-function DividendFields({ options, initial }: { options: DividendFormOptions; initial?: DividendDetail | null }) {
+export function DividendFields({ options, initial }: { options: DividendFormOptions; initial?: DividendDetail | null }) {
   const lastYear = new Date().getFullYear() - 1;
   const [year, setYear] = useState(String(initial?.dividend_year ?? lastYear));
   const [book, setBook] = useState(initial?.document_type ?? 'BOSA');
@@ -159,28 +159,6 @@ export function NewDividendButton({ options }: { options: DividendFormOptions })
           successDetail={(d) => `${d.no} saved — set the rates, then calculate`}
         >
           <DividendFields options={options} />
-        </FormModal>
-      ) : null}
-    </>
-  );
-}
-
-export function EditDividendButton({ dividend, options, className = 'btn ghost' }: {
-  dividend: DividendDetail; options: DividendFormOptions; className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
-          title={`Edit ${dividend.no}`} wide
-          onClose={() => setOpen(false)}
-          onSubmit={(values) => saveDividend(dividend.no, values)}
-          submitLabel="Save changes"
-          successTitle="Dividend updated"
-        >
-          <DividendFields options={options} initial={dividend} />
         </FormModal>
       ) : null}
     </>
@@ -334,7 +312,9 @@ function ParamsModal({ no, params, products, onClose }: {
                   </select>
                 </td>
                 <td>
-                  <input value={r.postingDescription} onChange={(e) => set(r.key, { postingDescription: e.target.value })} />
+                  <input type="text" value={r.postingDescription} maxLength={100} aria-label="Posting description"
+                    placeholder="e.g. Share capital dividend"
+                    onChange={(e) => set(r.key, { postingDescription: e.target.value })} />
                 </td>
                 <td className="num">
                   <input type="number" step="0.01" min="0" style={{ width: 80, textAlign: 'right' }}

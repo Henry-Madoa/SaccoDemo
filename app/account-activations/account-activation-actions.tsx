@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -282,12 +283,11 @@ function NewRequestForm({ members, presetMemberId, onClose }: NewRequestFormProp
  *  before it's sent for approval — the account is the request's real anchor (member is only
  *  ever derived from whichever account is chosen), so changing the member re-fetches that
  *  member's own eligible INACTIVE accounts exactly as the New Request form does. */
-export function EditButton({ request, members, className = 'btn sm ghost' }: {
+export function EditForm({ request, members }: {
   request: AccountActivationRequestWithDimensions;
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
-  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [memberId, setMemberId] = useState(String(request.member_id));
   const [accounts, setAccounts] = useState<SavingsAccountWithProduct[]>([]);
   const [accountId, setAccountId] = useState(String(request.account_id));
@@ -298,7 +298,6 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
   // member) — excludeRequestNo keeps the account already attached to this request in the list,
   // which the generic "not already in flight" filter would otherwise hide from itself.
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
     if (!memberId) { setAccounts([]); return; }
     eligibleAccountsForActivation(Number(memberId), request.no).then((res) => {
@@ -312,15 +311,13 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
     return () => { cancelled = true; };
     // Only memberId should re-trigger this — accountId is read, not depended on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, memberId, request.no]);
+  }, [memberId, request.no]);
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${request.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveAccountActivationRequest(request.no, values)}
           submitLabel="Save changes"
           successTitle="Request updated"
@@ -340,7 +337,6 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
             debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId}
           />
         </FormModal>
-      ) : null}
     </>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field, MoneyInput, toTwoDp } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -179,24 +180,21 @@ export function NewDepositButton({ members, chequeTypes }: { members: EligibleMe
   );
 }
 
-export function EditButton({ deposit, members, chequeTypes, className = 'btn ghost' }: {
-  deposit: ChequeDepositView; members: EligibleMember[]; chequeTypes: ChequeTypeOpt[]; className?: string;
+export function EditForm({ deposit, members, chequeTypes }: {
+  deposit: ChequeDepositView; members: EligibleMember[]; chequeTypes: ChequeTypeOpt[];
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${deposit.no}`} wide
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveChequeDeposit(deposit.no, values)}
           submitLabel="Save changes"
           successTitle="Cheque deposit updated"
         >
           <DepositFields members={members} chequeTypes={chequeTypes} initial={deposit} />
         </FormModal>
-      ) : null}
     </>
   );
 }

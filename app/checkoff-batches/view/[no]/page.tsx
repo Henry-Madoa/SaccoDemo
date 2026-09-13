@@ -18,10 +18,11 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import {
   SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
-  RefreshLinesButton, RemittedAmountField, EditCheckoffBatchButton, CheckoffCsvUploadForm, ValidateBatchButton,
+  RefreshLinesButton, RemittedAmountField, EditCheckoffBatchForm, CheckoffCsvUploadForm, ValidateBatchButton,
   CalculateBatchButton,
 } from '../../checkoff-batch-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 
 const VIEWS: CheckoffBatchView[] = ['open', 'pending', 'approved', 'processed'];
@@ -89,9 +90,6 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
       <Toolbar>
         <Link href="/checkoff-batches" className="btn ghost sm">← All batches</Link>
         <Spacer />
-        {canEditLines ? (
-          <EditCheckoffBatchButton batch={batch} employers={employers} salaryChargeCodes={salaryChargeCodes} className="btn ghost sm" />
-        ) : null}
         {canEditLines ? <ValidateBatchButton no={batch.no} /> : null}
         {canEditLines && isSalary ? <CalculateBatchButton no={batch.no} /> : null}
         {canEditLines ? <RefreshLinesButton no={batch.no} className="btn ghost" /> : null}
@@ -132,7 +130,8 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
       </div>
 
       <div className="grid g2">
-        <CollapsibleCard title="Batch details">
+        <EditableCard collapsible title="Batch details" canEdit={canEditLines}
+          form={<EditCheckoffBatchForm batch={batch} employers={employers} salaryChargeCodes={salaryChargeCodes} />}>
           <DefinitionList items={[
             ['No.', <span className="mono" key="no">{batch.no}</span>],
             ['Employer', <>{batch.employer_name} <span className="mono">({batch.employer_code})</span></>],
@@ -146,7 +145,7 @@ export default async function CheckoffBatchDetailPage({ params, searchParams }: 
               : <Pill tone="warn" key="calc">NOT YET</Pill>] : null,
             batch.decision_reason ? ['Decision reason', batch.decision_reason] : null,
           ]} />
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard title="Document trail" sub="Who requested and processed this batch, and when">
           <DefinitionList items={[

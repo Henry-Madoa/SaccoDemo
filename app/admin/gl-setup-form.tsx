@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/primitives';
 import { Field, readForm } from '@/components/ui/field';
+import { GlAccountSelect, type GlAccountSelectOption } from '@/components/ui/gl-account-select';
 import { useToast } from '@/components/ui/toast';
 import { saveOrganisation } from '@/app/actions/admin';
 import { MONTH_NAMES } from '@/lib/constants';
@@ -16,7 +17,8 @@ import type { Organisation } from '@/lib/types';
  * These were on Company Information, which conflated "who the society is" with "how the ledger
  * behaves"; they are the same `organisation` singleton underneath, so nothing moved in the data.
  */
-export function GeneralLedgerSetupForm({ org }: { org: Organisation }) {
+export function GeneralLedgerSetupForm({ org, accounts }: { org: Organisation; accounts: GlAccountSelectOption[] }) {
+  const [imprestControl, setImprestControl] = useState(String(org.imprest_control_account_id ?? ''));
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   const toast = useToast();
@@ -48,6 +50,24 @@ export function GeneralLedgerSetupForm({ org }: { org: Organisation }) {
         <div className="grid g2">
           <Field name="receipt_approval_limit" label="Receipt approval limit" type="currency"
             defaultValue={String(org.receipt_approval_limit / 100)} />
+        </div>
+      </Card>
+      <Card>
+        <h3>Petty cash and imprests</h3>
+        <div className="card-sub">
+          A petty cash request above the limit has to be raised as an imprest instead. Every imprest
+          issued, surrendered, refunded or recovered through payroll posts through the control account,
+          which is the employee subledger; the surrender period sets an issued imprest&apos;s due date.
+        </div>
+        <div className="grid g2">
+          <Field name="petty_cash_limit" label="Petty cash limit" type="currency" defaultValue={String(org.petty_cash_limit / 100)}
+            hint="Zero means no limit" />
+          <Field name="max_outstanding_imprests" label="Max. outstanding imprests per employee" type="number" min={0}
+            defaultValue={String(org.max_outstanding_imprests)} hint="Unsurrendered imprests an employee may hold; zero means no limit" />
+          <GlAccountSelect id="f_imprestControl" name="imprest_control_account_id" label="Imprest control account" accounts={accounts}
+            value={imprestControl} onChange={setImprestControl} hint="The employee subledger — Staff Imprest and Advances" />
+          <Field name="imprest_surrender_period" label="Surrender period" defaultValue={org.imprest_surrender_period}
+            hint="Date formula from issue to the surrender due date (14D, 2W, 1M)" />
         </div>
       </Card>
       <Card>

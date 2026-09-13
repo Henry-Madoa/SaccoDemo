@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field, MoneyInput } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResultDialog } from '@/components/ui/result-dialog';
@@ -230,21 +231,19 @@ export function NewCheckoffBatchButton({ employers, salaryChargeCodes = [] }: {
  *  and (SALARY only) Charge Code, the same field set AL's own Checkoff/Salary card locks the
  *  moment the document leaves Open. Changing Employer or Period re-populates the line set from
  *  the new employer's current members, same as Refresh Lines. */
-export function EditCheckoffBatchButton({ batch, employers, salaryChargeCodes, className = 'btn ghost' }: {
-  batch: CheckoffBatchWithDetails; employers: Employer[]; salaryChargeCodes: TransactionCharge[]; className?: string;
+export function EditCheckoffBatchForm({ batch, employers, salaryChargeCodes }: {
+  batch: CheckoffBatchWithDetails; employers: Employer[]; salaryChargeCodes: TransactionCharge[];
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const isSalary = batch.batch_type === 'SALARY';
   const [employerId, setEmployerId] = useState(String(batch.employer_id));
   const [transactionChargeId, setTransactionChargeId] = useState(String(batch.transaction_charge_id ?? ''));
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${batch.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => updateCheckoffBatchRequest(batch.no, values)}
           submitLabel="Save"
           successTitle="Batch updated"
@@ -267,7 +266,6 @@ export function EditCheckoffBatchButton({ batch, employers, salaryChargeCodes, c
               placeholder="None — no charges or recoveries applied" emptyText="No matching charges" />
           ) : null}
         </FormModal>
-      ) : null}
     </>
   );
 }

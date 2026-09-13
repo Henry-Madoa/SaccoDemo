@@ -69,6 +69,7 @@ const TITLES: Record<PaymentVoucherType, string> = {
   'Direct Expensing': 'Payment Voucher',
   'Payroll Settlement': 'Payroll Settlement Voucher',
   Remittance: 'Remittance Voucher',
+  'Employee Payment': 'Employee Payment Voucher',
 };
 
 /** Who the block at the top names. */
@@ -81,12 +82,15 @@ const PAYEE_HEADINGS: Record<PaymentVoucherType, string> = {
   'Direct Expensing': 'Pay to',
   'Payroll Settlement': 'Pay to',
   Remittance: 'Remitted to',
+  'Employee Payment': 'Paid to employee',
 };
 
 export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocument | null> {
-  const doc = await one<PostedPaymentVoucher & { paying_bank_name: string }>(
-    `SELECT ppv.*, ba.name AS paying_bank_name
+  const doc = await one<PostedPaymentVoucher & { paying_bank_name: string; employee_no: string | null; employee_name: string | null }>(
+    `SELECT ppv.*, ba.name AS paying_bank_name, e.employee_no,
+            TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name
      FROM posted_payment_voucher ppv JOIN bank_account ba ON ba.id = ppv.paying_bank_account_id
+     LEFT JOIN employee e ON e.id = ppv.employee_id
      WHERE ppv.no = ? OR ppv.pv_no = ?`, no, no,
   );
   if (!doc) return null;
@@ -145,9 +149,10 @@ export async function buildPaymentVoucherDocument(no: string): Promise<PrintDocu
     status: { label: 'Posted', tone: 'ok' },
     parties: [{
       heading: PAYEE_HEADINGS[pvType] ?? 'Pay to',
-      name: (isMember ? doc.member_name : null) || doc.payee_name || '',
+      name: (isMember ? doc.member_name : pvType === 'Employee Payment' ? doc.employee_name : null) || doc.payee_name || '',
       lines: [
         isMember && doc.member_no ? `Member No. ${doc.member_no}` : '',
+        pvType === 'Employee Payment' && doc.employee_no ? `Employee No. ${doc.employee_no}` : '',
         isMember && doc.payee_name && doc.payee_name !== doc.member_name
           ? `Collected by ${doc.payee_name}` : '',
         bank?.name ?? doc.payee_external_bank_code ?? '',

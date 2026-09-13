@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -152,24 +153,21 @@ export function NewTellerTransactionButton({ members }: { members: EligibleMembe
   );
 }
 
-export function EditButton({ doc, members, verification, className = 'btn ghost' }: {
-  doc: TellerTransactionView; members: EligibleMember[]; verification?: Verification; className?: string;
+export function EditForm({ doc, members, verification }: {
+  doc: TellerTransactionView; members: EligibleMember[]; verification?: Verification;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${doc.no}`} wide
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveTellerTransaction(doc.no, values)}
           submitLabel="Save changes"
           successTitle="Transaction updated"
         >
           <TxnFields members={members} initial={doc} verification={verification} />
         </FormModal>
-      ) : null}
     </>
   );
 }

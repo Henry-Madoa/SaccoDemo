@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -270,20 +271,18 @@ export function NewMemberExitButton({ members, presetMemberId }: {
   );
 }
 
-export function EditButton({ exit, members, instantWithdrawalChargeId, className = 'btn sm ghost' }: {
-  exit: MemberExitWithDetails; members: EligibleExitMemberRow[]; instantWithdrawalChargeId?: number | null; className?: string;
+export function EditForm({ exit, members, instantWithdrawalChargeId }: {
+  exit: MemberExitWithDetails; members: EligibleExitMemberRow[]; instantWithdrawalChargeId?: number | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [exitType, setExitType] = useState<string>(exit.exit_type);
   const [memberId, setMemberId] = useState(String(exit.member_id));
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${exit.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveMemberExitRequest(exit.no, values)}
           submitLabel="Save changes"
           successTitle="Member exit updated"
@@ -291,7 +290,6 @@ export function EditButton({ exit, members, instantWithdrawalChargeId, className
           <MemberSelect id="f_memberIdEdit" name="memberId" members={members} value={memberId} onChange={setMemberId} required />
           <ExitFields exitType={exitType} setExitType={setExitType} defaults={exit} instantWithdrawalChargeId={instantWithdrawalChargeId} />
         </FormModal>
-      ) : null}
     </>
   );
 }

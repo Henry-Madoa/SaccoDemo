@@ -46,13 +46,13 @@ export function AppliesToPicker({
 
   if (disabled || !partyType) {
     return (
-      <input value="" disabled aria-label="Applies to doc" style={{ width: '100%' }}
+      <input type="text" value="" disabled aria-label="Applies to doc" style={{ width: '100%' }}
         placeholder="Customer / vendor lines only" />
     );
   }
   if (!partyNo) {
     return (
-      <input value="" disabled aria-label="Applies to doc" style={{ width: '100%' }}
+      <input type="text" value="" disabled aria-label="Applies to doc" style={{ width: '100%' }}
         placeholder="Pick the party first" />
     );
   }

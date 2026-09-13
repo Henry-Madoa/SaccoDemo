@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -390,27 +391,23 @@ function NewRequestForm({ members, onClose }: { members: EligibleMember[]; onClo
   );
 }
 
-export function EditButton({ order, members, className = 'btn sm ghost' }: {
+export function EditForm({ order, members }: {
   order: StandingOrderWithDimensions;
   members: EligibleMember[];
-  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [memberId, setMemberId] = useState(String(order.member_id));
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${order.no}`} wide
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveStandingOrder(order.no, values)}
           submitLabel="Save changes"
           successTitle="Standing order updated"
         >
           <StandingOrderFields members={members} memberId={memberId} setMemberId={setMemberId} initial={order} />
         </FormModal>
-      ) : null}
     </>
   );
 }

@@ -56,6 +56,7 @@ export function ReceiptCard({ receipt, lookups, canEdit, memberNos = new Map() }
         sub={<>
           {receipt.receipt_type} · {receipt.description || '—'}
           {receipt.member_no ? <> · {receipt.member_no} {receipt.member_name}</> : null}
+          {receipt.employee_no ? <> · {receipt.employee_no} {receipt.employee_name}</> : null}
         </>}
       >
         {receipt.posted ? <Pill status="ok">Posted</Pill> : <Pill status={receipt.status} />}
@@ -71,6 +72,9 @@ export function ReceiptCard({ receipt, lookups, canEdit, memberNos = new Map() }
               ['Receipt type', receipt.receipt_type],
               ...(isMember
                 ? [['Member', <>{receipt.member_no} <span className="muted-cell">{receipt.member_name}</span></>] as [string, React.ReactNode]]
+                : []),
+              ...(receipt.receipt_type === 'Employee'
+                ? [['Employee', <>{receipt.employee_no} <span className="muted-cell">{receipt.employee_name}</span></>] as [string, React.ReactNode]]
                 : []),
               ['Received from', receipt.description || '—'],
               ['Posting date', formatDate(receipt.posting_date)],

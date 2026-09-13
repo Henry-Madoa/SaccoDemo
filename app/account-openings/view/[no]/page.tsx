@@ -11,10 +11,11 @@ import {
   Card, CardHead, DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer,
 } from '@/components/ui/primitives';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../account-opening-actions';
 import { JuniorPhotoPanel } from './junior-photo-panel';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { PhoneLink } from '@/components/ui/contact-link';
 
@@ -71,15 +72,6 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
         <Link href="/account-openings" className="btn ghost sm">← All account opening requests</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {canEditFields ? (
-          <EditButton
-            request={request}
-            members={editMembers}
-            className="btn ghost"
-            juniorPhotoSrc={imageSrc(request.junior_photo, { width: 140, height: 140 })}
-            mediaEnabled={isConfigured()}
-          />
-        ) : null}
         {canEditFields ? <SubmitButton no={request.no} className="btn ghost" /> : null}
         {request.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={request.no} className="btn ghost" />
@@ -95,8 +87,8 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
         <DocumentActionsMenu />
       </Toolbar>
 
-      <Card>
-        <CardHead title="Request details" sub="Status" />
+      <EditableCard title="Request details" sub="Status"
+        canEdit={canEditFields} form={<EditForm request={request} members={editMembers} juniorPhotoSrc={imageSrc(request.junior_photo, { width: 140, height: 140 })} mediaEnabled={isConfigured()} />}>
         <DefinitionList items={[
           ['Request no.', <span className="mono" key="no">{request.no}</span>],
           ['Member', <>{request.member_first_name} {request.member_last_name} <span className="mono">({request.member_no})</span></>],
@@ -105,7 +97,7 @@ export default async function AccountOpeningDetailPage({ params, searchParams }:
           ['Status', <Pill status={request.status} key="status" />],
           request.decision_reason ? ['Decision reason', request.decision_reason] : null,
         ]} />
-      </Card>
+      </EditableCard>
 
       {request.savings_product_is_business_account ? (
         <Card>

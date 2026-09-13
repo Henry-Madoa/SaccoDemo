@@ -23,6 +23,12 @@ export interface FormModalProps<T> {
    *  else (uploads, admin config saves, profile edits). */
   resultStyle?: 'toast' | 'popup';
   extraFooter?: ReactNode;
+  /**
+   * Render the form as the body of the card it belongs to rather than in a modal — how a document
+   * is edited on its own card (see EditableCard). Everything else is the same: `onClose` puts the
+   * card back to reading, `title` and `wide` are not shown.
+   */
+  inline?: boolean;
   children: ReactNode;
 }
 
@@ -35,7 +41,7 @@ export interface FormModalProps<T> {
  */
 export function FormModal<T>({
   title, wide, onClose, onSubmit, submitLabel = 'Save', submitClass = 'btn',
-  successTitle, successDetail, resultStyle = 'toast', extraFooter, children,
+  successTitle, successDetail, resultStyle = 'toast', extraFooter, inline = false, children,
 }: FormModalProps<T>) {
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
@@ -67,22 +73,28 @@ export function FormModal<T>({
     }
   };
 
+  const footer = (
+    <>
+      {error ? <div className="modal-error">{error}</div> : null}
+      <button type="button" className={inline ? 'btn ghost sm' : 'btn ghost'} onClick={onClose} disabled={busy}>Cancel</button>
+      {extraFooter}
+      <button type="button" className={inline ? `${submitClass} sm` : submitClass} onClick={() => submit()} disabled={busy}>
+        {busy ? 'Working…' : submitLabel}
+      </button>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <>
+        <form ref={formRef} onSubmit={submit}>{children}</form>
+        <div className="inline" style={{ marginTop: 'var(--sp)' }}>{footer}</div>
+      </>
+    );
+  }
+
   return (
-    <Modal
-      title={title}
-      wide={wide}
-      onClose={onClose}
-      footer={
-        <>
-          {error ? <div className="modal-error">{error}</div> : null}
-          <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          {extraFooter}
-          <button type="button" className={submitClass} onClick={() => submit()} disabled={busy}>
-            {busy ? 'Working…' : submitLabel}
-          </button>
-        </>
-      }
-    >
+    <Modal title={title} wide={wide} onClose={onClose} footer={footer}>
       <form ref={formRef} onSubmit={submit}>{children}</form>
     </Modal>
   );

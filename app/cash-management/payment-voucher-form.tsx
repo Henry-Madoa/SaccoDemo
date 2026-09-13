@@ -5,11 +5,12 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field, MoneyInput } from '@/components/ui/field';
 import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { MemberSelect } from '@/components/ui/member-select';
+import { EmployeeImprestPicker, EmployeePicker } from './employee-pickers';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { today } from '@/lib/format';
 import {
-  createPvRequest, updatePvRequest, memberPaymentOptions, type PvLineDraft,
+  createPvRequest, memberPaymentOptions, type PvLineDraft,
 } from '@/app/actions/cashMgmt';
 import type {
   MemberPaymentAccount, Member, PaymentVoucherDetail, PaymentVoucherType,
@@ -53,6 +54,10 @@ const PV_TYPES: { value: PaymentVoucherType; label: string; pays: string; help: 
     value: 'Remittance', label: 'Remittance', pays: 'liability account',
     help: 'Remit a statutory or third-party liability the SACCO is holding.',
   },
+  {
+    value: 'Employee Payment', label: 'Employee Payment', pays: 'employee',
+    help: 'Pay a member of staff — an imprest, an advance or a claim — through the employee subledger. Apply the line to an approved imprest request to issue it.',
+  },
 ];
 
 const ruleFor = (t: PaymentVoucherType) => PV_TYPES.find((x) => x.value === t) ?? PV_TYPES[5];
@@ -74,6 +79,7 @@ export interface PvFormProps {
   whtCodes: { code: string; description: string }[];
   externalBanks: { code: string; name: string }[];
   members: EligibleMember[];
+  employees: { id: number; employee_no: string; first_name: string; last_name: string }[];
 }
 
 const emptyLine = (): PvLineDraft => ({
@@ -89,6 +95,8 @@ export function PvFields({ p, initial, lines, setLines }: {
   const { cur } = useFormat();
   const [pvType, setPvType] = useState<PaymentVoucherType>(initial?.pv_type ?? 'Supplier Payment');
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
+  const [employeeId, setEmployeeId] = useState(String(initial?.employee_id ?? ''));
+  const employee = pvType === 'Employee Payment';
   const [accounts, setAccounts] = useState<MemberPaymentAccount[]>([]);
   const [narration, setNarration] = useState(initial?.description ?? '');
 
@@ -117,6 +125,10 @@ export function PvFields({ p, initial, lines, setLines }: {
       : l)));
 
   const picker = (l: PvLineDraft, i: number): ReactNode => {
+    if (employee) {
+      const e = p.employees.find((x) => String(x.id) === employeeId);
+      return <span className="muted-cell">{e ? `${e.employee_no} — ${e.first_name} ${e.last_name}` : 'Pick the employee above'}</span>;
+    }
     if (member) {
       return (
         <select value={l.savingsAccountId ?? ''} onChange={(e) => pickAccount(i, 'savingsAccountId', e.target.value)}
@@ -171,6 +183,15 @@ export function PvFields({ p, initial, lines, setLines }: {
       ) : (
         <input type="hidden" name="memberId" value="" />
       )}
+      {employee ? (
+        <div className="grid g2">
+          <EmployeePicker id="f_employeeId" name="employeeId" label="Employee (paid to)" employees={p.employees}
+            value={employeeId} onChange={(id) => { setEmployeeId(id); setLines([emptyLine()]); }} required />
+          <Field name="payeeName" label="Payee name" defaultValue={initial?.payee_name ?? ''} hint="Defaults to the employee; set it only when someone else collects" />
+        </div>
+      ) : (
+        <input type="hidden" name="employeeId" value="" />
+      )}
 
       <div className="grid g3">
         <Field name="currencyCode" label="Currency" type="select" defaultValue={initial?.currency_code ?? ''} options={[{ value: '', label: '(bank currency)' }, ...p.currencies.map((c) => ({ value: c.code, label: c.code }))]} />
@@ -179,7 +200,7 @@ export function PvFields({ p, initial, lines, setLines }: {
       </div>
       <div className="grid g3">
         <Field name="chequeDate" label="Cheque date" type="date" defaultValue={initial?.cheque_date ?? ''} />
-        {member ? null : <Field name="payeeName" label="Payee name" defaultValue={initial?.payee_name ?? ''} />}
+        {member || employee ? null : <Field name="payeeName" label="Payee name" defaultValue={initial?.payee_name ?? ''} />}
         <Field name="payeeAccountNo" label="Payee account no." defaultValue={initial?.payee_account_no ?? ''} />
       </div>
       <div className="grid g2">
@@ -216,7 +237,7 @@ export function PvFields({ p, initial, lines, setLines }: {
               <tr key={i}>
                 <td>{picker(l, i)}</td>
                 <td>
-                  <input value={l.description} onChange={(e) => set(i, 'description', e.target.value)}
+                  <input type="text" value={l.description} onChange={(e) => set(i, 'description', e.target.value)}
                     aria-label="Description" required style={{ width: '100%' }}
                     placeholder={narration.trim() || 'What this line is for'} />
                 </td>
@@ -224,6 +245,11 @@ export function PvFields({ p, initial, lines, setLines }: {
                   <td className={over ? 'tiny danger-text' : 'tiny muted-cell'}>
                     {acc ? cur(acc.available_balance) : '—'}
                     {over ? <div>Exceeds available</div> : null}
+                  </td>
+                ) : employee ? (
+                  <td>
+                    <EmployeeImprestPicker employeeId={employeeId} mode="issue" value={l.appliesToDocNo ?? ''}
+                      onChange={(v) => set(i, 'appliesToDocNo', v)} onPickAmount={(amt) => set(i, 'amount', amt)} />
                   </td>
                 ) : (
                   <td>
@@ -296,18 +322,3 @@ export const pvLinesOf = (pv: PaymentVoucherDetail): PvLineDraft[] => (pv.lines.
   }))
   : [emptyLine()]);
 
-export function EditPvButton({ pv, className = 'btn sm ghost', p }: { pv: PaymentVoucherDetail; className?: string; p: PvFormProps }) {
-  const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<PvLineDraft[]>(() => pvLinesOf(pv));
-  return (
-    <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal title={`Edit ${pv.no}`} wide onClose={() => setOpen(false)} onSubmit={(v) => updatePvRequest(pv.no, v, lines)}
-          submitLabel="Save changes" successTitle="Payment voucher updated">
-          <PvFields p={p} initial={pv} lines={lines} setLines={setLines} />
-        </FormModal>
-      ) : null}
-    </>
-  );
-}

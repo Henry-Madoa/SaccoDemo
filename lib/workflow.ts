@@ -681,6 +681,43 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       else await svc.rejectDividend(task.entity_id, reason, decidedBy);
       break;
     }
+    case 'SHARE_FLOATING': {
+      const svc = await import('./shareTrading.ts');
+      if (approved) await svc.approveShareFloating(task.entity_id, decidedBy);
+      else await svc.rejectShareFloating(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'IMPREST_REQUEST': {
+      const svc = await import('./imprest.ts');
+      if (approved) await svc.approveImprestRequest(task.entity_id, decidedBy);
+      else await svc.rejectImprestRequest(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'IMPREST_SURRENDER': {
+      const svc = await import('./imprest.ts');
+      if (approved) await svc.approveImprestSurrender(task.entity_id, decidedBy);
+      else await svc.rejectImprestSurrender(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'PETTY_CASH': {
+      const svc = await import('./imprest.ts');
+      if (approved) await svc.approvePettyCash(task.entity_id, decidedBy);
+      else await svc.rejectPettyCash(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'STAFF_CLAIM': {
+      const svc = await import('./staffClaims.ts');
+      if (approved) await svc.approveStaffClaim(task.entity_id, decidedBy);
+      else await svc.rejectStaffClaim(task.entity_id, reason, decidedBy);
+      break;
+    }
+    case 'STORE_REQUISITION':
+    case 'PURCHASE_REQUISITION': {
+      const svc = await import('./requisitions.ts');
+      if (approved) await svc.approveRequisition(task.entity_id, decidedBy);
+      else await svc.rejectRequisition(task.entity_id, reason, decidedBy);
+      break;
+    }
     case 'SALES_DOCUMENT': {
       const svc = await import('./salesDocuments.ts');
       if (approved) await svc.approveSalesDocument(task.entity_id, decidedBy);

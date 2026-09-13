@@ -15,8 +15,9 @@ import {
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ProcessButton,
 } from '../../account-activation-actions';
 
 const ACCOUNT_ACTIVATION_VIEWS: AccountActivationView[] = ['open', 'pending', 'approved', 'processed'];
@@ -74,7 +75,6 @@ export default async function AccountActivationDetailPage({ params, searchParams
         <Link href={`/savings/${request.account_id}`} className="btn ghost sm">View account</Link>
         <Link href={`/members/${request.member_id}`} className="btn ghost sm">View member</Link>
         <Spacer />
-        {canEditFields ? <EditButton request={request} members={editMembers} className="btn ghost" /> : null}
         {canEditFields ? <SubmitButton no={request.no} className="btn ghost" /> : null}
         {request.status === 'Pending Approval' && canCancelThis ? (
           <CancelApprovalButton no={request.no} className="btn ghost" />
@@ -92,8 +92,8 @@ export default async function AccountActivationDetailPage({ params, searchParams
         <DocumentActionsMenu />
       </Toolbar>
 
-      <Card>
-        <CardHead title="Request details" sub="Status" />
+      <EditableCard title="Request details" sub="Status"
+        canEdit={canEditFields} form={<EditForm request={request} members={editMembers} />}>
         <DefinitionList items={[
           ['Request no.', <span className="mono" key="no">{request.no}</span>],
           ['Member', <>{request.member_first_name} {request.member_last_name} <span className="mono">({request.member_no})</span></>],
@@ -120,7 +120,7 @@ export default async function AccountActivationDetailPage({ params, searchParams
           ['Status', <Pill status={request.status} key="status" />],
           request.decision_reason ? ['Decision reason', request.decision_reason] : null,
         ]} />
-      </Card>
+      </EditableCard>
 
       <Card>
         <CardHead title="Document trail" sub="Who requested and processed this request, and when" />

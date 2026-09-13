@@ -77,6 +77,8 @@ import { CompanyForm } from '../company-form';
 import { AppearanceEditor } from '../appearance-editor';
 import { UserFormButton } from '../user-form';
 import { UserPermissionsButton } from '../user-permissions-form';
+import { listImprestPurposes } from '@/lib/imprest';
+import { ImprestPurposeFormButton, ImprestPurposeRow } from '../../imprest/imprest-actions';
 import { RoleFormButton, RoleRow } from '../role-form';
 import { SavingsProductButton, LoanProductButton } from '../product-forms';
 import { CollateralTypeButton } from '../collateral-type-form';
@@ -194,6 +196,7 @@ const POOL_GROUPS: PoolGroup[] = [
       { key: 'transaction-charges', label: 'Transaction Charges', page: 'ADMIN_CHARGES_TRANSACTION' },
       { key: 'currencies', label: 'Currencies', page: 'ADMIN_POOL_CURRENCIES' },
       { key: 'vat-posting-setup', label: 'VAT Posting Setup', page: 'ADMIN_POOL_VAT' },
+      { key: 'imprest-purposes', label: 'Imprest Purposes', page: 'ADMIN_POOL_IMPREST_PURPOSES' },
       { key: 'employers', label: 'Employers', page: 'ADMIN_PRODUCTS_EMPLOYERS' },
     ],
   },
@@ -343,6 +346,7 @@ export default async function AdminPage({ params, searchParams }: {
           {poolScreen.key === 'transaction-charges' ? <TransactionChargesTab /> : null}
           {poolScreen.key === 'currencies' ? <CurrenciesAdminTab /> : null}
           {poolScreen.key === 'vat-posting-setup' ? <VatPostingSetupTab /> : null}
+          {poolScreen.key === 'imprest-purposes' ? <ImprestPurposesTab /> : null}
           {poolScreen.key === 'salary-params' ? <SalaryParamsTab /> : null}
           {poolScreen.key === 'employers' ? <EmployersTab /> : null}
           {poolScreen.key === 'job-grades' ? <JobGradesTab /> : null}
@@ -390,7 +394,8 @@ async function SaccoSetupTab() {
 }
 
 async function GeneralLedgerSetupTab() {
-  return <GeneralLedgerSetupForm org={(await getOrg())!} />;
+  const [org, accounts] = await Promise.all([getOrg(), listPostableAccounts()]);
+  return <GeneralLedgerSetupForm org={org!} accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name }))} />;
 }
 
 async function CompanyTab() {
@@ -1845,6 +1850,25 @@ async function CurrenciesAdminTab() {
         ) : <EmptyState icon="💱" title="No exchange rates" />}
       </Card>
     </>
+  );
+}
+
+async function ImprestPurposesTab() {
+  const [rows, canManage] = await Promise.all([listImprestPurposes(), currentCanAction('ADMIN_POOL_IMPREST_PURPOSES_MANAGE')]);
+  return (
+    <Card>
+      <CardHead title="Imprest Purposes" sub="AL Tab52203660 — the standard reasons an imprest is requested for; picked on the request and printed on the form.">
+        {canManage ? <ImprestPurposeFormButton>New purpose</ImprestPurposeFormButton> : null}
+      </CardHead>
+      {rows.length ? (
+        <TableWrap>
+          <thead><tr><th>Code</th><th>Description</th><th>Status</th><th /></tr></thead>
+          <tbody>
+            {rows.map((r) => <ImprestPurposeRow key={r.code} row={r} canManage={canManage} />)}
+          </tbody>
+        </TableWrap>
+      ) : <EmptyState icon="🧭" title="No imprest purposes yet" sub="Add the standard reasons — travel, training, field work, procurement — an imprest is requested for." />}
+    </Card>
   );
 }
 

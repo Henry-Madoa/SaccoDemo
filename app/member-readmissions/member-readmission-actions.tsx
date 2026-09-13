@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -282,22 +283,19 @@ function NewRequestForm({ presetMemberId, onClose }: NewRequestFormProps) {
 /** Lets an Open request's Charge, Pay From choice and Reason all be changed before it's sent for
  *  approval. The member itself is fixed once a request exists — same "the anchor doesn't change
  *  on edit" shape as most of this app's other maker-checker documents. */
-export function EditButton({ request, className = 'btn sm ghost' }: {
+export function EditForm({ request }: {
   request: MemberReadmissionRequestWithDimensions;
-  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [chargeId, setChargeId] = useState(String(request.transaction_charge_id ?? ''));
   const [payFromAccountType, setPayFromAccountType] = useState<PayFromAccountType>(request.pay_from_account_type);
   const [debitAccountId, setDebitAccountId] = useState(String(request.debit_account_id ?? ''));
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${request.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveMemberReadmissionRequest(request.no, { ...values, memberId: request.member_id })}
           submitLabel="Save changes"
           successTitle="Request updated"
@@ -313,7 +311,6 @@ export function EditButton({ request, className = 'btn sm ghost' }: {
             debitAccountId={debitAccountId} setDebitAccountId={setDebitAccountId}
           />
         </FormModal>
-      ) : null}
     </>
   );
 }

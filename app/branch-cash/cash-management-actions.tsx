@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useRunAction } from '@/components/ui/run-action';
@@ -165,22 +166,19 @@ export function NewFosaTransactionButton() {
   );
 }
 
-export function EditButton({ doc, className = 'btn ghost' }: { doc: FosaTransactionView; className?: string }) {
-  const [open, setOpen] = useState(false);
+export function EditForm({ doc }: { doc: FosaTransactionView }) {
+  const { close } = useEditableCard();
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${doc.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveFosaTransaction(doc.no, values)}
           submitLabel="Save changes"
           successTitle="Cash movement updated"
         >
           <FosaFields initial={doc} />
         </FormModal>
-      ) : null}
     </>
   );
 }

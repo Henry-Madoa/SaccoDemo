@@ -17,8 +17,9 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ReopenButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, ReopenButton,
   ClearButton, ExpressClearButton, ReleaseHoldButton, BounceButton, DeleteButton,
 } from '../../cheque-deposit-actions';
 import { ChequeInstructions } from '../../cheque-instructions';
@@ -78,7 +79,6 @@ export default async function ChequeDepositDetailPage({ params, searchParams }: 
           <Link href={`/members/${deposit.member_id}`} className="btn ghost sm">View member</Link>
           <Link href={`/cheque-deposits/view/${deposit.no}/slip`} target="_blank" className="btn ghost sm">Deposit slip</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditButton deposit={deposit} members={editMembers} chequeTypes={editChequeTypes} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={deposit.no} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <SubmitButton no={deposit.no} className="btn ghost" /> : null}
           {deposit.status === 'Pending Approval' && canCancelThis ? <CancelApprovalButton no={deposit.no} className="btn ghost" /> : null}
@@ -98,7 +98,8 @@ export default async function ChequeDepositDetailPage({ params, searchParams }: 
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Cheque deposit details" sub="Banked against the member's account; clears on the maturity date">
+        <EditableCard collapsible title="Cheque deposit details" sub="Banked against the member's account; clears on the maturity date"
+          canEdit={isOpen && canCreate && isOwn} form={<EditForm deposit={deposit} members={editMembers} chequeTypes={editChequeTypes} />}>
           <div className="grid g2">
             <DefinitionList items={[
               ['Document no.', <span className="mono" key="no">{deposit.no}</span>],
@@ -125,7 +126,7 @@ export default async function ChequeDepositDetailPage({ params, searchParams }: 
               deposit.journal_no ? ['Journal', <span className="mono" key="j">{deposit.journal_no}</span>] : null,
             ]} />
           </div>
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard
           title="Cheque instructions"

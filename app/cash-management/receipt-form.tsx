@@ -5,11 +5,12 @@ import { FormModal } from '@/components/ui/form-modal';
 import { Field, MoneyInput } from '@/components/ui/field';
 import { AppliesToPicker } from '@/components/ui/applies-to-picker';
 import { MemberSelect } from '@/components/ui/member-select';
+import { EmployeeImprestPicker, EmployeePicker } from './employee-pickers';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useFormat } from '@/components/ui/format-provider';
 import { today } from '@/lib/format';
 import {
-  createReceiptRequest, updateReceiptRequest, memberReceiptOptions, type ReceiptLineDraft,
+  createReceiptRequest, memberReceiptOptions, type ReceiptLineDraft,
 } from '@/app/actions/cashMgmt';
 import type {
   MemberReceiptAccount, MemberReceiptLoan, Member, ReceiptDetail, ReceiptLineType,
@@ -22,7 +23,7 @@ const EMPTY_OPTIONS: MemberOptions = { accounts: [], loans: [] };
  * AL Enum-Ext52204000: the header's Receipt Type is what a line's Account No relates to, so the
  * type is chosen once and every line follows it. There is no per-line type.
  */
-const RECEIPT_TYPES: ReceiptLineType[] = ['Member', 'G/L Account', 'Customer', 'Vendor', 'Bank Account'];
+const RECEIPT_TYPES: ReceiptLineType[] = ['Member', 'Employee', 'G/L Account', 'Customer', 'Vendor', 'Bank Account'];
 
 type Opt = { code: string; name: string };
 type EligibleMember = Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>;
@@ -35,6 +36,7 @@ export interface ReceiptFormProps {
   currencies: { code: string }[];
   payMethods: { code: string; description: string }[];
   members: EligibleMember[];
+  employees: { id: number; employee_no: string; first_name: string; last_name: string }[];
 }
 
 const emptyLine = (): ReceiptLineDraft => ({
@@ -53,6 +55,8 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
   const { cur } = useFormat();
   const [receiptType, setReceiptType] = useState<ReceiptLineType>(initial?.receipt_type ?? 'G/L Account');
   const [memberId, setMemberId] = useState(String(initial?.member_id ?? ''));
+  const [employeeId, setEmployeeId] = useState(String(initial?.employee_id ?? ''));
+  const isEmployee = receiptType === 'Employee';
   const [received, setReceived] = useState(initial?.received_amount ? String(initial.received_amount / 100) : '');
   const [narration, setNarration] = useState(initial?.description ?? '');
   /** Accounts and loans per member — a receipt can collect for several, so one list will not do. */
@@ -113,6 +117,10 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
     (l.loanId ? `loan:${l.loanId}` : l.savingsAccountId ? `acct:${l.savingsAccountId}` : '');
 
   const accountPicker = (l: ReceiptLineDraft, i: number): ReactNode => {
+    if (isEmployee) {
+      const e = p.employees.find((x) => String(x.id) === employeeId);
+      return <span className="muted-cell">{e ? `${e.employee_no} — ${e.first_name} ${e.last_name}` : 'Pick the employee above'}</span>;
+    }
     if (isMember) {
       const { accounts, loans } = optionsFor(l);
       return (
@@ -194,6 +202,15 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
       ) : (
         <input type="hidden" name="memberId" value="" />
       )}
+      {isEmployee ? (
+        <div className="grid g2">
+          <EmployeePicker id="f_employeeId" name="employeeId" label="Employee (received from)" employees={p.employees}
+            value={employeeId} onChange={(id) => { setEmployeeId(id); setLines([emptyLine()]); }} required />
+          <div className="note">Money in from a member of staff — an imprest refund, a claim recovery or any other due — is credited to their subledger. Apply a line to an imprest to settle it.</div>
+        </div>
+      ) : (
+        <input type="hidden" name="employeeId" value="" />
+      )}
 
       <div className="grid g3">
         <Field name="currencyCode" label="Currency" type="select" defaultValue={initial?.currency_code ?? ''} options={[{ value: '', label: '(bank currency)' }, ...p.currencies.map((c) => ({ value: c.code, label: c.code }))]} />
@@ -248,7 +265,7 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
                 ) : null}
                 <td>{accountPicker(l, i)}</td>
                 <td>
-                  <input value={l.description} onChange={(e) => set(i, 'description', e.target.value)}
+                  <input type="text" value={l.description} onChange={(e) => set(i, 'description', e.target.value)}
                     aria-label="Description" required style={{ width: '100%' }}
                     placeholder={defaultDescription() || 'What this line is for'} />
                 </td>
@@ -260,6 +277,11 @@ export function ReceiptFields({ p, initial, lines, setLines }: {
                         <div>Int. {cur(loan.interest_balance)} · Pen. {cur(loan.penalty_balance)}</div>
                       </>
                     ) : acc ? `Balance ${cur(acc.balance)}` : '—'}
+                  </td>
+                ) : isEmployee ? (
+                  <td>
+                    <EmployeeImprestPicker employeeId={employeeId} mode="settle" value={l.appliesToDocNo ?? ''}
+                      onChange={(v) => set(i, 'appliesToDocNo', v)} onPickAmount={(amt) => set(i, 'amount', amt)} />
                   </td>
                 ) : (
                   <td>
@@ -338,18 +360,3 @@ export const receiptLinesOf = (receipt: ReceiptDetail): ReceiptLineDraft[] => (r
   }))
   : [emptyLine()]);
 
-export function EditReceiptButton({ receipt, className = 'btn sm ghost', p }: { receipt: ReceiptDetail; className?: string; p: ReceiptFormProps }) {
-  const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<ReceiptLineDraft[]>(() => receiptLinesOf(receipt));
-  return (
-    <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal title={`Edit ${receipt.no}`} wide onClose={() => setOpen(false)} onSubmit={(v) => updateReceiptRequest(receipt.no, v, lines)}
-          submitLabel="Save changes" successTitle="Receipt updated">
-          <ReceiptFields p={p} initial={receipt} lines={lines} setLines={setLines} />
-        </FormModal>
-      ) : null}
-    </>
-  );
-}

@@ -86,6 +86,7 @@ export function PurchaseDocumentCard({ doc, lookups, canEdit }: {
               ['Posting date', formatDate(doc.posting_date)],
               ['Document date', formatDate(doc.document_date)],
               ['Due date', doc.due_date ? formatDate(doc.due_date) : '—'],
+              doc.requisition_no ? ['Requisition', <a href={`/requisitions/view/${doc.requisition_no}`} className="mono" key="rq">{doc.requisition_no}</a>] : null,
             ]} />
             <DefinitionList items={[
               ['Payment terms', doc.payment_terms_code || '—'],

@@ -16,9 +16,10 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DenominationGrid } from '@/components/ui/denomination-grid';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   PostButton, DeleteButton,
 } from '../../cash-management-actions';
 
@@ -71,7 +72,6 @@ export default async function CashMovementDetailPage({ params, searchParams }: {
         <Toolbar>
           <Link href="/branch-cash" className="btn ghost sm">← All cash movements</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditButton doc={doc} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <SubmitButton no={doc.no} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={doc.no} className="btn ghost" /> : null}
           {doc.status === 'Pending Approval' && canCancelThis ? <CancelApprovalButton no={doc.no} className="btn ghost" /> : null}
@@ -86,7 +86,8 @@ export default async function CashMovementDetailPage({ params, searchParams }: {
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Movement details" sub={meta.flow}>
+        <EditableCard collapsible title="Movement details" sub={meta.flow}
+          canEdit={isOpen && canCreate && isOwn} form={<EditForm doc={doc} />}>
           <div className="grid g2">
             <DefinitionList items={[
               ['Document no.', <span className="mono" key="no">{doc.no}</span>],
@@ -103,7 +104,7 @@ export default async function CashMovementDetailPage({ params, searchParams }: {
               doc.journal_no ? ['Journal', <span className="mono" key="j">{doc.journal_no}</span>] : null,
             ]} />
           </div>
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard title="Denomination breakdown" sub="Note & coin count for this movement">
           <DenominationGrid

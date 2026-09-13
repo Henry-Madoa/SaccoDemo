@@ -16,6 +16,7 @@ type BankRow = {
   id: number; code: string; name: string; currency_code: string; bank_acc_posting_group_code: string | null;
   bank_name: string | null; account_no: string | null; iban: string | null; swift_code: string | null;
   min_balance: number; blocked: number; status: string; external_bank_code: string | null; bank_branch_no: string | null;
+  account_type?: string | null;
 };
 const acctOpts = (accounts: GlAccount[], none = '(none)') =>
   [{ value: '', label: none }, ...accounts.map((a) => ({ value: String(a.id), label: `${a.code} — ${a.name}` }))];
@@ -57,6 +58,8 @@ export function BankAccountFormButton({ account, postingGroups, externalBanks, c
           </div>
           <div className="grid g3">
             <Field name="minBalance" label="Minimum balance" type="currency" defaultValue={a ? String(a.min_balance / 100) : '0'} />
+            <Field name="accountType" label="Account type" type="select" defaultValue={a?.account_type ?? 'OTHER'}
+              options={[{ value: 'MAIN', label: 'Main bank account' }, { value: 'TREASURY', label: 'Treasury / vault' }, { value: 'TILL', label: 'Teller till' }, { value: 'PETTY_CASH', label: 'Petty cash float' }, { value: 'OTHER', label: 'Other' }]} />
             <Field name="blocked" label="Blocked" type="checkbox" defaultValue={a?.blocked ? '1' : '0'} />
             <Field name="inactive" label="Inactive" type="checkbox" defaultValue={a?.status === 'INACTIVE' ? '1' : '0'} />
           </div>
@@ -160,7 +163,7 @@ export function CashMgmtSetupButton({ setup, banks, accounts, charges, products,
                 shown here for reference and submitted unchanged. */}
             <div className="field">
               <label htmlFor="f_receiptLimitRef">Receipt approval limit</label>
-              <input id="f_receiptLimitRef" value={(setup.receipt_approval_limit / 100).toFixed(2)} readOnly disabled />
+              <input id="f_receiptLimitRef" type="text" value={(setup.receipt_approval_limit / 100).toFixed(2)} readOnly disabled />
               <div className="hint">Set on Admin Centre → Setup Pool → General Ledger Setup</div>
             </div>
           </div>

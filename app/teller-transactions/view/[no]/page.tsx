@@ -19,9 +19,10 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DenominationGrid } from '@/components/ui/denomination-grid';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   PostButton, DeleteButton, ResendSlipButton,
 } from '../../teller-transaction-actions';
 
@@ -79,10 +80,6 @@ export default async function TellerTransactionDetailPage({ params, searchParams
           <Link href="/teller-transactions" className="btn ghost sm">← All transactions</Link>
           <Link href={`/members/${doc.member_id}`} className="btn ghost sm">View member</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? (
-            <EditButton doc={doc} members={editMembers} className="btn ghost"
-              verification={{ instructions: accountInstructions, photoSrc, signatureSrc }} />
-          ) : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={doc.no} className="btn ghost" /> : null}
           {isOpen && doc.approval_required && canCreate && isOwn ? <SubmitButton no={doc.no} className="btn ghost" /> : null}
           {isOpen && !doc.approval_required && canPost ? <PostButton no={doc.no} /> : null}
@@ -104,7 +101,8 @@ export default async function TellerTransactionDetailPage({ params, searchParams
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Transaction details" sub={isDeposit ? 'Over-the-counter cash deposit' : 'Over-the-counter cash withdrawal'}>
+        <EditableCard collapsible title="Transaction details" sub={isDeposit ? 'Over-the-counter cash deposit' : 'Over-the-counter cash withdrawal'}
+          canEdit={isOpen && canCreate && isOwn} form={<EditForm doc={doc} members={editMembers} verification={{ instructions: accountInstructions, photoSrc, signatureSrc }} />}>
           <div className="grid g2">
             <DefinitionList items={[
               ['Document no.', <span className="mono" key="no">{doc.no}</span>],
@@ -127,7 +125,7 @@ export default async function TellerTransactionDetailPage({ params, searchParams
               doc.slip_emailed_at ? ['Slip emailed', formatDateTime(doc.slip_emailed_at)] : null,
             ]} />
           </div>
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard
           title="Member verification & account instructions"

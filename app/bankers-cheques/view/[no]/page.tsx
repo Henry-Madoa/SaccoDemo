@@ -16,8 +16,9 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   ReopenButton, PostButton, DeleteButton,
 } from '../../cheque-actions';
 
@@ -72,7 +73,6 @@ export default async function BankersChequeDetailPage({ params, searchParams }: 
           <Link href="/bankers-cheques" className="btn ghost sm">← All banker's cheques</Link>
           <Link href={`/members/${cheque.member_id}`} className="btn ghost sm">View member</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditButton cheque={cheque} members={editMembers} chequeTypes={editChequeTypes} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={cheque.no} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <SubmitButton no={cheque.no} className="btn ghost" /> : null}
           {cheque.status === 'Pending Approval' && canCancelThis ? <CancelApprovalButton no={cheque.no} className="btn ghost" /> : null}
@@ -88,7 +88,8 @@ export default async function BankersChequeDetailPage({ params, searchParams }: 
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Banker's cheque details" sub="Sold against the member's deposit account">
+        <EditableCard collapsible title="Banker's cheque details" sub="Sold against the member's deposit account"
+          canEdit={isOpen && canCreate && isOwn} form={<EditForm cheque={cheque} members={editMembers} chequeTypes={editChequeTypes} />}>
           <div className="grid g2">
             <DefinitionList items={[
               ['Cheque no.', <span className="mono" key="no">{cheque.no}</span>],
@@ -111,7 +112,7 @@ export default async function BankersChequeDetailPage({ params, searchParams }: 
               cheque.journal_no ? ['Journal', <span className="mono" key="j">{cheque.journal_no}</span>] : null,
             ]} />
           </div>
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard title="Document trail" sub="Who raised this, and when">
           <DefinitionList items={[

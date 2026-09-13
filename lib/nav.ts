@@ -178,6 +178,29 @@ export const NAV: NavGroup[] = [
       // rather than FOSA because it raises the expense and the payable in the G/L, even though
       // what it pays out lands in member accounts.
       { path: '/dividends', label: 'Dividends', icon: '💰', page: 'DIVIDENDS' },
+      // Members selling share capital to one another — equity changing hands through the
+      // Holding and Clearing accounts, so it sits with Finance too.
+      { path: '/share-trading', label: 'Share Trading', icon: '📈', page: 'SHARE_TRADING' },
+      // Staff money: an imprest is issued and later surrendered, petty cash is paid out of a float,
+      // a staff claim refunds what an employee spent — all through the employee subledger.
+      {
+        submenu: 'Staff Cash Desk', icon: '💼',
+        items: [
+          { path: '/imprest', label: 'Imprest Requests', icon: '📨', page: 'IMPREST' },
+          { path: '/imprest/surrenders', label: 'Imprest Surrenders', icon: '↩️', page: 'IMPREST' },
+          { path: '/imprest/petty-cash', label: 'Petty Cash', icon: '🪙', page: 'IMPREST' },
+          { path: '/imprest/staff-claims', label: 'Staff Claims', icon: '🧾', page: 'IMPREST' },
+          { path: '/imprest/ledger', label: 'Employee Ledger', icon: '📒', page: 'IMPREST' },
+        ],
+      },
+      // Store requisitions issue stock out of Inventory; purchase requisitions feed Payables.
+      {
+        submenu: 'Requisitions', icon: '📋',
+        items: [
+          { path: '/requisitions', label: 'Store Requisitions', icon: '📦', page: 'REQUISITIONS' },
+          { path: '/requisitions/purchase', label: 'Purchase Requisitions', icon: '🛒', page: 'REQUISITIONS' },
+        ],
+      },
       {
         submenu: 'VAT & WHT', icon: '🧮',
         items: [

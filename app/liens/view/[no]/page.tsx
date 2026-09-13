@@ -15,8 +15,9 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   ReopenButton, ProcessButton, DeleteButton,
 } from '../../lien-actions';
 
@@ -70,7 +71,6 @@ export default async function LienDetailPage({ params, searchParams }: {
           <Link href="/liens" className="btn ghost sm">← All liens</Link>
           <Link href={`/members/${lien.member_id}`} className="btn ghost sm">View member</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditButton lien={lien} members={editMembers} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={lien.no} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <SubmitButton no={lien.no} className="btn ghost" /> : null}
           {lien.status === 'Pending Approval' && canCancelThis ? <CancelApprovalButton no={lien.no} className="btn ghost" /> : null}
@@ -86,7 +86,8 @@ export default async function LienDetailPage({ params, searchParams }: {
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Lien details" sub={isHold ? 'Freezes part of the deposit balance' : 'Lifts a previous hold'}>
+        <EditableCard collapsible title="Lien details" sub={isHold ? 'Freezes part of the deposit balance' : 'Lifts a previous hold'}
+          canEdit={isOpen && canCreate && isOwn} form={<EditForm lien={lien} members={editMembers} />}>
           <div className="grid g2">
             <DefinitionList items={[
               ['Lien no.', <span className="mono" key="no">{lien.no}</span>],
@@ -106,7 +107,7 @@ export default async function LienDetailPage({ params, searchParams }: {
               lien.processed ? ['Processed', <Pill tone="ok" key="p">YES</Pill>] : null,
             ]} />
           </div>
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard title="Document trail" sub="Who raised this, and when">
           <DefinitionList items={[

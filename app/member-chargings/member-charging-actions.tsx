@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
+import { useEditableCard } from '@/components/ui/editable-card';
 import { Field } from '@/components/ui/field';
 import { MemberSelect } from '@/components/ui/member-select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -206,12 +207,11 @@ function NewDocumentForm({ members, presetMemberId, onClose }: NewDocumentFormPr
 /** Lets an Open document's Member, Source Account, Charge Code, No Of Pages and Description all
  *  be changed before it's posted. Changing the member clears Source Account, since the previous
  *  selection belonged to whoever was picked before. */
-export function EditButton({ request, members, className = 'btn sm ghost' }: {
+export function EditForm({ request, members }: {
   request: MemberChargingWithDimensions;
   members: Pick<Member, 'id' | 'member_no' | 'first_name' | 'last_name'>[];
-  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const { close } = useEditableCard();
   const [memberId, setMemberId] = useState(String(request.member_id));
   const [sourceAccountId, setSourceAccountId] = useState(String(request.source_account_id));
   const [chargeId, setChargeId] = useState(String(request.transaction_charge_id));
@@ -219,11 +219,9 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>Edit</button>
-      {open ? (
-        <FormModal
+        <FormModal inline
           title={`Edit ${request.no}`}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSubmit={(values) => saveMemberCharging(request.no, values)}
           submitLabel="Save changes"
           successTitle="Document updated"
@@ -237,7 +235,6 @@ export function EditButton({ request, members, className = 'btn sm ghost' }: {
           />
           <Field name="description" label="Description" type="textarea" required defaultValue={request.description} />
         </FormModal>
-      ) : null}
     </>
   );
 }

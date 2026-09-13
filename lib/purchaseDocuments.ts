@@ -150,6 +150,8 @@ export interface PurchaseHeaderInput {
   purchaser?: string | null;
   /** Transaction currency; omitted → the vendor's default currency, else KES. */
   currencyCode?: string | null;
+  /** AL "Requisition No" — set when procurement raises the document from a purchase requisition. */
+  requisitionNo?: string | null;
 }
 
 export interface PurchaseLineInput {
@@ -195,12 +197,12 @@ export async function createPurchaseDocument(input: PurchaseHeaderInput, user: A
     `INSERT INTO purchase_header
        (document_type, no, vendor_id, posting_date, document_date, payment_terms_code, payment_method_code,
         vendor_posting_group_code, vat_bus_posting_group_code, vendor_invoice_no, purchaser, currency_code,
-        currency_factor, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        currency_factor, requisition_no, created_at, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     input.documentType, no, vendor.id, input.postingDate, input.documentDate || input.postingDate,
     paymentTerms || null, input.paymentMethodCode || null, vendor.vendor_posting_group_code, vatBus || null,
     input.vendorInvoiceNo?.trim() || null, input.purchaser?.trim() || null, cur.code, cur.factor,
-    new Date().toISOString(), user.username,
+    input.requisitionNo?.trim() || null, new Date().toISOString(), user.username,
   );
   await audit(user, 'PURCHASE_DOCUMENT_CREATE', 'purchase_header', no, { documentType: input.documentType, vendor: vendor.no });
   return { no };
@@ -288,7 +290,27 @@ export async function setPurchaseLines(no: string, lines: PurchaseLineInput[], u
   if (!header) throw new AppError('Purchase document not found', 'NOT_FOUND');
   if (header.status !== 'Open') throw new AppError('Only an open document can have its lines edited', 'VALIDATION');
   if (header.created_by !== user.username) throw new AppError('Only the person who created this can edit it', 'NOT_CREATOR');
+  await writePurchaseLines(header, lines, user);
+}
 
+/** Pag52203556 "Append to Order" — procurement adds requisition lines onto an open Purchase Order
+ *  somebody else may have raised, so the creator check is deliberately not applied. */
+export async function appendPurchaseLines(no: string, lines: PurchaseLineInput[], user: Actor): Promise<void> {
+  const header = await one<PurchaseHeader>('SELECT * FROM purchase_header WHERE no = ?', no);
+  if (!header) throw new AppError('Purchase document not found', 'NOT_FOUND');
+  if (header.document_type !== 'Order' && header.document_type !== 'Quote') throw new AppError(`${no} is not a purchase order or quote`, 'VALIDATION');
+  if (header.status !== 'Open') throw new AppError(`${no} is ${header.status.toLowerCase()} — lines can only be appended to an open document`, 'VALIDATION');
+  const existing = await all<PurchaseLine>('SELECT * FROM purchase_line WHERE purchase_header_id = ? ORDER BY line_no', header.id);
+  const kept: PurchaseLineInput[] = existing.map((l) => ({
+    type: l.type, no: l.no, description: l.description, quantity: Number(l.quantity), directUnitCost: Number(l.direct_unit_cost),
+    lineDiscountPct: Number(l.line_discount_pct), locationCode: l.location_code, faDepreciationBookCode: l.fa_depreciation_book_code,
+    vatProdPostingGroupCode: l.vat_prod_posting_group_code,
+  }));
+  await writePurchaseLines(header, [...kept, ...lines], user);
+}
+
+async function writePurchaseLines(header: PurchaseHeader, lines: PurchaseLineInput[], user: Actor): Promise<void> {
+  const no = header.no;
   const faSetup = await import('./fixedAssetsSetup.ts').then((m) => m.getFaSetup());
   const setup = await getPurchasesPayablesSetup();
   const pricesInclVat = !!setup.prices_incl_vat;

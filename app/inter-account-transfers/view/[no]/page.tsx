@@ -15,8 +15,9 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import { CardNav } from '@/components/ui/card-nav';
+import { EditableCard } from '@/components/ui/editable-card';
 import {
-  EditButton, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
+  EditForm, SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton,
   ReopenButton, PostButton, DeleteButton,
 } from '../../transfer-actions';
 
@@ -70,7 +71,6 @@ export default async function TransferDetailPage({ params, searchParams }: {
           <Link href="/inter-account-transfers" className="btn ghost sm">← All transfers</Link>
           <Link href={`/members/${transfer.source_member_id}`} className="btn ghost sm">Source member</Link>
           <Spacer />
-          {isOpen && canCreate && isOwn ? <EditButton transfer={transfer} members={editMembers} canCrossMember={canCrossMember} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <DeleteButton no={transfer.no} className="btn ghost" /> : null}
           {isOpen && canCreate && isOwn ? <SubmitButton no={transfer.no} className="btn ghost" /> : null}
           {transfer.status === 'Pending Approval' && canCancelThis ? <CancelApprovalButton no={transfer.no} className="btn ghost" /> : null}
@@ -86,7 +86,8 @@ export default async function TransferDetailPage({ params, searchParams }: {
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Transfer details" sub="Cash moved from the source account to the destination account">
+        <EditableCard collapsible title="Transfer details" sub="Cash moved from the source account to the destination account"
+          canEdit={isOpen && canCreate && isOwn} form={<EditForm transfer={transfer} members={editMembers} canCrossMember={canCrossMember} />}>
           <div className="grid g2">
             <DefinitionList items={[
               ['Transfer no.', <span className="mono" key="no">{transfer.no}</span>],
@@ -107,7 +108,7 @@ export default async function TransferDetailPage({ params, searchParams }: {
               transfer.journal_no ? ['Journal', <span className="mono" key="j">{transfer.journal_no}</span>] : null,
             ]} />
           </div>
-        </CollapsibleCard>
+        </EditableCard>
 
         <CollapsibleCard title="Document trail" sub="Who raised this, and when">
           <DefinitionList items={[

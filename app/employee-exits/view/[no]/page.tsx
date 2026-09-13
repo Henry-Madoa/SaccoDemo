@@ -6,12 +6,13 @@ import { listTerminationReasons } from '@/lib/hrSetup';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
+import { EditableCard } from '@/components/ui/editable-card';
 import { DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer } from '@/components/ui/primitives';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import {
-  EditExitButton, AddDueLineButton, RemoveDueLineButton, SubmitButton, CancelApprovalButton, ApproveButton,
+  EditExitForm, AddDueLineButton, RemoveDueLineButton, SubmitButton, CancelApprovalButton, ApproveButton,
   RejectButton, DelegateButton, ClearSectionButton,
 } from '../../exit-actions';
 
@@ -56,7 +57,6 @@ export default async function EmployeeExitDetailPage({ params }: { params: Promi
         <Link href="/employee-exits" className="btn ghost sm">← All exits</Link>
         <Link href={`/employees/view/${exit.employee_id}`} className="btn ghost sm">View employee</Link>
         <Spacer />
-        {isOpen && canCreate && isOwn ? <EditExitButton exit={exit} reasons={reasons} className="btn ghost" /> : null}
         {isOpen && canCreate && isOwn ? <SubmitButton no={exit.no} className="btn ghost" /> : null}
         {exit.status === 'Pending Approval' && canCancelThis ? <CancelApprovalButton no={exit.no} className="btn ghost" /> : null}
         {exit.status === 'Pending Approval' && canDecideThis ? (
@@ -69,7 +69,8 @@ export default async function EmployeeExitDetailPage({ params }: { params: Promi
         <DocumentActionsMenu />
       </Toolbar>
 
-      <CollapsibleCard title="Exit details">
+      <EditableCard collapsible title="Exit details"
+        canEdit={isOpen && canCreate && isOwn} form={<EditExitForm exit={exit} reasons={reasons} />}>
         <div className="grid g2">
           <DefinitionList items={[
             ['No.', <span className="mono" key="no">{exit.no}</span>],
@@ -86,7 +87,7 @@ export default async function EmployeeExitDetailPage({ params }: { params: Promi
             exit.decision_reason ? ['Decision reason', exit.decision_reason] : null,
           ]} />
         </div>
-      </CollapsibleCard>
+      </EditableCard>
 
       <CollapsibleCard title="Final dues" sub={`Total ${(totalDue / 100).toLocaleString()}`}>
         {isOpen && canCreate && isOwn ? <div style={{ marginBottom: 10 }}><AddDueLineButton no={exit.no} /></div> : null}
