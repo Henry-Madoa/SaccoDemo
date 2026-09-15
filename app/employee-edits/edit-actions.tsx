@@ -7,28 +7,38 @@ import { Field } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useRunAction } from '@/components/ui/run-action';
 import {
-  createEmployeeEditRequestAction, submitEmployeeEditRequestAction,
+  createEmployeeEditRequestAction, submitEmployeeEditRequestAction, deleteEmployeeEditRequestAction,
   cancelEmployeeEditApprovalAction, approveEmployeeEditAction, rejectEmployeeEditAction, processEmployeeEditAction,
 } from '@/app/actions/employeeEdits';
 import { delegateMyTask } from '@/app/actions/workflows';
 import type { County, SubCounty, DimensionValue, EmployeeView, HrJobGrade } from '@/lib/types';
+import type { CompanyJobLite } from '@/app/employees/employee-actions';
 
 export interface EditLookups {
   globalDimension1Values: DimensionValue[]; globalDimension2Values: DimensionValue[];
   caption1: string; caption2: string;
   jobGrades: HrJobGrade[]; counties: County[]; subCounties: SubCounty[];
+  companyJobs: CompanyJobLite[];
 }
 
 type EmployeeLite = Pick<EmployeeView, 'id' | 'employee_no' | 'first_name' | 'last_name'>;
 
 /** Starts a new edit request by snapshotting an active employee's current values. */
-export function NewEditRequestButton({ employees }: { employees: EmployeeLite[] }) {
+export function NewEditRequestButton({ employees, self, initialEmployeeId, autoOpen = false, label }: {
+  employees: EmployeeLite[];
+  /** Employee Self Service: the request is against this employee's own record — no picker. */
+  self?: EmployeeLite | null;
+  /** Preselect an employee (the Employee Card's "Request a change" link). */
+  initialEmployeeId?: number | null;
+  autoOpen?: boolean;
+  label?: string;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [employeeId, setEmployeeId] = useState('');
+  const [open, setOpen] = useState(autoOpen);
+  const [employeeId, setEmployeeId] = useState(self ? String(self.id) : initialEmployeeId ? String(initialEmployeeId) : '');
   return (
     <>
-      <button type="button" className="btn" onClick={() => setOpen(true)}>New edit request</button>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>{label ?? 'New edit request'}</button>
       {open ? (
         <FormModal
           title="New employee edit request"
@@ -42,12 +52,34 @@ export function NewEditRequestButton({ employees }: { employees: EmployeeLite[] 
           successTitle="Edit request created"
           successDetail={(d) => `${d.no} is open for editing`}
         >
-          <SearchableSelect id="f_employeeId" name="employeeId" label="Employee"
-            items={employees} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
-            value={employeeId} onChange={setEmployeeId} required placeholder="Search employee…" />
+          {self ? (
+            <div className="note">
+              A change request snapshots your record as HR holds it today. Edit what should change, send it for
+              approval, and once approved and applied the live record is updated.
+            </div>
+          ) : (
+            <SearchableSelect id="f_employeeId" name="employeeId" label="Employee"
+              items={employees} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
+              value={employeeId} onChange={setEmployeeId} required placeholder="Search employee…" />
+          )}
         </FormModal>
       ) : null}
     </>
+  );
+}
+
+/** Deletes an Open request. From the card it lands on the list the card came from (the card
+ *  itself is gone); from a list row it just refreshes. */
+export function DeleteEditButton({ no, listHref, className = 'btn sm ghost' }: { no: string; listHref?: string; className?: string }) {
+  const { run, busy } = useRunAction();
+  return (
+    <button type="button" className={className} disabled={busy}
+      onClick={() => run(() => deleteEmployeeEditRequestAction(no), {
+        confirm: { title: 'Delete this edit request?', message: 'The proposed changes are discarded; the employee record is untouched. This cannot be undone.', confirmLabel: 'Delete', danger: true },
+        successTitle: 'Edit request deleted', redirectTo: listHref,
+      })}>
+      {busy ? 'Working…' : 'Delete'}
+    </button>
   );
 }
 

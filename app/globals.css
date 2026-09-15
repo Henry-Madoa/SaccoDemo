@@ -434,11 +434,29 @@ tbody tr.header-row { background: var(--surface-2); font-weight: 600; }
    the @media overrides below) regardless of source order, so a table-wrap with a sibling after it
    never gets pulled into overlapping that sibling. */
 .table-wrap:not(:last-child) { margin-bottom: 0; }
+/* The editable line-rows grid (next of kin, dependants, work history …) inside a card or modal:
+   scrolls sideways within its container, and every cell's control keeps a usable width instead
+   of the columns crushing each other to fit. */
+.line-rows-grid { overflow-x: auto; max-width: 100%; }
+.line-rows-grid table { min-width: 100%; width: max-content; }
+.line-rows-grid td { vertical-align: top; }
+.line-rows-grid td input:not([type=checkbox]), .line-rows-grid td select { min-width: 120px; }
+.line-rows-grid td input[type=date] { min-width: 150px; }
+.line-rows-grid td input[type=number] { min-width: 90px; }
 /* Caps a long list's height and scrolls internally instead of pushing the rest of the card
    (and the page) down — the table's own header row stays put as you scroll its body. */
 .scroll-list { max-height: 260px; overflow-y: auto; }
 .scroll-list .table-wrap { margin: 0; padding: 0; }
 .scroll-list thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+/* Sortable column headers — the whole cell is the button */
+th.th-sort { padding: 0; }
+th.th-sort > button { all: unset; display: flex; align-items: center; gap: 5px; width: 100%; box-sizing: border-box;
+  padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+th.th-sort > button:hover { color: var(--brand-primary); }
+th.th-sort > button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: -2px; }
+th.th-sort .th-sort-arrow { font-size: 9px; opacity: .35; }
+th.th-sort.is-sorted .th-sort-arrow { opacity: 1; color: var(--brand-primary); }
+th.th-sort.num > button { justify-content: flex-end; }
 tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight: 600; }
 
 .btn {
@@ -671,6 +689,12 @@ input[type=checkbox]:disabled { opacity: .5; cursor: not-allowed; }
 .dl dd { margin: 0; padding: 7px 0; border-bottom: 1px solid var(--border); word-break: break-word; }
 .dl dd .pill { white-space: normal; text-align: left; }
 .dl dt:last-of-type, .dl dd:last-of-type { border-bottom: none; }
+/* Grouped definition lists: side-by-side captioned columns inside a card */
+.dl-groups { gap: calc(var(--sp) * 3); align-items: start; }
+.dl-group { min-width: 0; }
+.dl-caption { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--brand-primary); padding-bottom: 6px; margin-bottom: 4px; border-bottom: 2px solid var(--brand-primary); }
+.dl-group .dl dt, .dl-group .dl dd { padding: 8px 0; }
+.dl-emphasis { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 
 /* progress bar + bulk-job run panel (e.g. Create Default Accounts) */
 .progress { width: 100%; height: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
@@ -938,3 +962,55 @@ body.print-preview .result-back, body.print-preview .nav-backdrop,
 body.print-preview .card-nav-btn, body.print-preview .doc-actions { display: none !important; }
 body.print-preview .shell { grid-template-columns: 1fr; }
 body.print-preview .card { border: none; padding: 0; }
+
+/* ------------------------------------------------------------------ organogram */
+/* A top-down tree per root position (app/organogram/org-chart.tsx): nested lists, the
+   connectors drawn with borders on each <li>'s pseudo-elements, the whole chart scrolling
+   sideways inside its card so a wide establishment never squashes the nodes. */
+.org-chart-scroll { overflow-x: auto; padding-bottom: var(--sp); }
+.org-chart { min-width: max-content; margin: 0 auto; padding: var(--sp) 0 calc(var(--sp) * 2); }
+.org-chart + .org-chart { border-top: 1px dashed var(--border); }
+.org-chart ul { display: flex; justify-content: center; position: relative; margin: 0; padding: 22px 0 0; list-style: none; }
+.org-chart > ul { padding-top: 0; }
+.org-chart li { position: relative; padding: 22px 8px 0; text-align: center; }
+.org-chart > ul > li { padding-top: 0; }
+.org-chart li::before, .org-chart li::after {
+  content: ''; position: absolute; top: 0; right: 50%; width: 50%; height: 22px; border-top: 1px solid var(--border);
+}
+.org-chart li::after { right: auto; left: 50%; border-left: 1px solid var(--border); }
+.org-chart > ul > li::before, .org-chart > ul > li::after { display: none; }
+.org-chart li:only-child::before, .org-chart li:only-child::after { display: none; }
+.org-chart ul ul > li:only-child { padding-top: 22px; }
+.org-chart ul ul > li:only-child::after { display: block; border-top: 0; }
+.org-chart li:first-child::before, .org-chart li:last-child::after { border-top: 0; }
+.org-chart li:last-child::before { border-right: 1px solid var(--border); border-radius: 0 6px 0 0; }
+.org-chart li:first-child::after { border-radius: 6px 0 0 0; }
+.org-chart ul ul::before { content: ''; position: absolute; top: 0; left: 50%; width: 0; height: 22px; border-left: 1px solid var(--border); }
+
+.org-node {
+  display: inline-flex; flex-direction: column; gap: 6px; width: 210px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--brand-primary);
+  border-radius: var(--radius); padding: 10px 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.org-node.mgmt { border-top-color: var(--brand-accent); }
+.org-node.vacant { border-top-color: var(--warning); border-style: dashed; border-top-style: solid; }
+.org-node-head { display: flex; flex-direction: column; gap: 2px; }
+.org-node-title { font-weight: 600; font-size: 13px; line-height: 1.25; color: var(--text); text-decoration: none; }
+.org-node-title:hover { color: var(--brand-primary); }
+.org-node-holders { display: flex; flex-direction: column; gap: 4px; }
+.org-holder { display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; font-size: 12.5px; min-width: 0; }
+.org-holder .avatar { width: 26px; height: 26px; font-size: 10px; }
+.org-holder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.org-holder:hover .org-holder-name { color: var(--brand-primary); text-decoration: underline; }
+.org-empty { font-style: italic; }
+.org-node-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+.org-posts { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.org-posts-bar { width: 44px; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.org-posts-bar > span { display: block; height: 100%; background: var(--success); }
+.org-node.partial .org-posts-bar > span { background: var(--warning); }
+.org-fold {
+  margin-left: auto; min-width: 24px; height: 22px; padding: 0 6px; border-radius: 11px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 11px; font-weight: 600;
+}
+.org-fold:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+@media print { .org-chart-scroll { overflow: visible; } .org-fold { display: none; } }

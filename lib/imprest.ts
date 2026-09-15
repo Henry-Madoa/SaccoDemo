@@ -28,6 +28,7 @@
  * request — lib/paymentVouchers.ts calls markImprestIssuedByVoucher() on posting.
  */
 import { one, all, run, tx, nextSequence, audit, hasAnyRow } from './db.ts';
+import { stampEmployeeDimensions } from './selfService.ts';
 import { AppError } from './errors.ts';
 import { postJournal } from './accounting.ts';
 import { getOrg } from './org.ts';
@@ -181,18 +182,23 @@ const IMPREST_SORT: Record<string, string> = {
   no: 'r.no', employee: 'e.first_name, e.last_name', request_date: 'r.request_date', due_date: 'r.due_date', status: 'r.status',
 };
 
-export interface ListImprestOptions { view?: ImprestListView; search?: string; filters?: FilterCondition[]; sort?: SortState | null }
+export interface ListImprestOptions {
+  view?: ImprestListView; search?: string; filters?: FilterCondition[]; sort?: SortState | null;
+  /** Employee Self Service: only this employee's requests. */
+  employeeId?: number | null;
+}
 
-export const listImprestRequests = ({ view = 'all', search = '', filters = [], sort = null }: ListImprestOptions = {}): Promise<ImprestRequestView[]> => {
+export const listImprestRequests = ({ view = 'all', search = '', filters = [], sort = null, employeeId = null }: ListImprestOptions = {}): Promise<ImprestRequestView[]> => {
   const { clause, params } = buildFilterClause(IMPREST_FILTER_FIELDS, filters);
   const orderBy = buildOrderClause(IMPREST_SORT, sort, 'r.no DESC');
   return all<ImprestRequestView>(
     `${SELECT_IMPREST}
      WHERE ${VIEW_CLAUSE[view]}
        AND (r.no LIKE @like OR e.employee_no LIKE @like OR e.first_name LIKE @like OR e.last_name LIKE @like OR r.purpose LIKE @like)
+       ${employeeId ? 'AND r.employee_id = @employeeId' : ''}
        ${clause}
      ${orderBy} LIMIT 500`,
-    { like: `%${String(search).trim()}%`, ...params },
+    { like: `%${String(search).trim()}%`, ...(employeeId ? { employeeId } : {}), ...params },
   );
 };
 
@@ -322,6 +328,7 @@ export async function createImprestRequest(input: ImprestInput, user: Actor): Pr
       input.payingBankAccountId ?? null, input.payModeCode?.trim() || null, input.paymentTxNo?.trim() || null, input.chequeDate || null,
       new Date().toISOString(), user.username,
     );
+    await stampEmployeeDimensions('imprest_request', no);
     await replaceImprestLines(no, input.lines);
   });
   await audit(user, 'IMPREST_CREATE', 'imprest_request', no, {});
@@ -349,6 +356,7 @@ export async function updateImprestRequest(no: string, input: ImprestInput, user
       input.returnDate || null, totalDays, input.justification?.trim() || null, input.phoneNo?.trim() || null,
       input.payingBankAccountId ?? null, input.payModeCode?.trim() || null, input.paymentTxNo?.trim() || null, input.chequeDate || null, no,
     );
+    await stampEmployeeDimensions('imprest_request', no);
     await replaceImprestLines(no, input.lines);
   });
   await audit(user, 'IMPREST_UPDATE', 'imprest_request', no, {});
@@ -446,6 +454,7 @@ export async function issueImprest(no: string, user: Actor): Promise<{ journalNo
     const narration = `Imprest ${no} issued to ${r.employee_no} — ${r.purpose}`;
     const j = await postJournal({
       valueDate: vd, module: 'IMPREST', eventType: 'IMPREST_ISSUE', description: narration, reference: no, user,
+      globalDimension1Id: r.global_dimension_1_id, globalDimension2Id: r.global_dimension_2_id,
       idempotencyKey: `IMPREST-ISSUE-${no}`,
       lines: [
         { account: control, debit: r.request_amount, credit: 0, narration },
@@ -635,6 +644,7 @@ export async function postImprestSurrender(no: string, user: Actor): Promise<{ j
     const j = await postJournal({
       valueDate: vd, module: 'IMPREST', eventType: 'IMPREST_SURRENDER', description: `Imprest surrender ${no} — ${r.employee_no}: ${r.purpose}`,
       reference: no, user, idempotencyKey: `IMPREST-SURRENDER-${no}`, lines: jl,
+      globalDimension1Id: r.global_dimension_1_id, globalDimension2Id: r.global_dimension_2_id,
     });
     await writeEmployeeLedgerEntry({ employeeId: r.employee_id, entryType: 'IMPREST_SURRENDER', documentNo: no, postingDate: vd, amount: -A, description: `Surrender of imprest ${no}`, journalId: j.id, user });
     if (refund > 0 && r.settlement === 'Receive Now') {
@@ -732,7 +742,7 @@ export async function transferImprestToPayroll(no: string, user: Actor): Promise
 export async function settleImprestsFromPayroll(periodId: number, postingDate: IsoDate, journalId: number, user: Actor): Promise<number> {
   const rows = await all<{ employee_id: number; code: string; amount_cents: number; notes: string | null; tx_id: number }>(
     `SELECT t.employee_id, c.code, l.amount_cents, t.notes, t.id AS tx_id
-     FROM payroll_period_line l
+     FROM payroll_period_transaction l
      JOIN payroll_transaction_code c ON c.id = l.transaction_code_id
      JOIN employee_payroll_transaction t ON t.employee_id = l.employee_id AND t.transaction_code_id = l.transaction_code_id AND t.payroll_period_id = l.payroll_period_id
      WHERE l.payroll_period_id = ? AND c.code IN ('IMPRECOV', 'IMPCLAIM') AND l.amount_cents > 0`, periodId);
@@ -782,12 +792,13 @@ const SELECT_PC = `
   LEFT JOIN bank_account b ON b.id = p.paying_bank_account_id
   LEFT JOIN journal j ON j.id = p.journal_id`;
 
-export const listPettyCash = (view: PettyCashListView = 'all', search = ''): Promise<PettyCashView[]> =>
+export const listPettyCash = (view: PettyCashListView = 'all', search = '', employeeId: number | null = null): Promise<PettyCashView[]> =>
   all<PettyCashView>(
     `${SELECT_PC} WHERE ${PC_VIEW[view]}
        AND (p.no LIKE @like OR e.employee_no LIKE @like OR e.first_name LIKE @like OR e.last_name LIKE @like OR p.payment_narration LIKE @like OR COALESCE(p.payment_to, '') LIKE @like)
+       ${employeeId ? 'AND p.employee_id = @employeeId' : ''}
      ORDER BY p.no DESC LIMIT 500`,
-    { like: `%${String(search).trim()}%` },
+    { like: `%${String(search).trim()}%`, ...(employeeId ? { employeeId } : {}) },
   );
 
 export const hasAnyPettyCash = (view: PettyCashListView = 'all'): Promise<boolean> => hasAnyRow('petty_cash p', PC_VIEW[view]);
@@ -868,6 +879,7 @@ export async function createPettyCash(input: PettyCashInput, user: Actor): Promi
       input.onBehalfOf?.trim() || null, input.paymentNarration.trim(), input.payModeCode?.trim() || null, input.paymentTxNo?.trim() || null,
       input.chequeDate || null, new Date().toISOString(), user.username,
     );
+    await stampEmployeeDimensions('petty_cash', no);
     await replacePettyCashLines(no, input.lines);
   });
   await audit(user, 'PETTY_CASH_CREATE', 'petty_cash', no, {});
@@ -893,6 +905,7 @@ export async function updatePettyCash(no: string, input: PettyCashInput, user: A
       input.onBehalfOf?.trim() || null, input.paymentNarration.trim(), input.payModeCode?.trim() || null, input.paymentTxNo?.trim() || null,
       input.chequeDate || null, no,
     );
+    await stampEmployeeDimensions('petty_cash', no);
     await replacePettyCashLines(no, input.lines);
   });
   await audit(user, 'PETTY_CASH_UPDATE', 'petty_cash', no, {});
@@ -974,6 +987,7 @@ export async function postPettyCash(no: string, user: Actor): Promise<{ journalN
     const j = await postJournal({
       valueDate: vd, module: 'PETTY_CASH', eventType: 'PETTY_CASH_POST', description: `Petty cash ${no} — ${p.payment_narration}`,
       reference: no, user, idempotencyKey: `PETTY-CASH-${no}`, lines: jl,
+      globalDimension1Id: p.global_dimension_1_id, globalDimension2Id: p.global_dimension_2_id,
     });
     await run('UPDATE petty_cash SET posted = true, posted_at = ?, posted_by = ?, journal_id = ?, posting_date = ? WHERE no = ?',
       new Date().toISOString(), user.username, j.id, vd, no);

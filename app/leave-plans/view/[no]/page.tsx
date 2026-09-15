@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAnyAction, currentCanAction, currentCanAnyAction } from '@/lib/session';
+import { assertCanViewEmployeeDocument } from '@/lib/selfService';
 import { getLeavePlan, listPlanLines } from '@/lib/leaveManagement';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDateTime } from '@/lib/format';
@@ -13,14 +14,16 @@ import {
 } from '../../plan-actions';
 
 export default async function LeavePlanDetailPage({ params }: { params: Promise<{ no: string }> }) {
-  const user = await requireAction('LEAVE_PLANS_READ');
+  const user = await requireAnyAction('LEAVE_PLANS_READ', 'SELF_SERVICE_LEAVE_PLANS_READ');
   const { no } = await params;
 
   const plan = await getLeavePlan(no);
   if (!plan) notFound();
+  // Employee Self Service: an employee reaches only their own plans.
+  const { selfService } = await assertCanViewEmployeeDocument(user, 'LEAVE_PLANS_READ', 'SELF_SERVICE_LEAVE_PLANS_READ', plan.employee_id);
 
   const [canCreate, canApprove, tasks, lines] = await Promise.all([
-    currentCanAction('LEAVE_PLANS_CREATE'),
+    currentCanAnyAction('LEAVE_PLANS_CREATE', 'SELF_SERVICE_LEAVE_PLANS_CREATE'),
     currentCanAction('LEAVE_PLANS_APPROVE'),
     listWorkflowTasksForDocument('LEAVE_PLAN', no),
     listPlanLines(no),
@@ -42,8 +45,8 @@ export default async function LeavePlanDetailPage({ params }: { params: Promise<
       user={user}
     >
       <Toolbar>
-        <Link href="/leave-plans" className="btn ghost sm">← All plans</Link>
-        <Link href={`/employees/view/${plan.employee_id}`} className="btn ghost sm">View employee</Link>
+        <Link href={selfService ? '/self-service/leave-plans' : '/leave-plans'} className="btn ghost sm">← {selfService ? 'My leave plans' : 'All plans'}</Link>
+        {!selfService ? <Link href={`/employees/view/${plan.employee_id}`} className="btn ghost sm">View employee</Link> : null}
         <Spacer />
         {isOpen && canCreate && isOwn ? <DeleteButton no={plan.no} className="btn ghost" /> : null}
         {isOpen && canCreate && isOwn ? <SubmitButton no={plan.no} className="btn ghost" /> : null}

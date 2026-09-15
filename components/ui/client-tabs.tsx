@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { TabsBar } from './tabs-bar';
 
 export interface ClientTabDefinition {
   key: string;
@@ -113,14 +114,14 @@ export function ClientTabs({ tabs, initial, panels }: {
 
   return (
     <>
-      <div className="tabs">
+      <TabsBar active={active}>
         {tabs.map((t) => (
           <button key={t.key} type="button" className={t.key === active ? 'active' : ''}
             onClick={() => goTo(t.key)}>
             {t.label}
           </button>
         ))}
-      </div>
+      </TabsBar>
       <TabFlowContext.Provider value={flow}>
         {panels[active]}
       </TabFlowContext.Provider>

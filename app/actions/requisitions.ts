@@ -1,7 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireAction, requireUser } from '@/lib/session';
+import { requireAction, requireAnyAction, requireUser } from '@/lib/session';
+import { resolveActingEmployee } from '@/lib/selfService';
 import { actionResult } from '@/lib/errors';
 import {
   createRequisition, updateRequisition, deleteRequisition, submitRequisition, cancelRequisitionApproval, approveRequisition, rejectRequisition,
@@ -14,7 +15,7 @@ import type { ActionResult, Cents, FormValues, IsoDate, ProcurementMethod, Requi
 export interface RequisitionLineDraft { type: string; no: string; description: string; unitOfMeasureId: string; quantity: string; unitPrice: string; locationId: string }
 
 const revalidate = (no?: string) => {
-  for (const p of ['/requisitions', '/requisitions/store', '/requisitions/purchase', '/approvals', '/payables', '/payables/purchase-orders', '/payables/purchase-quotes', '/inventory/item-journal', '/inventory/items']) revalidatePath(p);
+  for (const p of ['/requisitions', '/requisitions/store', '/requisitions/purchase', '/self-service', '/self-service/requisitions', '/dashboard', '/approvals', '/payables', '/payables/purchase-orders', '/payables/purchase-quotes', '/inventory/item-journal', '/inventory/items']) revalidatePath(p);
   if (no) revalidatePath(`/requisitions/view/${no}`);
 };
 const money = (v: unknown): Cents => (v === '' || v == null ? 0 : Math.round(Number(v) * 100));
@@ -36,19 +37,30 @@ function toInput(type: RequisitionType, v: FormValues, lines: RequisitionLineDra
 }
 
 export async function requestRequisition(type: RequisitionType, values: FormValues, lines: RequisitionLineDraft[]): Promise<ActionResult<{ no: string }>> {
-  return actionResult(async () => { const r = await createRequisition(toInput(type, values, lines), await requireAction('REQUISITIONS_CREATE')); revalidate(); return r; });
+  return actionResult(async () => {
+    const user = await requireAnyAction('REQUISITIONS_CREATE', 'SELF_SERVICE_REQUISITIONS_CREATE');
+    // Self Service: the requisition is always the signed-in employee's own.
+    const input = toInput(type, values, lines);
+    input.employeeId = await resolveActingEmployee(user, 'REQUISITIONS_CREATE', input.employeeId || null);
+    const r = await createRequisition(input, user); revalidate(); return r;
+  });
 }
 export async function saveRequisition(no: string, type: RequisitionType, values: FormValues, lines: RequisitionLineDraft[]): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { await updateRequisition(no, toInput(type, values, lines), await requireAction('REQUISITIONS_CREATE')); revalidate(no); return { updated: true }; });
+  return actionResult(async () => {
+    const user = await requireAnyAction('REQUISITIONS_CREATE', 'SELF_SERVICE_REQUISITIONS_CREATE');
+    const input = toInput(type, values, lines);
+    input.employeeId = await resolveActingEmployee(user, 'REQUISITIONS_CREATE', input.employeeId || null);
+    await updateRequisition(no, input, user); revalidate(no); return { updated: true };
+  });
 }
 export async function deleteRequisitionAction(no: string): Promise<ActionResult<{ deleted: true }>> {
-  return actionResult(async () => { await deleteRequisition(no, await requireAction('REQUISITIONS_CREATE')); revalidate(); return { deleted: true }; });
+  return actionResult(async () => { await deleteRequisition(no, await requireAnyAction('REQUISITIONS_CREATE', 'SELF_SERVICE_REQUISITIONS_CREATE')); revalidate(); return { deleted: true }; });
 }
 export async function submitRequisitionAction(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
-  return actionResult(async () => { const { autoApproved } = await submitRequisition(no, await requireAction('REQUISITIONS_CREATE')); revalidate(no); return { updated: true, autoApproved }; });
+  return actionResult(async () => { const { autoApproved } = await submitRequisition(no, await requireAnyAction('REQUISITIONS_CREATE', 'SELF_SERVICE_REQUISITIONS_CREATE')); revalidate(no); return { updated: true, autoApproved }; });
 }
 export async function cancelRequisitionApprovalAction(no: string): Promise<ActionResult<{ updated: true }>> {
-  return actionResult(async () => { await cancelRequisitionApproval(no, await requireAction('REQUISITIONS_CREATE')); revalidate(no); return { updated: true }; });
+  return actionResult(async () => { await cancelRequisitionApproval(no, await requireAnyAction('REQUISITIONS_CREATE', 'SELF_SERVICE_REQUISITIONS_CREATE')); revalidate(no); return { updated: true }; });
 }
 export async function approveRequisitionAction(no: string, type: RequisitionType): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {

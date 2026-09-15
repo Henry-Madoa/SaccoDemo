@@ -284,10 +284,14 @@ export const LEAVE_APPLICATION_FILTER_FIELDS: FilterFieldDef[] = [
 ];
 const APP_SORT_COLUMNS: Record<string, string> = { no: 'a.no', employee: 'emp.first_name', start_date: 'a.start_date', status: 'a.status' };
 
-export interface ListLeaveApplicationsOptions { view?: LeaveApplicationView2; search?: string; filters?: FilterCondition[]; sort?: SortState | null; }
+export interface ListLeaveApplicationsOptions {
+  view?: LeaveApplicationView2; search?: string; filters?: FilterCondition[]; sort?: SortState | null;
+  /** Employee Self Service: only this employee's applications (the AL "SS" list's SourceTableView). */
+  employeeId?: number | null;
+}
 
 export async function listLeaveApplications(
-  { view, search = '', filters = [], sort = null }: ListLeaveApplicationsOptions = {},
+  { view, search = '', filters = [], sort = null, employeeId = null }: ListLeaveApplicationsOptions = {},
 ): Promise<HrLeaveApplicationView[]> {
   const { clause, params } = buildFilterClause(LEAVE_APPLICATION_FILTER_FIELDS, filters);
   const orderBy = buildOrderClause(APP_SORT_COLUMNS, sort, 'a.no DESC');
@@ -295,9 +299,10 @@ export async function listLeaveApplications(
     `${SELECT_APPLICATION}
      WHERE (a.no LIKE @like OR emp.employee_no LIKE @like OR emp.first_name LIKE @like OR emp.last_name LIKE @like)
        ${view ? `AND ${APP_VIEW_CLAUSE[view]}` : ''}
+       ${employeeId ? 'AND a.employee_id = @employeeId' : ''}
        ${clause}
      ${orderBy}`,
-    { like: `%${String(search).trim()}%`, ...params },
+    { like: `%${String(search).trim()}%`, ...(employeeId ? { employeeId } : {}), ...params },
   );
   for (const r of rows) r.balance = await getLeaveBalance(r.employee_id, r.leave_type_id, r.leave_calendar_id);
   return rows;
@@ -685,8 +690,11 @@ const SELECT_PLAN = `
   SELECT p.*, e.employee_no, e.first_name AS employee_first_name, e.last_name AS employee_last_name
   FROM hr_leave_plan p JOIN employee e ON e.id = p.employee_id`;
 
-export const listLeavePlans = (view?: PlanView): Promise<HrLeavePlanView[]> =>
-  all(`${SELECT_PLAN} ${view ? `WHERE ${PLAN_VIEW_CLAUSE[view]}` : ''} ORDER BY p.no DESC`);
+export const listLeavePlans = (view?: PlanView, employeeId?: number | null): Promise<HrLeavePlanView[]> =>
+  all(
+    `${SELECT_PLAN} WHERE ${view ? PLAN_VIEW_CLAUSE[view] : '1=1'} ${employeeId ? 'AND p.employee_id = @employeeId' : ''} ORDER BY p.no DESC`,
+    employeeId ? { employeeId } : {},
+  );
 export const getLeavePlan = (no: string): Promise<HrLeavePlanView | undefined> => one(`${SELECT_PLAN} WHERE p.no = ?`, no);
 export const hasAnyLeavePlans = async (view?: PlanView): Promise<boolean> =>
   !!(await one(`SELECT 1 FROM hr_leave_plan p WHERE ${view ? PLAN_VIEW_CLAUSE[view] : '1=1'} LIMIT 1`));

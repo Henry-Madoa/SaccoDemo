@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountField } from '@/components/ui/gl-account-select';
 import {
   saveVatBusinessGroupRequest, saveVatProductGroupRequest, saveVatPostingSetupRequest, deleteVatPostingSetupRequest,
 } from '@/app/actions/cashMgmt';
@@ -69,8 +70,7 @@ export function VatPostingSetupRowButton({ row, busGroups, prodGroups, accounts,
               options={['Normal', 'Zero VAT', 'Exempt'].map((t) => ({ value: t, label: t }))} />
             <Field name="whtBase" label="WHT base" type="select" defaultValue={r?.wht_base ?? 'Net'} options={[{ value: 'Net', label: 'Net of VAT' }, { value: 'Gross', label: 'Gross' }]} />
           </div>
-          <Field name="taxAccountId" label="Tax G/L account (input VAT or tax-payable)" type="select" defaultValue={String(r?.tax_account_id ?? '')}
-            options={[{ value: '', label: '(none)' }, ...accounts.map((a) => ({ value: String(a.id), label: `${a.code} — ${a.name}` }))]} />
+          <GlAccountField name="taxAccountId" label="Tax G/L account (input VAT or tax-payable)" accounts={accounts} defaultValue={r?.tax_account_id ?? ''} placeholder="Search account… (blank = none)" />
           <Field name="blocked" label="Blocked" type="checkbox" defaultValue={r?.blocked ? '1' : '0'} />
           {r ? (
             <p className="tiny muted-cell" style={{ marginTop: 8 }}>

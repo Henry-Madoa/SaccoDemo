@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { TabsBar } from '@/components/ui/tabs-bar';
 import { useRouter } from 'next/navigation';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { FilePicker } from '@/components/ui/uploader';
@@ -48,14 +49,14 @@ export function BiometricPanel({ memberId, images, canEdit, mediaEnabled }: Biom
           Media storage is not configured. Set the <code>CLOUDINARY_*</code> environment variables to enable uploads.
         </div>
       ) : null}
-      <div className="tabs">
+      <TabsBar active={tab}>
         {TABS.map((t) => (
           <button key={t.key} type="button" className={t.key === tab ? 'active' : ''}
             onClick={() => setTab(t.key)}>
             {t.label}
           </button>
         ))}
-      </div>
+      </TabsBar>
       <div className="biometric-grid">
         {SLOTS_BY_TAB[tab].map((slot) => (
           <BiometricSlot

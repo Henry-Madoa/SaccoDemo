@@ -106,6 +106,7 @@ export async function saveApprovalUserSetupRow(
       allow_posting_to: String(values.allow_posting_to || '').trim() || null,
       allow_posting_from_time: String(values.allow_posting_from_time || '').trim() || null,
       allow_posting_to_time: String(values.allow_posting_to_time || '').trim() || null,
+      employee_id: Number(values.employee_id) || null,
     }, user);
     revalidatePath('/admin/workflows');
     return { updated: true };

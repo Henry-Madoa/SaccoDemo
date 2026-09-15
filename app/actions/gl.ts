@@ -4,6 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { requireAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import * as gl from '@/lib/gl';
+import {
+  getCloseIncomeStatementContext, listClosingRuns, previewCloseIncomeStatement, postCloseIncomeStatement,
+  type CloseIncomeStatementInput,
+} from '@/lib/closeIncomeStatement';
 import { toCents } from '@/lib/format';
 import type { FilterCondition } from '@/lib/listFilters';
 import type {
@@ -134,6 +138,63 @@ export async function setPeriodStatus(code: string, status: string): Promise<Act
     const period = await gl.setPeriodStatus(code, status, user);
     revalidatePath('/accounting/periods');
     return period;
+  });
+}
+
+/** Business Central "Close Year": closes the earliest open fiscal year; cannot be undone. */
+export async function closeFiscalYearRequest(): Promise<ActionResult<gl.FiscalYear>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_PERIOD_CLOSE');
+    const year = await gl.closeFiscalYear(user);
+    revalidatePath('/accounting/periods');
+    revalidatePath('/accounting/close-income-statement');
+    return year;
+  });
+}
+
+/** Business Central "Create Fiscal Year": the next twelve monthly periods. */
+export async function createFiscalYearRequest(noOfPeriods = 12): Promise<ActionResult<AccountingPeriod[]>> {
+  return actionResult(async () => {
+    const user = await requireAction('GL_PERIOD_CREATE');
+    const periods = await gl.createFiscalYear(user, Number(noOfPeriods) || 12);
+    revalidatePath('/accounting/periods');
+    revalidatePath('/accounting/close-income-statement');
+    return periods;
+  });
+}
+
+/* ------------------------------------------------------ close income statement */
+
+export async function closeIncomeStatementContextRequest() {
+  return actionResult(async () => {
+    await requireAction('GL_READ');
+    return getCloseIncomeStatementContext();
+  });
+}
+
+export async function listClosingRunsRequest(fiscalYearEndDate: string) {
+  return actionResult(async () => {
+    await requireAction('GL_READ');
+    return listClosingRuns(fiscalYearEndDate);
+  });
+}
+
+export async function previewCloseIncomeStatementRequest(input: CloseIncomeStatementInput) {
+  return actionResult(async () => {
+    await requireAction('GL_CLOSE_INCOME_STATEMENT');
+    return previewCloseIncomeStatement(input);
+  });
+}
+
+export async function postCloseIncomeStatementRequest(input: CloseIncomeStatementInput) {
+  return actionResult(async () => {
+    const user = await requireAction('GL_CLOSE_INCOME_STATEMENT');
+    const journal = await postCloseIncomeStatement(input, user);
+    revalidatePath('/accounting');
+    revalidatePath('/accounting/close-income-statement');
+    revalidatePath('/accounting/journals');
+    revalidatePath('/accounting/trial-balance');
+    return journal;
   });
 }
 

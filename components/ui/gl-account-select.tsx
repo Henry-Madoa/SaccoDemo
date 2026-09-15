@@ -143,3 +143,15 @@ export function GlAccountSelect({
     </div>
   );
 }
+
+/**
+ * GlAccountSelect for an uncontrolled, FormData-read form (a FormModal or an inline card): it
+ * keeps its own picked value, seeded from `defaultValue`, so it drops in wherever a
+ * `<Field type="select">` of accounts used to sit — same `name`, same posted value.
+ */
+export function GlAccountField({ defaultValue = '', ...rest }: Omit<Parameters<typeof GlAccountSelect>[0], 'value' | 'onChange'> & {
+  defaultValue?: string | number | null;
+}) {
+  const [value, setValue] = useState(defaultValue == null ? '' : String(defaultValue));
+  return <GlAccountSelect {...rest} value={value} onChange={setValue} />;
+}

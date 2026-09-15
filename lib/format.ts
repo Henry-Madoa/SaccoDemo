@@ -189,7 +189,7 @@ const STATUS_TONE: Record<string, Tone> = {
   Open: 'ok', Approved: 'ok', Processed: 'ok', Fulfilled: 'ok', Cleared: 'ok', Received: 'ok', Posted: 'ok',
   'Pending Approval': 'warn', 'Pending Prepayment': 'warn', Running: 'warn',
   Rejected: 'bad', Reversed: 'bad', Terminated: 'bad', Bounced: 'bad',
-  Closed: '', Archived: '',
+  Closed: '', Archived: '', Retired: '',
 };
 
 /** Maps a domain status to the pill tone. */

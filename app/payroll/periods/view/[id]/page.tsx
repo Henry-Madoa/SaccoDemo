@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getPayrollPeriod, listPeriodLines } from '@/lib/payroll';
+import { getPayrollPeriod, listPeriodTransactions, nextPayrollPeriod } from '@/lib/payroll';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDateTime } from '@/lib/format';
 import { Page } from '@/components/layout/page';
@@ -10,16 +10,8 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Money } from '@/components/ui/money';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import {
-  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, CloseButton,
+  SubmitButton, CancelApprovalButton, ApproveButton, RejectButton, DelegateButton, CloseButton, ReopenButton,
 } from '../../period-actions';
-
-function nextMonthName(periodName: string): string {
-  const m = periodName.match(/^(\d{4})-(\d{2})$/);
-  if (!m) return '';
-  let year = Number(m[1]); let month = Number(m[2]) + 1;
-  if (month > 12) { month = 1; year += 1; }
-  return `${year}-${String(month).padStart(2, '0')}`;
-}
 
 export default async function PayrollPeriodDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireAction('PAYROLL_PERIODS_READ');
@@ -34,17 +26,17 @@ export default async function PayrollPeriodDetailPage({ params }: { params: Prom
     currentCanAction('PAYROLL_PERIODS_APPROVE'),
     currentCanAction('PAYROLL_PERIODS_CLOSE'),
     listWorkflowTasksForDocument('PAYROLL_PERIOD', String(id)),
-    listPeriodLines(id),
+    listPeriodTransactions(id),
   ]);
 
   const byEmployee = new Map<number, { employee_no: string; name: string; netPay: number }>();
   let grossPay = 0; let totalPaye = 0; let totalNssf = 0; let totalNetPay = 0;
   for (const l of lines) {
     const amt = Number(l.amount_cents);
-    if (l.section === 'BASIC' || l.section === 'ALLOWANCE') grossPay += amt;
-    if (l.transaction_code_name === 'PAYE') totalPaye += amt;
-    if (l.transaction_code_name === 'NSSF (Employee)') totalNssf += amt;
-    if (l.transaction_code_name === 'Net Pay') {
+    if (l.transaction_code === 'GPAY') grossPay += amt;
+    if (l.transaction_code === 'PAYE') totalPaye += amt;
+    if (l.transaction_code === 'NSSF') totalNssf += amt;
+    if (l.transaction_code === 'NPAY') {
       totalNetPay += amt;
       const cur = byEmployee.get(l.employee_id) ?? { employee_no: l.employee_no, name: `${l.employee_first_name} ${l.employee_last_name}`, netPay: 0 };
       cur.netPay += amt;
@@ -77,7 +69,8 @@ export default async function PayrollPeriodDetailPage({ params }: { params: Prom
             <RejectButton id={period.id} className="btn ghost" />
           </>
         ) : null}
-        {period.status === 'APPROVED' && canClose ? <CloseButton id={period.id} nextPeriodName={nextMonthName(period.period_name)} /> : null}
+        {period.status === 'APPROVED' && canApprove ? <ReopenButton id={period.id} className="btn ghost" /> : null}
+        {period.status === 'APPROVED' && canClose ? <CloseButton id={period.id} next={nextPayrollPeriod(period)} /> : null}
         <DocumentActionsMenu />
       </Toolbar>
 

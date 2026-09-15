@@ -324,6 +324,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteInterAccountTransferRequest(no), {
         confirm: { title: 'Delete this transfer?', message: 'It is removed permanently. Only an open transfer can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/inter-account-transfers',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

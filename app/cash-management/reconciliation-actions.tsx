@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountField } from '@/components/ui/gl-account-select';
 import { useRunAction } from '@/components/ui/run-action';
 import { today } from '@/lib/format';
 import {
@@ -56,7 +57,7 @@ export function AddAdjustmentButton({ id, accounts }: { id: number; accounts: Gl
       {open ? (
         <FormModal title="Statement-only adjustment" onClose={() => setOpen(false)} onSubmit={(v) => addRecAdjustmentRequest(id, v)}
           submitLabel="Add" successTitle="Adjustment added" resultStyle="popup">
-          <Field name="glAccountId" label="G/L account" type="select" required options={[{ value: '', label: '…' }, ...accounts.map((a) => ({ value: String(a.id), label: `${a.code} — ${a.name}` }))]} />
+          <GlAccountField name="glAccountId" label="G/L account" required accounts={accounts} />
           <Field name="amount" label="Amount (negative for a charge, positive for interest)" type="currency" required />
           <Field name="description" label="Description" required />
         </FormModal>

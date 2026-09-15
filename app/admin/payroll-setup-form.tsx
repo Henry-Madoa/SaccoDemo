@@ -27,7 +27,11 @@ export function PayrollSetupFormButton({ setup, className = 'btn' }: { setup: Hr
             <Field name="maxReliefCents" label="Max combined relief" type="currency" defaultValue={setup.max_relief_cents / 100} />
           </div>
           <div className="grid g3">
-            <Field name="mortgageReliefCents" label="Mortgage relief cap" type="currency" defaultValue={setup.mortgage_relief_cents / 100} />
+            <Field name="mortgageReliefCents" label="Owner-occupier interest cap (P9 col. F, per month)" type="currency" defaultValue={setup.mortgage_relief_cents / 100} />
+            <Field name="pensionDeductionCapCents" label="Pension / NSSF deduction cap (P9 col. E3, per month)" type="currency" defaultValue={setup.pension_deduction_cap_cents / 100} />
+            <Field name="prmfCapCents" label="Post-retirement medical fund cap (P9 col. J, per month)" type="currency" defaultValue={setup.prmf_cap_cents / 100} />
+            <Field name="shifDeductible" label="SHIF is an allowable deduction (P9 col. I)" type="checkbox" defaultValue={setup.shif_deductible ? '1' : ''} />
+            <Field name="housingLevyDeductible" label="Housing Levy is an allowable deduction (P9 col. H)" type="checkbox" defaultValue={setup.housing_levy_deductible ? '1' : ''} />
             <Field name="minimumReliefThresholdCents" label="Minimum relief exemption threshold" type="currency" defaultValue={setup.minimum_relief_threshold_cents / 100} />
             <Field name="secondaryTaxPct" label="Secondary employee flat tax %" type="number" defaultValue={setup.secondary_tax_pct} />
           </div>

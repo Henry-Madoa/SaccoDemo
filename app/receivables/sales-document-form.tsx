@@ -60,10 +60,10 @@ export function DocFields({ documentType, customers, paymentTerms, paymentMethod
     patch(i, { type, no: '', description: wasAuto ? '' : l.description });
   };
 
-  // Copying a posted invoice replaces the header customer and the whole line set — the memo is
-  // being raised *for* that invoice, so a half-copied document would be the confusing outcome.
+  // Copying a posted invoice replaces the whole line set — the memo is being raised *for* that
+  // invoice, so a half-copied document would be the confusing outcome. The customer is already
+  // the invoice's: the picker only ever lists the chosen customer's invoices.
   const copyFromInvoice = (src: CreditMemoSource) => {
-    setCustomerId(String(src.customerId));
     setLines(src.lines.map((l) => ({
       type: l.type, no: l.no ?? '', description: l.description ?? '',
       quantity: String(l.quantity), unitPrice: (l.unitPrice / 100).toFixed(2),
@@ -75,8 +75,6 @@ export function DocFields({ documentType, customers, paymentTerms, paymentMethod
   return (
     <>
       <input type="hidden" name="documentType" value={documentType} />
-      {documentType === 'Credit Memo' && !editing
-        ? <CreditMemoSourcePicker customerId={customerId} onCopy={copyFromInvoice} /> : null}
       {documentType === 'Credit Memo' && editing && initial?.applies_to_doc_no
         ? <input type="hidden" name="appliesToDocNo" value={initial.applies_to_doc_no} /> : null}
       <div className="grid g2">
@@ -90,6 +88,10 @@ export function DocFields({ documentType, customers, paymentTerms, paymentMethod
         {editing ? <input type="hidden" name="customerId" value={customerId} /> : null}
         <Field name="postingDate" label="Posting date" type="date" required defaultValue={initial?.posting_date ?? today()} />
       </div>
+      {/* Customer first, then the invoice: the picker below lists only that customer's open
+          invoices, so it sits under the Customer field rather than above it. */}
+      {documentType === 'Credit Memo' && !editing
+        ? <CreditMemoSourcePicker customerId={customerId} onCopy={copyFromInvoice} /> : null}
       <div className="grid g3">
         <Field name="documentDate" label="Document date" type="date" defaultValue={initial?.document_date ?? today()} />
         <Field name="paymentTermsCode" label="Payment terms" type="select" defaultValue={initial?.payment_terms_code ?? ''}

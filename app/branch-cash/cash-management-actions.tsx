@@ -270,6 +270,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteFosaTransactionRequest(no), {
         confirm: { title: 'Delete this cash movement?', message: 'It is removed permanently. Only an open document can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/branch-cash',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

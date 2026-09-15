@@ -1,6 +1,7 @@
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { statusTone, humanise, type Tone } from '@/lib/format';
+import { TabsBar } from './tabs-bar';
 
 /* These render identically on the server and the client and hold no state, so
  * they carry no 'use client' directive and stay out of the browser bundle when
@@ -60,9 +61,8 @@ export function EmptyState({ icon = '·', title, sub }: {
 }
 
 /** Horizontally scrollable table shell — wide ledgers must not stretch the page. */
-export function TableWrap({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`table-wrap ${className}`}><table>{children}</table></div>;
-}
+// Every list table is sortable by its column headers — see components/ui/table-wrap.tsx.
+export { TableWrap } from './table-wrap';
 
 export interface TabDefinition {
   key: string;
@@ -76,8 +76,10 @@ export interface TabDefinition {
 export function Tabs({ tabs, active, hrefFor }: {
   tabs: TabDefinition[]; active: string; hrefFor: (key: string) => string;
 }) {
+  // The first tab's href identifies this bar so its scroll position survives the navigation
+  // that replaces it (see TabsBar).
   return (
-    <div className="tabs">
+    <TabsBar id={tabs.length ? hrefFor(tabs[0].key) : undefined} active={active}>
       {tabs.map((t) => (
         <Link
           key={t.key} href={hrefFor(t.key)} data-tone={t.tone || undefined}
@@ -86,7 +88,7 @@ export function Tabs({ tabs, active, hrefFor }: {
           {t.label}
         </Link>
       ))}
-    </div>
+    </TabsBar>
   );
 }
 

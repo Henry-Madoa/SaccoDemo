@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { requireAction, currentCanAction, requirePage } from '@/lib/session';
-import { getPurchaseDocument } from '@/lib/purchaseDocuments';
+import { getPurchaseDocument, findPostedDocumentBySource } from '@/lib/purchaseDocuments';
 import { listPostableAccounts } from '@/lib/gl';
 import { listItems } from '@/lib/items';
 import { listActiveLocations } from '@/lib/inventorySetup';
@@ -33,7 +33,13 @@ export default async function PurchaseDocumentPage({ params }: { params: Promise
   const user = await requireAction('PAYABLES_READ');
   const { no } = await params;
   const doc = await getPurchaseDocument(no);
-  if (!doc) notFound();
+  if (!doc) {
+    // Posted since the link was made (a notification, a bookmark): the header is gone, so show
+    // what it became rather than a dead end.
+    const posted = await findPostedDocumentBySource(no);
+    if (posted) redirect(`/payables/posted/${encodeURIComponent(posted.no)}`);
+    notFound();
+  }
   // The card belongs to the list it came from: a Sales Invoice page grants Sales Invoice cards.
   await requirePage(`PAYABLES_${{
     Quote: 'QUOTES', Order: 'ORDERS', Invoice: 'PURCHASE_INVOICES', 'Credit Memo': 'CREDIT_MEMOS',
@@ -90,7 +96,7 @@ export default async function PurchaseDocumentPage({ params }: { params: Promise
         <Spacer />
         {doc.document_type === 'Quote' && open && canCreate ? <MakeOrderButton no={doc.no} /> : null}
         {open && canCreate && isOwn && doc.document_type !== 'Quote' ? <SubmitDocButton no={doc.no} /> : null}
-        {open && canCreate && isOwn ? <DeleteDocButton no={doc.no} /> : null}
+        {open && canCreate && isOwn ? <DeleteDocButton no={doc.no} listHref={`/payables/${TAB_FOR[doc.document_type]}`} /> : null}
         {doc.status === 'Pending Approval' && canCreate && isOwn && !routed ? <CancelApprovalButton no={doc.no} /> : null}
         {routedTask && canDelegateThis ? <DelegateButton taskId={routedTask.id} className="btn sm ghost" /> : null}
         {doc.status === 'Pending Approval' && canDecideThis

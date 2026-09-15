@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAnyAction, currentCanAction, currentCanAnyAction } from '@/lib/session';
+import { assertCanViewEmployeeDocument } from '@/lib/selfService';
 import { getRequisitionDetail, WORKFLOW_TYPE } from '@/lib/requisitions';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -21,14 +22,16 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function RequisitionPage({ params }: { params: Promise<{ no: string }> }) {
-  const user = await requireAction('REQUISITIONS_READ');
+  const user = await requireAnyAction('REQUISITIONS_READ', 'SELF_SERVICE_REQUISITIONS_READ');
   const { no } = await params;
   const r = await getRequisitionDetail(no);
   if (!r) notFound();
+  // Employee Self Service: an employee reaches only their own requisitions.
+  const { selfService } = await assertCanViewEmployeeDocument(user, 'REQUISITIONS_READ', 'SELF_SERVICE_REQUISITIONS_READ', r.employee_id);
   const isStore = r.requisition_type === 'Store Requisition';
   const wfType = WORKFLOW_TYPE[r.requisition_type];
   const [canCreate, canApprove, canIssue, canProcess, tasks] = await Promise.all([
-    currentCanAction('REQUISITIONS_CREATE'), currentCanAction('REQUISITIONS_APPROVE'), currentCanAction('REQUISITIONS_ISSUE'), currentCanAction('REQUISITIONS_PROCESS'),
+    currentCanAnyAction('REQUISITIONS_CREATE', 'SELF_SERVICE_REQUISITIONS_CREATE'), currentCanAction('REQUISITIONS_APPROVE'), currentCanAction('REQUISITIONS_ISSUE'), currentCanAction('REQUISITIONS_PROCESS'),
     listWorkflowTasksForDocument(wfType, no),
   ]);
   const isOwn = r.created_by === user.username;
@@ -46,11 +49,11 @@ export default async function RequisitionPage({ params }: { params: Promise<{ no
   return (
     <Page title={`${r.no} — ${r.requisition_type}`} crumb={`${r.title} · ${r.first_name} ${r.last_name}`} user={user}>
       <Toolbar>
-        <Link href={`/requisitions/${isStore ? '' : 'purchase'}`} className="btn ghost sm">← All {isStore ? 'store' : 'purchase'} requisitions</Link>
+        <Link href={selfService ? '/self-service/requisitions' : `/requisitions/${isStore ? '' : 'purchase'}`} className="btn ghost sm">← {selfService ? 'My requisitions' : `All ${isStore ? 'store' : 'purchase'} requisitions`}</Link>
         <Link href={`/employees/${r.employee_id}`} className="btn ghost sm">Employee</Link>
         <a className="btn ghost sm" href={`/print/${printKind}/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print {isStore ? 'store requisition' : 'purchase requisition'}</a>
         <Spacer />
-        {isOpen && canCreate && isOwn ? <DeleteRequisitionButton no={r.no} className="btn ghost" /> : null}
+        {isOpen && canCreate && isOwn ? <DeleteRequisitionButton no={r.no} listHref={selfService ? '/self-service/requisitions' : `/requisitions/${isStore ? '' : 'purchase'}`} className="btn ghost" /> : null}
         {isOpen && canCreate && isOwn ? <SubmitRequisitionButton no={r.no} className="btn ghost" /> : null}
         {r.status === 'Pending Approval' && canCancel ? <CancelRequisitionApprovalButton no={r.no} className="btn ghost" /> : null}
         {r.status === 'Pending Approval' && canDecide ? (

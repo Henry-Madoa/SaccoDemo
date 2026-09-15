@@ -60,6 +60,7 @@ export default async function PostedPurchaseDocumentPage({ params }: { params: P
           />
           <DefinitionList items={[
             ['Vendor invoice no.', doc.vendor_invoice_no || '—'],
+            doc.applies_to_doc_no ? ['Credits invoice', <a href={`/payables/posted/${encodeURIComponent(doc.applies_to_doc_no)}`} className="mono" key="ap">{doc.applies_to_doc_no}</a>] : null,
             ['Currency', `${doc.currency_code}${doc.currency_code === 'KES' ? '' : ` @ ${doc.currency_factor}`}`],
             ['Posted by', doc.created_by || '—'],
             ['Posted at', doc.created_at ? formatDate(doc.created_at.slice(0, 10)) : '—'],

@@ -27,6 +27,7 @@
  * Tender / RFP committees, procurement plans and item budgets in the AL are not ported.
  */
 import { one, all, run, tx, nextSequence, audit, hasAnyRow } from './db.ts';
+import { stampEmployeeDimensions } from './selfService.ts';
 import { AppError } from './errors.ts';
 import { resolvePostingDate } from './postingDates.ts';
 import { findMatchingWorkflow, findPendingRoutedTask, pickConditionFields, startWorkflow } from './workflow.ts';
@@ -77,13 +78,14 @@ const SELECT_HEAD = `
     FROM requisition_line rl WHERE rl.requisition_no = r.no
   ) t ON TRUE`;
 
-export const listRequisitions = (type: RequisitionType, view: RequisitionListView = 'all', search = ''): Promise<RequisitionView[]> =>
+export const listRequisitions = (type: RequisitionType, view: RequisitionListView = 'all', search = '', employeeId: number | null = null): Promise<RequisitionView[]> =>
   all<RequisitionView>(
     `${SELECT_HEAD}
      WHERE r.requisition_type = @type AND ${VIEW_CLAUSE[view]}
        AND (r.no LIKE @like OR r.title LIKE @like OR e.employee_no LIKE @like OR e.first_name LIKE @like OR e.last_name LIKE @like)
+       ${employeeId ? 'AND r.employee_id = @employeeId' : ''}
      ORDER BY r.no DESC LIMIT 500`,
-    { type, like: `%${String(search).trim()}%` },
+    { type, like: `%${String(search).trim()}%`, ...(employeeId ? { employeeId } : {}) },
   );
 
 export const hasAnyRequisitions = (type: RequisitionType, view: RequisitionListView = 'all'): Promise<boolean> =>
@@ -283,6 +285,7 @@ export async function createRequisition(input: RequisitionInput, user: Actor): P
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       no, input.requisitionType, ...headerParams(input), new Date().toISOString(), user.username,
     );
+    await stampEmployeeDimensions('requisition', no);
     await replaceLines(no, input, null);
   });
   await audit(user, 'REQUISITION_CREATE', 'requisition', no, { type: input.requisitionType });
@@ -307,6 +310,7 @@ export async function updateRequisition(no: string, input: RequisitionInput, use
       `UPDATE requisition SET employee_id = ?, title = ?, description = ?, requisition_date = ?, needed_by_date = ?, expiration_date = ?, requested_delivery_date = ?, location_id = ?, procurement_method = ?, supplier_id = ? WHERE no = ?`,
       ...headerParams(input), no,
     );
+    await stampEmployeeDimensions('requisition', no);
     await replaceLines(no, input, keep);
   });
   await audit(user, 'REQUISITION_UPDATE', 'requisition', no, {});

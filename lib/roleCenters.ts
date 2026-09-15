@@ -292,7 +292,7 @@ export async function getFinanceManagerRoleCenter(): Promise<FinanceManagerRoleC
               COALESCE(SUM(CASE WHEN a.type='INCOME' THEN jl.credit_lcy - jl.debit_lcy ELSE 0 END),0) income,
               COALESCE(SUM(CASE WHEN a.type='EXPENSE' THEN jl.debit_lcy - jl.credit_lcy ELSE 0 END),0) expense
        FROM journal_line jl JOIN journal j ON j.id = jl.journal_id JOIN gl_account a ON a.id = jl.gl_account_id
-       WHERE a.type IN ('INCOME','EXPENSE') AND j.value_date >= @from
+       WHERE a.type IN ('INCOME','EXPENSE') AND j.value_date >= @from AND j.closing_entry = 0
        GROUP BY month`,
       { from: `${months[0]}-01` },
     ),
@@ -363,12 +363,12 @@ export async function getAccountantRoleCenter(): Promise<AccountantRoleCenter> {
     one<{ n: number }>('SELECT COUNT(*) n FROM journal WHERE substr(value_date,1,7) = @ym', { ym }),
     all<{ month: string; n: number; amt: Cents }>(
       `SELECT substr(value_date,1,7) AS month, COUNT(*) n, COALESCE(SUM(amount),0) amt
-       FROM journal WHERE value_date >= @from GROUP BY month`,
+       FROM journal WHERE value_date >= @from AND closing_entry = 0 GROUP BY month`,
       { from: `${months[0]}-01` },
     ),
     all<{ source_module: string; amt: Cents; n: number }>(
       `SELECT COALESCE(source_module,'GL') AS source_module, COALESCE(SUM(amount),0) amt, COUNT(*) n
-       FROM journal WHERE value_date >= @ys GROUP BY source_module ORDER BY amt DESC`,
+       FROM journal WHERE value_date >= @ys AND closing_entry = 0 GROUP BY source_module ORDER BY amt DESC`,
       { ys: yearStart },
     ),
     all<{ name: string; balance: Cents; last_reconciled: IsoDate | null }>(
@@ -473,9 +473,8 @@ export async function getHrPayrollRoleCenter(): Promise<HrPayrollRoleCenter> {
     one<{ n: number }>("SELECT COUNT(*) n FROM hr_leave_application WHERE status = 'Pending Approval'").catch(() => ({ n: 0 })),
     one<{ status: string }>("SELECT status FROM payroll_period WHERE status IN ('OPEN','PENDING_APPROVAL','APPROVED') ORDER BY start_date DESC LIMIT 1").catch(() => undefined),
     one<{ v: number }>(
-      `SELECT COALESCE(SUM(l.amount_cents), 0) AS v FROM payroll_period_line l
-       JOIN payroll_transaction_code c ON c.id = l.transaction_code_id
-       WHERE c.code = 'NETPAY' AND l.payroll_period_id = (SELECT id FROM payroll_period ORDER BY start_date DESC LIMIT 1)`,
+      `SELECT COALESCE(SUM(l.amount_cents), 0) AS v FROM payroll_period_transaction l
+       WHERE l.transaction_code = 'NPAY' AND l.payroll_period_id = (SELECT id FROM payroll_period ORDER BY start_date DESC LIMIT 1)`,
     ).catch(() => ({ v: 0 })),
     all<{ name: string; probation_end_date: string }>(
       `SELECT (first_name || ' ' || last_name) AS name, probation_end_date FROM employee

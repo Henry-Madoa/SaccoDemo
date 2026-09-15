@@ -30,6 +30,10 @@ import { NewJournalButton } from '../journal-form';
 import { GlAccountFormButton } from '../gl-account-form';
 import { IndentAccountsButton } from '../indent-accounts-button';
 import { PeriodToggle } from '../period-toggle';
+import { CloseYearButton, CreateFiscalYearButton } from '../fiscal-year-actions';
+import { CloseIncomeStatementScreen } from '../close-income-statement';
+import { listFiscalYears } from '@/lib/gl';
+import { getCloseIncomeStatementContext } from '@/lib/closeIncomeStatement';
 
 /** Each tab is a page of its own (lib/permissions.ts PAGES, parent GL), so a permission
  *  set can open this module and still be kept out of particular screens. */
@@ -40,6 +44,7 @@ const TAB_PAGE: Record<string, string> = {
   'vendor-ledger': 'GL_VENDOR_LEDGER',
   'customer-ledger': 'GL_CUSTOMER_LEDGER',
   periods: 'GL_PERIODS',
+  'close-income-statement': 'GL_CLOSE_INCOME_STATEMENT',
 };
 
 const TABS: TabDefinition[] = [
@@ -49,6 +54,7 @@ const TABS: TabDefinition[] = [
   { key: 'vendor-ledger', label: 'Vendor Ledger Entries' },
   { key: 'customer-ledger', label: 'Customer Ledger Entries' },
   { key: 'periods', label: 'Accounting periods' },
+  { key: 'close-income-statement', label: 'Close Income Statement' },
 ];
 
 export default async function AccountingPage({ params, searchParams }: {
@@ -82,6 +88,7 @@ export default async function AccountingPage({ params, searchParams }: {
         <CustomerLedgerTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} from={from} to={to} />
       ) : null}
       {tab === 'periods' ? <PeriodsTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
+      {tab === 'close-income-statement' ? <CloseIncomeStatementTab /> : null}
     </Page>
   );
 }
@@ -233,7 +240,9 @@ async function JournalsTab({ search, filtersRaw, sortRaw }: { search: string; fi
                     </JournalLink>
                   </td>
                   <td className="mono muted-cell">{j.reference || '—'}</td>
-                  <td>{formatDate(j.value_date)}</td>
+                  <td title={j.closing_entry ? 'Closing date — posted by Close Income Statement, after the last day of the fiscal year' : undefined}>
+                    {j.closing_entry ? 'C' : ''}{formatDate(j.value_date)}
+                  </td>
                   <td>{j.source_module}</td>
                   <td><Pill status={j.event_type} /></td>
                   <td>{j.description || ''}</td>
@@ -508,11 +517,16 @@ async function CustomerLedgerTab({ search, filtersRaw, sortRaw, from, to }: {
 async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; filtersRaw?: string; sortRaw?: string }) {
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
-  const [rows, empty, canClose] = await Promise.all([
+  const [rows, empty, canClose, canCreate, fiscalYears] = await Promise.all([
     listPeriods({ search, filters, sort }),
     hasAnyPeriods().then((any) => !any),
     currentCanAction('GL_PERIOD_CLOSE'),
+    currentCanAction('GL_PERIOD_CREATE'),
+    listFiscalYears(),
   ]);
+  // BC's Close Year always takes the earliest fiscal year still open.
+  const nextToClose = fiscalYears.find((y) => !y.closed) ?? null;
+  const lastPeriod = fiscalYears.length ? fiscalYears[fiscalYears.length - 1].periods.slice(-1)[0]?.code ?? null : null;
 
   return (
     <>
@@ -520,12 +534,14 @@ async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; fil
         <SearchInput placeholder="Search period…" disabled={empty} />
         <DynamicFilterBar fields={PERIOD_FILTER_FIELDS} disabled={empty} />
         <Spacer />
+        {canCreate ? <CreateFiscalYearButton after={lastPeriod} /> : null}
+        {canClose && nextToClose ? <CloseYearButton year={nextToClose} /> : null}
         <ExportButton href="/api/export/periods" params={{ q: search, filters: filtersRaw, sort: sortRaw }} disabled={!rows.length} />
       </Toolbar>
       <Card>
       <CardHead
         title="Accounting periods"
-        sub="A closed period rejects every posting, including automated ones"
+        sub="A closed period rejects every posting, including automated ones. Close Year marks a whole fiscal year closed (Business Central's fiscal close, needed before Close Income Statement) and cannot be undone."
       />
       {rows.length ? (
       <TableWrap>
@@ -535,6 +551,7 @@ async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; fil
             <th><SortLink sortKey="start_date">From</SortLink></th>
             <th><SortLink sortKey="end_date">To</SortLink></th>
             <th><SortLink sortKey="status">Status</SortLink></th>
+            <th>Fiscal year</th>
             <th className="num" />
           </tr>
         </thead>
@@ -545,6 +562,10 @@ async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; fil
               <td>{formatDate(p.start_date)}</td>
               <td>{formatDate(p.end_date)}</td>
               <td><Pill status={p.status} /></td>
+              <td>
+                {p.new_fiscal_year ? <Pill tone="info">New fiscal year</Pill> : null}
+                {p.fiscally_closed ? <> <Pill tone="">Year closed{p.date_locked ? ' · date locked' : ''}</Pill></> : null}
+              </td>
               <td className="num">{canClose ? <PeriodToggle period={p} /> : null}</td>
             </tr>
           ))}
@@ -554,4 +575,12 @@ async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; fil
       </Card>
     </>
   );
+}
+
+async function CloseIncomeStatementTab() {
+  const [context, canPost] = await Promise.all([
+    getCloseIncomeStatementContext(),
+    currentCanAction('GL_CLOSE_INCOME_STATEMENT'),
+  ]);
+  return <CloseIncomeStatementScreen context={context} canPost={canPost} />;
 }

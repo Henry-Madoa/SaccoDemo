@@ -5,6 +5,7 @@ import { FormModal } from '@/components/ui/form-modal';
 import { useEditableCard } from '@/components/ui/editable-card';
 import { Field, MoneyInput, toTwoDp } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { LockedEmployee } from '@/components/ui/locked-employee';
 import { GlAccountSelect, type GlAccountSelectOption } from '@/components/ui/gl-account-select';
 import { useRunAction } from '@/components/ui/run-action';
 import { useFormat } from '@/components/ui/format-provider';
@@ -28,6 +29,8 @@ type BankOption = { id: number; code: string; name: string; account_type?: strin
 
 export interface ImprestLookups {
   employees: EmployeeOption[];
+  /** Employee Self Service: every document is this employee's own — the picker is replaced by a locked field. */
+  self?: EmployeeOption | null;
   purposes: ImprestPurpose[];
   accounts: GlAccountSelectOption[];
   banks: BankOption[];
@@ -62,9 +65,13 @@ function ImprestFields({ lookups, initial, lines, setLines }: {
   return (
     <>
       <div className="grid g3">
-        <SearchableSelect id="f_employeeId" name="employeeId" label="Employee" required items={lookups.employees}
-          getValue={(e) => String(e.id)} getLabel={employeeLabel} value={employeeId} onChange={setEmployeeId}
-          placeholder="Search employee…" emptyText="No matching employees" disabled={!!initial} />
+        {/* The employee is fixed once the request exists (a disabled picker would drop it from the
+            submit) and always the signed-in employee under Self Service. */}
+        {lookups.self ? <LockedEmployee employee={lookups.self} />
+          : initial ? <LockedEmployee employee={{ id: initial.employee_id, employee_no: initial.employee_no, first_name: initial.first_name, last_name: initial.last_name }} />
+            : <SearchableSelect id="f_employeeId" name="employeeId" label="Employee" required items={lookups.employees}
+                getValue={(e) => String(e.id)} getLabel={employeeLabel} value={employeeId} onChange={setEmployeeId}
+                placeholder="Search employee…" emptyText="No matching employees" />}
         <Field name="requestDate" label="Request date" type="date" required defaultValue={initial?.request_date ?? today()} />
         <Field name="requestFor" label="Request for" type="select" defaultValue={initial?.request_for ?? 'Self'}
           options={[{ value: 'Self', label: 'Self' }, { value: 'Other', label: 'Other (on behalf of)' }]} />
@@ -168,11 +175,13 @@ const simple = (
   label: string, action: (no: string) => Promise<{ ok: boolean; error?: string; data?: unknown }>,
   confirm: { title: string; message: string; confirmLabel: string; danger?: boolean } | null,
   successTitle: string | ((d: never) => string), defaultClass = 'btn sm ghost',
+  /** Where to land afterwards — a delete leaves the card with nothing to show, so it goes to the list. */
+  redirectTo?: string,
 ) => function Button({ no, className = defaultClass }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => action(no) as never, { ...(confirm ? { confirm } : {}), successTitle: successTitle as never })}>
+      onClick={() => run(() => action(no) as never, { ...(confirm ? { confirm } : {}), successTitle: successTitle as never, redirectTo })}>
       {busy ? 'Working…' : label}
     </button>
   );
@@ -188,7 +197,7 @@ export const ApproveButton = simple('Approve', approveImprestAction,
 export const ReopenButton = simple('Reopen', reopenImprestAction,
   { title: 'Reopen this request?', message: 'It goes back to Open for amendment and must be approved again.', confirmLabel: 'Reopen' }, 'Reopened — back to Open');
 export const DeleteButton = simple('Delete', deleteImprestRequestAction,
-  { title: 'Delete this imprest request?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted');
+  { title: 'Delete this imprest request?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted', undefined, '/imprest');
 export { DelegateButton } from '@/components/ui/delegate-button';
 
 function RejectWithReason({ no, className, title, action }: { no: string; className: string; title: string; action: (no: string, reason: string) => Promise<{ ok: boolean; error?: string; data?: unknown }> }) {
@@ -354,9 +363,10 @@ function PettyCashFields({ lookups, initial, lines, setLines, limit }: {
   return (
     <>
       <div className="grid g3">
-        <SearchableSelect id="f_employeeId" name="employeeId" label="Requested by (employee)" required items={lookups.employees}
-          getValue={(e) => String(e.id)} getLabel={employeeLabel} value={employeeId} onChange={setEmployeeId}
-          placeholder="Search employee…" emptyText="No matching employees" />
+        {lookups.self ? <LockedEmployee employee={lookups.self} label="Requested by (employee)" />
+          : <SearchableSelect id="f_employeeId" name="employeeId" label="Requested by (employee)" required items={lookups.employees}
+              getValue={(e) => String(e.id)} getLabel={employeeLabel} value={employeeId} onChange={setEmployeeId}
+              placeholder="Search employee…" emptyText="No matching employees" />}
         <Field name="requestDate" label="Date" type="date" required defaultValue={initial?.request_date ?? today()} />
         <SearchableSelect id="f_payingBankAccountId" name="payingBankAccountId" label="Petty cash float" items={lookups.floats}
           getValue={(b) => String(b.id)} getLabel={(b) => `${b.code} — ${b.name}`} value={float} onChange={setFloat}
@@ -433,7 +443,7 @@ export const ApprovePettyCashButton = simple('Approve', approvePettyCashAction,
 export const ReopenPettyCashButton = simple('Reopen', reopenPettyCashAction,
   { title: 'Reopen this petty cash?', message: 'It goes back to Open for amendment.', confirmLabel: 'Reopen' }, 'Reopened');
 export const DeletePettyCashButton = simple('Delete', deletePettyCashAction,
-  { title: 'Delete this petty cash?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted');
+  { title: 'Delete this petty cash?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted', undefined, '/imprest/petty-cash');
 export const RejectPettyCashButton = ({ no, className = 'btn sm ghost' }: { no: string; className?: string }) =>
   <RejectWithReason no={no} className={className} title="Reject petty cash" action={rejectPettyCashAction} />;
 export const PostPettyCashButton = simple('Post', postPettyCashAction,

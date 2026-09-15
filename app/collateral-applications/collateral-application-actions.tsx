@@ -109,6 +109,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
           confirmLabel: 'Delete',
         },
         successTitle: 'Application deleted',
+        redirectTo: '/collateral-applications',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

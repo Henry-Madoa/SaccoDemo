@@ -90,6 +90,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
     <button type="button" className={className} disabled={busy}
       onClick={() => run(() => deleteLeaveAdjustmentRequest(no), {
         confirm: { title: 'Delete this adjustment?', confirmLabel: 'Delete' }, successTitle: 'Deleted',
+        redirectTo: '/leave-adjustments',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

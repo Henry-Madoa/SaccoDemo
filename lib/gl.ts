@@ -2,12 +2,13 @@ import {
   one, all, run, nextSequence, audit, hasAnyRow,
 } from './db.ts';
 import { AppError } from './errors.ts';
-import { trialBalance, postJournal, reverseJournal } from './accounting.ts';
+import { trialBalance, postJournal, reverseJournal, journalDateWindowSql } from './accounting.ts';
 import { GL_ACCOUNT_TYPES, GL_ACCOUNT_STRUCTURE_TYPES, PRODUCT_STATUSES } from './constants.ts';
 import { diffFields, logTableChange } from './changeLog.ts';
 import { findMatchingWorkflow, startWorkflow } from './workflow.ts';
 import { buildFilterClause, type FilterCondition, type FilterFieldDef } from './listFilters.ts';
 import { buildOrderClause, type SortState } from './listSort.ts';
+import { addDaysIso } from './format.ts';
 import type {
   AccountingPeriod, Actor, BankAccount, BankAccountListRow, BankAccountLedgerEntryWithJournal,
   BankReconciliation, BankReconciliationWorksheet, Cents, DormancyAgingRow, GlAccount, GlAccountStructureType,
@@ -332,16 +333,16 @@ export async function getAccountLedger(
     // wrong: the listed entries stopped reconciling to the balance shown once an account passed
     // the cap. Find Entries + sorting above make an unbounded list workable to browse.
     all<LedgerLine>(
-      `SELECT jl.*, j.journal_no, j.reference, j.value_date, j.description, j.source_module,
+      `SELECT jl.*, j.journal_no, j.reference, j.value_date, j.closing_entry, j.description, j.source_module,
               gd1.code AS global_dimension_1_code, gd2.code AS global_dimension_2_code
        FROM journal_line jl JOIN journal j ON j.id = jl.journal_id
        LEFT JOIN global_dimension_1_value gd1 ON gd1.id = jl.global_dimension_1_id
        LEFT JOIN global_dimension_2_value gd2 ON gd2.id = jl.global_dimension_2_id
        WHERE jl.gl_account_id = @id
-         AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
-         AND (@from::text IS NULL OR j.value_date >= @from::text)
+         ${journalDateWindowSql('j')}
          ${gdClause}
-       ORDER BY j.value_date, j.id`,
+       -- A closing entry sorts after every ordinary entry of its date (BC's "C" date).
+       ORDER BY j.value_date, j.closing_entry, j.id`,
       params,
     ),
     trialBalance({
@@ -588,6 +589,121 @@ export async function setPeriodStatus(code: string, status: string, user: Actor)
   if (!info.changes) throw new AppError('Period not found', 'NOT_FOUND');
   await audit(user, status === 'CLOSED' ? 'PERIOD_CLOSE' : 'PERIOD_REOPEN', 'accounting_period', code);
   return (await one<AccountingPeriod>('SELECT * FROM accounting_period WHERE code = ?', code))!;
+}
+
+/* ------------------------------------------------------------- fiscal years */
+
+/**
+ * A fiscal year as Business Central reads it off the Accounting Periods: it runs from a period
+ * flagged New Fiscal Year up to the period before the next such flag. `complete` means the next
+ * year's first period exists, so this year's last day is known; `closed` is BC's "Closed" flag,
+ * set on every period by Close Year.
+ */
+export interface FiscalYear {
+  startDate: IsoDate;
+  /** Last day of the year — the day before the next fiscal year starts. Null while incomplete. */
+  endDate: IsoDate | null;
+  periods: AccountingPeriod[];
+  closed: boolean;
+  complete: boolean;
+}
+
+/** Every fiscal year the periods describe, oldest first. Periods before the first New Fiscal
+ *  Year flag (none, after the migration's backfill) are left out, as BC leaves them out. */
+export async function listFiscalYears(): Promise<FiscalYear[]> {
+  const periods = await all<AccountingPeriod>('SELECT * FROM accounting_period ORDER BY start_date');
+  const years: FiscalYear[] = [];
+  let current: AccountingPeriod[] | null = null;
+  for (const p of periods) {
+    if (Number(p.new_fiscal_year)) {
+      if (current) years.push(fiscalYearOf(current, p.start_date));
+      current = [p];
+    } else if (current) {
+      current.push(p);
+    }
+  }
+  if (current) years.push(fiscalYearOf(current, null));
+  return years;
+}
+
+function fiscalYearOf(periods: AccountingPeriod[], nextStart: IsoDate | null): FiscalYear {
+  return {
+    startDate: periods[0].start_date,
+    endDate: nextStart ? addDaysIso(nextStart, -1) : null,
+    periods,
+    closed: periods.every((p) => Number(p.fiscally_closed) === 1),
+    complete: nextStart !== null,
+  };
+}
+
+/** The fiscal year whose last day is `endDate`, if the periods describe one. */
+export async function findFiscalYearEnding(endDate: IsoDate): Promise<FiscalYear | undefined> {
+  return (await listFiscalYears()).find((y) => y.endDate === endDate);
+}
+
+/**
+ * Business Central's "Close Year" (Accounting Periods → Close Year): closes the earliest fiscal
+ * year still open — every one of its periods is marked Closed and Date Locked — and, like BC,
+ * cannot be undone. BC refuses unless the following fiscal year exists, since the year's last day
+ * is only defined by the next year's first; the same check applies here. Closing the year does
+ * not stop postings into it (that is the periods' own OPEN/CLOSED status, BC's Allow Posting
+ * gate); it is the precondition Close Income Statement insists on.
+ */
+export async function closeFiscalYear(user: Actor): Promise<FiscalYear> {
+  const years = await listFiscalYears();
+  const year = years.find((y) => !y.closed);
+  if (!year) throw new AppError('Every fiscal year is already closed', 'VALIDATION');
+  if (!year.complete) {
+    throw new AppError(
+      `The fiscal year starting ${year.startDate} cannot be closed until the following fiscal year has been created (Create Fiscal Year)`,
+      'VALIDATION',
+    );
+  }
+  const codes = year.periods.map((p) => p.code);
+  await run(
+    `UPDATE accounting_period SET fiscally_closed = 1, date_locked = 1 WHERE code IN (${codes.map(() => '?').join(',')})`,
+    ...codes,
+  );
+  await audit(user, 'FISCAL_YEAR_CLOSE', 'accounting_period', codes[0], { startDate: year.startDate, endDate: year.endDate, periods: codes });
+  return { ...year, closed: true, periods: year.periods.map((p) => ({ ...p, fiscally_closed: 1, date_locked: 1 })) };
+}
+
+/**
+ * Business Central's "Create Fiscal Year" batch job with its defaults — twelve one-month periods
+ * following the last period on file (or starting on the organisation's fiscal-year start in the
+ * current year when there are none), the first flagged New Fiscal Year. Periods here are always
+ * calendar months, so the starting date is always the first of a month.
+ */
+export async function createFiscalYear(user: Actor, noOfPeriods = 12): Promise<AccountingPeriod[]> {
+  if (!Number.isInteger(noOfPeriods) || noOfPeriods < 1 || noOfPeriods > 24) {
+    throw new AppError('Number of periods must be between 1 and 24', 'VALIDATION');
+  }
+  const last = await one<AccountingPeriod>('SELECT * FROM accounting_period ORDER BY start_date DESC LIMIT 1');
+  const org = await one<{ fy_start_month: number | null }>('SELECT fy_start_month FROM organisation WHERE id = 1');
+  const fyMonth = org?.fy_start_month ?? 1;
+  let start: Date;
+  if (last) {
+    start = new Date(`${last.end_date}T00:00:00Z`);
+    start.setUTCDate(start.getUTCDate() + 1);
+  } else {
+    start = new Date(Date.UTC(new Date().getUTCFullYear(), fyMonth - 1, 1));
+  }
+  const created: AccountingPeriod[] = [];
+  for (let i = 0; i < noOfPeriods; i++) {
+    const s = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
+    const e = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth() + 1, 0));
+    const startDate = s.toISOString().slice(0, 10);
+    const endDate = e.toISOString().slice(0, 10);
+    const code = startDate.slice(0, 7);
+    const newFy = s.getUTCMonth() + 1 === fyMonth ? 1 : 0;
+    await run(
+      'INSERT INTO accounting_period (code, start_date, end_date, status, new_fiscal_year) VALUES (?,?,?,?,?)',
+      code, startDate, endDate, 'OPEN', newFy,
+    );
+    created.push({ id: 0, code, start_date: startDate, end_date: endDate, status: 'OPEN', new_fiscal_year: newFy, fiscally_closed: 0, date_locked: 0 });
+  }
+  await audit(user, 'FISCAL_YEAR_CREATE', 'accounting_period', created[0].code, { from: created[0].code, to: created[created.length - 1].code });
+  return created;
 }
 
 /* ------------------------------------------------- find entries / navigate */

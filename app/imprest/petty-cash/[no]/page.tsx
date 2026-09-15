@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAnyAction, currentCanAction, currentCanAnyAction } from '@/lib/session';
+import { assertCanViewEmployeeDocument } from '@/lib/selfService';
 import { getPettyCashDetail } from '@/lib/imprest';
 import { getOrg } from '@/lib/org';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
@@ -20,12 +21,14 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function PettyCashPage({ params }: { params: Promise<{ no: string }> }) {
-  const user = await requireAction('IMPREST_READ');
+  const user = await requireAnyAction('IMPREST_READ', 'SELF_SERVICE_PETTY_CASH_READ');
   const { no } = await params;
   const p = await getPettyCashDetail(no);
   if (!p) notFound();
+  // Employee Self Service: an employee reaches only their own petty cash.
+  const { selfService } = await assertCanViewEmployeeDocument(user, 'IMPREST_READ', 'SELF_SERVICE_PETTY_CASH_READ', p.employee_id);
   const [canCreate, canApprove, canPost, tasks, org] = await Promise.all([
-    currentCanAction('IMPREST_CREATE'), currentCanAction('IMPREST_APPROVE'), currentCanAction('IMPREST_POST'),
+    currentCanAnyAction('IMPREST_CREATE', 'SELF_SERVICE_PETTY_CASH_CREATE'), currentCanAction('IMPREST_APPROVE'), currentCanAction('IMPREST_POST'),
     listWorkflowTasksForDocument('PETTY_CASH', no), getOrg(),
   ]);
   const isOwn = p.created_by === user.username;
@@ -39,7 +42,7 @@ export default async function PettyCashPage({ params }: { params: Promise<{ no: 
   return (
     <Page title={`${p.no} — Petty Cash`} crumb={`${p.paid ? 'Paid' : p.posted ? 'Posted' : p.status} · ${p.first_name} ${p.last_name} · ${p.payment_narration}`} user={user}>
       <Toolbar>
-        <Link href="/imprest/petty-cash" className="btn ghost sm">← All petty cash</Link>
+        <Link href={selfService ? '/self-service/petty-cash' : '/imprest/petty-cash'} className="btn ghost sm">← {selfService ? 'My petty cash' : 'All petty cash'}</Link>
         <a className="btn ghost sm" href={`/print/petty-cash/${encodeURIComponent(p.no)}`} target="_blank" rel="noreferrer">Print voucher</a>
         <Spacer />
         {isOpen && canCreate && isOwn ? <DeletePettyCashButton no={p.no} className="btn ghost" /> : null}

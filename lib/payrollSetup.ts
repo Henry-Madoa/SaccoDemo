@@ -5,9 +5,11 @@
  */
 import { one, all, run, audit } from './db.ts';
 import { AppError } from './errors.ts';
+import { assertFormulaValid, formulaCodes } from './payrollFormula.ts';
+import { PERIOD_CODES } from './payrollCodes.ts';
 import type {
   Actor, HrPayrollSetup, PayrollPostingGroup, PayrollPayeBand, PayrollNssfTier, PayrollTransactionCode,
-  PayrollTransactionType, PayrollBalanceType, PayrollSpecialType,
+  PayrollTransactionType, PayrollBalanceType, PayrollSpecialType, PayrollAmountPreference,
 } from './types.ts';
 
 /* ------------------------------------------------------------------------------- setup singleton */
@@ -19,6 +21,7 @@ export interface PayrollSetupInput {
   shifPct?: number; shifBasedOn?: string; nssfEmployerFactor?: number;
   housingLevyEnabled?: boolean; housingLevyPct?: number; housingLevyBasedOn?: string;
   minimumReliefThresholdCents?: number; secondaryTaxPct?: number; monthlyWorkingDays?: number;
+  pensionDeductionCapCents?: number; prmfCapCents?: number; shifDeductible?: boolean; housingLevyDeductible?: boolean;
 }
 
 export async function updatePayrollSetup(input: PayrollSetupInput, user: Actor): Promise<void> {
@@ -27,6 +30,7 @@ export async function updatePayrollSetup(input: PayrollSetupInput, user: Actor):
        personal_relief_cents=?, insurance_relief_pct=?, max_relief_cents=?, mortgage_relief_cents=?,
        shif_pct=?, shif_based_on=?, nssf_employer_factor=?, housing_levy_enabled=?, housing_levy_pct=?,
        housing_levy_based_on=?, minimum_relief_threshold_cents=?, secondary_tax_pct=?, monthly_working_days=?,
+       pension_deduction_cap_cents=?, prmf_cap_cents=?, shif_deductible=?, housing_levy_deductible=?,
        updated_at=?, updated_by=?
      WHERE id = 1`,
     Math.round(Number(input.personalReliefCents) || 0), Number(input.insuranceReliefPct) || 0,
@@ -34,7 +38,10 @@ export async function updatePayrollSetup(input: PayrollSetupInput, user: Actor):
     Number(input.shifPct) || 0, input.shifBasedOn || 'GROSS', Number(input.nssfEmployerFactor) || 1,
     !!input.housingLevyEnabled, Number(input.housingLevyPct) || 0, input.housingLevyBasedOn || 'GROSS',
     Math.round(Number(input.minimumReliefThresholdCents) || 0), Number(input.secondaryTaxPct) || 0,
-    Math.round(Number(input.monthlyWorkingDays) || 22), new Date().toISOString(), user.username,
+    Math.round(Number(input.monthlyWorkingDays) || 22),
+    Math.round(Number(input.pensionDeductionCapCents) || 0), Math.round(Number(input.prmfCapCents) || 0),
+    input.shifDeductible !== false, input.housingLevyDeductible !== false,
+    new Date().toISOString(), user.username,
   );
   await audit(user, 'PAYROLL_SETUP_UPDATE', 'hr_payroll_setup', 1, {});
 }
@@ -153,12 +160,16 @@ export async function deleteNssfTier(id: number, user: Actor): Promise<void> {
 
 /* ------------------------------------------------------------------------------- transaction codes */
 
-export const listTransactionCodes = (): Promise<PayrollTransactionCode[]> => all('SELECT * FROM payroll_transaction_code ORDER BY name');
+/** The Earnings & Deductions catalogue. Retired codes (the run's old statutory codes) are kept
+ *  for history but never offered to a picker. */
+export const listTransactionCodes = (): Promise<PayrollTransactionCode[]> => all("SELECT * FROM payroll_transaction_code WHERE status <> 'INACTIVE' ORDER BY name");
 export const getTransactionCode = (id: number): Promise<PayrollTransactionCode | undefined> => one('SELECT * FROM payroll_transaction_code WHERE id = ?', id);
 
 export interface TransactionCodeInput {
   id?: number | null; code: string; name: string; type: PayrollTransactionType; taxable?: boolean;
-  isFormula?: boolean; formula?: string | null; fixedAmountCents?: number; upperLimitCents?: number | null;
+  isFormula?: boolean; formula?: string | null; amountPreference?: PayrollAmountPreference;
+  employerFactor?: number; employerFormula?: string | null;
+  fixedAmountCents?: number; upperLimitCents?: number | null;
   balanceType?: PayrollBalanceType; specialType?: PayrollSpecialType;
   glAccountId?: number | null; employerGlAccountId?: number | null; forEveryEmployee?: boolean;
 }
@@ -169,9 +180,39 @@ export async function saveTransactionCode(input: TransactionCodeInput, user: Act
   if (!code) throw new AppError('A code is required', 'VALIDATION');
   if (!name) throw new AppError('A name is required', 'VALIDATION');
 
+  // AL "Is Formula" / Formula: checked here so a run never trips on a malformed expression, and
+  // a formula may only refer to the run's own codes or to another Earnings & Deductions code.
+  const formula = input.isFormula ? (input.formula?.trim() || null) : null;
+  if (input.isFormula) {
+    if (!formula) throw new AppError('A formula code needs its formula — e.g. [BPAY]*0.15', 'VALIDATION');
+    try { assertFormulaValid(formula); } catch (err) { throw new AppError(err instanceof Error ? err.message : 'Bad formula', 'VALIDATION'); }
+    for (const ref of formulaCodes(formula)) {
+      if (ref === code) throw new AppError(`The formula cannot refer to its own code [${ref}]`, 'VALIDATION');
+      if (ref in PERIOD_CODES) continue;
+      if (!(await one('SELECT 1 FROM payroll_transaction_code WHERE code = ?', ref))) {
+        throw new AppError(`[${ref}] is not a payroll code — use one of the run's codes (${Object.keys(PERIOD_CODES).map((k) => `[${k}]`).join(' ')}) or an existing transaction code`, 'VALIDATION');
+      }
+    }
+  }
+  // Employer contribution (AL "Include Employer Deduction"): only a deduction carries one, it
+  // needs an employer expense account to cost to, and a formula is checked like the main one.
+  const employerFactor = input.type === 'DEDUCTION' ? Math.max(0, Number(input.employerFactor) || 0) : 0;
+  const employerFormula = input.type === 'DEDUCTION' ? (input.employerFormula?.trim() || null) : null;
+  if (employerFormula) {
+    try { assertFormulaValid(employerFormula); } catch (err) { throw new AppError(`Employer formula: ${err instanceof Error ? err.message : 'bad formula'}`, 'VALIDATION'); }
+    for (const ref of formulaCodes(employerFormula)) {
+      if (ref === code || ref in PERIOD_CODES) continue;
+      if (!(await one('SELECT 1 FROM payroll_transaction_code WHERE code = ?', ref))) throw new AppError(`Employer formula: [${ref}] is not a payroll code`, 'VALIDATION');
+    }
+  }
+  if ((employerFactor > 0 || employerFormula) && !input.employerGlAccountId) {
+    throw new AppError('An employer contribution needs the employer expense account', 'VALIDATION');
+  }
   const fields = {
     type: input.type, taxable: input.taxable !== false, is_formula: !!input.isFormula,
-    formula: input.isFormula ? (input.formula?.trim() || null) : null,
+    employer_factor: employerFactor, employer_formula: employerFormula,
+    formula,
+    amount_preference: (input.isFormula ? input.amountPreference : null) || 'FORMULA',
     fixed_amount_cents: Math.round(Number(input.fixedAmountCents) || 0),
     upper_limit_cents: input.upperLimitCents != null ? Math.round(input.upperLimitCents) : null,
     balance_type: input.balanceType || 'NONE', special_type: input.specialType || 'NONE',
@@ -183,10 +224,12 @@ export async function saveTransactionCode(input: TransactionCodeInput, user: Act
     const dup = await one('SELECT 1 FROM payroll_transaction_code WHERE code = ? AND id != ?', code, input.id);
     if (dup) throw new AppError('That code already exists', 'DUPLICATE');
     await run(
-      `UPDATE payroll_transaction_code SET code=?, name=?, type=?, taxable=?, is_formula=?, formula=?,
+      `UPDATE payroll_transaction_code SET code=?, name=?, type=?, taxable=?, is_formula=?, formula=?, amount_preference=?,
+         employer_factor=?, employer_formula=?,
          fixed_amount_cents=?, upper_limit_cents=?, balance_type=?, special_type=?, gl_account_id=?,
          employer_gl_account_id=?, for_every_employee=? WHERE id=?`,
-      code, name, fields.type, fields.taxable, fields.is_formula, fields.formula, fields.fixed_amount_cents,
+      code, name, fields.type, fields.taxable, fields.is_formula, fields.formula, fields.amount_preference,
+      fields.employer_factor, fields.employer_formula, fields.fixed_amount_cents,
       fields.upper_limit_cents, fields.balance_type, fields.special_type, fields.gl_account_id,
       fields.employer_gl_account_id, fields.for_every_employee, input.id,
     );
@@ -196,10 +239,12 @@ export async function saveTransactionCode(input: TransactionCodeInput, user: Act
   if (await one('SELECT 1 FROM payroll_transaction_code WHERE code = ?', code)) throw new AppError('That code already exists', 'DUPLICATE');
   const info = await run(
     `INSERT INTO payroll_transaction_code
-       (code, name, type, taxable, is_formula, formula, fixed_amount_cents, upper_limit_cents, balance_type,
+       (code, name, type, taxable, is_formula, formula, amount_preference, employer_factor, employer_formula,
+        fixed_amount_cents, upper_limit_cents, balance_type,
         special_type, gl_account_id, employer_gl_account_id, for_every_employee, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    code, name, fields.type, fields.taxable, fields.is_formula, fields.formula, fields.fixed_amount_cents,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    code, name, fields.type, fields.taxable, fields.is_formula, fields.formula, fields.amount_preference,
+    fields.employer_factor, fields.employer_formula, fields.fixed_amount_cents,
     fields.upper_limit_cents, fields.balance_type, fields.special_type, fields.gl_account_id,
     fields.employer_gl_account_id, fields.for_every_employee, new Date().toISOString(), user.username,
   );

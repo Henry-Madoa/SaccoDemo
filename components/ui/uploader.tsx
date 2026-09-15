@@ -6,7 +6,7 @@ import type { AttachmentEntity, UploadedFile, UploadSignature } from '@/lib/type
 
 type UploadKind =
   | 'logo' | 'photo' | 'attachment' | 'id_front' | 'id_back' | 'signature' | 'fingerprint1' | 'fingerprint2'
-  | 'junior_photo' | 'user_signature';
+  | 'junior_photo' | 'user_signature' | 'employee_photo' | 'employee_signature';
 
 const prettyBytes = (n: number) =>
   n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
@@ -23,6 +23,8 @@ const MAX_DIMENSION: Record<UploadKind, number> = {
   fingerprint2: 1200,
   junior_photo: 1600,
   user_signature: 1200,
+  employee_photo: 1600,
+  employee_signature: 1200,
 };
 
 /** Below this, re-encoding costs more CPU than it saves in transfer time. */

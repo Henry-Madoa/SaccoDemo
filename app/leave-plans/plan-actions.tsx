@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { LockedEmployee } from '@/components/ui/locked-employee';
 import { useRunAction } from '@/components/ui/run-action';
 import { LineRowsFormButton, LineRowsPanel, type LineColumn } from '@/components/ui/line-rows-editor';
 import {
@@ -15,10 +16,15 @@ import type { EmployeeView, HrLeavePlanLine } from '@/lib/types';
 
 type EmployeeLite = Pick<EmployeeView, 'id' | 'employee_no' | 'first_name' | 'last_name'>;
 
-export function NewPlanButton({ employees }: { employees: EmployeeLite[] }) {
+export function NewPlanButton({ employees, self, viewBase = '/leave-plans/view' }: {
+  employees: EmployeeLite[];
+  /** Employee Self Service: the plan is this employee's own — no picker. */
+  self?: EmployeeLite | null;
+  viewBase?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [employeeId, setEmployeeId] = useState('');
+  const [employeeId, setEmployeeId] = useState(self ? String(self.id) : '');
   return (
     <>
       <button type="button" className="btn" onClick={() => setOpen(true)}>New leave plan</button>
@@ -28,16 +34,18 @@ export function NewPlanButton({ employees }: { employees: EmployeeLite[] }) {
           onClose={() => setOpen(false)}
           onSubmit={async () => {
             const res = await requestLeavePlan(Number(employeeId));
-            if (res.ok) router.push(`/leave-plans/view/${res.data.no}`);
+            if (res.ok) router.push(`${viewBase}/${res.data.no}`);
             return res;
           }}
           submitLabel="Start plan"
           successTitle="Leave plan created"
           successDetail={(d) => `${d.no} — add planned leave windows next`}
         >
-          <SearchableSelect id="f_employeeId" name="employeeId" label="Employee" required
-            items={employees} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
-            value={employeeId} onChange={setEmployeeId} placeholder="Search employee…" />
+          {self ? <LockedEmployee employee={self} hint="The plan is your own." /> : (
+            <SearchableSelect id="f_employeeId" name="employeeId" label="Employee" required
+              items={employees} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
+              value={employeeId} onChange={setEmployeeId} placeholder="Search employee…" />
+          )}
         </FormModal>
       ) : null}
     </>
@@ -73,6 +81,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
     <button type="button" className={className} disabled={busy}
       onClick={() => run(() => deleteLeavePlanRequest(no), {
         confirm: { title: 'Delete this plan?', confirmLabel: 'Delete' }, successTitle: 'Deleted',
+        redirectTo: '/leave-plans',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

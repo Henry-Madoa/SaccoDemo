@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DefinitionList } from '@/components/ui/primitives';
+import { formatDate } from '@/lib/format';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Field, readForm } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
@@ -72,27 +73,31 @@ export function EditBioDataCard({ request: r, lookups, canEdit, startEditing = f
       ) : null}
     >
       {!editing ? (
-        <div className="grid g2">
-          <DefinitionList items={[
-            ['First name', r.first_name || '—'],
-            ['Middle name', r.middle_name || '—'],
-            ['Last name', r.last_name || '—'],
-            ['Gender', r.gender || '—'],
-            ['Date of birth', r.date_of_birth || '—'],
-            ['Marital status', r.marital_status || '—'],
-            ['National ID', r.national_id || '—'],
-            ['KRA PIN', r.kra_pin || '—'],
-            ['NSSF No.', r.nssf_no || '—'],
-            ['SHIF No.', r.shif_no || '—'],
-          ]} />
-          <DefinitionList items={[
-            ['Phone', <PhoneLink value={r.phone} key="phone" />],
-            ['Alt. phone', <PhoneLink value={r.alt_phone} key="alt-phone" />],
-            ['Email', <EmailLink value={r.email} key="email" />],
-            ['Physical address', r.physical_address || '—'],
-            ['County', r.county_name || '—'],
-            ['Sub-county', r.sub_county_name || '—'],
-          ]} />
+        <div className="grid g2 dl-groups">
+          <section className="dl-group">
+            <div className="dl-caption">Personal &amp; statutory</div>
+            <DefinitionList items={[
+              ['Full name', <span className="dl-emphasis" key="nm">{[r.first_name, r.middle_name, r.last_name].filter(Boolean).join(' ') || '—'}</span>],
+              ['Gender', r.gender || '—'],
+              ['Date of birth', r.date_of_birth ? formatDate(r.date_of_birth) : '—'],
+              ['Marital status', r.marital_status || '—'],
+              ['National ID', r.national_id ? <span className="mono" key="nid">{r.national_id}</span> : '—'],
+              ['KRA PIN', r.kra_pin ? <span className="mono" key="kra">{r.kra_pin}</span> : '—'],
+              ['NSSF No.', r.nssf_no ? <span className="mono" key="nssf">{r.nssf_no}</span> : '—'],
+              ['SHIF No.', r.shif_no ? <span className="mono" key="shif">{r.shif_no}</span> : '—'],
+            ]} />
+          </section>
+          <section className="dl-group">
+            <div className="dl-caption">Contact &amp; address</div>
+            <DefinitionList items={[
+              ['Phone', <PhoneLink value={r.phone} key="phone" />],
+              ['Alt. phone', <PhoneLink value={r.alt_phone} key="alt-phone" />],
+              ['Email', <EmailLink value={r.email} key="email" />],
+              ['Physical address', r.physical_address || '—'],
+              ['County', r.county_name || '—'],
+              ['Sub-county', r.sub_county_name || '—'],
+            ]} />
+          </section>
         </div>
       ) : (
         <>
@@ -144,7 +149,9 @@ export function EditEmploymentBankingCard({ request: r, lookups, canEdit }: {
   const { formRef, editing, setEditing, busy, error, save } = useInlineEdit(r.no);
   const [dim1Id, setDim1Id] = useState(String(r.global_dimension_1_id ?? ''));
   const [dim2Id, setDim2Id] = useState(String(r.global_dimension_2_id ?? ''));
-  const [jobGradeId, setJobGradeId] = useState(String(r.job_grade_id ?? ''));
+  const [companyJobId, setCompanyJobId] = useState(String(r.company_job_id ?? ''));
+  // A full position stays pickable only when it is the one already proposed / held.
+  const companyJobs = lookups.companyJobs.filter((j) => j.vacant > 0 || j.id === r.company_job_id);
 
   return (
     <CollapsibleCard title="Proposed employment &amp; banking" sub="Dimensions, job title, grade and bank details"
@@ -152,22 +159,33 @@ export function EditEmploymentBankingCard({ request: r, lookups, canEdit }: {
         <button type="button" className="btn sm ghost"
           onClick={() => {
             setDim1Id(String(r.global_dimension_1_id ?? '')); setDim2Id(String(r.global_dimension_2_id ?? ''));
-            setJobGradeId(String(r.job_grade_id ?? '')); setEditing(true);
+            setCompanyJobId(String(r.company_job_id ?? ''));
+            setEditing(true);
           }}>
           Edit
         </button>
       ) : null}
     >
       {!editing ? (
-        <DefinitionList items={[
-          [lookups.caption1, r.global_dimension_1_name || '—'],
-          [lookups.caption2, r.global_dimension_2_name || '—'],
-          ['Job title', r.job_title || '—'],
-          ['Job grade', r.job_grade_name || '—'],
-          ['Bank code', r.bank_code || '—'],
-          ['Branch', r.bank_branch || '—'],
-          ['Account number', r.bank_account_no || '—'],
-        ]} />
+        <div className="grid g2 dl-groups">
+          <section className="dl-group">
+            <div className="dl-caption">Employment</div>
+            <DefinitionList items={[
+              ['Company job', r.company_job_code ? <>{r.company_job_name} <span className="mono">({r.company_job_code})</span></> : <span className="muted-cell">Not on the organogram</span>],
+              ['Job title', r.job_title || '—'],
+              [lookups.caption1, r.global_dimension_1_name || '—'],
+              [lookups.caption2, r.global_dimension_2_name || '—'],
+            ]} />
+          </section>
+          <section className="dl-group">
+            <div className="dl-caption">Banking</div>
+            <DefinitionList items={[
+              ['Bank code', r.bank_code ? <span className="mono" key="bc">{r.bank_code}</span> : '—'],
+              ['Branch', r.bank_branch || '—'],
+              ['Account number', r.bank_account_no ? <span className="mono" key="ac">{r.bank_account_no}</span> : '—'],
+            ]} />
+          </section>
+        </div>
       ) : (
         <>
           <form ref={formRef} onSubmit={(ev) => ev.preventDefault()}>
@@ -179,12 +197,11 @@ export function EditEmploymentBankingCard({ request: r, lookups, canEdit }: {
                 items={lookups.globalDimension2Values} getValue={(d) => String(d.id)} getLabel={(d) => `${d.code} — ${d.name}`}
                 value={dim2Id} onChange={setDim2Id} placeholder={`Search ${lookups.caption2.toLowerCase()}…`} emptyText="No matches" />
             </div>
-            <div className="grid g2">
-              <Field name="job_title" label="Job title" defaultValue={r.job_title ?? ''} />
-              <SearchableSelect id="f_job_grade_id" name="job_grade_id" label="Job grade"
-                items={lookups.jobGrades} getValue={(g) => String(g.id)} getLabel={(g) => `${g.code} — ${g.name}`}
-                value={jobGradeId} onChange={setJobGradeId} placeholder="Search job grade…" />
-            </div>
+            <SearchableSelect id="f_company_job_id" name="company_job_id" label="Company job (position on the organogram)"
+              items={companyJobs} getValue={(j) => String(j.id)} getLabel={(j) => `${j.job_id} — ${j.name}${j.vacant > 0 ? ` (${j.vacant} vacant)` : ' (full)'}`}
+              value={companyJobId} onChange={setCompanyJobId} placeholder="Search approved position…" emptyText="No approved position with a vacant post"
+              hint="The move takes effect when the request is applied; the post must still be free then" />
+            <Field name="job_title" label="Job title" defaultValue={r.job_title ?? ''} hint="Job grade and salary scale are proposed on the Payroll details card (HR)" />
             <div className="note" style={{ marginTop: 4, marginBottom: 4 }}>Banking</div>
             <div className="grid g3">
               <Field name="bank_code" label="Bank code" defaultValue={r.bank_code ?? ''} />

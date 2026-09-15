@@ -60,6 +60,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
     <button type="button" className={className} disabled={busy}
       onClick={() => run(() => deleteLeaveRecallRequest(no), {
         confirm: { title: 'Delete this recall?', confirmLabel: 'Delete' }, successTitle: 'Deleted',
+        redirectTo: '/leave-recalls',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

@@ -79,6 +79,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteContractChangeRequest(no), {
         confirm: { title: 'Delete this request?', message: 'Only an open request can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/employee-contract-changes',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

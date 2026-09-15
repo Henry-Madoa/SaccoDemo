@@ -66,10 +66,14 @@ export function ReopenButton({ no, kind }: { no: string; kind: Kind }) {
   })} />;
 }
 
+/** The list each document kind is deleted back to — its card is gone once the row is. */
+const LIST_FOR: Record<Kind, string> = { receipt: '/cash-management/receipts', pv: '/cash-management/payment-vouchers' };
+
 export function DeleteButton({ no, kind }: { no: string; kind: Kind }) {
   const { run } = useRunAction();
   return <A label="Delete" className="btn sm ghost danger" onClick={() => run(() => map[kind].del(no), {
     confirm: { title: 'Delete this document?', message: 'This cannot be undone.', confirmLabel: 'Delete' }, successTitle: 'Deleted',
+    redirectTo: LIST_FOR[kind],
   })} />;
 }
 

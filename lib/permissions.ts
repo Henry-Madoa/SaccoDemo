@@ -102,6 +102,7 @@ export const PAGES: PageObject[] = [
   { code: 'GL_VENDOR_LEDGER', label: 'General Ledger › Vendor Ledger Entries', route: '/accounting/vendor-ledger', parent: 'GL' },
   { code: 'GL_CUSTOMER_LEDGER', label: 'General Ledger › Customer Ledger Entries', route: '/accounting/customer-ledger', parent: 'GL' },
   { code: 'GL_PERIODS', label: 'General Ledger › Accounting Periods', route: '/accounting/periods', parent: 'GL' },
+  { code: 'GL_CLOSE_INCOME_STATEMENT', label: 'General Ledger › Close Income Statement', route: '/accounting/close-income-statement', parent: 'GL' },
   { code: 'INVENTORY', label: 'Inventory', route: '/inventory' },
   { code: 'INVENTORY_ITEMS', label: 'Inventory › Items', route: '/inventory/items', parent: 'INVENTORY' },
   { code: 'INVENTORY_ITEM_JOURNAL', label: 'Inventory › Item Journal', route: '/inventory/item-journal', parent: 'INVENTORY' },
@@ -198,10 +199,13 @@ export const PAGES: PageObject[] = [
   { code: 'ADMIN_DATA', label: 'Data Management', route: '/admin/data' },
   { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/pool/general/automation' },
   { code: 'EMPLOYEES', label: 'Employees', route: '/employees' },
+  { code: 'COMPANY_JOBS', label: 'Company Jobs', route: '/company-jobs' },
+  { code: 'ORGANOGRAM', label: 'Organogram', route: '/organogram' },
   { code: 'EMPLOYEE_EDITS', label: 'Employee Editing', route: '/employee-edits' },
   { code: 'EMPLOYEE_CONTRACT_CHANGES', label: 'Employee Contract / Salary Changes', route: '/employee-contract-changes' },
   { code: 'EMPLOYEE_EXITS', label: 'Employee Exits', route: '/employee-exits' },
   { code: 'ADMIN_HR_JOB_GRADES', label: 'Job Grades', route: '/admin/pool/hr-payroll/job-grades' },
+  { code: 'ADMIN_HR_SALARY_SCALES', label: 'Salary Scales', route: '/admin/pool/hr-payroll/salary-scales' },
   { code: 'ADMIN_HR_CONTRACT_TYPES', label: 'Employment Contract Types', route: '/admin/pool/hr-payroll/contract-types' },
   { code: 'ADMIN_HR_TERMINATION_REASONS', label: 'Termination Reasons', route: '/admin/pool/hr-payroll/termination-reasons' },
   { code: 'ADMIN_HR_CLEARANCE_SECTIONS', label: 'Exit Clearance Sections', route: '/admin/pool/hr-payroll/clearance-sections' },
@@ -215,6 +219,17 @@ export const PAGES: PageObject[] = [
   { code: 'ADMIN_HR_ACCRUE_MATRIX', label: 'Leave Accrual Matrix', route: '/admin/pool/hr-payroll/accrue-matrix' },
   { code: 'PAYROLL', label: 'Payroll', route: '/payroll' },
   { code: 'PAYROLL_PERIODS', label: 'Payroll Periods', route: '/payroll/periods' },
+  // Employee Self Service — the AL "SS" pages (SSPurchaseOrderList, SSBudgetPlans, ...): each
+  // list is the same document filtered to the signed-in user's own Employee No. (User Setup).
+  { code: 'SELF_SERVICE', label: 'Employee Self Service', route: '/self-service' },
+  { code: 'SELF_SERVICE_PAYSLIPS', label: 'Employee Self Service › My Payslips', route: '/self-service/payslips', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_P9', label: 'Employee Self Service › My P9', route: '/self-service/p9', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_RECORD', label: 'Employee Self Service › My Record', route: '/self-service/record', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_LEAVE', label: 'Employee Self Service › My Leave Applications', route: '/self-service/leave', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_LEAVE_PLANS', label: 'Employee Self Service › My Leave Plans', route: '/self-service/leave-plans', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_IMPREST', label: 'Employee Self Service › My Imprests', route: '/self-service/imprest', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_PETTY_CASH', label: 'Employee Self Service › My Petty Cash', route: '/self-service/petty-cash', parent: 'SELF_SERVICE' },
+  { code: 'SELF_SERVICE_REQUISITIONS', label: 'Employee Self Service › My Requisitions', route: '/self-service/requisitions', parent: 'SELF_SERVICE' },
   { code: 'ADMIN_PAYROLL_SETUP', label: 'Payroll Setup', route: '/admin/pool/hr-payroll/payroll-setup' },
   { code: 'ADMIN_PAYROLL_POSTING_GROUPS', label: 'Payroll Posting Groups', route: '/admin/pool/hr-payroll/posting-groups' },
   { code: 'ADMIN_PAYROLL_PAYE_BANDS', label: 'PAYE Bands', route: '/admin/pool/hr-payroll/paye-bands' },
@@ -752,6 +767,10 @@ export const ACTIONS = {
   GL_JOURNAL_APPROVE: { page: 'GL', tables: [['journal', 'insert'], ['journal_line', 'insert']] },
   GL_JOURNAL_REVERSE: { page: 'GL', tables: [['journal', 'insert'], ['journal', 'modify'], ['journal_line', 'insert']] },
   GL_PERIOD_CLOSE: { page: 'GL', tables: [['accounting_period', 'modify']] },
+  /** Create Fiscal Year — the next year's periods (lib/gl.ts createFiscalYear). */
+  GL_PERIOD_CREATE: { page: 'GL', tables: [['accounting_period', 'insert']] },
+  /** Close Income Statement posts the year-end transfer journal (lib/closeIncomeStatement.ts). */
+  GL_CLOSE_INCOME_STATEMENT: { page: 'GL_CLOSE_INCOME_STATEMENT', tables: [['journal', 'insert'], ['journal_line', 'insert'], ['accounting_period', 'read']] },
   GL_ACCOUNT_MANAGE: { page: 'GL', tables: [['gl_account', 'insert'], ['gl_account', 'modify'], ['change_log_entry', 'insert']] },
   GL_BANK_RECONCILE: {
     page: 'GL',
@@ -1294,6 +1313,16 @@ export const ACTIONS = {
       ['employee_edit_bank_account', 'insert'], ['employee_edit_bank_account', 'delete'],
     ],
   },
+  /** Delete an Open (not yet submitted) edit request, with its proposed sub-entity rows. */
+  EMPLOYEE_EDITS_DELETE: {
+    page: 'EMPLOYEE_EDITS',
+    tables: [
+      ['employee_edit_request', 'delete'],
+      ['employee_edit_next_of_kin', 'delete'], ['employee_edit_beneficiary', 'delete'], ['employee_edit_dependant', 'delete'],
+      ['employee_edit_emergency_contact', 'delete'], ['employee_edit_professional_body', 'delete'],
+      ['employee_edit_work_history', 'delete'], ['employee_edit_bank_account', 'delete'],
+    ],
+  },
   EMPLOYEE_EDITS_APPROVE: {
     page: 'EMPLOYEE_EDITS',
     tables: [
@@ -1342,6 +1371,15 @@ export const ACTIONS = {
   // Global Dimension 2 (Admin Centre -> Setup Pool -> General -> Global Dimensions), not a
   // bespoke master here.
   HR_JOB_GRADES_READ: { page: 'ADMIN_HR_JOB_GRADES', tables: [['hr_job_grade', 'read']] },
+  HR_SALARY_SCALES_READ: { page: 'ADMIN_HR_SALARY_SCALES', tables: [['hr_salary_scale', 'read'], ['hr_salary_scale_benefit', 'read'], ['hr_job_grade', 'read']] },
+  HR_SALARY_SCALES_MANAGE: {
+    page: 'ADMIN_HR_SALARY_SCALES',
+    tables: [
+      ['hr_salary_scale', 'insert'], ['hr_salary_scale', 'modify'], ['hr_salary_scale', 'delete'],
+      ['hr_salary_scale_benefit', 'insert'], ['hr_salary_scale_benefit', 'modify'], ['hr_salary_scale_benefit', 'delete'],
+      ['employee', 'modify'], ['employee_payroll_transaction', 'insert'], ['employee_payroll_transaction', 'modify'], ['employee_payroll_transaction', 'delete'],
+    ],
+  },
   HR_JOB_GRADES_MANAGE: {
     page: 'ADMIN_HR_JOB_GRADES',
     tables: [['hr_job_grade', 'insert'], ['hr_job_grade', 'modify'], ['hr_job_grade', 'delete']],
@@ -1388,6 +1426,18 @@ export const ACTIONS = {
     page: 'LEAVE_ADJUSTMENTS',
     tables: [['hr_leave_adjustment', 'modify'], ['hr_leave_ledger_entry', 'insert']],
   },
+  COMPANY_JOBS_READ: { page: 'COMPANY_JOBS', tables: [['company_job', 'read'], ['company_job_responsibility', 'read'], ['company_job_requirement', 'read'], ['company_job_qualification', 'read'], ['employee', 'read']] },
+  COMPANY_JOBS_CREATE: {
+    page: 'COMPANY_JOBS',
+    tables: [
+      ['company_job', 'insert'], ['company_job', 'modify'], ['company_job', 'delete'],
+      ['company_job_responsibility', 'insert'], ['company_job_responsibility', 'delete'],
+      ['company_job_requirement', 'insert'], ['company_job_requirement', 'delete'],
+      ['company_job_qualification', 'insert'], ['company_job_qualification', 'delete'],
+    ],
+  },
+  COMPANY_JOBS_APPROVE: { page: 'COMPANY_JOBS', tables: [['company_job', 'modify']] },
+  ORGANOGRAM_VIEW: { page: 'ORGANOGRAM', tables: [['company_job', 'read'], ['employee', 'read']] },
   LEAVE_RECALLS_READ: { page: 'LEAVE_RECALLS', tables: [['hr_leave_recall', 'read']] },
   LEAVE_RECALLS_CREATE: {
     page: 'LEAVE_RECALLS',
@@ -1430,7 +1480,7 @@ export const ACTIONS = {
   // transactions into the next period — the same tier CASH_MANAGEMENT_POST/LOAN_DISBURSE carry.
   PAYROLL_READ: {
     page: 'PAYROLL',
-    tables: [['employee_payroll_transaction', 'read'], ['payroll_period_line', 'read'], ['payroll_p9_line', 'read']],
+    tables: [['employee_payroll_transaction', 'read'], ['payroll_period_transaction', 'read'], ['payroll_p9_line', 'read']],
   },
   PAYROLL_MANAGE_TRANSACTIONS: {
     page: 'PAYROLL',
@@ -1440,7 +1490,7 @@ export const ACTIONS = {
   PAYROLL_PERIODS_CREATE: { page: 'PAYROLL_PERIODS', tables: [['payroll_period', 'insert'], ['workflow_task', 'insert'], ['workflow_task', 'modify']] },
   PAYROLL_PERIODS_RUN: {
     page: 'PAYROLL_PERIODS',
-    tables: [['payroll_period_line', 'insert'], ['payroll_period_line', 'modify'], ['payroll_p9_line', 'insert'], ['employee_payroll_transaction', 'modify']],
+    tables: [['payroll_period_transaction', 'insert'], ['payroll_period_transaction', 'modify'], ['payroll_p9_line', 'insert'], ['employee_payroll_transaction', 'modify']],
   },
   PAYROLL_PERIODS_APPROVE: { page: 'PAYROLL_PERIODS', tables: [['payroll_period', 'modify']] },
   PAYROLL_PERIODS_CLOSE: {
@@ -1548,6 +1598,98 @@ export const ACTIONS = {
     ],
   },
   REQUISITIONS_APPROVE: { page: 'REQUISITIONS', tables: [['requisition', 'modify'], ['requisition_line', 'modify']] },
+
+  // Employee Self Service. Same tables as the HR / Staff Cash Desk / Requisitions actions, on
+  // the self-service pages instead: a user holding only these reaches only their own documents
+  // (lib/selfService.ts scopes lists and stamps new documents with their employee), while the
+  // document cards accept either the module's action or the self-service one plus ownership.
+  SELF_SERVICE_VIEW: { page: 'SELF_SERVICE', tables: [['employee', 'read'], ['approval_user_setup', 'read']] },
+  SELF_SERVICE_PAYSLIP_READ: { page: 'SELF_SERVICE_PAYSLIPS', tables: [['payroll_period', 'read'], ['payroll_period_transaction', 'read']] },
+  SELF_SERVICE_P9_READ: { page: 'SELF_SERVICE_P9', tables: [['payroll_period', 'read'], ['payroll_p9_line', 'read']] },
+  /** My Record: the employee's own record, and Employee Editing requests raised against it
+   *  (AL Employee Change Request — Validate("Employee No", UserSetup."Employee No.")). */
+  SELF_SERVICE_RECORD_READ: {
+    page: 'SELF_SERVICE_RECORD',
+    tables: [
+      ['employee', 'read'], ['employee_edit_request', 'read'],
+      ['employee_next_of_kin', 'read'], ['employee_beneficiary', 'read'], ['employee_dependant', 'read'],
+      ['employee_emergency_contact', 'read'], ['employee_professional_body', 'read'], ['employee_work_history', 'read'],
+      ['employee_bank_account', 'read'], ['employee_contract', 'read'],
+    ],
+  },
+  SELF_SERVICE_RECORD_UPDATE: {
+    page: 'SELF_SERVICE_RECORD',
+    tables: [
+      ['employee_edit_request', 'insert'], ['employee_edit_request', 'modify'],
+      ['employee_edit_next_of_kin', 'insert'], ['employee_edit_next_of_kin', 'delete'],
+      ['employee_edit_beneficiary', 'insert'], ['employee_edit_beneficiary', 'delete'],
+      ['employee_edit_dependant', 'insert'], ['employee_edit_dependant', 'delete'],
+      ['employee_edit_emergency_contact', 'insert'], ['employee_edit_emergency_contact', 'delete'],
+      ['employee_edit_professional_body', 'insert'], ['employee_edit_professional_body', 'delete'],
+      ['employee_edit_work_history', 'insert'], ['employee_edit_work_history', 'delete'],
+      ['employee_edit_bank_account', 'insert'], ['employee_edit_bank_account', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  SELF_SERVICE_RECORD_DELETE: {
+    page: 'SELF_SERVICE_RECORD',
+    tables: [
+      ['employee_edit_request', 'delete'],
+      ['employee_edit_next_of_kin', 'delete'], ['employee_edit_beneficiary', 'delete'], ['employee_edit_dependant', 'delete'],
+      ['employee_edit_emergency_contact', 'delete'], ['employee_edit_professional_body', 'delete'],
+      ['employee_edit_work_history', 'delete'], ['employee_edit_bank_account', 'delete'],
+    ],
+  },
+  SELF_SERVICE_LEAVE_READ: {
+    page: 'SELF_SERVICE_LEAVE',
+    tables: [['hr_leave_application', 'read'], ['hr_leave_ledger_entry', 'read'], ['hr_leave_type', 'read']],
+  },
+  SELF_SERVICE_LEAVE_CREATE: {
+    page: 'SELF_SERVICE_LEAVE',
+    tables: [['hr_leave_application', 'insert'], ['hr_leave_application', 'modify'], ['hr_leave_application', 'delete'], ['workflow_task', 'insert'], ['workflow_task', 'modify']],
+  },
+  SELF_SERVICE_LEAVE_PLANS_READ: { page: 'SELF_SERVICE_LEAVE_PLANS', tables: [['hr_leave_plan', 'read'], ['hr_leave_plan_line', 'read']] },
+  SELF_SERVICE_LEAVE_PLANS_CREATE: {
+    page: 'SELF_SERVICE_LEAVE_PLANS',
+    tables: [
+      ['hr_leave_plan', 'insert'], ['hr_leave_plan', 'modify'], ['hr_leave_plan', 'delete'],
+      ['hr_leave_plan_line', 'insert'], ['hr_leave_plan_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  SELF_SERVICE_IMPREST_READ: {
+    page: 'SELF_SERVICE_IMPREST',
+    tables: [['imprest_request', 'read'], ['imprest_request_line', 'read'], ['employee_ledger_entry', 'read'], ['imprest_purpose', 'read']],
+  },
+  SELF_SERVICE_IMPREST_CREATE: {
+    page: 'SELF_SERVICE_IMPREST',
+    tables: [
+      ['imprest_request', 'insert'], ['imprest_request', 'modify'], ['imprest_request', 'delete'],
+      ['imprest_request_line', 'insert'], ['imprest_request_line', 'modify'], ['imprest_request_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  SELF_SERVICE_PETTY_CASH_READ: { page: 'SELF_SERVICE_PETTY_CASH', tables: [['petty_cash', 'read'], ['petty_cash_line', 'read']] },
+  SELF_SERVICE_PETTY_CASH_CREATE: {
+    page: 'SELF_SERVICE_PETTY_CASH',
+    tables: [
+      ['petty_cash', 'insert'], ['petty_cash', 'modify'], ['petty_cash', 'delete'],
+      ['petty_cash_line', 'insert'], ['petty_cash_line', 'modify'], ['petty_cash_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
+  SELF_SERVICE_REQUISITIONS_READ: {
+    page: 'SELF_SERVICE_REQUISITIONS',
+    tables: [['requisition', 'read'], ['requisition_line', 'read'], ['item', 'read'], ['location', 'read'], ['vendor', 'read']],
+  },
+  SELF_SERVICE_REQUISITIONS_CREATE: {
+    page: 'SELF_SERVICE_REQUISITIONS',
+    tables: [
+      ['requisition', 'insert'], ['requisition', 'modify'], ['requisition', 'delete'],
+      ['requisition_line', 'insert'], ['requisition_line', 'modify'], ['requisition_line', 'delete'],
+      ['workflow_task', 'insert'], ['workflow_task', 'modify'],
+    ],
+  },
   REQUISITIONS_ISSUE: {
     page: 'REQUISITIONS',
     tables: [

@@ -802,6 +802,12 @@ async function finalizeDocument(task: WorkflowTask, approved: boolean, decidedBy
       else await svc.rejectLeaveRecall(task.entity_id, reason, decidedBy);
       break;
     }
+    case 'COMPANY_JOB': {
+      const svc = await import('./companyJobs.ts');
+      if (approved) await svc.approveCompanyJob(Number(task.entity_id), decidedBy);
+      else await svc.rejectCompanyJob(Number(task.entity_id), reason, decidedBy);
+      break;
+    }
     case 'LEAVE_PLAN': {
       const svc = await import('./leaveManagement.ts');
       if (approved) await svc.approveLeavePlan(task.entity_id, decidedBy);
@@ -1489,11 +1495,13 @@ export const listApprovalUserSetup = (): Promise<ApprovalUserSetupRow[]> =>
             COALESCE(s.is_approval_administrator, 0) AS is_approval_administrator,
             COALESCE(s.can_reverse_journal, 0) AS can_reverse_journal,
             s.allow_posting_from, s.allow_posting_to,
-            s.allow_posting_from_time, s.allow_posting_to_time
+            s.allow_posting_from_time, s.allow_posting_to_time,
+            s.employee_id, e.employee_no, CASE WHEN e.id IS NULL THEN NULL ELSE e.first_name || ' ' || e.last_name END AS employee_name
      FROM app_user u
      LEFT JOIN approval_user_setup s ON s.user_id = u.id
      LEFT JOIN app_user a ON a.id = s.approver_id
      LEFT JOIN app_user sub ON sub.id = s.substitute_id
+     LEFT JOIN employee e ON e.id = s.employee_id
      ORDER BY u.full_name`,
   );
 
@@ -1506,6 +1514,8 @@ export interface ApprovalUserSetupInput {
   allow_posting_to?: string | null;
   allow_posting_from_time?: string | null;
   allow_posting_to_time?: string | null;
+  /** AL User Setup "Employee No." — which employee this login is. */
+  employee_id?: number | null;
 }
 
 export async function saveApprovalUserSetup(
@@ -1514,11 +1524,30 @@ export async function saveApprovalUserSetup(
   if (body.allow_posting_from && body.allow_posting_to && body.allow_posting_from > body.allow_posting_to) {
     throw new AppError('Allow Posting From cannot be after Allow Posting To', 'VALIDATION');
   }
+  // One login per employee: AL looks the User Setup up *by* Employee No. (leave applications,
+  // recalls, ...), which only works when the mapping is one-to-one.
+  const employeeId = body.employee_id || null;
+  if (employeeId) {
+    const emp = await one<{ id: number; email: string | null; phone: string | null }>('SELECT id, email, phone FROM employee WHERE id = ?', employeeId);
+    if (!emp) throw new AppError('Employee not found', 'NOT_FOUND');
+    const taken = await one<{ user_id: number; username: string }>(
+      'SELECT s.user_id, u.username FROM approval_user_setup s JOIN app_user u ON u.id = s.user_id WHERE s.employee_id = ? AND s.user_id <> ?',
+      employeeId, userId,
+    );
+    if (taken) throw new AppError(`That employee is already linked to user ${taken.username}`, 'DUPLICATE');
+    // AL's OnValidate copies the employee's company e-mail and phone onto the User Setup; here
+    // the user record carries them, so only blanks are filled — a deliberately typed contact
+    // is never overwritten.
+    await run(
+      'UPDATE app_user SET email = COALESCE(NULLIF(email, \'\'), ?), phone = COALESCE(NULLIF(phone, \'\'), ?) WHERE id = ?',
+      emp.email || null, emp.phone || null, userId,
+    );
+  }
   await run(
     `INSERT INTO approval_user_setup
        (user_id, approver_id, substitute_id, is_approval_administrator, can_reverse_journal,
-        allow_posting_from, allow_posting_to, allow_posting_from_time, allow_posting_to_time)
-     VALUES (?,?,?,?,?,?,?,?,?)
+        allow_posting_from, allow_posting_to, allow_posting_from_time, allow_posting_to_time, employee_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT (user_id) DO UPDATE SET
        approver_id = EXCLUDED.approver_id,
        substitute_id = EXCLUDED.substitute_id,
@@ -1527,11 +1556,13 @@ export async function saveApprovalUserSetup(
        allow_posting_from = EXCLUDED.allow_posting_from,
        allow_posting_to = EXCLUDED.allow_posting_to,
        allow_posting_from_time = EXCLUDED.allow_posting_from_time,
-       allow_posting_to_time = EXCLUDED.allow_posting_to_time`,
+       allow_posting_to_time = EXCLUDED.allow_posting_to_time,
+       employee_id = EXCLUDED.employee_id`,
     userId, body.approver_id || null, body.substitute_id || null,
     body.is_approval_administrator ? 1 : 0, body.can_reverse_journal ? 1 : 0,
     body.allow_posting_from || null, body.allow_posting_to || null,
     body.allow_posting_from_time || null, body.allow_posting_to_time || null,
+    employeeId,
   );
   await audit(user, 'APPROVAL_USER_SETUP_SAVE', 'approval_user_setup', userId, body);
 }

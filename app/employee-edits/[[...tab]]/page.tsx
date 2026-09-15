@@ -12,7 +12,7 @@ import { Card, EmptyState, Pill, TableWrap, Tabs, Toolbar, Spacer, type TabDefin
 import { SearchInput } from '@/components/ui/filters';
 import { DynamicFilterBar } from '@/components/ui/dynamic-filter';
 import { SortLink } from '@/components/ui/sort-link';
-import { NewEditRequestButton, SubmitEditButton, CancelEditApprovalButton, ApplyEditButton } from '../edit-actions';
+import { NewEditRequestButton, SubmitEditButton, DeleteEditButton, CancelEditApprovalButton, ApplyEditButton } from '../edit-actions';
 
 const TABS: TabDefinition[] = [
   { key: 'open', label: 'Open', tone: 'info' },
@@ -23,11 +23,11 @@ const TABS: TabDefinition[] = [
 
 export default async function EmployeeEditsPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string; new?: string }>;
 }) {
   const user = await requireAction('EMPLOYEE_EDITS_READ');
   const { tab: segments } = await params;
-  const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw, new: newFor } = await searchParams;
   const filters = parseFilters(filtersRaw);
   const sort = parseSort(sortRaw);
 
@@ -35,11 +35,12 @@ export default async function EmployeeEditsPage({ params, searchParams }: {
   if (requested && !TABS.some((t) => t.key === requested)) notFound();
   const tab = (requested ?? 'open') as EmployeeEditView;
 
-  const [rows, empty, canUpdate, canApprove, employees, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
+  const [rows, empty, canUpdate, canApprove, canDelete, employees, gd1Values, gd2Values, { caption1, caption2 }] = await Promise.all([
     listEmployeeEditRequests({ view: tab, search: q, filters, sort }),
     hasAnyEmployeeEditRequests(tab).then((any) => !any),
     currentCanAction('EMPLOYEE_EDITS_UPDATE'),
     currentCanAction('EMPLOYEE_EDITS_APPROVE'),
+    currentCanAction('EMPLOYEE_EDITS_DELETE'),
     listActiveEmployees(),
     listDimensionValues(1), listDimensionValues(2), getDimensionCaptions(),
   ]);
@@ -56,7 +57,7 @@ export default async function EmployeeEditsPage({ params, searchParams }: {
         <SearchInput placeholder="Search request no. or employee…" disabled={empty} />
         <DynamicFilterBar fields={fields} disabled={empty} />
         <Spacer />
-        {canUpdate ? <NewEditRequestButton employees={employees} /> : null}
+        {canUpdate ? <NewEditRequestButton employees={employees} initialEmployeeId={Number(newFor) || null} autoOpen={!!Number(newFor)} /> : null}
       </Toolbar>
 
       <Card>
@@ -74,6 +75,7 @@ export default async function EmployeeEditsPage({ params, searchParams }: {
                     <td><b>{r.employee_first_name} {r.employee_last_name}</b><div className="tiny mono">{r.employee_no}</div></td>
                     <td><Pill status={r.status} /></td>
                     <td className="num">
+                      {r.status === 'Open' && canDelete && isOwn ? <DeleteEditButton no={r.no} /> : null}
                       {r.status === 'Open' && canUpdate && isOwn ? <SubmitEditButton no={r.no} /> : null}
                       {r.status === 'Pending Approval' && canUpdate && isOwn ? <CancelEditApprovalButton no={r.no} /> : null}
                       {r.status === 'Approved' && canApprove ? <ApplyEditButton no={r.no} /> : null}

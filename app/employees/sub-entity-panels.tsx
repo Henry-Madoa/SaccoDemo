@@ -1,6 +1,6 @@
 'use client';
 
-import { LineRowsFormButton, LineRowsPanel, type LineColumn } from '@/components/ui/line-rows-editor';
+import { LineRowsPanel, type LineColumn } from '@/components/ui/line-rows-editor';
 import { RELATIONSHIPS, GENDERS } from '@/lib/constants';
 import {
   saveNextOfKin, saveBeneficiaries, saveDependants, saveEmergencyContacts,
@@ -27,12 +27,7 @@ const emptyNok = (): Row<EmployeeNextOfKin> => ({ employee_id: 0, full_name: '',
 export function NextOfKinPanel({ employeeId, rows, canManage }: { employeeId: number; rows: EmployeeNextOfKin[]; canManage: boolean }) {
   return (
     <LineRowsPanel title="Next of Kin" rows={strip(rows)} columns={NOK_COLUMNS} icon="👪"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Next of kin" rows={strip(rows)} columns={NOK_COLUMNS} emptyRow={emptyNok}
-          onSave={(r) => saveNextOfKin(employeeId, r)} className="btn sm ghost" successTitle="Next of kin saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyNok, onSave: (r) => saveNextOfKin(employeeId, r), successTitle: 'Next of kin saved' }} />
   );
 }
 
@@ -54,12 +49,7 @@ export function BeneficiariesPanel({ employeeId, rows, canManage }: { employeeId
   return (
     <LineRowsPanel title="Beneficiaries" rows={strip(rows)} columns={BEN_COLUMNS} icon="🎗"
       sub="Shares must not exceed 100%"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Beneficiaries" rows={strip(rows)} columns={BEN_COLUMNS} emptyRow={emptyBen}
-          onSave={(r) => saveBeneficiaries(employeeId, r)} className="btn sm ghost" successTitle="Beneficiaries saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyBen, onSave: (r) => saveBeneficiaries(employeeId, r), successTitle: 'Beneficiaries saved' }} />
   );
 }
 
@@ -80,12 +70,7 @@ const emptyDep = (): Row<EmployeeDependant> => ({
 export function DependantsPanel({ employeeId, rows, canManage }: { employeeId: number; rows: EmployeeDependant[]; canManage: boolean }) {
   return (
     <LineRowsPanel title="Medical Dependants" rows={strip(rows)} columns={DEP_COLUMNS} icon="🩺"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Medical dependants" rows={strip(rows)} columns={DEP_COLUMNS} emptyRow={emptyDep}
-          onSave={(r) => saveDependants(employeeId, r)} className="btn sm ghost" successTitle="Dependants saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyDep, onSave: (r) => saveDependants(employeeId, r), successTitle: 'Dependants saved' }} />
   );
 }
 
@@ -102,12 +87,7 @@ const emptyEc = (): Row<EmployeeEmergencyContact> => ({ employee_id: 0, full_nam
 export function EmergencyContactsPanel({ employeeId, rows, canManage }: { employeeId: number; rows: EmployeeEmergencyContact[]; canManage: boolean }) {
   return (
     <LineRowsPanel title="Emergency Contacts" rows={strip(rows)} columns={EC_COLUMNS} icon="🚑"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Emergency contacts" rows={strip(rows)} columns={EC_COLUMNS} emptyRow={emptyEc}
-          onSave={(r) => saveEmergencyContacts(employeeId, r)} className="btn sm ghost" successTitle="Emergency contacts saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyEc, onSave: (r) => saveEmergencyContacts(employeeId, r), successTitle: 'Emergency contacts saved' }} />
   );
 }
 
@@ -123,12 +103,7 @@ const emptyPb = (): Row<EmployeeProfessionalBody> => ({ employee_id: 0, body_nam
 export function ProfessionalBodiesPanel({ employeeId, rows, canManage }: { employeeId: number; rows: EmployeeProfessionalBody[]; canManage: boolean }) {
   return (
     <LineRowsPanel title="Professional Bodies" rows={strip(rows)} columns={PB_COLUMNS} icon="🎓"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Professional bodies" rows={strip(rows)} columns={PB_COLUMNS} emptyRow={emptyPb}
-          onSave={(r) => saveProfessionalBodies(employeeId, r)} className="btn sm ghost" successTitle="Professional bodies saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyPb, onSave: (r) => saveProfessionalBodies(employeeId, r), successTitle: 'Professional bodies saved' }} />
   );
 }
 
@@ -145,12 +120,7 @@ const emptyWh = (): Row<EmployeeWorkHistory> => ({ employee_id: 0, institution: 
 export function WorkHistoryPanel({ employeeId, rows, canManage }: { employeeId: number; rows: EmployeeWorkHistory[]; canManage: boolean }) {
   return (
     <LineRowsPanel title="Work History" rows={strip(rows)} columns={WH_COLUMNS} icon="🏢"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Work history" rows={strip(rows)} columns={WH_COLUMNS} emptyRow={emptyWh}
-          onSave={(r) => saveWorkHistory(employeeId, r)} className="btn sm ghost" successTitle="Work history saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyWh, onSave: (r) => saveWorkHistory(employeeId, r), successTitle: 'Work history saved' }} />
   );
 }
 
@@ -167,11 +137,6 @@ export function BankAccountsPanel({ employeeId, rows, canManage }: { employeeId:
   return (
     <LineRowsPanel title="Bank Accounts" rows={strip(rows)} columns={BANK_COLUMNS} icon="🏦"
       sub="Split percentages across every row must add up to 100%"
-      manageButton={canManage ? (
-        <LineRowsFormButton title="Bank accounts" rows={strip(rows)} columns={BANK_COLUMNS} emptyRow={emptyBank}
-          onSave={(r) => saveBankAccounts(employeeId, r)} className="btn sm ghost" successTitle="Bank accounts saved">
-          Manage
-        </LineRowsFormButton>
-      ) : null} />
+      edit={{ can: canManage, emptyRow: emptyBank, onSave: (r) => saveBankAccounts(employeeId, r), successTitle: 'Bank accounts saved' }} />
   );
 }

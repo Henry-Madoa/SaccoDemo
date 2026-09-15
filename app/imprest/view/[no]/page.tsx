@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAnyAction, currentCanAction, currentCanAnyAction } from '@/lib/session';
+import { assertCanViewEmployeeDocument } from '@/lib/selfService';
 import { getImprestRequestDetail, getAdjacentImprestNos, listImprestJournals, listEmployeeLedger, type ImprestListView } from '@/lib/imprest';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -26,16 +27,18 @@ export default async function ImprestRequestPage({ params, searchParams }: {
   params: Promise<{ no: string }>;
   searchParams: Promise<{ view?: string }>;
 }) {
-  const user = await requireAction('IMPREST_READ');
+  const user = await requireAnyAction('IMPREST_READ', 'SELF_SERVICE_IMPREST_READ');
   const { no } = await params;
   const { view: viewRaw } = await searchParams;
   const view = VIEWS.includes(viewRaw as ImprestListView) ? (viewRaw as ImprestListView) : undefined;
 
   const r = await getImprestRequestDetail(no);
   if (!r) notFound();
+  // Employee Self Service: an employee reaches only their own imprests.
+  const { selfService } = await assertCanViewEmployeeDocument(user, 'IMPREST_READ', 'SELF_SERVICE_IMPREST_READ', r.employee_id);
 
   const [canCreate, canApprove, canIssue, canPost, canRecover, reqTasks, surTasks, { prevNo, nextNo }, journals, ledger] = await Promise.all([
-    currentCanAction('IMPREST_CREATE'), currentCanAction('IMPREST_APPROVE'), currentCanAction('IMPREST_ISSUE'),
+    currentCanAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE'), currentCanAction('IMPREST_APPROVE'), currentCanAction('IMPREST_ISSUE'),
     currentCanAction('IMPREST_POST'), currentCanAction('IMPREST_PAYROLL_RECOVER'),
     listWorkflowTasksForDocument('IMPREST_REQUEST', no), listWorkflowTasksForDocument('IMPREST_SURRENDER', no),
     getAdjacentImprestNos(no, view), listImprestJournals(no), listEmployeeLedger(r.employee_id, 50),
@@ -63,7 +66,7 @@ export default async function ImprestRequestPage({ params, searchParams }: {
       <Page title={`${r.no} — Imprest ${r.stage === 'Request' ? 'Request' : r.stage === 'Closed' ? '(Closed)' : r.stage}`}
         crumb={`${r.first_name} ${r.last_name} · ${r.purpose}${pendingWith ? ` · pending with ${pendingWith}` : ''}`} user={user}>
         <Toolbar>
-          <Link href="/imprest" className="btn ghost sm">← All imprests</Link>
+          <Link href={selfService ? '/self-service/imprest' : '/imprest'} className="btn ghost sm">← {selfService ? 'My imprests' : 'All imprests'}</Link>
           <Link href={`/employees/${r.employee_id}`} className="btn ghost sm">Employee</Link>
           <a className="btn ghost sm" href={`/print/imprest-request/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print request form</a>
           {r.posted ? <a className="btn ghost sm" href={`/print/imprest-surrender/${encodeURIComponent(r.no)}`} target="_blank" rel="noreferrer">Print surrender form</a> : null}

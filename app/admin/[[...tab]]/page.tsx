@@ -86,6 +86,8 @@ import { FixedDepositTypeButton } from '../fixed-deposit-type-form';
 import { SalaryAppraisalParameterFormButton } from '../salary-appraisal-parameter-form';
 import { EmployerFormButton } from '../employer-form';
 import { JobGradeFormButton, DeleteJobGradeButton } from '../hr-job-grade-form';
+import { SalaryScalesScreen } from '../salary-scales';
+import { listSalaryScales } from '@/lib/salaryScales';
 import { ContractTypeFormButton, DeleteContractTypeButton } from '../hr-contract-type-form';
 import { TerminationReasonFormButton, DeleteTerminationReasonButton } from '../hr-termination-reason-form';
 import { ClearanceSectionFormButton, DeleteClearanceSectionButton } from '../hr-clearance-section-form';
@@ -97,7 +99,8 @@ import { PayrollSetupFormButton } from '../payroll-setup-form';
 import { PostingGroupFormButton, DeletePostingGroupButton } from '../payroll-posting-group-form';
 import { PayeBandFormButton, DeletePayeBandButton } from '../payroll-paye-band-form';
 import { NssfTierFormButton, DeleteNssfTierButton } from '../payroll-nssf-tier-form';
-import { TransactionCodeFormButton, DeleteTransactionCodeButton } from '../payroll-transaction-code-form';
+import { TransactionCodeFormButton } from '../payroll-transaction-code-form';
+import { TransactionCodeTable } from '../payroll-transaction-code-table';
 import { MemberCategoryFormButton, MemberCategoryRow } from '../member-category-form';
 import { CountyFormButton, CountyRow } from '../county-form';
 import { DimensionValueFormButton } from '../dimension-value-form';
@@ -118,6 +121,7 @@ import { WorkflowFormButton } from '../workflow-form';
 import { WorkflowUserGroupFormButton } from '../workflow-user-group-form';
 import { WorkflowTableRelationFormButton } from '../workflow-table-relation-form';
 import { ApprovalUserSetupFormButton } from '../approval-user-setup-form';
+import { listActiveEmployees } from '@/lib/employees';
 import { UserSignatureButton } from '../user-signature-form';
 import { ChangeLogSetupTable } from '../change-log-setup-table';
 import { ConfigPackageFormButton } from '../config-package-form';
@@ -203,6 +207,7 @@ const POOL_GROUPS: PoolGroup[] = [
   {
     key: 'hr-payroll', label: 'HR & Payroll', screens: [
       { key: 'job-grades', label: 'Job Grades', page: 'ADMIN_HR_JOB_GRADES' },
+      { key: 'salary-scales', label: 'Salary Scales', page: 'ADMIN_HR_SALARY_SCALES' },
       { key: 'contract-types', label: 'Employment Contract Types', page: 'ADMIN_HR_CONTRACT_TYPES' },
       { key: 'termination-reasons', label: 'Termination Reasons', page: 'ADMIN_HR_TERMINATION_REASONS' },
       { key: 'clearance-sections', label: 'Exit Clearance Sections', page: 'ADMIN_HR_CLEARANCE_SECTIONS' },
@@ -255,11 +260,12 @@ const SECURITY_TABS: AdminTab[] = [
 
 export default async function AdminPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string; filters?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string; grade?: string }>;
 }) {
   const user = await requireUser();
   const { tab: segments } = await params;
-  const { q = '', filters: filtersRaw, sort: sortRaw } = await searchParams;
+  const searchParamsAll = await searchParams;
+  const { q = '', filters: filtersRaw, sort: sortRaw } = searchParamsAll;
 
   // The Admin Centre is reachable by anyone holding at least one admin
   // permission, so the visible tabs — and the default — depend on the role.
@@ -350,6 +356,7 @@ export default async function AdminPage({ params, searchParams }: {
           {poolScreen.key === 'salary-params' ? <SalaryParamsTab /> : null}
           {poolScreen.key === 'employers' ? <EmployersTab /> : null}
           {poolScreen.key === 'job-grades' ? <JobGradesTab /> : null}
+          {poolScreen.key === 'salary-scales' ? <SalaryScalesTab grade={searchParamsAll.grade} /> : null}
           {poolScreen.key === 'contract-types' ? <ContractTypesTab /> : null}
           {poolScreen.key === 'termination-reasons' ? <TerminationReasonsTab /> : null}
           {poolScreen.key === 'clearance-sections' ? <ClearanceSectionsTab /> : null}
@@ -800,6 +807,14 @@ async function EmployersTab() {
   );
 }
 
+/** Setup Pool → HR & Payroll → Salary Scales: grades, their notches and the benefits each confers. */
+async function SalaryScalesTab({ grade }: { grade?: string }) {
+  const [grades, scales, codes, canManage] = await Promise.all([
+    listJobGrades(), listSalaryScales(), listTransactionCodes(), currentCanAction('HR_SALARY_SCALES_MANAGE'),
+  ]);
+  return <SalaryScalesScreen grades={grades} scales={scales} codes={codes.filter((c) => c.type === 'INCOME' || c.type === 'DEDUCTION')} canManage={canManage} selectedGradeId={Number(grade) || null} />;
+}
+
 async function JobGradesTab() {
   const rows = await listJobGrades();
   return (
@@ -1094,7 +1109,11 @@ async function PayrollSetupTab() {
           <tr><td>Personal relief</td><td className="num"><Money cents={setup.personal_relief_cents} /></td></tr>
           <tr><td>Insurance relief</td><td className="num">{setup.insurance_relief_pct}%</td></tr>
           <tr><td>Max combined relief</td><td className="num"><Money cents={setup.max_relief_cents} /></td></tr>
-          <tr><td>Mortgage relief cap</td><td className="num"><Money cents={setup.mortgage_relief_cents} /></td></tr>
+          <tr><td>Owner-occupier interest cap (P9 col. F)</td><td className="num"><Money cents={setup.mortgage_relief_cents} /></td></tr>
+          <tr><td>Pension / NSSF deduction cap (P9 col. E3)</td><td className="num"><Money cents={setup.pension_deduction_cap_cents} /></td></tr>
+          <tr><td>Post-retirement medical fund cap (P9 col. J)</td><td className="num"><Money cents={setup.prmf_cap_cents} /></td></tr>
+          <tr><td>SHIF deducted before tax (col. I)</td><td className="num">{setup.shif_deductible ? 'Yes' : 'No'}</td></tr>
+          <tr><td>Housing Levy deducted before tax (col. H)</td><td className="num">{setup.housing_levy_deductible ? 'Yes' : 'No'}</td></tr>
           <tr><td>SHIF</td><td className="num">{setup.shif_pct}% of {setup.shif_based_on}</td></tr>
           <tr><td>NSSF employer factor</td><td className="num">{setup.nssf_employer_factor}×</td></tr>
           <tr><td>Housing Levy</td><td className="num">{setup.housing_levy_enabled ? `${setup.housing_levy_pct}% of ${setup.housing_levy_based_on}` : 'Disabled'}</td></tr>
@@ -1213,26 +1232,7 @@ async function TransactionCodesTab() {
       </Toolbar>
       <Card>
         <CardHead title="Payroll transaction codes" sub="The reusable earning / deduction catalogue employees' payroll lines reference" />
-        {rows.length ? (
-          <TableWrap>
-            <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Taxable</th><th>Status</th><th className="num" /></tr></thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr key={c.id}>
-                  <td className="mono">{c.code}</td>
-                  <td><b>{c.name}</b></td>
-                  <td>{c.type.replace('_', ' ')}</td>
-                  <td>{c.taxable ? <Pill tone="ok">Yes</Pill> : '—'}</td>
-                  <td><Pill status={c.status} /></td>
-                  <td className="num">
-                    <TransactionCodeFormButton code={c} accounts={accounts}>Edit</TransactionCodeFormButton>{' '}
-                    <DeleteTransactionCodeButton id={c.id} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </TableWrap>
-        ) : <EmptyState icon="🧾" title="No transaction codes yet" />}
+        {rows.length ? <TransactionCodeTable rows={rows} accounts={accounts} /> : <EmptyState icon="🧾" title="No transaction codes yet" />}
       </Card>
     </>
   );
@@ -2421,23 +2421,24 @@ async function TableRelationsTab() {
 }
 
 async function ApprovalUserSetupTab() {
-  const rows = await listApprovalUserSetup();
+  const [rows, employees] = await Promise.all([listApprovalUserSetup(), listActiveEmployees()]);
   const mediaEnabled = isConfigured();
 
   return (
     <Card>
       <CardHead
         title="User setup"
-        sub="Who approves each user's requests, their substitute, fallback approval administrators, per-user posting-date overrides, and the signature stamped onto documents they approve"
+        sub="Which employee each login is (Employee Self Service), who approves each user's requests, their substitute, fallback approval administrators, per-user posting-date overrides, and the signature stamped onto documents they approve"
       />
       <TableWrap>
         <thead>
-          <tr><th>User</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th>Posting window</th><th>Signature</th><th className="num" /></tr>
+          <tr><th>User</th><th>Employee</th><th>Approver</th><th>Substitute</th><th>Approval admin</th><th>Can Reverse Journal</th><th>Posting window</th><th>Signature</th><th className="num" /></tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.user_id}>
               <td><b>{r.full_name}</b> <span className="tiny">({r.username})</span></td>
+              <td>{r.employee_no ? <><span className="mono">{r.employee_no}</span> <span className="tiny">{r.employee_name}</span></> : <span className="tiny muted-cell">Not linked</span>}</td>
               <td>{r.approver_name || '—'}</td>
               <td>{r.substitute_name || '—'}</td>
               <td>{r.is_approval_administrator ? <Pill tone="info">YES</Pill> : '—'}</td>
@@ -2460,7 +2461,7 @@ async function ApprovalUserSetupTab() {
                 </div>
               </td>
               <td className="num">
-                <ApprovalUserSetupFormButton row={r} users={rows} className="btn sm ghost">Edit</ApprovalUserSetupFormButton>
+                <ApprovalUserSetupFormButton row={r} users={rows} employees={employees} className="btn sm ghost">Edit</ApprovalUserSetupFormButton>
               </td>
             </tr>
           ))}

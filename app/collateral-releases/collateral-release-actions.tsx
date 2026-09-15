@@ -97,6 +97,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteCollateralReleaseRequest(no), {
         confirm: { title: 'Delete this release?', message: 'This cannot be undone.', confirmLabel: 'Delete' },
         successTitle: 'Release deleted',
+        redirectTo: '/collateral-releases',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

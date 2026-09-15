@@ -31,6 +31,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
           confirmLabel: 'Delete',
         },
         successTitle: 'Deleted',
+        redirectTo: '/member-chargings',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

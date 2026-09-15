@@ -1,5 +1,5 @@
 import { one, all } from './db.ts';
-import { accountBalances } from './accounting.ts';
+import { accountBalances, journalDateWindowSql } from './accounting.ts';
 import { getTrialBalance, resolveDimensionFilterIds, TRIAL_BALANCE_FILTER_FIELDS } from './gl.ts';
 import { PROVISION_RATE, CLASSIFICATION_ORDER } from './loans.ts';
 import { myPendingWorkflowTaskCount } from './workflow.ts';
@@ -152,7 +152,7 @@ export async function getIncomeStatement(
      JOIN journal_line jl ON jl.gl_account_id = a.id
      JOIN journal j ON j.id = jl.journal_id
      WHERE a.type IN ('INCOME','EXPENSE')
-       AND j.value_date >= COALESCE(@from::text, '0000-01-01') AND j.value_date <= COALESCE(@to::text, '9999-12-31')
+       ${journalDateWindowSql('j', '@from', '@to')}
        ${whereClause}
        ${dimParts.join(' ')}
      GROUP BY a.id ORDER BY a.code`,

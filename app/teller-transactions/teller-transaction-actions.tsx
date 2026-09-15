@@ -255,6 +255,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteTellerTransactionRequest(no), {
         confirm: { title: 'Delete this transaction?', message: 'It is removed permanently. Only an open transaction can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/teller-transactions',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

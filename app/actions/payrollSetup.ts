@@ -8,7 +8,7 @@ import {
   saveNssfTier, deleteNssfTier, saveTransactionCode, deleteTransactionCode,
   type PostingGroupInput, type TransactionCodeInput,
 } from '@/lib/payrollSetup';
-import type { ActionResult, FormValues, PayrollBalanceType, PayrollSpecialType, PayrollTransactionType } from '@/lib/types';
+import type { ActionResult, FormValues, PayrollBalanceType, PayrollAmountPreference, PayrollSpecialType, PayrollTransactionType } from '@/lib/types';
 
 const REVALIDATE = '/admin/pool/hr-payroll';
 
@@ -20,6 +20,10 @@ export async function updatePayrollSetupRequest(values: FormValues): Promise<Act
       insuranceReliefPct: Number(values.insuranceReliefPct),
       maxReliefCents: values.maxReliefCents ? Math.round(Number(values.maxReliefCents) * 100) : 0,
       mortgageReliefCents: values.mortgageReliefCents ? Math.round(Number(values.mortgageReliefCents) * 100) : 0,
+      pensionDeductionCapCents: values.pensionDeductionCapCents ? Math.round(Number(values.pensionDeductionCapCents) * 100) : 0,
+      prmfCapCents: values.prmfCapCents ? Math.round(Number(values.prmfCapCents) * 100) : 0,
+      shifDeductible: values.shifDeductible === '1' || values.shifDeductible === 'on' || values.shifDeductible === 'true',
+      housingLevyDeductible: values.housingLevyDeductible === '1' || values.housingLevyDeductible === 'on' || values.housingLevyDeductible === 'true',
       shifPct: Number(values.shifPct), shifBasedOn: String(values.shifBasedOn || 'GROSS'),
       nssfEmployerFactor: Number(values.nssfEmployerFactor),
       housingLevyEnabled: !!Number(values.housingLevyEnabled), housingLevyPct: Number(values.housingLevyPct),
@@ -112,6 +116,9 @@ function toTransactionCodeInput(values: FormValues): TransactionCodeInput {
     id: values.id ? Number(values.id) : null, code: String(values.code || ''), name: String(values.name || ''),
     type: String(values.type || 'INCOME') as PayrollTransactionType, taxable: !!Number(values.taxable),
     isFormula: !!Number(values.isFormula), formula: values.formula ? String(values.formula) : null,
+    amountPreference: (String(values.amountPreference || 'FORMULA') as PayrollAmountPreference),
+    employerFactor: values.employerFactor ? Number(values.employerFactor) : 0,
+    employerFormula: values.employerFormula ? String(values.employerFormula) : null,
     fixedAmountCents: values.fixedAmountCents ? Math.round(Number(values.fixedAmountCents) * 100) : 0,
     upperLimitCents: values.upperLimitCents ? Math.round(Number(values.upperLimitCents) * 100) : null,
     balanceType: String(values.balanceType || 'NONE') as PayrollBalanceType,

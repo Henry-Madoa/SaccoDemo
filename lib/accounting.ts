@@ -21,6 +21,22 @@ import type {
 
 const NATURAL_DEBIT: ReadonlySet<GlAccountType> = new Set<GlAccountType>(['ASSET', 'EXPENSE']);
 
+/**
+ * Business Central's closing date, as a SQL date window on journal `alias`.
+ *
+ * Close Income Statement posts on the fiscal year's last day, flagged closing_entry = 1, and BC
+ * writes that date as "C31/12/2025": a date that sorts after 31/12/2025 and before 01/01/2026.
+ * So a "..31/12/2025" filter (the year's P&L, a balance sheet at year end) leaves the closing
+ * entries out and still shows the year's income, while "..01/01/2026" takes them in and shows
+ * the income accounts at zero with the result sitting in retained earnings. Ordinary entries
+ * are compared inclusively as before. Both parameters are optional (NULL = unbounded), and the
+ * casts are needed because PostgreSQL cannot type a parameter from "$1 IS NULL" alone.
+ */
+export const journalDateWindowSql = (alias = 'j', fromParam = '@from', asOfParam = '@asOf'): string =>
+  `AND (${asOfParam}::text IS NULL OR ${alias}.value_date < ${asOfParam}::text
+            OR (${alias}.value_date = ${asOfParam}::text AND ${alias}.closing_entry = 0))
+       AND (${fromParam}::text IS NULL OR ${alias}.value_date >= ${fromParam}::text)`;
+
 async function resolveAccount(ref: number | string): Promise<GlAccount> {
   const row = typeof ref === 'number'
     ? await one<GlAccount>('SELECT * FROM gl_account WHERE id = ?', ref)
@@ -61,6 +77,7 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
     reference = null, memberId = null, lines = [], user = null, idempotencyKey = null,
     globalDimension1Id = null, globalDimension2Id = null,
     currencyCode: rawCurrencyCode = null, currencyFactor: rawCurrencyFactor = null,
+    closingEntry = false,
   } = opts;
 
   if (!valueDate) throw new PostingError('valueDate is required', 'NO_VALUE_DATE');
@@ -83,7 +100,10 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
     if (existing) return { ...existing, duplicate: true };
   }
 
-  await assertPeriodOpen(valueDate);
+  // A closing entry belongs to no period's result — it is dated after the year's last day (see
+  // journalDateWindowSql) — so a period closed against postings does not refuse it; BC likewise
+  // lets Close Income Statement post into a closed fiscal year.
+  if (!closingEntry) await assertPeriodOpen(valueDate);
   // A null or system-actor user (interest accrual, entrance fee recovery, standing orders, ...)
   // is never subject to a per-user posting-date restriction — assertPostingDateAllowed() itself
   // skips those, the same way canReverseJournal()'s own check above is skipped for a null one.
@@ -167,12 +187,12 @@ export async function postJournal(opts: PostJournalOptions): Promise<PostedJourn
   const info = await run(
     `INSERT INTO journal (journal_no, value_date, posted_at, source_module, event_type,
       description, reference, member_id, amount, posted_by, idempotency_key,
-      global_dimension_1_id, global_dimension_2_id, currency_code, currency_factor)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      global_dimension_1_id, global_dimension_2_id, currency_code, currency_factor, closing_entry)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     journalNo, valueDate, now, sourceModule, eventType,
     description || null, effectiveReference, memberId, totalDebitLcy,
     user ? user.username : 'system', idempotencyKey,
-    headerGd1, headerGd2, currencyCode, currencyFactor,
+    headerGd1, headerGd2, currencyCode, currencyFactor, closingEntry ? 1 : 0,
   );
   const journalId = Number(info.lastInsertRowid);
 
@@ -254,7 +274,8 @@ export async function reverseJournal(
   const lines = await all<JournalLine>('SELECT * FROM journal_line WHERE journal_id = ? ORDER BY line_no', journalId);
 
   const rev = await postJournal({
-    valueDate: valueDate || await resolvePostingDate(user),
+    valueDate: original.closing_entry ? original.value_date : (valueDate || await resolvePostingDate(user)),
+    closingEntry: !!original.closing_entry,
     module: original.source_module,
     eventType: 'REVERSAL',
     description: `Reversal of ${original.journal_no} — ${reason || 'no reason given'}`,
@@ -321,8 +342,7 @@ export async function trialBalance({
        ON jl.gl_account_id = a.id
        -- The cast is required: PostgreSQL cannot infer a parameter's type from
        -- "$1 IS NULL" alone and rejects the statement without it.
-       AND (@asOf::text IS NULL OR j.value_date <= @asOf::text)
-       AND (@from::text IS NULL OR j.value_date >= @from::text)
+       ${journalDateWindowSql('j')}
        ${joinClause}
      WHERE a.is_postable = 1
        ${whereClause}

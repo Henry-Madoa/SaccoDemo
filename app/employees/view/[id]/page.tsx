@@ -7,6 +7,13 @@ import {
   type EmployeeListView,
 } from '@/lib/employees';
 import { listJobGrades, listContractTypes } from '@/lib/hrSetup';
+import { listApprovedJobs } from '@/lib/companyJobs';
+import { listPostingGroups } from '@/lib/payrollSetup';
+import { listCurrencies } from '@/lib/cashMgmtSetup';
+import { getMemberFosaAccount } from '@/lib/payroll';
+import { listActiveMembers } from '@/lib/members';
+import { listSalaryScales } from '@/lib/salaryScales';
+import { EmployeePayrollCard } from '../../payroll-salary-card-bindings';
 import { listCounties, listSubCounties, listDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
@@ -22,6 +29,8 @@ import {
   type EmployeeLookups,
 } from '../../employee-actions';
 import { BioDataCard, EmploymentCard, BankingCard } from '../../employee-info-cards';
+import { EmployeeIdentityStrip } from '../../employee-media';
+import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import {
   NextOfKinPanel, BeneficiariesPanel, DependantsPanel, EmergencyContactsPanel,
   ProfessionalBodiesPanel, WorkHistoryPanel, BankAccountsPanel,
@@ -44,27 +53,36 @@ export default async function EmployeeDetailPage({ params, searchParams }: {
   if (!emp) notFound();
 
   const [
-    canCreate, canApprove, tasks, { prevId, nextId }, gd1Values, gd2Values, { caption1, caption2 },
+    canCreate, canApprove, canEditRequests, tasks, { prevId, nextId }, gd1Values, gd2Values, { caption1, caption2 },
     jobGrades, contractTypes, counties, subCounties,
-    managers, nextOfKin, beneficiaries, dependants, emergencyContacts, professionalBodies, workHistory, bankAccounts, contracts,
+    managers, companyJobs, nextOfKin, beneficiaries, dependants, emergencyContacts, professionalBodies, workHistory, bankAccounts, contracts,
   ] = await Promise.all([
     currentCanAction('EMPLOYEES_CREATE'),
     currentCanAction('EMPLOYEES_APPROVE'),
+    currentCanAction('EMPLOYEE_EDITS_UPDATE'),
     listWorkflowTasksForDocument('EMPLOYEE_ONBOARDING', String(id)),
     getAdjacentEmployeeIds(id, view),
     listDimensionValues(1), listDimensionValues(2), getDimensionCaptions(),
-    listJobGrades(), listContractTypes(), listCounties(), listSubCounties(), listActiveEmployees(),
+    listJobGrades(), listContractTypes(), listCounties(), listSubCounties(), listActiveEmployees(), listApprovedJobs(),
     listNextOfKin(id), listBeneficiaries(id), listDependants(id), listEmergencyContacts(id),
     listProfessionalBodies(id), listWorkHistory(id), listBankAccounts(id), listContracts(id),
   ]);
+  const [postingGroups, currencies, members, fosaAccount, salaryScales] = await Promise.all([
+    listPostingGroups(), listCurrencies(), listActiveMembers(),
+    emp.member_id ? getMemberFosaAccount(emp.member_id) : Promise.resolve(undefined), listSalaryScales(),
+  ]);
   const lookups: EmployeeLookups = {
     globalDimension1Values: gd1Values, globalDimension2Values: gd2Values, caption1, caption2,
-    jobGrades, contractTypes, counties, subCounties, managers,
+    jobGrades, contractTypes, counties, subCounties, managers, companyJobs,
   };
 
   const isOwn = emp.created_by === user.username;
   const isNew = emp.status === 'NEW';
-  const canManageSubEntities = isNew && canCreate && isOwn;
+  // A New record — freshly captured, rejected or recalled — is editable by anyone who may create
+  // employees, not only its original creator. Once approved the card is read-only: changes to an
+  // Active employee go through Employee Editing (a change request, approved, then applied).
+  const canManageSubEntities = isNew && canCreate;
+  const isApproved = emp.status === 'ACTIVE' || emp.status === 'ON_LEAVE';
 
   const routedTask = emp.status === 'PENDING_APPROVAL' ? await findPendingRoutedTask('EMPLOYEE_ONBOARDING', String(id)) : null;
   const canDecideThis = routedTask ? await isEligibleApprover(routedTask, user.id) : canApprove;
@@ -85,7 +103,8 @@ export default async function EmployeeDetailPage({ params, searchParams }: {
           <Link href="/employees" className="btn ghost sm">← All employees</Link>
           <Spacer />
           {isNew && canCreate && isOwn ? <DeleteButton id={emp.id} className="btn ghost" /> : null}
-          {isNew && canCreate && isOwn ? <SubmitButton id={emp.id} className="btn ghost" /> : null}
+          {isNew && canCreate ? <SubmitButton id={emp.id} className="btn ghost" /> : null}
+          {isApproved && canEditRequests ? <Link href={`/employee-edits?new=${emp.id}`} className="btn ghost">Request a change (Employee Editing)</Link> : null}
           {emp.status === 'PENDING_APPROVAL' && canCancelThis ? <CancelApprovalButton id={emp.id} className="btn ghost" /> : null}
           {emp.status === 'PENDING_APPROVAL' && canDecideThis ? (
             <>
@@ -97,16 +116,43 @@ export default async function EmployeeDetailPage({ params, searchParams }: {
           <DocumentActionsMenu />
         </Toolbar>
 
-        <CollapsibleCard title="Status">
-          <DefinitionList items={[
-            ['Status', <Pill status={emp.status} key="st" />],
-            emp.decision_reason ? ['Decision reason', emp.decision_reason] : null,
-          ]} />
+        <CollapsibleCard title="Status" sub={isNew ? 'New — the card is editable; send it for approval when it is complete' : isApproved ? 'Approved and Active — the card is read-only; changes are made through an Employee Editing request' : undefined}>
+          <div className="grid g2 dl-groups">
+            <section className="dl-group">
+              <div className="dl-caption">Record status</div>
+              <DefinitionList items={[
+                ['Employee No.', <span className="mono" key="no">{emp.employee_no}</span>],
+                ['Status', <Pill status={emp.status} key="st" />],
+                emp.decision_reason ? ['Decision reason', emp.decision_reason] : null,
+              ]} />
+            </section>
+            <section className="dl-group">
+              <div className="dl-caption">Document trail</div>
+              <DefinitionList items={[
+                ['Created by', emp.created_by || '—'],
+                ['Created on', formatDateTime(emp.created_at)],
+              ]} />
+            </section>
+          </div>
+        </CollapsibleCard>
+
+        <CollapsibleCard title="Identity" sub={isNew ? 'Passport photo and specimen signature — upload them while the record is New' : 'Passport photo and specimen signature — fixed once the record is approved'}>
+          <EmployeeIdentityStrip
+            employeeId={emp.id} name={`${emp.first_name} ${emp.last_name}`}
+            photoSrc={imageSrc(emp.photo_image, { width: 192, height: 192, crop: 'fill' })}
+            signatureSrc={imageSrc(emp.signature_image, { width: 360, height: 128, crop: 'fit' })}
+            canEdit={canManageSubEntities} mediaEnabled={isConfigured()}
+          />
         </CollapsibleCard>
 
         <BioDataCard employee={emp} lookups={lookups} canEdit={canManageSubEntities} startEditing={startEditing} />
         <EmploymentCard employee={emp} lookups={lookups} canEdit={canManageSubEntities} />
         <BankingCard employee={emp} canEdit={canManageSubEntities} />
+        <EmployeePayrollCard
+          employeeId={emp.id} values={emp} basicPay={contracts.find((c) => c.is_current)?.salary_cents ?? contracts[0]?.salary_cents ?? null}
+          cumulative={null} lookups={{ postingGroups, currencies: currencies.map((c) => ({ code: c.code, description: c.description })), members, fosaAccount: fosaAccount ?? null, salaryScales, jobGrades }}
+          canEdit={canManageSubEntities}
+        />
 
         <CollapsibleCard title="Contract history" sub={`${contracts.length} contract record${contracts.length === 1 ? '' : 's'}`}>
           {contracts.length ? (
@@ -140,13 +186,6 @@ export default async function EmployeeDetailPage({ params, searchParams }: {
           <WorkHistoryPanel employeeId={id} rows={workHistory} canManage={canManageSubEntities} />
         </div>
         <BankAccountsPanel employeeId={id} rows={bankAccounts} canManage={canManageSubEntities} />
-
-        <CollapsibleCard title="Document trail" sub="Who raised this, and when">
-          <DefinitionList items={[
-            ['Created by', emp.created_by || '—'],
-            ['Created on', formatDateTime(emp.created_at)],
-          ]} />
-        </CollapsibleCard>
 
         <CollapsibleCard title="Approval details" sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}>
           {tasks.length ? (

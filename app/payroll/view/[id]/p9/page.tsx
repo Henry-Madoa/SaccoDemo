@@ -23,6 +23,7 @@ export default async function P9Page({ params, searchParams }: {
     <Page title="P9 Tax Deduction Card" crumb={doc.parties[0]?.name} user={user}>
       <Toolbar>
         <Link href={`/payroll/view/${employeeId}`} className="btn ghost sm">← Back</Link>
+        <a className="btn ghost sm" href={`/print/p9/${employeeId}-${year}`} target="_blank" rel="noreferrer">Print / Save as PDF</a>
         <Spacer />
         <div className="inline">
           {years.map((y) => (

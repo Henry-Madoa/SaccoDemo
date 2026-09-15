@@ -83,6 +83,7 @@ export function PurchaseDocumentCard({ doc, lookups, canEdit }: {
             <DefinitionList items={[
               ['Vendor', <>{doc.vendor_no} <span className="muted-cell">{doc.vendor_name}</span></>],
               ['Vendor invoice no.', doc.vendor_invoice_no || '—'],
+              doc.applies_to_doc_no ? ['Credits invoice', <a href={`/payables/posted/${encodeURIComponent(doc.applies_to_doc_no)}`} className="mono" key="ap">{doc.applies_to_doc_no}</a>] : null,
               ['Posting date', formatDate(doc.posting_date)],
               ['Document date', formatDate(doc.document_date)],
               ['Due date', doc.due_date ? formatDate(doc.due_date) : '—'],

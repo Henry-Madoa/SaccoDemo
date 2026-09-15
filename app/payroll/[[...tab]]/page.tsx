@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requireAction, currentCanAction } from '@/lib/session';
-import { getOpenPayrollPeriod, listPeriodLines } from '@/lib/payroll';
+import { getOpenPayrollPeriod, listPeriodTransactions } from '@/lib/payroll';
 import { listEmployees } from '@/lib/employees';
 import { getDimensionCaptions } from '@/lib/org';
 import { Page } from '@/components/layout/page';
@@ -16,9 +16,9 @@ export default async function PayrollPage() {
   ]);
   const netPayByEmployee = new Map<number, number>();
   if (period) {
-    const lines = await listPeriodLines(period.id);
+    const lines = await listPeriodTransactions(period.id);
     for (const l of lines) {
-      if (l.transaction_code_name !== 'Net Pay') continue;
+      if (l.transaction_code !== 'NPAY') continue;
       netPayByEmployee.set(l.employee_id, (netPayByEmployee.get(l.employee_id) ?? 0) + Number(l.amount_cents));
     }
   }
@@ -40,15 +40,14 @@ export default async function PayrollPage() {
             <CardHead title={`Employees — ${period.period_name}`} sub="Every Active / On Leave employee with a payroll posting group" />
             {employees.length ? (
               <TableWrap>
-                <thead><tr><th>Employee No.</th><th>Name</th><th>{caption2}</th><th className="num">Net pay (this run)</th><th className="num" /></tr></thead>
+                <thead><tr><th>Employee No.</th><th>Name</th><th>{caption2}</th><th className="num">Net pay (this run)</th></tr></thead>
                 <tbody>
                   {employees.map((e) => (
                     <tr key={e.id}>
-                      <td className="mono">{e.employee_no}</td>
+                      <td className="mono"><Link href={`/payroll/view/${e.id}`}>{e.employee_no}</Link></td>
                       <td><b>{e.first_name} {e.last_name}</b></td>
                       <td>{e.global_dimension_2_name || '—'}</td>
                       <td className="num">{netPayByEmployee.has(e.id) ? <Money cents={netPayByEmployee.get(e.id)!} /> : <Pill tone="warn">Not run</Pill>}</td>
-                      <td className="num"><Link href={`/payroll/view/${e.id}`} className="btn sm ghost">Open</Link></td>
                     </tr>
                   ))}
                 </tbody>

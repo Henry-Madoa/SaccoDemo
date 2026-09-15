@@ -30,6 +30,7 @@ export function DeleteButton({ calcNo, className = 'btn sm ghost' }: { calcNo: s
           confirmLabel: 'Delete',
         },
         successTitle: 'Deleted',
+        redirectTo: '/loan-calculator',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

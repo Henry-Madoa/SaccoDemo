@@ -6,7 +6,7 @@ import { Field } from '@/components/ui/field';
 import { useRunAction } from '@/components/ui/run-action';
 import {
   createPayrollPeriodRequest, submitPayrollPeriodRequest, cancelPayrollPeriodApprovalRequest,
-  approvePayrollPeriodRequest, rejectPayrollPeriodRequest, closePayrollPeriodRequest,
+  approvePayrollPeriodRequest, rejectPayrollPeriodRequest, closePayrollPeriodRequest, reopenPayrollPeriodRequest,
 } from '@/app/actions/payroll';
 
 export function NewPeriodButton() {
@@ -58,6 +58,30 @@ export function CancelApprovalButton({ id, className = 'btn sm ghost' }: { id: n
   );
 }
 
+export function ReopenButton({ id, className = 'btn sm ghost' }: { id: number; className?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Reopen period</button>
+      {open ? (
+        <FormModal
+          title="Reopen this payroll period?"
+          onClose={() => setOpen(false)}
+          onSubmit={(values) => reopenPayrollPeriodRequest(id, String(values.reason || ''))}
+          submitLabel="Reopen"
+          successTitle="Period reopened — back to Open"
+        >
+          <div className="note" style={{ marginBottom: 10 }}>
+            The period goes back to Open: lines can be corrected and payroll re-run, and it must be sent for approval again
+            before it can be closed. Nothing has been posted yet, so no journal is reversed.
+          </div>
+          <Field name="reason" label="Reason" required maxLength={200} placeholder="e.g. Transport allowance missing for two staff" />
+        </FormModal>
+      ) : null}
+    </>
+  );
+}
+
 export { DelegateButton } from '@/components/ui/delegate-button';
 
 export function ApproveButton({ id, className = 'btn sm' }: { id: number; className?: string }) {
@@ -92,8 +116,9 @@ export function RejectButton({ id, className = 'btn sm ghost' }: { id: number; c
   );
 }
 
-export function CloseButton({ id, nextPeriodName, className = 'btn' }: { id: number; nextPeriodName: string; className?: string }) {
+export function CloseButton({ id, next, className = 'btn' }: { id: number; next: { periodName: string; startDate: string; endDate: string }; className?: string }) {
   const [open, setOpen] = useState(false);
+  const [override, setOverride] = useState(false);
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>Close period</button>
@@ -104,16 +129,28 @@ export function CloseButton({ id, nextPeriodName, className = 'btn' }: { id: num
           onSubmit={(values) => closePayrollPeriodRequest(id, values)}
           submitLabel="Close &amp; post"
           successTitle="Period closed"
-          successDetail={(d) => `Journal ${d.journalNo} posted`}
+          successDetail={(d) => `Journal ${d.journalNo} posted · ${d.nextPeriodName} opened`}
         >
           <div className="note" style={{ marginBottom: 10 }}>
-            Posts one balanced journal for the whole period and opens the next one. This cannot be undone from here.
+            Posts the payroll journal, pays FOSA salaries and check-off loans, then closes this period and opens the next
+            one automatically — the current period moved on by one month. This cannot be undone from here.
           </div>
-          <Field name="periodName" label="Next period name" required defaultValue={nextPeriodName} />
-          <div className="grid g2">
-            <Field name="startDate" label="Next period start date" type="date" required />
-            <Field name="endDate" label="Next period end date" type="date" required />
+          <div className="card inset" style={{ marginBottom: 10 }}>
+            <div className="tiny" style={{ marginBottom: 4 }}>Next period (current + 1M)</div>
+            <div><b>{next.periodName}</b> <span className="tiny">· {next.startDate} → {next.endDate}</span></div>
+            <label className="tiny" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} /> Use a different name or dates
+            </label>
           </div>
+          {override ? (
+            <>
+              <Field name="periodName" label="Next period name" required defaultValue={next.periodName} />
+              <div className="grid g2">
+                <Field name="startDate" label="Next period start date" type="date" required defaultValue={next.startDate} />
+                <Field name="endDate" label="Next period end date" type="date" required defaultValue={next.endDate} />
+              </div>
+            </>
+          ) : null}
         </FormModal>
       ) : null}
     </>

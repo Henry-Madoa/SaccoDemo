@@ -9,8 +9,11 @@ import {
   approveEmployeeRequest, rejectEmployeeRequest,
 } from '@/app/actions/employees';
 import type {
-  County, SubCounty, DimensionValue, EmployeeView, HrJobGrade, HrEmploymentContractType,
+  County, SubCounty, DimensionValue, EmployeeView, HrJobGrade, HrEmploymentContractType, HrCompanyJobView,
 } from '@/lib/types';
+
+/** An approved position on the establishment, as the Employment card offers it. */
+export type CompanyJobLite = Pick<HrCompanyJobView, 'id' | 'job_id' | 'name' | 'no_of_posts' | 'occupied' | 'vacant'>;
 
 type EmployeeLite = Pick<EmployeeView, 'id' | 'employee_no' | 'first_name' | 'last_name'>;
 
@@ -23,6 +26,8 @@ export interface EmployeeLookups {
   caption1: string; caption2: string;
   jobGrades: HrJobGrade[]; contractTypes: HrEmploymentContractType[];
   counties: County[]; subCounties: SubCounty[]; managers: EmployeeLite[];
+  /** Approved company jobs (AL Employee."Job Code") the employee may be placed on. */
+  companyJobs: CompanyJobLite[];
 }
 
 export function DeleteButton({ id, className = 'btn sm ghost' }: { id: number; className?: string }) {
@@ -32,6 +37,7 @@ export function DeleteButton({ id, className = 'btn sm ghost' }: { id: number; c
       onClick={() => run(() => deleteEmployeeRequest(id), {
         confirm: { title: 'Delete this employee record?', message: 'Only a new, not-yet-submitted record can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/employees',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

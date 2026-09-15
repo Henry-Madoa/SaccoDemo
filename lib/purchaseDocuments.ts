@@ -24,7 +24,7 @@ import { applyDateFormula } from './dateFormula.ts';
 import { resolveDocCurrency } from './currency.ts';
 import { receiveItemStock } from './inventoryCosting.ts';
 import { acquireFixedAssetForPurchase } from './fixedAssets.ts';
-import { createVendorLedgerEntry, recomputeVendorBalance } from './vendLedger.ts';
+import { createVendorLedgerEntry, applyVendorEntries, recomputeVendorBalance } from './vendLedger.ts';
 import { resolveVatSetup, addVatToNet, extractVatFromGross, postVatEntry } from './vatEngine.ts';
 import { getPurchasesPayablesSetup } from './payablesSetup.ts';
 import { checkVendorAllowed } from './vendors.ts';
@@ -134,6 +134,13 @@ export async function getPurchaseDocument(no: string): Promise<PurchaseDocumentD
   return { ...header, lines, outstanding_amount: outstanding, received_not_invoiced: receivedNotInvoiced };
 }
 
+/** The posted document a source header became, if it has been posted — posting deletes the
+ *  header, but the posted row keeps its number as source_no. Lets a link to the document (an
+ *  approval notification, say) still land somewhere useful after posting. Newest first, since
+ *  an order can be invoiced more than once. */
+export const findPostedDocumentBySource = (sourceNo: string): Promise<{ no: string } | undefined> =>
+  one<{ no: string }>('SELECT no FROM posted_purchase_document WHERE source_no = ? ORDER BY id DESC LIMIT 1', sourceNo);
+
 export const hasAnyPurchaseDocuments = (documentType?: PurchaseDocumentType): Promise<boolean> =>
   hasAnyRow('purchase_header ph', documentType ? `ph.document_type = '${documentType}'` : undefined);
 
@@ -147,6 +154,8 @@ export interface PurchaseHeaderInput {
   paymentTermsCode?: string | null;
   paymentMethodCode?: string | null;
   vendorInvoiceNo?: string | null;
+  /** BC "Applies-to Doc. No." — on a credit memo, the posted invoice it settles when it posts. */
+  appliesToDocNo?: string | null;
   purchaser?: string | null;
   /** Transaction currency; omitted → the vendor's default currency, else KES. */
   currencyCode?: string | null;
@@ -196,12 +205,12 @@ export async function createPurchaseDocument(input: PurchaseHeaderInput, user: A
   await run(
     `INSERT INTO purchase_header
        (document_type, no, vendor_id, posting_date, document_date, payment_terms_code, payment_method_code,
-        vendor_posting_group_code, vat_bus_posting_group_code, vendor_invoice_no, purchaser, currency_code,
+        vendor_posting_group_code, vat_bus_posting_group_code, vendor_invoice_no, applies_to_doc_no, purchaser, currency_code,
         currency_factor, requisition_no, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     input.documentType, no, vendor.id, input.postingDate, input.documentDate || input.postingDate,
     paymentTerms || null, input.paymentMethodCode || null, vendor.vendor_posting_group_code, vatBus || null,
-    input.vendorInvoiceNo?.trim() || null, input.purchaser?.trim() || null, cur.code, cur.factor,
+    input.vendorInvoiceNo?.trim() || null, input.appliesToDocNo?.trim() || null, input.purchaser?.trim() || null, cur.code, cur.factor,
     input.requisitionNo?.trim() || null, new Date().toISOString(), user.username,
   );
   await audit(user, 'PURCHASE_DOCUMENT_CREATE', 'purchase_header', no, { documentType: input.documentType, vendor: vendor.no });
@@ -220,10 +229,10 @@ export async function updatePurchaseDocumentHeader(no: string, input: PurchaseHe
   await run(
     `UPDATE purchase_header SET vendor_id = ?, posting_date = ?, document_date = ?, payment_terms_code = ?,
        payment_method_code = ?, vendor_posting_group_code = ?, vat_bus_posting_group_code = ?,
-       vendor_invoice_no = ?, purchaser = ?, currency_code = ?, currency_factor = ? WHERE no = ?`,
+       vendor_invoice_no = ?, applies_to_doc_no = ?, purchaser = ?, currency_code = ?, currency_factor = ? WHERE no = ?`,
     vendor.id, input.postingDate, input.documentDate || input.postingDate, input.paymentTermsCode || null,
     input.paymentMethodCode || null, vendor.vendor_posting_group_code, vatBus || null,
-    input.vendorInvoiceNo?.trim() || null, input.purchaser?.trim() || null, cur.code, cur.factor, no,
+    input.vendorInvoiceNo?.trim() || null, input.appliesToDocNo?.trim() || null, input.purchaser?.trim() || null, cur.code, cur.factor, no,
   );
   await audit(user, 'PURCHASE_DOCUMENT_UPDATE', 'purchase_header', no, {});
 }
@@ -734,6 +743,22 @@ export async function postPurchaseDocument(
         dueDate, pmtDiscountDate: pmtDiscDate, pmtDiscountPossible: pmtDiscPossible,
         sourceType: isCreditMemo ? 'Purchase Credit Memo' : 'Purchase Invoice', sourceId: header.id, journalId,
       });
+      // BC's Applies-to Doc. No.: a corrective credit memo settles the invoice it was raised
+      // against, so the vendor is not left with an open invoice and an open credit note.
+      if (isCreditMemo && header.applies_to_doc_no && vendorLedgerEntryId) {
+        const target = await one<{ id: number }>(
+          `SELECT id FROM vendor_ledger_entry
+           WHERE vendor_id = ? AND document_no = ? AND open = 1 AND positive = 1
+           ORDER BY id LIMIT 1`,
+          vendor.id, header.applies_to_doc_no,
+        );
+        // Silent when the invoice is already settled — the memo still posts, just unapplied.
+        if (target) {
+          await applyVendorEntries(
+            { applyingEntryId: vendorLedgerEntryId, appliedTo: [target.id], postingDate: vd }, user,
+          );
+        }
+      }
       invoiceNo = await nextSequence(isCreditMemo ? 'POSTED_PURCHASE_CREDIT_MEMO' : 'POSTED_PURCHASE_INVOICE');
       await writePostedDocument(isCreditMemo ? 'Credit Memo' : 'Invoice', invoiceNo, header, vendor, vd, isOrder ? no : null, journalId, vendorLedgerEntryId, postedLines, user);
       await recomputeVendorBalance(vendor.id);
@@ -771,12 +796,12 @@ async function writePostedDocument(
   const info = await run(
     `INSERT INTO posted_purchase_document
        (document_type, no, vendor_id, buy_from_name, buy_from_address, buy_from_city, buy_from_contact,
-        posting_date, document_date, due_date, order_no, source_no, vendor_invoice_no, payment_terms_code, vat_bus_posting_group_code,
+        posting_date, document_date, due_date, order_no, source_no, vendor_invoice_no, applies_to_doc_no, payment_terms_code, vat_bus_posting_group_code,
         currency_code, currency_factor, amount, amount_incl_vat, vendor_ledger_entry_id, journal_id, created_at, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     documentType, postedNo, vendor.id, vendor.name, vendor.address, vendor.city, vendor.contact,
     // As on the sales side: the trail is against the open document, so keep its number.
-    vd, header.document_date, header.due_date, orderNo, header.no, header.vendor_invoice_no,
+    vd, header.document_date, header.due_date, orderNo, header.no, header.vendor_invoice_no, header.applies_to_doc_no,
     header.payment_terms_code,
     header.vat_bus_posting_group_code, header.currency_code, header.currency_factor, total, totalInclVat,
     vendorLedgerEntryId, journalId, new Date().toISOString(), _user.username,
@@ -801,6 +826,101 @@ async function writePostedDocument(
 }
 
 /* -------------------------------------------------------------- posted documents */
+
+export interface PostedPurchaseInvoiceOption {
+  no: string;
+  posting_date: IsoDate;
+  vendor_id: number;
+  vendor_no: string;
+  vendor_name: string;
+  vendor_invoice_no: string | null;
+  amount: Cents;
+  /** What is still open on the vendor ledger — 0 once the invoice has been settled. */
+  remaining_amount: Cents;
+}
+
+/**
+ * Posted purchase invoices a credit memo can be raised against, newest first — Business
+ * Central's "Copy Document" / "Create Corrective Credit Memo" source list. The vendor is chosen
+ * first, so the list is always one vendor's, and only invoices still open on the vendor ledger
+ * are offered — the same set BC's Applies-to Doc. No. lookup shows. No vendor, nothing to list.
+ */
+export const listPostedInvoicesForCredit = (vendorId?: number | null): Promise<PostedPurchaseInvoiceOption[]> =>
+  !vendorId ? Promise.resolve([]) : all<PostedPurchaseInvoiceOption>(
+    `SELECT d.no, d.posting_date, d.vendor_id, v.no AS vendor_no, v.name AS vendor_name, d.vendor_invoice_no,
+            d.amount_incl_vat AS amount, COALESCE(e.remaining_amount, 0) AS remaining_amount
+     FROM posted_purchase_document d
+     JOIN vendor v ON v.id = d.vendor_id
+     LEFT JOIN vendor_ledger_entry e ON e.id = d.vendor_ledger_entry_id
+     WHERE d.document_type = 'Invoice' AND d.vendor_id = @vendorId
+       AND COALESCE(e.remaining_amount, 0) <> 0
+     ORDER BY d.id DESC
+     LIMIT 200`,
+    { vendorId },
+  );
+
+/** A posted purchase invoice reshaped into the header + line drafts a credit memo starts from. */
+export interface PurchaseCreditMemoSource {
+  invoiceNo: string;
+  vendorId: number;
+  vendorNo: string;
+  vendorName: string;
+  postingDate: IsoDate;
+  paymentTermsCode: string | null;
+  vendorInvoiceNo: string | null;
+  currencyCode: string;
+  amount: Cents;
+  lines: {
+    type: PurchaseLineType;
+    no: string | null;
+    description: string | null;
+    quantity: number;
+    directUnitCost: Cents;
+    /** Recovered from the posted line's discount amount, which is what was actually stored. */
+    lineDiscountPct: number;
+    vatProdPostingGroupCode: string | null;
+  }[];
+}
+
+/**
+ * The posted invoice, ready to prefill a credit memo — Business Central's Copy Document with
+ * "Include Header" on. Quantities come across positive: a credit memo is a negative document by
+ * virtue of its type, not by carrying negative lines (see postPurchaseDocument's `sign`).
+ */
+export async function getInvoiceForCreditMemo(no: string): Promise<PurchaseCreditMemoSource | undefined> {
+  const doc = await one<PostedPurchaseDocumentView>(
+    `SELECT d.*, v.no AS vendor_no, v.name AS vendor_name
+     FROM posted_purchase_document d JOIN vendor v ON v.id = d.vendor_id
+     WHERE d.no = ? AND d.document_type = 'Invoice'`, no,
+  );
+  if (!doc) return undefined;
+  const lines = await all<PostedPurchaseLine>(
+    'SELECT * FROM posted_purchase_line WHERE posted_purchase_document_id = ? ORDER BY line_no', doc.id,
+  );
+  return {
+    invoiceNo: doc.no,
+    vendorId: doc.vendor_id,
+    vendorNo: doc.vendor_no,
+    vendorName: doc.vendor_name,
+    postingDate: doc.posting_date,
+    paymentTermsCode: doc.payment_terms_code,
+    vendorInvoiceNo: doc.vendor_invoice_no,
+    currencyCode: doc.currency_code,
+    amount: doc.amount,
+    lines: lines.map((l) => {
+      const gross = Math.round(l.quantity * l.direct_unit_cost);
+      return {
+        type: l.type,
+        no: l.no,
+        description: l.description,
+        quantity: l.quantity,
+        directUnitCost: l.direct_unit_cost,
+        lineDiscountPct: gross > 0 ? Math.round((l.line_discount_amount / gross) * 10000) / 100 : 0,
+        vatProdPostingGroupCode: l.vat_prod_posting_group_code,
+      };
+    }),
+  };
+}
 
 export interface PostedPurchaseDocumentDetail extends PostedPurchaseDocumentView {
   lines: PostedPurchaseLine[];

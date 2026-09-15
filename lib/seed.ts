@@ -260,6 +260,7 @@ export const ROLES: RoleSeed[] = [
       'ENTRANCE_FEE_RECOVERY_READ', 'MEMBER_STATUS_UPDATE_READ',
       'CHECKOFF_BATCHES_READ',
       'LOAN_READ', 'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_PERIOD_CLOSE',
+      'GL_PERIOD_CREATE', 'GL_CLOSE_INCOME_STATEMENT',
       'GL_ACCOUNT_MANAGE', 'GL_BANK_RECONCILE',
       'INVENTORY_READ', 'INVENTORY_ITEM_MANAGE', 'INVENTORY_SETUP_MANAGE', 'INVENTORY_JOURNAL_CREATE',
       'INVENTORY_JOURNAL_APPROVE', 'INVENTORY_JOURNAL_POST',
@@ -408,7 +409,7 @@ export const ROLES: RoleSeed[] = [
     description: 'Reporting, approvals and oversight — pairs with the Finance Manager role centre.',
     actions: [
       'MEMBERS_READ', 'MEMBER_STATEMENTS_READ', 'SAVINGS_READ', 'LOAN_READ', 'MEMBER_EXITS_READ', 'CHECKOFF_BATCHES_READ',
-      'GL_READ', 'GL_JOURNAL_APPROVE', 'GL_PERIOD_CLOSE', 'GL_BANK_RECONCILE',
+      'GL_READ', 'GL_JOURNAL_APPROVE', 'GL_PERIOD_CLOSE', 'GL_PERIOD_CREATE', 'GL_CLOSE_INCOME_STATEMENT', 'GL_BANK_RECONCILE',
       'FINANCIAL_REPORTS_READ', 'FINANCIAL_REPORTS_MANAGE', 'REPORTS_VIEW', 'DASHBOARD_VIEW', 'APPROVALS_VIEW',
       'RECEIVABLES_READ', 'PAYABLES_READ', 'CASH_MGMT_READ', 'CASH_MGMT_RECONCILE',
       'INVENTORY_READ', 'FIXED_ASSETS_READ', 'VAT_REPORT_READ',
@@ -426,7 +427,7 @@ export const ROLES: RoleSeed[] = [
     description: 'General ledger, journals, reconciliation and tax — pairs with the Accountant role centre.',
     actions: [
       'GL_READ', 'GL_JOURNAL_CREATE', 'GL_JOURNAL_APPROVE', 'GL_JOURNAL_REVERSE', 'GL_ACCOUNT_MANAGE',
-      'GL_BANK_RECONCILE', 'GL_PERIOD_CLOSE',
+      'GL_BANK_RECONCILE', 'GL_PERIOD_CLOSE', 'GL_PERIOD_CREATE', 'GL_CLOSE_INCOME_STATEMENT',
       'FINANCIAL_REPORTS_READ', 'FINANCIAL_REPORTS_MANAGE', 'REPORTS_VIEW', 'DASHBOARD_VIEW', 'APPROVALS_VIEW',
       'RECEIVABLES_READ', 'RECEIVABLES_APPLY_ENTRIES',
       'PAYABLES_READ', 'PAYABLES_APPLY_ENTRIES',
@@ -443,7 +444,8 @@ export const ROLES: RoleSeed[] = [
     description: 'Employee records, leave and payroll — pairs with the HR & Payroll role centre.',
     actions: [
       'EMPLOYEES_READ', 'EMPLOYEES_CREATE', 'EMPLOYEES_APPROVE',
-      'EMPLOYEE_EDITS_READ', 'EMPLOYEE_EDITS_UPDATE', 'EMPLOYEE_EDITS_APPROVE',
+      'COMPANY_JOBS_READ', 'COMPANY_JOBS_CREATE', 'COMPANY_JOBS_APPROVE', 'ORGANOGRAM_VIEW',
+      'EMPLOYEE_EDITS_READ', 'EMPLOYEE_EDITS_UPDATE', 'EMPLOYEE_EDITS_DELETE', 'EMPLOYEE_EDITS_APPROVE',
       'EMPLOYEE_CONTRACT_CHANGES_READ', 'EMPLOYEE_CONTRACT_CHANGES_CREATE', 'EMPLOYEE_CONTRACT_CHANGES_APPROVE',
       'EMPLOYEE_EXITS_READ', 'EMPLOYEE_EXITS_CREATE', 'EMPLOYEE_EXITS_APPROVE', 'EMPLOYEE_EXITS_CLEAR',
       'LEAVE_APPLICATIONS_READ', 'LEAVE_APPLICATIONS_CREATE', 'LEAVE_APPLICATIONS_APPROVE',
@@ -453,6 +455,20 @@ export const ROLES: RoleSeed[] = [
       'PAYROLL_READ', 'PAYROLL_MANAGE_TRANSACTIONS', 'IMPREST_READ', 'IMPREST_PAYROLL_RECOVER',
       'PAYROLL_PERIODS_READ', 'PAYROLL_PERIODS_CREATE', 'PAYROLL_PERIODS_RUN', 'PAYROLL_PERIODS_APPROVE', 'PAYROLL_PERIODS_CLOSE',
       'DASHBOARD_VIEW', 'REPORTS_VIEW', 'APPROVALS_VIEW',
+    ],
+  },
+  {
+    name: 'Employee Self Service',
+    description: 'An employee\'s own payslips, P9, leave, imprests, petty cash and requisitions — pairs with the Employee Self Service role centre. Needs the login matched to an employee in User Setup.',
+    actions: [
+      'SELF_SERVICE_VIEW', 'SELF_SERVICE_PAYSLIP_READ', 'SELF_SERVICE_P9_READ',
+      'SELF_SERVICE_RECORD_READ', 'SELF_SERVICE_RECORD_UPDATE', 'SELF_SERVICE_RECORD_DELETE',
+      'SELF_SERVICE_LEAVE_READ', 'SELF_SERVICE_LEAVE_CREATE',
+      'SELF_SERVICE_LEAVE_PLANS_READ', 'SELF_SERVICE_LEAVE_PLANS_CREATE',
+      'SELF_SERVICE_IMPREST_READ', 'SELF_SERVICE_IMPREST_CREATE',
+      'SELF_SERVICE_PETTY_CASH_READ', 'SELF_SERVICE_PETTY_CASH_CREATE',
+      'SELF_SERVICE_REQUISITIONS_READ', 'SELF_SERVICE_REQUISITIONS_CREATE',
+      'DASHBOARD_VIEW', 'APPROVALS_VIEW',
     ],
   },
 ];
@@ -639,6 +655,7 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
     ['FINANCE_MANAGER', 'Finance Manager Role Centre', 'Profitability, the balance sheet, capital adequacy and approvals.', '📈', 50, 0],
     ['ACCOUNTANT', 'Accountant Role Centre', 'Journals, the trial balance, reconciliations and tax.', '📒', 60, 0],
     ['HR_PAYROLL', 'HR & Payroll Role Centre', 'Employee records, leave and payroll processing.', '🧑‍💼', 70, 0],
+    ['SELF_SERVICE', 'Employee Self Service', 'Your own payslips, P9, leave, imprests, petty cash and requisitions.', '🙋', 80, 0],
   ];
   for (const [code, name, description, icon, sort, isDefault] of PROFILES) {
     await run(INS_PROFILE, code, name, description, code, icon, sort, isDefault, now);
@@ -649,7 +666,7 @@ async function seedReferenceData(now: IsoDateTime, todayIso: IsoDate): Promise<v
   // Assign the demo logins a sensible spread of profiles + an active one, so every Role Centre is
   // reachable on first run.
   const assign: Record<string, string[]> = {
-    admin: ['SUPER', 'CRM', 'CREDIT', 'FOSA', 'FINANCE_MANAGER', 'ACCOUNTANT', 'HR_PAYROLL'],
+    admin: ['SUPER', 'CRM', 'CREDIT', 'FOSA', 'FINANCE_MANAGER', 'ACCOUNTANT', 'HR_PAYROLL', 'SELF_SERVICE'],
     manager: ['SUPER', 'CRM', 'CREDIT', 'FOSA'],
     loans: ['CREDIT', 'CRM'],
     teller: ['FOSA', 'CRM'],

@@ -1,7 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireAction, requireUser } from '@/lib/session';
+import { requireAction, requireAnyAction, requireUser } from '@/lib/session';
+import { resolveActingEmployee } from '@/lib/selfService';
 import { actionResult } from '@/lib/errors';
 import { all } from '@/lib/db';
 import {
@@ -17,7 +18,7 @@ import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import type { ActionResult, Cents, FormValues, ImprestRequestFor, ImprestSettlement, IsoDate } from '@/lib/types';
 
 const revalidate = (no?: string) => {
-  for (const p of ['/imprest', '/approvals', '/cash-management', '/payroll']) revalidatePath(p);
+  for (const p of ['/imprest', '/approvals', '/cash-management', '/payroll', '/self-service', '/self-service/imprest', '/self-service/petty-cash', '/dashboard']) revalidatePath(p);
   if (no) { revalidatePath(`/imprest/view/${no}`); revalidatePath(`/imprest/petty-cash/${no}`); }
 };
 
@@ -74,8 +75,11 @@ async function toImprestInput(v: FormValues, lines: ImprestLineDraft[]): Promise
 
 export async function requestImprest(values: FormValues, lines: ImprestLineDraft[]): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
-    const user = await requireAction('IMPREST_CREATE');
-    const res = await createImprestRequest(await toImprestInput(values, lines), user);
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE');
+    // Self Service: the request is always the signed-in employee's own.
+    const input = await toImprestInput(values, lines);
+    input.employeeId = await resolveActingEmployee(user, 'IMPREST_CREATE', input.employeeId || null);
+    const res = await createImprestRequest(input, user);
     revalidate();
     return res;
   });
@@ -83,8 +87,10 @@ export async function requestImprest(values: FormValues, lines: ImprestLineDraft
 
 export async function saveImprest(no: string, values: FormValues, lines: ImprestLineDraft[]): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('IMPREST_CREATE');
-    await updateImprestRequest(no, await toImprestInput(values, lines), user);
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE');
+    const input = await toImprestInput(values, lines);
+    input.employeeId = await resolveActingEmployee(user, 'IMPREST_CREATE', input.employeeId || null);
+    await updateImprestRequest(no, input, user);
     revalidate(no);
     return { updated: true };
   });
@@ -92,7 +98,7 @@ export async function saveImprest(no: string, values: FormValues, lines: Imprest
 
 export async function deleteImprestRequestAction(no: string): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('IMPREST_CREATE');
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE');
     await deleteImprestRequest(no, user);
     revalidate();
     return { deleted: true };
@@ -101,7 +107,7 @@ export async function deleteImprestRequestAction(no: string): Promise<ActionResu
 
 export async function submitImprestAction(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
   return actionResult(async () => {
-    const user = await requireAction('IMPREST_CREATE');
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE');
     const { autoApproved } = await submitImprestRequest(no, user);
     revalidate(no);
     return { updated: true, autoApproved };
@@ -110,7 +116,7 @@ export async function submitImprestAction(no: string): Promise<ActionResult<{ up
 
 export async function cancelImprestApprovalAction(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('IMPREST_CREATE');
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE');
     await cancelImprestApproval(no, user);
     revalidate(no);
     return { updated: true };
@@ -157,7 +163,7 @@ export async function issueImprestAction(no: string): Promise<ActionResult<{ jou
 
 export async function saveSurrenderAction(no: string, values: FormValues, lines: SurrenderLineDraft[]): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('IMPREST_CREATE');
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE');
     const input: SurrenderInput = {
       surrenderDate: String(values.surrenderDate || ''),
       lines: lines.map((l) => ({ id: l.id, actualSpent: money(l.actualSpent), surrenderNote: l.surrenderNote || null })),
@@ -175,7 +181,7 @@ export async function saveSurrenderAction(no: string, values: FormValues, lines:
 
 export async function submitSurrenderAction(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
   return actionResult(async () => {
-    const { autoApproved } = await submitImprestSurrender(no, await requireAction('IMPREST_CREATE'));
+    const { autoApproved } = await submitImprestSurrender(no, await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE'));
     revalidate(no);
     return { updated: true, autoApproved };
   });
@@ -183,7 +189,7 @@ export async function submitSurrenderAction(no: string): Promise<ActionResult<{ 
 
 export async function cancelSurrenderApprovalAction(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await cancelImprestSurrenderApproval(no, await requireAction('IMPREST_CREATE'));
+    await cancelImprestSurrenderApproval(no, await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_IMPREST_CREATE'));
     revalidate(no);
     return { updated: true };
   });
@@ -250,7 +256,10 @@ async function toPettyCashInput(v: FormValues, lines: PettyCashLineDraft[]): Pro
 
 export async function requestPettyCash(values: FormValues, lines: PettyCashLineDraft[]): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
-    const res = await createPettyCash(await toPettyCashInput(values, lines), await requireAction('IMPREST_CREATE'));
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_PETTY_CASH_CREATE');
+    const input = await toPettyCashInput(values, lines);
+    input.employeeId = await resolveActingEmployee(user, 'IMPREST_CREATE', input.employeeId || null);
+    const res = await createPettyCash(input, user);
     revalidate();
     return res;
   });
@@ -258,7 +267,10 @@ export async function requestPettyCash(values: FormValues, lines: PettyCashLineD
 
 export async function savePettyCash(no: string, values: FormValues, lines: PettyCashLineDraft[]): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await updatePettyCash(no, await toPettyCashInput(values, lines), await requireAction('IMPREST_CREATE'));
+    const user = await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_PETTY_CASH_CREATE');
+    const input = await toPettyCashInput(values, lines);
+    input.employeeId = await resolveActingEmployee(user, 'IMPREST_CREATE', input.employeeId || null);
+    await updatePettyCash(no, input, user);
     revalidate(no);
     return { updated: true };
   });
@@ -266,7 +278,7 @@ export async function savePettyCash(no: string, values: FormValues, lines: Petty
 
 export async function deletePettyCashAction(no: string): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    await deletePettyCash(no, await requireAction('IMPREST_CREATE'));
+    await deletePettyCash(no, await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_PETTY_CASH_CREATE'));
     revalidate();
     return { deleted: true };
   });
@@ -274,7 +286,7 @@ export async function deletePettyCashAction(no: string): Promise<ActionResult<{ 
 
 export async function submitPettyCashAction(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
   return actionResult(async () => {
-    const { autoApproved } = await submitPettyCash(no, await requireAction('IMPREST_CREATE'));
+    const { autoApproved } = await submitPettyCash(no, await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_PETTY_CASH_CREATE'));
     revalidate(no);
     return { updated: true, autoApproved };
   });
@@ -282,7 +294,7 @@ export async function submitPettyCashAction(no: string): Promise<ActionResult<{ 
 
 export async function cancelPettyCashApprovalAction(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    await cancelPettyCashApproval(no, await requireAction('IMPREST_CREATE'));
+    await cancelPettyCashApproval(no, await requireAnyAction('IMPREST_CREATE', 'SELF_SERVICE_PETTY_CASH_CREATE'));
     revalidate(no);
     return { updated: true };
   });

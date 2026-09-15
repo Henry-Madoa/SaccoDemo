@@ -1,11 +1,22 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAnyAction, currentCanAction, currentCanAnyAction } from '@/lib/session';
+import { assertCanViewEmployeeDocument } from '@/lib/selfService';
+import { EmployeeIdentityStrip } from '../../../employees/employee-media';
+import { imageSrc, isConfigured } from '@/lib/cloudinary';
 import {
   getEmployeeEditRequest, listEditNextOfKin, listEditBeneficiaries, listEditDependants,
   listEditEmergencyContacts, listEditProfessionalBodies, listEditWorkHistory, listEditBankAccounts,
 } from '@/lib/employeeEdits';
 import { listJobGrades } from '@/lib/hrSetup';
+import { listApprovedJobs } from '@/lib/companyJobs';
+import { listPostingGroups } from '@/lib/payrollSetup';
+import { listCurrencies } from '@/lib/cashMgmtSetup';
+import { getCurrentContract } from '@/lib/employees';
+import { getMemberFosaAccount } from '@/lib/payroll';
+import { listActiveMembers } from '@/lib/members';
+import { listSalaryScales } from '@/lib/salaryScales';
+import { EditRequestPayrollCard } from '../../../employees/payroll-salary-card-bindings';
 import { listCounties, listSubCounties, listDimensionValues } from '@/lib/pool';
 import { getDimensionCaptions } from '@/lib/org';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
@@ -15,7 +26,7 @@ import { DefinitionList, EmptyState, Pill, TableWrap, Toolbar, Spacer } from '@/
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import {
-  SubmitEditButton, CancelEditApprovalButton, ApproveEditButton, RejectEditButton,
+  SubmitEditButton, DeleteEditButton, CancelEditApprovalButton, ApproveEditButton, RejectEditButton,
   DelegateEditButton, ApplyEditButton, type EditLookups,
 } from '../../edit-actions';
 import { EditBioDataCard, EditEmploymentBankingCard } from '../../edit-info-cards';
@@ -28,29 +39,35 @@ export default async function EmployeeEditDetailPage({ params, searchParams }: {
   params: Promise<{ no: string }>;
   searchParams: Promise<{ edit?: string }>;
 }) {
-  const user = await requireAction('EMPLOYEE_EDITS_READ');
+  const user = await requireAnyAction('EMPLOYEE_EDITS_READ', 'SELF_SERVICE_RECORD_READ');
   const { no } = await params;
   const { edit } = await searchParams;
   const startEditing = edit === '1';
 
   const req = await getEmployeeEditRequest(no);
   if (!req) notFound();
+  // Employee Self Service: an employee reaches only requests against their own record.
+  const { selfService } = await assertCanViewEmployeeDocument(user, 'EMPLOYEE_EDITS_READ', 'SELF_SERVICE_RECORD_READ', req.employee_id);
 
   const [
-    canUpdate, canApprove, tasks, gd1Values, gd2Values, { caption1, caption2 }, jobGrades, counties, subCounties,
+    canUpdate, canApprove, canDelete, canHrUpdate, postingGroups, currencies, contract, members, fosaAccount, salaryScales, tasks, gd1Values, gd2Values, { caption1, caption2 }, jobGrades, counties, subCounties, companyJobs,
     nextOfKin, beneficiaries, dependants, emergencyContacts, professionalBodies, workHistory, bankAccounts,
   ] = await Promise.all([
-    currentCanAction('EMPLOYEE_EDITS_UPDATE'),
+    currentCanAnyAction('EMPLOYEE_EDITS_UPDATE', 'SELF_SERVICE_RECORD_UPDATE'),
     currentCanAction('EMPLOYEE_EDITS_APPROVE'),
+    currentCanAnyAction('EMPLOYEE_EDITS_DELETE', 'SELF_SERVICE_RECORD_DELETE'),
+    currentCanAction('EMPLOYEE_EDITS_UPDATE'),
+    listPostingGroups(), listCurrencies(), getCurrentContract(req.employee_id), listActiveMembers(),
+    req.member_id ? getMemberFosaAccount(req.member_id) : Promise.resolve(undefined), listSalaryScales(),
     listWorkflowTasksForDocument('EMPLOYEE_EDIT', no),
     listDimensionValues(1), listDimensionValues(2), getDimensionCaptions(),
-    listJobGrades(), listCounties(), listSubCounties(),
+    listJobGrades(), listCounties(), listSubCounties(), listApprovedJobs(),
     listEditNextOfKin(no), listEditBeneficiaries(no), listEditDependants(no), listEditEmergencyContacts(no),
     listEditProfessionalBodies(no), listEditWorkHistory(no), listEditBankAccounts(no),
   ]);
   const lookups: EditLookups = {
     globalDimension1Values: gd1Values, globalDimension2Values: gd2Values, caption1, caption2,
-    jobGrades, counties, subCounties,
+    jobGrades, counties, subCounties, companyJobs,
   };
 
   const isOwn = req.created_by === user.username;
@@ -70,9 +87,10 @@ export default async function EmployeeEditDetailPage({ params, searchParams }: {
       user={user}
     >
       <Toolbar>
-        <Link href="/employee-edits" className="btn ghost sm">← All edit requests</Link>
-        <Link href={`/employees/view/${req.employee_id}`} className="btn ghost sm">View employee</Link>
+        <Link href={selfService ? '/self-service/employee-editing' : '/employee-edits'} className="btn ghost sm">← {selfService ? 'My employee editing requests' : 'All edit requests'}</Link>
+        {!selfService ? <Link href={`/employees/view/${req.employee_id}`} className="btn ghost sm">View employee</Link> : null}
         <Spacer />
+        {isOpen && canDelete && isOwn ? <DeleteEditButton no={req.no} listHref={selfService ? '/self-service/employee-editing' : '/employee-edits'} className="btn ghost" /> : null}
         {isOpen && canUpdate && isOwn ? <SubmitEditButton no={req.no} className="btn ghost" /> : null}
         {req.status === 'Pending Approval' && canCancelThis ? <CancelEditApprovalButton no={req.no} className="btn ghost" /> : null}
         {req.status === 'Pending Approval' && canDecideThis ? (
@@ -87,14 +105,44 @@ export default async function EmployeeEditDetailPage({ params, searchParams }: {
       </Toolbar>
 
       <CollapsibleCard title="Status">
-        <DefinitionList items={[
-          ['Status', <Pill status={req.status} key="st" />],
-          req.decision_reason ? ['Decision reason', req.decision_reason] : null,
-        ]} />
+        <div className="grid g2 dl-groups">
+          <section className="dl-group">
+            <div className="dl-caption">Request status</div>
+            <DefinitionList items={[
+              ['Request No.', <span className="mono" key="no">{req.no}</span>],
+              ['Employee', <><span className="mono">{req.employee_no}</span> {req.employee_first_name} {req.employee_last_name}</>],
+              ['Status', <Pill status={req.status} key="st" />],
+              req.decision_reason ? ['Decision reason', req.decision_reason] : null,
+            ]} />
+          </section>
+          <section className="dl-group">
+            <div className="dl-caption">Document trail</div>
+            <DefinitionList items={[
+              ['Created by', req.created_by || '—'],
+              ['Created on', formatDateTime(req.created_at)],
+            ]} />
+          </section>
+        </div>
+      </CollapsibleCard>
+
+      <CollapsibleCard title="Proposed identity" sub="Passport photo and specimen signature that will replace the live ones on Apply">
+        <EmployeeIdentityStrip
+          employeeId={req.employee_id} editRequestNo={req.no} name={`${req.employee_first_name} ${req.employee_last_name}`}
+          photoSrc={imageSrc(req.photo_image, { width: 192, height: 192, crop: 'fill' })}
+          signatureSrc={imageSrc(req.signature_image, { width: 360, height: 128, crop: 'fit' })}
+          canEdit={canManage} mediaEnabled={isConfigured()}
+        />
       </CollapsibleCard>
 
       <EditBioDataCard request={req} lookups={lookups} canEdit={canManage} startEditing={startEditing} />
       <EditEmploymentBankingCard request={req} lookups={lookups} canEdit={canManage} />
+      {/* The Payroll Salary Card is HR's: editable only with the module's own update right, never
+          through Self Service (the server strips those fields from an employee's save as well). */}
+      <EditRequestPayrollCard
+        no={req.no} values={req} basicPay={contract?.salary_cents ?? null}
+        lookups={{ postingGroups, currencies: currencies.map((c) => ({ code: c.code, description: c.description })), members, fosaAccount: fosaAccount ?? null, salaryScales, jobGrades }}
+        canEdit={canManage && canHrUpdate}
+      />
 
       <div className="grid g2">
         <EditNextOfKinPanel editNo={no} rows={nextOfKin} canManage={canManage} />
@@ -109,13 +157,6 @@ export default async function EmployeeEditDetailPage({ params, searchParams }: {
         <EditWorkHistoryPanel editNo={no} rows={workHistory} canManage={canManage} />
       </div>
       <EditBankAccountsPanel editNo={no} rows={bankAccounts} canManage={canManage} />
-
-      <CollapsibleCard title="Document trail">
-        <DefinitionList items={[
-          ['Created by', req.created_by || '—'],
-          ['Created on', formatDateTime(req.created_at)],
-        ]} />
-      </CollapsibleCard>
 
       <CollapsibleCard title="Approval details" sub={`${tasks.length} approval step${tasks.length === 1 ? '' : 's'} routed`}>
         {tasks.length ? (

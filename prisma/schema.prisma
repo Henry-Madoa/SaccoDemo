@@ -8,11 +8,18 @@ datasource db {
 }
 
 model accounting_period {
-  id         Int    @id @default(autoincrement())
-  code       String @unique
-  start_date String
-  end_date   String
-  status     String @default("OPEN")
+  id              Int    @id @default(autoincrement())
+  code            String @unique
+  start_date      String
+  end_date        String
+  /// OPEN | CLOSED — whether postings are accepted; BC's Allow Posting gate, not its fiscal close.
+  status          String @default("OPEN")
+  /// BC "New Fiscal Year": this period starts a fiscal year.
+  new_fiscal_year Int    @default(0)
+  /// BC "Closed": set by Close Year on every period of the year, never cleared.
+  fiscally_closed Int    @default(0)
+  /// BC "Date Locked": the period's dates can no longer be changed (set with fiscally_closed).
+  date_locked     Int    @default(0)
 }
 
 model app_user {
@@ -193,7 +200,12 @@ model approval_user_setup {
   /// never time-restricted. Null on either side leaves that boundary's whole day unrestricted.
   allow_posting_from_time   String?
   allow_posting_to_time     String?
+  /// AL User Setup "Employee No.": the employee record this login belongs to. Employee Self
+  /// Service reads it to scope every list to the user's own documents and to stamp new ones
+  /// with their employee and dimensions (lib/selfService.ts). One login per employee.
+  employee_id               Int?     @unique(map: "ux_approval_user_setup_employee")
   user                      app_user @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  employee                  employee? @relation(fields: [employee_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([is_approval_administrator], map: "ix_approval_admin")
 }
@@ -581,6 +593,9 @@ model journal {
   global_dimension_2_id                         Int?
   currency_code                                 String                       @default("KES")
   currency_factor                               Float                        @default(1)
+  /// BC closing date: 1 when posted by Close Income Statement — dated the fiscal year's last day
+  /// but outside a "..that day" filter and inside "..the day after" (lib/accounting.ts).
+  closing_entry                                 Int                          @default(0)
   member                                        member?                      @relation(fields: [member_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   global_dimension_1_value                      global_dimension_1_value?    @relation(fields: [global_dimension_1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   global_dimension_2_value                      global_dimension_2_value?    @relation(fields: [global_dimension_2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -4646,6 +4661,7 @@ model purchase_header {
   vendor_posting_group_code  String?
   vat_bus_posting_group_code String?
   vendor_invoice_no          String?
+  applies_to_doc_no          String?
   purchaser                  String?
   currency_code              String          @default("KES")
   currency_factor            Float           @default(1)
@@ -4717,6 +4733,7 @@ model posted_purchase_document {
   order_no                   String?
   source_no                  String?
   vendor_invoice_no          String?
+  applies_to_doc_no          String?
   payment_terms_code         String?
   vat_bus_posting_group_code String?
   currency_code              String                 @default("KES")
@@ -5534,9 +5551,31 @@ model employee {
   bank_branch              String?
   bank_account_no          String?
   posting_group_id         Int?
+  /// AL Employee "J-G Steps": the salary-scale notch (within job_grade_id) this employee is on.
+  salary_scale_id          Int?
+  /// AL Tab52203623 "Payroll Salary Card" — how this employee is paid. Basic Pay is captured here
+  /// (New card, or Employee Editing) and written onto the current employee_contract, which the
+  /// payroll run reads; Contract / Salary Changes moves it the other way.
+  basic_pay_cents          BigInt  @default(0)
+  /// 'Bank Transfer' | 'Cheque' | 'Cash' | 'FOSA'
+  payment_mode             String  @default("Bank Transfer")
+  payroll_currency_code    String?
+  pays_nssf                Boolean @default(true)
+  pays_shif                Boolean @default(true)
+  pays_paye                Boolean @default(true)
+  payslip_message          String?
+  suspend_pay              Boolean @default(false)
+  suspension_date          String?
+  suspension_reasons       String?
+  stop_relief              Boolean @default(false)
+  insurance_certificate    Boolean @default(false)
   global_dimension_1_id    Int?
   global_dimension_2_id    Int?
   member_id                Int?
+  /// Passport photo and specimen signature (Cloudinary public_ids) — the Employee Card's
+  /// identity strip, uploaded straight from the card (lib/employees.ts setEmployeeImage).
+  photo_image              String?
+  signature_image          String?
   photo_url                String?
   disabled                 Boolean @default(false)
   disability_notes         String?
@@ -5555,6 +5594,7 @@ model employee {
   requisition              requisition[]
   receipt_header           receipt_header[]
   payment_voucher_header   payment_voucher_header[]
+  approval_user_setup      approval_user_setup?
 
   @@index([status], map: "ix_employee_status")
   @@index([manager_id], map: "ix_employee_manager")
@@ -5692,6 +5732,28 @@ model employee_edit_request {
   bank_account_no        String?
   global_dimension_1_id  Int?
   global_dimension_2_id  Int?
+  /// Proposed Payroll Salary Card (Tab52203623) — HR-only on the request; an employee sees it
+  /// read-only under Self Service. member_id is the SACCO Member No. (AL Employee."Member No."):
+  /// net salary goes to that member's FOSA account and their checkoff loans are deducted.
+  member_id              Int?
+  posting_group_id       Int?
+  salary_scale_id        Int?
+  basic_pay_cents        BigInt  @default(0)
+  payment_mode           String  @default("Bank Transfer")
+  payroll_currency_code  String?
+  pays_nssf              Boolean @default(true)
+  pays_shif              Boolean @default(true)
+  pays_paye              Boolean @default(true)
+  payslip_message        String?
+  suspend_pay            Boolean @default(false)
+  suspension_date        String?
+  suspension_reasons     String?
+  stop_relief            Boolean @default(false)
+  insurance_certificate  Boolean @default(false)
+  /// Proposed passport photo / specimen signature — snapshotted from the employee when the
+  /// request is raised, replaceable on the request, copied onto the employee on Apply.
+  photo_image            String?
+  signature_image        String?
   status                 String  @default("Open")
   decision_reason        String?
   created_at             String?
@@ -6093,6 +6155,9 @@ model payroll_transaction_code {
   gl_account_id           Int?
   employer_gl_account_id  Int?
   for_every_employee      Boolean @default(false)
+  /// AL Payroll Transaction Code "Loan Product" (Coop Parameter = loan): the code the payroll
+  /// run books this loan product's checkoff deductions under — created on demand per product.
+  loan_product_id         Int?
   status                  String  @default("ACTIVE")
   created_at              String?
   created_by              String?
@@ -6111,6 +6176,39 @@ model payroll_period {
   created_by      String?
 }
 
+/// AL Tab52203636 "Salary Scale Pointers": a notch on a job grade's salary scale — the Basic
+/// Pay it carries and, through hr_salary_scale_benefit, the earnings and deductions it confers.
+/// An employee placed on a notch inherits both (lib/salaryScales.ts applySalaryScaleToEmployee).
+model hr_salary_scale {
+  id              Int     @id @default(autoincrement())
+  job_grade_id    Int
+  /// The pointer / notch code within the grade — "1", "2" … or "A", "B".
+  code            String
+  name            String?
+  basic_pay_cents BigInt  @default(0)
+  sequence        Int     @default(0)
+  status          String  @default("ACTIVE")
+  created_at      String?
+  created_by      String?
+  benefits        hr_salary_scale_benefit[]
+
+  @@unique([job_grade_id, code], map: "ux_salary_scale_grade_code")
+  @@index([job_grade_id], map: "ix_salary_scale_grade")
+}
+
+/// AL Tab52203627 "Income/Deduction Configuration": one earning or deduction a notch confers —
+/// a payroll transaction code and its amount per period.
+model hr_salary_scale_benefit {
+  id                  Int     @id @default(autoincrement())
+  salary_scale_id     Int
+  transaction_code_id Int
+  amount_cents        BigInt  @default(0)
+  notes               String?
+  salary_scale        hr_salary_scale @relation(fields: [salary_scale_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([salary_scale_id, transaction_code_id], map: "ux_salary_scale_benefit")
+}
+
 model employee_payroll_transaction {
   id                    Int     @id @default(autoincrement())
   employee_id           Int
@@ -6124,6 +6222,16 @@ model employee_payroll_transaction {
   stopped               Boolean @default(false)
   temporary             Boolean @default(false)
   notes                 String?
+  /// AL "Loan Number": set on the rows the run pulls from the Credit module (lib/payroll.ts
+  /// syncLoanDeductionsFromCredit); refreshed on every run, never rolled to the next period.
+  loan_id               Int?
+  /// The window the line is in force: skipped by a run for a period that ends before start_date
+  /// or starts after end_date, and not rolled into a period that starts after end_date.
+  start_date            String?
+  end_date              String?
+  /// Set when the line was conferred by the employee's salary-scale notch; replaced when the
+  /// notch changes, kept in step when the notch's benefit amount changes. HR may still stop it.
+  salary_scale_id       Int?
   created_at            String?
   created_by            String?
 
@@ -6141,6 +6249,8 @@ model payroll_period_line {
   amount_cents        BigInt  @default(0)
   gl_account_id       Int?
   is_debit            Boolean @default(true)
+  /// The loan a deduction line repays when the period posts (AL Post Payroll's Coop loan lines).
+  loan_id             Int?
 
   @@index([payroll_period_id, employee_id], map: "ix_ppl_period_employee")
 }

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAction, currentCanAction } from '@/lib/session';
+import { requireAnyAction, currentCanAction, currentCanAnyAction } from '@/lib/session';
+import { assertCanViewEmployeeDocument } from '@/lib/selfService';
 import { getLeaveApplication } from '@/lib/leaveManagement';
 import { findPendingRoutedTask, isEligibleApprover, listWorkflowTasksForDocument } from '@/lib/workflow';
 import { formatDateTime } from '@/lib/format';
@@ -13,14 +14,16 @@ import {
 } from '../../leave-application-actions';
 
 export default async function LeaveApplicationDetailPage({ params }: { params: Promise<{ no: string }> }) {
-  const user = await requireAction('LEAVE_APPLICATIONS_READ');
+  const user = await requireAnyAction('LEAVE_APPLICATIONS_READ', 'SELF_SERVICE_LEAVE_READ');
   const { no } = await params;
 
   const app = await getLeaveApplication(no);
   if (!app) notFound();
+  // Employee Self Service: an employee reaches only their own applications.
+  const { selfService } = await assertCanViewEmployeeDocument(user, 'LEAVE_APPLICATIONS_READ', 'SELF_SERVICE_LEAVE_READ', app.employee_id);
 
   const [canCreate, canApprove, tasks] = await Promise.all([
-    currentCanAction('LEAVE_APPLICATIONS_CREATE'),
+    currentCanAnyAction('LEAVE_APPLICATIONS_CREATE', 'SELF_SERVICE_LEAVE_CREATE'),
     currentCanAction('LEAVE_APPLICATIONS_APPROVE'),
     listWorkflowTasksForDocument('LEAVE_APPLICATION', no),
   ]);
@@ -40,8 +43,8 @@ export default async function LeaveApplicationDetailPage({ params }: { params: P
       user={user}
     >
       <Toolbar>
-        <Link href="/leave-applications" className="btn ghost sm">← All applications</Link>
-        <Link href={`/employees/view/${app.employee_id}`} className="btn ghost sm">View employee</Link>
+        <Link href={selfService ? '/self-service/leave' : '/leave-applications'} className="btn ghost sm">← {selfService ? 'My leave applications' : 'All applications'}</Link>
+        {!selfService ? <Link href={`/employees/view/${app.employee_id}`} className="btn ghost sm">View employee</Link> : null}
         <Spacer />
         {isOpen && canCreate && isOwn ? <DeleteButton no={app.no} className="btn ghost" /> : null}
         {isOpen && canCreate && isOwn ? <SubmitButton no={app.no} className="btn ghost" /> : null}

@@ -1,12 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireAction } from '@/lib/session';
+import { requireAction, requireAnyAction } from '@/lib/session';
 import { actionResult, AppError } from '@/lib/errors';
 import { signUpload, verifyUpload, destroyAsset, type UploadKind } from '@/lib/cloudinary';
 import { updateOrg, getOrg } from '@/lib/org';
 import { updateMember, getMember } from '@/lib/members';
 import { setUserSignature } from '@/lib/userSignatures';
+import { setEmployeeImage } from '@/lib/employees';
+import { setEditRequestImage } from '@/lib/employeeEdits';
 import { updateMemberApplication, getMemberApplication } from '@/lib/memberApplications';
 import { updateMemberEditRequest, getMemberEditRequest } from '@/lib/memberEdits';
 import { updateAccountOpeningRequest, getAccountOpeningRequest } from '@/lib/accountOpening';
@@ -31,6 +33,9 @@ const WRITE_ACTION: Record<UploadKind, ActionKey> = {
   junior_photo: 'ACCOUNT_OPENING_CREATE',
   // A user's own signature is administrator-managed, not member data.
   user_signature: 'ADMIN_USER_MANAGE',
+  // The Employee Card's identity strip — whoever maintains employee records.
+  employee_photo: 'EMPLOYEES_CREATE',
+  employee_signature: 'EMPLOYEES_CREATE',
 };
 
 /**
@@ -46,7 +51,13 @@ export async function requestUploadSignature(
   return actionResult(async () => {
     // Loan documents are captured by whoever can originate the loan.
     const key = kind === 'attachment' && entity === 'loan' ? 'LOAN_CREATE' : WRITE_ACTION[kind];
-    await requireAction(key);
+    // An employee's photo / signature is also proposed on an Employee Editing request — by HR,
+    // or by the employee themselves under Self Service.
+    if (kind === 'employee_photo' || kind === 'employee_signature') {
+      await requireAnyAction(key, 'EMPLOYEE_EDITS_UPDATE', 'SELF_SERVICE_RECORD_UPDATE');
+    } else {
+      await requireAction(key);
+    }
     return signUpload(kind);
   });
 }
@@ -125,6 +136,55 @@ export async function saveUserSignature(
     }
     revalidatePath('/admin/security/setup');
     return { signature_image: value };
+  });
+}
+
+/* ------------------------------------------------------- employee identity */
+
+/** The Employee Card's passport photo / specimen signature slots. */
+export async function saveEmployeeImage(
+  employeeId: number, kind: 'photo' | 'signature', file: UploadedFile | null,
+): Promise<ActionResult<{ value: string | null }>> {
+  return actionResult(async () => {
+    const actor = await requireAction('EMPLOYEES_CREATE');
+    let value: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, kind === 'photo' ? 'employee_photo' : 'employee_signature', file.resourceType);
+      value = asset.public_id;
+    }
+    const previous = await setEmployeeImage(employeeId, kind, value, actor);
+    if (previous && previous !== value && !previous.startsWith('data:')) {
+      await destroyAsset(previous);
+    }
+    revalidatePath(`/employees/view/${employeeId}`);
+    revalidatePath('/employees');
+    revalidatePath('/self-service');
+    return { value };
+  });
+}
+
+/** The proposed passport photo / specimen signature on an Employee Editing request. */
+export async function saveEmployeeEditImage(
+  no: string, kind: 'photo' | 'signature', file: UploadedFile | null,
+): Promise<ActionResult<{ value: string | null }>> {
+  return actionResult(async () => {
+    const actor = await requireAnyAction('EMPLOYEE_EDITS_UPDATE', 'SELF_SERVICE_RECORD_UPDATE');
+    let value: string | null = null;
+    if (file) {
+      const asset = await verifyUpload(file.publicId, kind === 'photo' ? 'employee_photo' : 'employee_signature', file.resourceType);
+      value = asset.public_id;
+    }
+    const { previous, previousIsLive } = await setEditRequestImage(no, kind, value, actor);
+    // An upload that only ever sat on the request is an orphan once replaced; the employee's
+    // live image is left alone — it is still theirs until the request is applied.
+    if (previous && previous !== value && !previousIsLive && !previous.startsWith('data:')) {
+      await destroyAsset(previous);
+    }
+    revalidatePath(`/employee-edits/view/${no}`);
+    revalidatePath('/employee-edits');
+    revalidatePath('/self-service/record');
+    revalidatePath('/self-service/employee-editing');
+    return { value };
   });
 }
 

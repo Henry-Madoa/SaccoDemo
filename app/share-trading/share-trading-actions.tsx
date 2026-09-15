@@ -311,11 +311,13 @@ const simple = (
   action: (no: string) => Promise<{ ok: boolean; error?: string; data?: unknown }>,
   confirm: { title: string; message: string; confirmLabel: string; danger?: boolean },
   successTitle: string | ((d: never) => string), defaultClass = 'btn sm ghost',
+  /** Where to land afterwards — a delete leaves the card with nothing to show, so it goes to the list. */
+  redirectTo?: string,
 ) => function Button({ no, className = defaultClass }: { no: string; className?: string }) {
   const { run, busy } = useRunAction();
   return (
     <button type="button" className={className} disabled={busy}
-      onClick={() => run(() => action(no) as never, { confirm, successTitle: successTitle as never })}>
+      onClick={() => run(() => action(no) as never, { confirm, successTitle: successTitle as never, redirectTo })}>
       {busy ? busyLabel : label}
     </button>
   );
@@ -339,7 +341,7 @@ export const ReopenButton = simple('Reopen', 'Working…', reopenShareFloatingRe
 
 export const DeleteButton = simple('Delete', 'Working…', deleteShareFloatingRequest,
   { title: 'Delete this floating?', message: 'It is removed permanently. Only an open floating can be deleted.', confirmLabel: 'Delete', danger: true },
-  'Deleted');
+  'Deleted', undefined, '/share-trading');
 
 export { DelegateButton } from '@/components/ui/delegate-button';
 

@@ -143,10 +143,12 @@ export function StaffClaimPaymentForm({ claim, lookups }: { claim: StaffClaimDet
 }
 
 const simple = (label: string, action: (no: string) => Promise<{ ok: boolean; error?: string; data?: unknown }>,
-  confirm: { title: string; message: string; confirmLabel: string; danger?: boolean }, successTitle: string | ((d: never) => string), defaultClass = 'btn sm ghost') =>
+  confirm: { title: string; message: string; confirmLabel: string; danger?: boolean }, successTitle: string | ((d: never) => string), defaultClass = 'btn sm ghost',
+  /** Where to land afterwards — a delete leaves the card with nothing to show, so it goes to the list. */
+  redirectTo?: string) =>
   function Button({ no, className = defaultClass }: { no: string; className?: string }) {
     const { run, busy } = useRunAction();
-    return <button type="button" className={className} disabled={busy} onClick={() => run(() => action(no) as never, { confirm, successTitle: successTitle as never })}>{busy ? 'Working…' : label}</button>;
+    return <button type="button" className={className} disabled={busy} onClick={() => run(() => action(no) as never, { confirm, successTitle: successTitle as never, redirectTo })}>{busy ? 'Working…' : label}</button>;
   };
 
 export const SubmitClaimButton = simple('Send for approval', submitStaffClaimAction, { title: 'Send this claim for approval?', message: 'It can no longer be edited while pending.', confirmLabel: 'Send for approval' },
@@ -154,7 +156,7 @@ export const SubmitClaimButton = simple('Send for approval', submitStaffClaimAct
 export const CancelClaimApprovalButton = simple('Cancel approval request', cancelStaffClaimApprovalAction, { title: 'Recall this claim?', message: 'It goes back to Open.', confirmLabel: 'Recall' }, 'Recalled — back to Open');
 export const ApproveClaimButton = simple('Approve', approveStaffClaimAction, { title: 'Approve this staff claim?', message: 'It becomes ready to pay.', confirmLabel: 'Approve' }, 'Approved — ready to pay', 'btn sm');
 export const ReopenClaimButton = simple('Reopen', reopenStaffClaimAction, { title: 'Reopen this claim?', message: 'It goes back to Open for amendment.', confirmLabel: 'Reopen' }, 'Reopened');
-export const DeleteClaimButton = simple('Delete', deleteStaffClaimAction, { title: 'Delete this staff claim?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted');
+export const DeleteClaimButton = simple('Delete', deleteStaffClaimAction, { title: 'Delete this staff claim?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted', undefined, '/imprest/staff-claims');
 export const ReleaseClaimButton = simple('Release payment', releaseStaffClaimAction, { title: 'Release this payment?', message: 'The stop is lifted and the claim may be posted.', confirmLabel: 'Release' }, 'Payment released');
 export const PostClaimButton = simple('Post payment', postStaffClaimAction, { title: 'Post this staff claim?', message: 'The expenses go to the G/L and the employee is paid from the account chosen — or through the next payroll.', confirmLabel: 'Post' },
   ((d: { journalNo: string; toPayroll: boolean }) => `Posted — journal ${d.journalNo}${d.toPayroll ? ' · paid through payroll' : ''}`) as never, 'btn sm');

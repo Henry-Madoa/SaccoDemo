@@ -17,6 +17,7 @@ import {
   listPurchaseDocuments, getPurchaseDocument, createPurchaseDocument, updatePurchaseDocumentHeader, deletePurchaseDocument,
   setPurchaseLines, makeOrder, submitPurchaseDocument, cancelPurchaseDocumentApproval, approvePurchaseDocument,
   rejectPurchaseDocument, reopenPurchaseDocument, postPurchaseDocument,
+  listPostedInvoicesForCredit, getInvoiceForCreditMemo,
   type PurchaseHeaderInput, type PurchaseLineInput,
 } from '@/lib/purchaseDocuments';
 import { applyVendorEntries, unapplyVendorEntry } from '@/lib/vendLedger';
@@ -116,7 +117,26 @@ const toPurchaseHeaderInput = (v: FormValues): PurchaseHeaderInput => ({
   postingDate: str(v.postingDate), documentDate: str(v.documentDate || v.postingDate),
   paymentTermsCode: opt(v.paymentTermsCode), paymentMethodCode: opt(v.paymentMethodCode),
   vendorInvoiceNo: opt(v.vendorInvoiceNo), purchaser: opt(v.purchaser),
+  appliesToDocNo: opt(v.appliesToDocNo),
 });
+
+/** The vendor's open posted invoices a credit memo can be raised against. */
+export async function listPostedInvoicesForCreditRequest(vendorId?: number | null) {
+  return actionResult(async () => {
+    await requireAction('PAYABLES_READ');
+    return listPostedInvoicesForCredit(vendorId ?? null);
+  });
+}
+
+/** One posted invoice, reshaped into the header + lines a credit memo starts from. */
+export async function getInvoiceForCreditMemoRequest(no: string) {
+  return actionResult(async () => {
+    await requireAction('PAYABLES_READ');
+    const src = await getInvoiceForCreditMemo(no);
+    if (!src) throw new AppError('Posted invoice not found', 'NOT_FOUND');
+    return src;
+  });
+}
 export interface PurchaseLineDraft {
   type: string; no: string; description: string; quantity: string; directUnitCost: string; lineDiscountPct: string;
   locationCode: string; faDepreciationBookCode: string;

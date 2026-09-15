@@ -5,6 +5,7 @@ import { FormModal } from '@/components/ui/form-modal';
 import { useEditableCard } from '@/components/ui/editable-card';
 import { Field, MoneyInput, toTwoDp } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { LockedEmployee } from '@/components/ui/locked-employee';
 import { GlAccountSelect } from '@/components/ui/gl-account-select';
 import { useRunAction } from '@/components/ui/run-action';
 import { useFormat } from '@/components/ui/format-provider';
@@ -18,6 +19,8 @@ import type { RequisitionDetail, RequisitionLineView, RequisitionType } from '@/
 
 export interface RequisitionLookups {
   employees: { id: number; employee_no: string; first_name: string; last_name: string }[];
+  /** Employee Self Service: every requisition is this employee's own — the picker is replaced by a locked field. */
+  self?: { id: number; employee_no: string; first_name: string; last_name: string } | null;
   locations: { id: number; code: string; name: string }[];
   accounts: { id: number; code: string; name: string }[];
   fixedAssets: { no: string; description: string }[];
@@ -72,9 +75,10 @@ function RequisitionFields({ type, lookups, initial, lines, setLines }: {
   return (
     <>
       <div className="grid g3">
-        <SearchableSelect id="f_employeeId" name="employeeId" label="Requested by (employee)" required items={lookups.employees}
-          getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`} value={employeeId} onChange={setEmployeeId}
-          placeholder="Search employee…" emptyText="No matching employees" />
+        {lookups.self ? <LockedEmployee employee={lookups.self} label="Requested by (employee)" />
+          : <SearchableSelect id="f_employeeId" name="employeeId" label="Requested by (employee)" required items={lookups.employees}
+              getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`} value={employeeId} onChange={setEmployeeId}
+              placeholder="Search employee…" emptyText="No matching employees" />}
         <Field name="title" label="Title" required defaultValue={initial?.title ?? ''} placeholder={isStore ? 'e.g. Stationery for the loans desk' : 'e.g. Replacement office chairs'} />
         <Field name="requisitionDate" label="Requisition date" type="date" required defaultValue={initial?.requisition_date ?? today()} />
       </div>
@@ -278,7 +282,14 @@ export const SubmitRequisitionButton = simple('Send for approval', submitRequisi
   ((d: { autoApproved: boolean }) => (d.autoApproved ? 'Approved' : 'Sent for approval')) as never);
 export const CancelRequisitionApprovalButton = simple('Cancel approval request', cancelRequisitionApprovalAction, { title: 'Recall this requisition?', message: 'It goes back to Open.', confirmLabel: 'Recall' }, 'Recalled — back to Open');
 export const ReopenRequisitionButton = simple('Re-open', reopenRequisitionAction, { title: 'Re-open this requisition?', message: 'It goes back to Open for amendment and must be approved again.', confirmLabel: 'Re-open' }, 'Re-opened');
-export const DeleteRequisitionButton = simple('Delete', deleteRequisitionAction, { title: 'Delete this requisition?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, 'Deleted');
+/** Deleting from the card leaves nothing to show, so it lands on the list the card came from —
+ *  store or purchase requisitions, which the card knows and this button does not. */
+export function DeleteRequisitionButton({ no, listHref, className = 'btn sm ghost' }: { no: string; listHref: string; className?: string }) {
+  const { run, busy } = useRunAction();
+  return <button type="button" className={className} disabled={busy} onClick={() => run(() => deleteRequisitionAction(no), {
+    confirm: { title: 'Delete this requisition?', message: 'It is removed permanently.', confirmLabel: 'Delete', danger: true }, successTitle: 'Deleted', redirectTo: listHref,
+  })}>{busy ? 'Working…' : 'Delete'}</button>;
+}
 export const ConfirmReceiptButton = simple('Confirm receipt', confirmStoreReceiptAction, { title: 'Confirm you have received the items?', message: 'The requisition is marked as received.', confirmLabel: 'I have received them' }, 'The requisition has been marked as received', 'btn sm');
 export const ExecuteReviewButton = simple('Execute — raise documents', executeRequisitionReviewAction, { title: 'Raise the purchase documents?', message: 'Every decided line becomes a purchase quote or order (one per vendor), or is appended to the open order chosen.', confirmLabel: 'Execute' },
   ((d: { documents: { no: string; documentType: string; appended: boolean }[]; closed: boolean }) => `${d.documents.map((x) => `${x.appended ? 'Appended to' : 'Raised'} ${x.documentType} ${x.no}`).join(' · ')}${d.closed ? ' — PR closed' : ''}`) as never, 'btn sm');

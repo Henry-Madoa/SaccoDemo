@@ -12,6 +12,8 @@ import {
   type DocumentLineDraft, type VatPreview,
 } from '@/lib/documentTotals';
 import { requestPurchaseDocument, type PurchaseLineDraft } from '@/app/actions/payables';
+import { PurchaseCreditMemoSourcePicker } from './credit-memo-source';
+import type { PurchaseCreditMemoSource } from '@/lib/purchaseDocuments';
 import type { PaymentMethod, PaymentTerms, PurchaseDocumentDetail, PurchaseDocumentType } from '@/lib/types';
 
 type EligibleVendor = {
@@ -70,9 +72,23 @@ export function DocFields({ documentType, vendors, paymentTerms, paymentMethods,
     patch(i, { type, no: '', description: wasAuto ? '' : l.description });
   };
 
+  // Copying a posted invoice replaces the whole line set — the memo is being raised *for* that
+  // invoice, so a half-copied document would be the confusing outcome. The vendor is already
+  // the invoice's: the picker only ever lists the chosen vendor's invoices.
+  const copyFromInvoice = (src: PurchaseCreditMemoSource) => {
+    setLines(src.lines.map((l) => ({
+      type: l.type, no: l.no ?? '', description: l.description ?? '',
+      quantity: String(l.quantity), directUnitCost: (l.directUnitCost / 100).toFixed(2),
+      lineDiscountPct: l.lineDiscountPct ? String(l.lineDiscountPct) : '',
+      locationCode: '', faDepreciationBookCode: '',
+    })));
+  };
+
   return (
     <>
       <input type="hidden" name="documentType" value={documentType} />
+      {documentType === 'Credit Memo' && editing && initial?.applies_to_doc_no
+        ? <input type="hidden" name="appliesToDocNo" value={initial.applies_to_doc_no} /> : null}
       <div className="grid g2">
         <SearchableSelect
           name={editing ? 'vendorPick' : 'vendorId'} label="Vendor" required items={vendors} value={vendorId} disabled={editing}
@@ -84,6 +100,10 @@ export function DocFields({ documentType, vendors, paymentTerms, paymentMethods,
         {editing ? <input type="hidden" name="vendorId" value={vendorId} /> : null}
         <Field name="postingDate" label="Posting date" type="date" required defaultValue={initial?.posting_date ?? today()} />
       </div>
+      {/* Vendor first, then the invoice: the picker below lists only that vendor's open
+          invoices, so it sits under the Vendor field rather than above it. */}
+      {documentType === 'Credit Memo' && !editing
+        ? <PurchaseCreditMemoSourcePicker vendorId={vendorId} onCopy={copyFromInvoice} /> : null}
       <div className="grid g3">
         <Field name="documentDate" label="Document date" type="date" defaultValue={initial?.document_date ?? today()} />
         <Field name="paymentTermsCode" label="Payment terms" type="select" defaultValue={initial?.payment_terms_code ?? ''}

@@ -14,6 +14,7 @@
  *   Stop Payment      an approved claim held back from posting (AL "Payment Stopped")
  */
 import { one, all, run, tx, nextSequence, audit, hasAnyRow } from './db.ts';
+import { stampEmployeeDimensions } from './selfService.ts';
 import { AppError } from './errors.ts';
 import { postJournal } from './accounting.ts';
 import { resolvePostingDate } from './postingDates.ts';
@@ -124,6 +125,7 @@ export async function createStaffClaim(input: StaffClaimInput, user: Actor): Pro
       no, input.employeeId, input.claimDate, input.description.trim(), input.justification?.trim() || null, input.settlement ?? 'Pay Now',
       input.payingBankAccountId ?? null, input.payModeCode?.trim() || null, input.paymentTxNo?.trim() || null, new Date().toISOString(), user.username,
     );
+    await stampEmployeeDimensions('staff_claim', no);
     await replaceLines(no, input.lines);
   });
   await audit(user, 'STAFF_CLAIM_CREATE', 'staff_claim', no, {});
@@ -147,6 +149,7 @@ export async function updateStaffClaim(no: string, input: StaffClaimInput, user:
       input.employeeId, input.claimDate, input.description.trim(), input.justification?.trim() || null, input.settlement ?? 'Pay Now',
       input.payingBankAccountId ?? null, input.payModeCode?.trim() || null, input.paymentTxNo?.trim() || null, no,
     );
+    await stampEmployeeDimensions('staff_claim', no);
     await replaceLines(no, input.lines);
   });
   await audit(user, 'STAFF_CLAIM_UPDATE', 'staff_claim', no, {});
@@ -266,6 +269,7 @@ export async function postStaffClaim(no: string, user: Actor): Promise<{ journal
     const j = await postJournal({
       valueDate: vd, module: 'IMPREST', eventType: 'STAFF_CLAIM_POST', description: `Staff claim ${no} — ${c.description}`, reference: no,
       user, idempotencyKey: `STAFF-CLAIM-${no}`, lines: jl,
+      globalDimension1Id: c.global_dimension_1_id, globalDimension2Id: c.global_dimension_2_id,
     });
     await writeEmployeeLedgerEntry({ employeeId: c.employee_id, entryType: 'STAFF_CLAIM', documentNo: no, postingDate: vd, amount: -A, description: `Staff claim ${no} — ${c.description}`, journalId: j.id, user });
     let payrollTransactionId: number | null = null;

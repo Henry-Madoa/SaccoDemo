@@ -135,6 +135,12 @@ export interface PrintDocument {
   watermark?: string | null;
   /** A register too wide for portrait A4 — the P9 card, the banker's cheque schedule. */
   landscape?: boolean;
+  /**
+   * A slip-width document: the body is SLIP_WIDTH_MM wide (the Payslip.rdl body is 9.95cm on
+   * A4), the letterhead and parties stack, and the sheet prints at that width on the left of
+   * the page rather than filling it.
+   */
+  slip?: boolean;
   status?: { label: string; tone: 'ok' | 'warn' | 'bad' | 'info' } | null;
   parties: PrintParty[];
   meta: PrintMeta[];
@@ -158,6 +164,13 @@ export interface PrintDocument {
   /** Side-by-side ruled signature blocks — statements, payslips, loan agreements. */
   signatures?: PrintSignature[];
   footnote?: string | null;
+  /**
+   * A statutory form laid out its own way (the KRA P9 card): this HTML replaces every block
+   * between the watermark and the footer, and `custom_css` is appended to the stylesheet. The
+   * sheet, @page and print rules still apply.
+   */
+  custom_html?: string | null;
+  custom_css?: string | null;
 }
 
 /**
@@ -543,8 +556,9 @@ function signBlock(doc: PrintDocument): string {
 function documentBody(doc: PrintDocument): string {
   const b = doc.brand;
   return `
-<div class="dp">
+<div class="dp${doc.slip ? ' dp-slip' : ''}">
   ${doc.watermark ? `<div class="dp-watermark">${esc(doc.watermark)}</div>` : ''}
+  ${doc.custom_html ?? `
   ${headerBlock(doc)}
   <div class="dp-rule"></div>
   <div class="dp-rule-2"></div>
@@ -554,7 +568,7 @@ function documentBody(doc: PrintDocument): string {
   ${sectionsBlock(doc)}
   ${notesBlock(doc)}
   ${approvalBlock(doc)}
-  ${signBlock(doc)}
+  ${signBlock(doc)}`}
   <footer class="dp-footer">
     <div>${esc(doc.footnote || b.footer || 'This is a computer-generated document.')}</div>
     <div>Printed ${esc(formatDateTime(new Date().toISOString()))}</div>
@@ -575,6 +589,9 @@ export function renderDocuments(docs: PrintDocument[]): string {
 export function renderDocument(doc: PrintDocument): string {
   return documentStyles(doc) + documentBody(doc);
 }
+
+/** Width of a slip-sized document body — Payslip.rdl's 9.95cm, rounded to whole millimetres. */
+export const SLIP_WIDTH_MM = 100;
 
 function documentStyles(doc: PrintDocument): string {
   const b = doc.brand;
@@ -598,6 +615,29 @@ function documentStyles(doc: PrintDocument): string {
     font-size: 11.5px; line-height: 1.45; position: relative; overflow: hidden;
   }
   .dp * { box-sizing: border-box; }
+
+  /* ------------------------------------------------------------------ slip width */
+  .dp.dp-slip { max-width: ${SLIP_WIDTH_MM}mm; padding: 7mm 6mm 5mm; font-size: 10px; line-height: 1.4; }
+  .dp-slip .dp-head { flex-direction: column; gap: 8px; }
+  .dp-slip .dp-logo { width: 44px; height: 44px; }
+  .dp-slip .dp-org { font-size: 14px; }
+  .dp-slip .dp-line { font-size: 9px; }
+  .dp-slip .dp-ident-box { text-align: left; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+  .dp-slip .dp-title { font-size: 13px; letter-spacing: .1em; }
+  .dp-slip .dp-subtitle { margin-top: 0; }
+  .dp-slip .dp-status { margin-top: 0; font-size: 8.5px; padding: 1px 8px; }
+  .dp-slip .dp-rule { margin-top: 6px; height: 2px; }
+  .dp-slip .dp-rule-2 { margin-bottom: 8px; }
+  .dp-slip .dp-parties { flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .dp-slip .dp-party { padding: 6px 8px; }
+  .dp-slip .dp-party-n { font-size: 11.5px; }
+  .dp-slip .dp-party-meta { flex: 1 1 100%; padding: 6px 8px; }
+  .dp-slip .dp-meta-wide { gap: 4px 14px; }
+  .dp-slip .dp-meta-item { min-width: 90px; }
+  .dp-slip .dp-meta-item .dp-meta-v { font-size: 10.5px; }
+  .dp-slip .dp-foot-grid { flex-direction: column; gap: 8px; }
+  .dp-slip .dp-sign { gap: 10px; margin-top: 16px; }
+  .dp-slip .dp-footer { flex-direction: column; gap: 2px; }
 
   /* ---------------------------------------------------------------- letterhead */
   .dp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
@@ -773,6 +813,8 @@ function documentStyles(doc: PrintDocument): string {
        after the first. */
     .dp { max-width: none; font-size: 11px; padding: 0; box-shadow: none; border-radius: 0;
       overflow: visible; }
+    /* A slip keeps its width on paper and sits at the left margin, as the RDL lays it out. */
+    .dp.dp-slip { max-width: ${SLIP_WIDTH_MM}mm; margin: 0; font-size: 10px; }
     .dp-lines thead { display: table-header-group; }
     .dp-lines tr, .dp-party, .dp-foot-grid { page-break-inside: avoid; }
     .dp-sec-h { page-break-after: avoid; break-after: avoid; }
@@ -782,5 +824,6 @@ function documentStyles(doc: PrintDocument): string {
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
   }
+  ${doc.custom_css ?? ''}
 </style>`;
 }

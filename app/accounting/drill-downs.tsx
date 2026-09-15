@@ -169,7 +169,7 @@ function LedgerModal({ code, caption1, caption2, onClose }: {
                 <tbody>
                   {displayLines.length ? displayLines.map(({ l, running: bal }) => (
                     <tr key={l.id}>
-                      <td>{fdate(l.value_date)}</td>
+                      <td title={l.closing_entry ? 'Closing date — posted by Close Income Statement' : undefined}>{l.closing_entry ? 'C' : ''}{fdate(l.value_date)}</td>
                       <td className="mono">
                         <button type="button" className="linklike" onClick={() => setOpenJournalId(l.journal_id)}>
                           {l.journal_no}
@@ -328,7 +328,7 @@ function JournalModal({ id, canReverse, caption1, caption2, onClose }: {
       {data && j ? (
         <>
           <DefinitionList items={[
-            ['Value date', fdate(j.value_date)],
+            ['Value date', j.closing_entry ? `C${fdate(j.value_date)} (closing date)` : fdate(j.value_date)],
             ['Posted', `${fdatetime(j.posted_at)} by ${j.posted_by || ''}`],
             ['Source', `${j.source_module} · ${j.event_type}`],
             ['Description', j.description || ''],

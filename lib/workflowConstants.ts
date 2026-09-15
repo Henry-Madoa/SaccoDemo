@@ -70,6 +70,7 @@ export const DOCUMENT_TABLE: Record<WorkflowDocumentType, string> = {
   LEAVE_RECALL: 'hr_leave_recall',
   LEAVE_PLAN: 'hr_leave_plan',
   PAYROLL_PERIOD: 'payroll_period',
+  COMPANY_JOB: 'company_job',
 };
 
 export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
@@ -119,6 +120,7 @@ export const DOCUMENT_TYPE_LABELS: Record<WorkflowDocumentType, string> = {
   LEAVE_RECALL: 'Leave Recall',
   LEAVE_PLAN: 'Leave Plan',
   PAYROLL_PERIOD: 'Payroll Period',
+  COMPANY_JOB: 'Company Job (Organogram)',
 };
 
 const humanizeIdentifier = (identifier: string): string => identifier
@@ -181,9 +183,11 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   PURCHASE_REQUISITION: (id) => `/requisitions/view/${id}`,
   ITEM_JOURNAL: () => '/inventory/item-journal',
   FA_JOURNAL: () => '/fixed-assets/journal',
-  SALES_DOCUMENT: () => '/receivables/sales-invoices',
+  // A notification opens the document itself, not the list it sits in. Once posted, the card
+  // forwards to the posted document (the source header is gone, but source_no still points here).
+  SALES_DOCUMENT: (id) => `/receivables/documents/${id}`,
   REMINDER: () => '/receivables/reminders',
-  PURCHASE_DOCUMENT: () => '/payables/purchase-invoices',
+  PURCHASE_DOCUMENT: (id) => `/payables/documents/${id}`,
   RECEIPT: (id) => `/cash-management/receipts/${id}`,
   PAYMENT_VOUCHER: (id) => `/cash-management/payment-vouchers/${id}`,
   EMPLOYEE_ONBOARDING: (id) => `/employees/view/${id}`,
@@ -195,8 +199,12 @@ export const DOCUMENT_LINK: Record<WorkflowDocumentType, (entityId: string) => s
   LEAVE_RECALL: (id) => `/leave-recalls/view/${id}`,
   LEAVE_PLAN: (id) => `/leave-plans/view/${id}`,
   PAYROLL_PERIOD: (id) => `/payroll/periods/view/${id}`,
+  COMPANY_JOB: (id) => `/company-jobs/view/${id}`,
 };
 
 export function documentLabel(documentType: WorkflowDocumentType, entityId: string): string {
   return `${DOCUMENT_TYPE_LABELS[documentType]} ${entityId}`;
 }
+
+/** Close Income Statement: the posting description used when none is typed (shared with the client form). */
+export const CLOSE_INCOME_STATEMENT_DESCRIPTION = 'Close Income Statement';

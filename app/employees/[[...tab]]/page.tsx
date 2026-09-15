@@ -77,7 +77,6 @@ export default async function EmployeesPage({ params, searchParams }: {
             </thead>
             <tbody>
               {rows.map((e) => {
-                const isOwn = e.created_by === user.username;
                 return (
                   <tr key={e.id}>
                     <td className="mono"><Link href={`/employees/view/${e.id}?view=${tab}`}>{e.employee_no}</Link></td>
@@ -87,7 +86,7 @@ export default async function EmployeesPage({ params, searchParams }: {
                     <td>{e.employment_date}</td>
                     <td><Pill status={e.status} /></td>
                     <td className="num">
-                      {e.status === 'NEW' && canCreate && isOwn ? <SubmitButton id={e.id} /> : null}
+                      {e.status === 'NEW' && canCreate ? <SubmitButton id={e.id} /> : null}
                     </td>
                   </tr>
                 );

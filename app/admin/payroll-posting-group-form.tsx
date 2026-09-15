@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountField } from '@/components/ui/gl-account-select';
 import { useRunAction } from '@/components/ui/run-action';
 import { savePostingGroupRequest, deletePostingGroupRequest } from '@/app/actions/payrollSetup';
 import type { GlAccount, PayrollPostingGroup } from '@/lib/types';
@@ -30,20 +31,20 @@ export function PostingGroupFormButton({ group, accounts, className = 'btn', chi
             <Field name="name" label="Name" required defaultValue={g?.name} />
           </div>
           <div className="grid g2">
-            <Field name="salaryExpenseAccountId" label="Salary expense account" type="select" required options={opts} defaultValue={g?.salary_expense_account_id ?? ''} />
-            <Field name="netPayPayableAccountId" label="Net pay payable account" type="select" required options={opts} defaultValue={g?.net_pay_payable_account_id ?? ''} />
+            <GlAccountField name="salaryExpenseAccountId" label="Salary expense account" required accounts={accounts} defaultValue={g?.salary_expense_account_id ?? ''} />
+            <GlAccountField name="netPayPayableAccountId" label="Net pay payable account" required accounts={accounts} defaultValue={g?.net_pay_payable_account_id ?? ''} />
           </div>
-          <Field name="payePayableAccountId" label="PAYE payable account" type="select" required options={opts} defaultValue={g?.paye_payable_account_id ?? ''} />
+          <GlAccountField name="payePayableAccountId" label="PAYE payable account" required accounts={accounts} defaultValue={g?.paye_payable_account_id ?? ''} />
           <div className="grid g3">
-            <Field name="nssfEmployeePayableAccountId" label="NSSF employee payable" type="select" required options={opts} defaultValue={g?.nssf_employee_payable_account_id ?? ''} />
-            <Field name="nssfEmployerExpenseAccountId" label="NSSF employer expense" type="select" required options={opts} defaultValue={g?.nssf_employer_expense_account_id ?? ''} />
-            <Field name="nssfEmployerPayableAccountId" label="NSSF employer payable" type="select" required options={opts} defaultValue={g?.nssf_employer_payable_account_id ?? ''} />
+            <GlAccountField name="nssfEmployeePayableAccountId" label="NSSF employee payable" required accounts={accounts} defaultValue={g?.nssf_employee_payable_account_id ?? ''} />
+            <GlAccountField name="nssfEmployerExpenseAccountId" label="NSSF employer expense" required accounts={accounts} defaultValue={g?.nssf_employer_expense_account_id ?? ''} />
+            <GlAccountField name="nssfEmployerPayableAccountId" label="NSSF employer payable" required accounts={accounts} defaultValue={g?.nssf_employer_payable_account_id ?? ''} />
           </div>
-          <Field name="shifPayableAccountId" label="SHIF payable account" type="select" required options={opts} defaultValue={g?.shif_payable_account_id ?? ''} />
+          <GlAccountField name="shifPayableAccountId" label="SHIF payable account" required accounts={accounts} defaultValue={g?.shif_payable_account_id ?? ''} />
           <div className="grid g3">
-            <Field name="housingLevyEmployeePayableAccountId" label="Housing Levy employee payable" type="select" required options={opts} defaultValue={g?.housing_levy_employee_payable_account_id ?? ''} />
-            <Field name="housingLevyEmployerExpenseAccountId" label="Housing Levy employer expense" type="select" required options={opts} defaultValue={g?.housing_levy_employer_expense_account_id ?? ''} />
-            <Field name="housingLevyEmployerPayableAccountId" label="Housing Levy employer payable" type="select" required options={opts} defaultValue={g?.housing_levy_employer_payable_account_id ?? ''} />
+            <GlAccountField name="housingLevyEmployeePayableAccountId" label="Housing Levy employee payable" required accounts={accounts} defaultValue={g?.housing_levy_employee_payable_account_id ?? ''} />
+            <GlAccountField name="housingLevyEmployerExpenseAccountId" label="Housing Levy employer expense" required accounts={accounts} defaultValue={g?.housing_levy_employer_expense_account_id ?? ''} />
+            <GlAccountField name="housingLevyEmployerPayableAccountId" label="Housing Levy employer payable" required accounts={accounts} defaultValue={g?.housing_levy_employer_payable_account_id ?? ''} />
           </div>
         </FormModal>
       ) : null}

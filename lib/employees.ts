@@ -18,17 +18,63 @@ import type {
   EmployeeEmergencyContact, EmployeeProfessionalBody, EmployeeWorkHistory, EmployeeBankAccount, EmployeeContract,
 } from './types.ts';
 import { assertContactColumns, assertContactRows } from './validate.ts';
+import { applySalaryScaleToEmployee } from './salaryScales.ts';
+import { assertJobCanTakeEmployee } from './companyJobs.ts';
+
+/**
+ * Placing an employee on a Company Job (AL Employee."Job Code"): the job must be approved with
+ * a free post, and it defaults what the record leaves blank — job title, grade, dimensions.
+ */
+async function placeOnJob(input: Record<string, unknown>, employeeId: number | null, current: { company_job_id: number | null } | null): Promise<void> {
+  const jobId = input.company_job_id == null || input.company_job_id === '' ? null : Number(input.company_job_id);
+  if (!jobId) return;
+  if (current && current.company_job_id === jobId) return;
+  const job = await assertJobCanTakeEmployee(jobId, employeeId);
+  if (!String(input.job_title ?? '').trim()) input.job_title = job.name;
+  if (input.job_grade_id == null && job.job_grade_id) input.job_grade_id = job.job_grade_id;
+  if (input.global_dimension_1_id == null && job.global_dimension_1_id) input.global_dimension_1_id = job.global_dimension_1_id;
+  if (input.global_dimension_2_id == null && job.global_dimension_2_id) input.global_dimension_2_id = job.global_dimension_2_id;
+}
 
 /** Every field a New employee record (or an Employee Editing request) may carry — shared with
  *  lib/employeeEdits.ts so the two stay in lockstep. */
 export const EMPLOYEE_EDITABLE_FIELDS = [
   'first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'national_id', 'kra_pin',
   'nssf_no', 'shif_no', 'marital_status', 'phone', 'alt_phone', 'email', 'physical_address',
-  'county_id', 'sub_county_id', 'job_title', 'job_grade_id',
+  'county_id', 'sub_county_id', 'job_title', 'job_grade_id', 'company_job_id',
   'bank_code', 'bank_branch', 'bank_account_no', 'global_dimension_1_id', 'global_dimension_2_id',
 ] as const;
 export type EmployeeEditableField = (typeof EMPLOYEE_EDITABLE_FIELDS)[number];
-export type EmployeeInput = Partial<Record<EmployeeEditableField, string | number | null>> & {
+
+/** AL Tab52203623 "Payroll Salary Card": the payroll-side fields of the employee. Editable on a
+ *  New card and, on an Employee Editing request, by HR only (never by the employee under Self
+ *  Service — app/actions/employeeEdits.ts strips them). */
+export const PAYROLL_SALARY_FIELDS = [
+  'member_id', 'posting_group_id', 'salary_scale_id', 'basic_pay_cents', 'payment_mode', 'payroll_currency_code', 'pays_nssf', 'pays_shif', 'pays_paye',
+  'payslip_message', 'suspend_pay', 'suspension_date', 'suspension_reasons', 'stop_relief', 'insurance_certificate',
+] as const;
+export type PayrollSalaryField = (typeof PAYROLL_SALARY_FIELDS)[number];
+const PAYROLL_BOOLEAN_FIELDS: readonly PayrollSalaryField[] = ['pays_nssf', 'pays_shif', 'pays_paye', 'suspend_pay', 'stop_relief', 'insurance_certificate'];
+
+/** Form values arrive as strings ('1' / '' for a checkbox); the salary-card columns are typed. */
+export function normalisePayrollFields(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of PAYROLL_SALARY_FIELDS) {
+    if (body[f] === undefined) continue;
+    const v = body[f];
+    if (PAYROLL_BOOLEAN_FIELDS.includes(f)) out[f] = v === true || v === 1 || v === '1' || v === 'true' || v === 'on';
+    else if (f === 'posting_group_id' || f === 'member_id' || f === 'salary_scale_id') out[f] = v ? Number(v) : null;
+    // The form posts basic pay in major units; the column is cents.
+    else if (f === 'basic_pay_cents') out[f] = Math.max(0, Math.round((Number(v) || 0) * 100));
+    else out[f] = v === '' || v == null ? null : String(v);
+  }
+  if (out.payment_mode == null) delete out.payment_mode;
+  // Lifting a suspension clears its date and reasons with it.
+  if (out.suspend_pay === false) { out.suspension_date = null; out.suspension_reasons = null; }
+  return out;
+}
+
+export type EmployeeInput = Partial<Record<EmployeeEditableField, string | number | null>> & Partial<Record<PayrollSalaryField, unknown>> & {
   nature_of_employment?: string; employee_type?: string; contract_type_id?: number | null;
   employment_date?: string; manager_id?: number | null; overview_manager_id?: number | null;
 };
@@ -45,7 +91,9 @@ const VIEW_CLAUSE: Record<EmployeeListView, string> = {
 
 const SELECT_EMPLOYEE = `
   SELECT e.*,
-         jg.name AS job_grade_name,
+         jg.name AS job_grade_name, ppg.code AS posting_group_code, ppg.name AS posting_group_name,
+         cj.job_id AS company_job_code, cj.name AS company_job_name,
+         mem.member_no, CASE WHEN mem.id IS NULL THEN NULL ELSE mem.first_name || ' ' || mem.last_name END AS member_name,
          ct.name AS contract_type_name,
          mgr.first_name AS manager_first_name, mgr.last_name AS manager_last_name,
          c.name  AS county_name, sc.name AS sub_county_name,
@@ -53,6 +101,9 @@ const SELECT_EMPLOYEE = `
          gd2.code AS global_dimension_2_code, gd2.name AS global_dimension_2_name
   FROM employee e
   LEFT JOIN hr_job_grade jg ON jg.id = e.job_grade_id
+  LEFT JOIN company_job cj ON cj.id = e.company_job_id
+  LEFT JOIN payroll_posting_group ppg ON ppg.id = e.posting_group_id
+  LEFT JOIN member mem ON mem.id = e.member_id
   LEFT JOIN hr_employment_contract_type ct ON ct.id = e.contract_type_id
   LEFT JOIN employee mgr ON mgr.id = e.manager_id
   LEFT JOIN county c ON c.id = e.county_id
@@ -143,6 +194,7 @@ export async function createEmployee(input: EmployeeInput, user: Actor): Promise
   assertMandatory(input);
   assertContactColumns(input as Record<string, unknown>);
   const employeeNo = await nextSequence('EMPLOYEE');
+  await placeOnJob(input as Record<string, unknown>, null, null);
   const cols = EMPLOYEE_EDITABLE_FIELDS.filter((f) => input[f] !== undefined);
   const info = await run(
     `INSERT INTO employee
@@ -165,8 +217,9 @@ export async function updateEmployee(id: number, input: EmployeeInput, user: Act
   if (before.status !== 'NEW') {
     throw new AppError('Only a new, not-yet-submitted employee record can be edited directly — use Employee Editing instead', 'VALIDATION');
   }
+  await placeOnJob(input as Record<string, unknown>, id, before);
   const cols = EMPLOYEE_EDITABLE_FIELDS.filter((f) => input[f] !== undefined);
-  const extra: [string, unknown][] = [];
+  const extra: [string, unknown][] = Object.entries(normalisePayrollFields(input as Record<string, unknown>));
   if (input.employment_date !== undefined) extra.push(['employment_date', input.employment_date]);
   if (input.nature_of_employment !== undefined) extra.push(['nature_of_employment', input.nature_of_employment]);
   if (input.employee_type !== undefined) extra.push(['employee_type', input.employee_type]);
@@ -179,9 +232,50 @@ export async function updateEmployee(id: number, input: EmployeeInput, user: Act
       `UPDATE employee SET ${allCols.map((c) => `${c}=?`).join(',')} WHERE id=?`,
       ...cols.map((c) => input[c] ?? null), ...extra.map(([, v]) => v ?? null), id,
     );
+    const bp = extra.find(([c]) => c === 'basic_pay_cents');
+    if (bp) await syncContractSalary(id, Number(bp[1]));
+    // A new notch confers its Basic Pay and benefits (AL Validate("J-G Steps")); a Basic Pay typed
+    // alongside it in the same save is HR's manual override and wins.
+    const scale = extra.find(([c]) => c === 'salary_scale_id');
+    if (scale && (scale[1] ?? null) !== (before.salary_scale_id ?? null)) {
+      await applySalaryScaleToEmployee(id, scale[1] as number | null, user);
+      if (bp && Number(bp[1]) > 0) {
+        await run('UPDATE employee SET basic_pay_cents = ? WHERE id = ?', Number(bp[1]), id);
+        await syncContractSalary(id, Number(bp[1]));
+      }
+    }
     await audit(user, 'EMPLOYEE_UPDATE', 'employee', id, {});
   }
   return (await getEmployee(id))!;
+}
+
+/** Basic Pay lives on the Payroll Salary Card; the payroll run reads the current contract — so a
+ *  change to one is written onto the other. */
+export async function syncContractSalary(employeeId: number, basicPayCents: number): Promise<void> {
+  await run('UPDATE employee_contract SET salary_cents = ? WHERE employee_id = ? AND is_current = true', Math.round(basicPayCents), employeeId);
+}
+
+/**
+ * Sets (or clears) the employee's passport photo or specimen signature — the Employee Card's
+ * identity strip. Like every other field on the card, it is editable only while the record is
+ * New; once it has been sent for approval or approved, the images are fixed (a change would go
+ * through Employee Editing like any other). Returns what was on file before, for the caller to
+ * tidy up in media storage.
+ */
+export async function setEmployeeImage(
+  id: number, kind: 'photo' | 'signature', publicId: string | null, user: Actor,
+): Promise<string | null> {
+  const col = kind === 'photo' ? 'photo_image' : 'signature_image';
+  const before = await one<{ status: string; photo_image: string | null; signature_image: string | null }>(
+    'SELECT status, photo_image, signature_image FROM employee WHERE id = ?', id,
+  );
+  if (!before) throw new AppError('Employee not found', 'NOT_FOUND');
+  if (before.status !== 'NEW') {
+    throw new AppError('The photo and signature can only be changed while the employee record is New', 'VALIDATION');
+  }
+  await run(`UPDATE employee SET ${col} = ? WHERE id = ?`, publicId, id);
+  await audit(user, publicId ? `EMPLOYEE_${kind.toUpperCase()}_SET` : `EMPLOYEE_${kind.toUpperCase()}_CLEAR`, 'employee', id, {});
+  return before[col];
 }
 
 export async function deleteEmployee(id: number, user: Actor): Promise<void> {
@@ -414,7 +508,7 @@ export async function approveEmployee(id: number, user: Actor): Promise<void> {
     if (!(await getCurrentContract(id))) {
       await addContract(id, {
         contractTypeId: emp.contract_type_id, startDate: emp.employment_date, jobTitle: emp.job_title,
-        gradeId: emp.job_grade_id,
+        gradeId: emp.job_grade_id, salaryCents: Number(emp.basic_pay_cents || 0),
       }, user);
     }
     await audit(user, 'EMPLOYEE_APPROVE', 'employee', id, {});

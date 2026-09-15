@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { LockedEmployee } from '@/components/ui/locked-employee';
 import { useRunAction } from '@/components/ui/run-action';
 import { today } from '@/lib/format';
 import {
@@ -14,9 +15,13 @@ import type { EmployeeView, HrLeaveType, LeaveApplicationNature } from '@/lib/ty
 
 type EmployeeLite = Pick<EmployeeView, 'id' | 'employee_no' | 'first_name' | 'last_name'>;
 
-export function NewLeaveApplicationButton({ employees, leaveTypes }: { employees: EmployeeLite[]; leaveTypes: HrLeaveType[] }) {
+export function NewLeaveApplicationButton({ employees, leaveTypes, self }: {
+  employees: EmployeeLite[]; leaveTypes: HrLeaveType[];
+  /** Employee Self Service: the application is this employee's own — no picker. */
+  self?: EmployeeLite | null;
+}) {
   const [open, setOpen] = useState(false);
-  const [employeeId, setEmployeeId] = useState('');
+  const [employeeId, setEmployeeId] = useState(self ? String(self.id) : '');
   const [leaveTypeId, setLeaveTypeId] = useState('');
   const [relieverId, setRelieverId] = useState('');
   const [nature, setNature] = useState<LeaveApplicationNature>('APPLICATION');
@@ -33,9 +38,11 @@ export function NewLeaveApplicationButton({ employees, leaveTypes }: { employees
           successTitle="Leave application created"
           successDetail={(d) => `${d.no} saved — send it for approval when ready`}
         >
-          <SearchableSelect id="f_employeeId" name="employeeId" label="Employee" required
-            items={employees} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
-            value={employeeId} onChange={setEmployeeId} placeholder="Search employee…" />
+          {self ? <LockedEmployee employee={self} hint="Applications raised here are your own." /> : (
+            <SearchableSelect id="f_employeeId" name="employeeId" label="Employee" required
+              items={employees} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
+              value={employeeId} onChange={setEmployeeId} placeholder="Search employee…" />
+          )}
           <div className="grid g2">
             <SearchableSelect id="f_leaveTypeId" name="leaveTypeId" label="Leave type" required
               items={leaveTypes} getValue={(t) => String(t.id)} getLabel={(t) => t.name}
@@ -75,6 +82,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteLeaveApplicationRequest(no), {
         confirm: { title: 'Delete this application?', message: 'Only an open application can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/leave-applications',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

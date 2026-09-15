@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useResultDialog } from './result-dialog';
 import { useConfirm, type ConfirmOptions } from './confirm-dialog';
 
@@ -13,8 +13,10 @@ export interface RunActionOptions<T> {
   successDetail?: string | ((data: T) => string | undefined);
   /** Where to go once the action succeeds. Needed when the action leaves the current page with
    *  nothing to show — posting a sales document deletes the source header, so refreshing in
-   *  place would 404; the posted document is what the user should land on instead. Return
-   *  null/undefined to stay put and just refresh. */
+   *  place would 404; the posted document is what the user should land on instead. Deleting a
+   *  document from its card is the same story, and lands on the list it came from. Return
+   *  null/undefined to stay put and just refresh. A target that is already the current page
+   *  refreshes instead, so a button shared between a list and a card behaves on both. */
   redirectTo?: string | ((data: T) => string | null | undefined);
 }
 
@@ -29,6 +31,7 @@ export function useRunAction() {
   const showResult = useResultDialog();
   const askConfirm = useConfirm();
   const router = useRouter();
+  const pathname = usePathname();
   const [busy, setBusy] = useState(false);
 
   const run = async <T,>(
@@ -53,7 +56,7 @@ export function useRunAction() {
       const detail = typeof opts.successDetail === 'function' ? opts.successDetail(data) : opts.successDetail;
       showResult(title, detail, 'ok');
       const to = typeof opts.redirectTo === 'function' ? opts.redirectTo(data) : opts.redirectTo;
-      if (to) router.push(to);
+      if (to && to !== pathname) router.push(to);
       else router.refresh();
     } finally {
       setBusy(false);

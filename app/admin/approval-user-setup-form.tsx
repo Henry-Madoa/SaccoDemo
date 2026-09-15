@@ -7,9 +7,13 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { saveApprovalUserSetupRow } from '@/app/actions/workflows';
 import type { ApprovalUserSetupRow } from '@/lib/types';
 
-export function ApprovalUserSetupFormButton({ row, users, className = 'btn', children }: {
+type EmployeeOption = { id: number; employee_no: string; first_name: string; last_name: string };
+
+export function ApprovalUserSetupFormButton({ row, users, employees, className = 'btn', children }: {
   row: ApprovalUserSetupRow;
   users: ApprovalUserSetupRow[];
+  /** Employees a login can be matched to (AL User Setup "Employee No."). */
+  employees: EmployeeOption[];
   className?: string;
   children: React.ReactNode;
 }) {
@@ -17,6 +21,10 @@ export function ApprovalUserSetupFormButton({ row, users, className = 'btn', chi
   const others = users.filter((u) => u.user_id !== row.user_id);
   const [approverId, setApproverId] = useState(String(row.approver_id ?? ''));
   const [substituteId, setSubstituteId] = useState(String(row.substitute_id ?? ''));
+  const [employeeId, setEmployeeId] = useState(String(row.employee_id ?? ''));
+  // An employee already matched to another login is not offered — the link is one-to-one.
+  const linkedElsewhere = new Set(users.filter((u) => u.user_id !== row.user_id && u.employee_id).map((u) => u.employee_id));
+  const employeeChoices = employees.filter((e) => !linkedElsewhere.has(e.id));
 
   return (
     <>
@@ -39,6 +47,10 @@ export function ApprovalUserSetupFormButton({ row, users, className = 'btn', chi
               items={others} getValue={(u) => String(u.user_id)} getLabel={(u) => u.full_name}
               value={substituteId} onChange={setSubstituteId} placeholder="Search user…" emptyText="No matching users" />
           </div>
+          <SearchableSelect name="employee_id" label="Employee No."
+            hint="Which employee this login is — Employee Self Service scopes its lists to this employee and stamps new leave, imprest, petty cash and requisition documents with them and their dimensions. One login per employee."
+            items={employeeChoices} getValue={(e) => String(e.id)} getLabel={(e) => `${e.employee_no} — ${e.first_name} ${e.last_name}`}
+            value={employeeId} onChange={setEmployeeId} placeholder="Search employee…" emptyText="No matching employees" />
           <Field name="is_approval_administrator" label="Approval Administrator"
             type="checkbox" defaultValue={row.is_approval_administrator}
             hint="Fallback approver when a &quot;Requester's approver&quot; step can't resolve one" />

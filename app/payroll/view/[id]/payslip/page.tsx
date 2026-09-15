@@ -32,6 +32,7 @@ export default async function PayslipPage({ params, searchParams }: {
     <Page title="Payslip" crumb={slip.parties[0]?.name} user={user}>
       <Toolbar>
         <Link href={`/payroll/view/${employeeId}`} className="btn ghost sm">← Back</Link>
+        <a className="btn ghost sm" href={`/print/payslip/${employeeId}-${periodId}`} target="_blank" rel="noreferrer">Print / Save as PDF</a>
         <Spacer />
         <div className="inline">
           {periods.map((p) => (

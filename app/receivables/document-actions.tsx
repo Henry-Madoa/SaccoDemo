@@ -73,11 +73,15 @@ export function ReopenDocButton({ no }: { no: string }) {
   })} />;
 }
 
-export function DeleteDocButton({ no, kind }: { no: string; kind: 'sales' | 'reminder' }) {
+/** listHref is where a delete from the document card lands — the list that card came from
+ *  (quotes, orders, invoices or credit memos), which the card knows and this button does not.
+ *  From a list row it is left out and the list simply refreshes. */
+export function DeleteDocButton({ no, kind, listHref }: { no: string; kind: 'sales' | 'reminder'; listHref?: string }) {
   const { run } = useRunAction();
   const fn = kind === 'sales' ? deleteSalesDocumentRequest : deleteReminderRequest;
   return <A label="Delete" onClick={() => run(() => fn(no), {
     confirm: { title: 'Delete this document?', message: 'It is removed permanently.', confirmLabel: 'Delete' }, successTitle: 'Deleted',
+    redirectTo: listHref,
   })} />;
 }
 

@@ -127,6 +127,7 @@ export const NAV: NavGroup[] = [
           { path: '/accounting/accounts', label: 'Chart of Accounts', icon: '🗂', page: 'GL' },
           { path: '/accounting/journals', label: 'Journals', icon: '📓', page: 'GL' },
           { path: '/accounting/periods', label: 'Accounting Periods', icon: '📅', page: 'GL' },
+          { path: '/accounting/close-income-statement', label: 'Close Income Statement', icon: '🔐', page: 'GL' },
         ],
       },
       {
@@ -256,6 +257,15 @@ export const NAV: NavGroup[] = [
         ],
       },
       {
+        // The establishment: AL Company Jobs (positions, posts, reporting lines) and the chart drawn from them.
+        submenu: 'Organisation', icon: '🏛',
+        items: [
+          { path: '/organogram', label: 'Organogram', icon: '🏛', page: 'ORGANOGRAM' },
+          { path: '/company-jobs', label: 'Company Jobs', icon: '💼', page: 'COMPANY_JOBS' },
+          { path: '/organogram/vacant', label: 'Vacant Positions', icon: '🪑', page: 'ORGANOGRAM' },
+        ],
+      },
+      {
         submenu: 'Leave Management', icon: '🏖',
         items: [
           { path: '/leave-applications', label: 'Leave Applications', icon: '🏖', page: 'LEAVE_APPLICATIONS' },
@@ -274,6 +284,44 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    // Employee Self Service — the AL "SS" pages: every entry is the employee's own documents.
+    group: 'Self Service',
+    centres: ['SELF_SERVICE'],
+    // Grouped the way the modules that own each document are — Payroll, HR, Finance, Inventory.
+    items: [
+      {
+        submenu: 'Payroll', icon: '💰',
+        items: [
+          { path: '/self-service/payslips', label: 'Payslips', icon: '🧾', page: 'SELF_SERVICE_PAYSLIPS' },
+          { path: '/self-service/p9', label: 'P9 Tax Card', icon: '📄', page: 'SELF_SERVICE_P9' },
+        ],
+      },
+      {
+        submenu: 'HR', icon: '🧑‍💼',
+        items: [
+          { path: '/self-service/record', label: 'My Record', icon: '🪪', page: 'SELF_SERVICE_RECORD' },
+          { path: '/self-service/employee-editing', label: 'Employee Editing', icon: '✏', page: 'SELF_SERVICE_RECORD' },
+          { path: '/self-service/leave', label: 'Leave Applications', icon: '🏖', page: 'SELF_SERVICE_LEAVE' },
+          { path: '/self-service/leave-plans', label: 'Leave Plans', icon: '🗓', page: 'SELF_SERVICE_LEAVE_PLANS' },
+        ],
+      },
+      {
+        submenu: 'Finance', icon: '🏦',
+        items: [
+          { path: '/self-service/imprest', label: 'Imprest Requests & Surrenders', icon: '💼', page: 'SELF_SERVICE_IMPREST' },
+          { path: '/self-service/petty-cash', label: 'Petty Cash', icon: '💵', page: 'SELF_SERVICE_PETTY_CASH' },
+        ],
+      },
+      {
+        submenu: 'Inventory', icon: '📦',
+        items: [
+          { path: '/self-service/requisitions', label: 'Store Requisitions', icon: '📦', page: 'SELF_SERVICE_REQUISITIONS' },
+          { path: '/self-service/purchase-requisitions', label: 'Purchase Requisitions', icon: '🛒', page: 'SELF_SERVICE_REQUISITIONS' },
+        ],
+      },
+    ],
+  },
+  {
     group: 'Administration',
     items: [
       {
@@ -286,7 +334,7 @@ export const NAV: NavGroup[] = [
           'ADMIN_POOL_DIMENSIONS', 'ADMIN_POOL_DENOMINATIONS', 'ADMIN_TELLER_SETUP',
           'ADMIN_WORKFLOWS_DEFINITIONS', 'ADMIN_WORKFLOWS_GROUPS', 'ADMIN_WORKFLOWS_TABLES',
           'ADMIN_AUDIT', 'ADMIN_CHANGELOG', 'ADMIN_DATA', 'ADMIN_JOB_QUEUE',
-          'ADMIN_HR_JOB_GRADES', 'ADMIN_HR_CONTRACT_TYPES',
+          'ADMIN_HR_JOB_GRADES', 'ADMIN_HR_SALARY_SCALES', 'ADMIN_HR_CONTRACT_TYPES',
           'ADMIN_HR_TERMINATION_REASONS', 'ADMIN_HR_CLEARANCE_SECTIONS',
           'ADMIN_HR_LEAVE_TYPES', 'ADMIN_HR_LEAVE_CALENDAR', 'ADMIN_HR_HOLIDAYS', 'ADMIN_HR_ACCRUE_MATRIX',
           'ADMIN_PAYROLL_SETUP', 'ADMIN_PAYROLL_POSTING_GROUPS', 'ADMIN_PAYROLL_PAYE_BANDS',

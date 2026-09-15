@@ -53,6 +53,23 @@ export async function currentCanAction(key: ActionKey): Promise<boolean> {
   return canAction(await getCurrentUser(), key);
 }
 
+/**
+ * Passes when the user holds ANY of the actions — an HR officer's module action or an employee's
+ * self-service one (lib/selfService.ts). The first key names the permission in the refusal,
+ * since it is the module's own action the screen is really about.
+ */
+export async function requireAnyAction(...keys: ActionKey[]): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!keys.some((k) => canAction(user, k))) throw new ForbiddenError(ACTIONS[keys[0]].page);
+  return user;
+}
+
+/** Non-throwing counterpart of requireAnyAction — for UI visibility only. */
+export async function currentCanAnyAction(...keys: ActionKey[]): Promise<boolean> {
+  const user = await getCurrentUser();
+  return keys.some((k) => canAction(user, k));
+}
+
 /** Non-throwing page-execute check for the current user — for UI visibility only. */
 export async function currentCanPage(page: string): Promise<boolean> {
   return canPage(await getCurrentUser(), page);

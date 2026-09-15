@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { FormModal } from '@/components/ui/form-modal';
 import { Field } from '@/components/ui/field';
+import { GlAccountField } from '@/components/ui/gl-account-select';
 import { useRunAction } from '@/components/ui/run-action';
 import { today } from '@/lib/format';
 import {
@@ -44,7 +45,7 @@ export function BankAccountFormButton({ account, postingGroups, externalBanks, c
           <div className="grid g2">
             <Field name="bankAccPostingGroupCode" label="Bank Acc. Posting Group" type="select" defaultValue={a?.bank_acc_posting_group_code ?? ''}
               options={[{ value: '', label: '(pick an explicit G/L account)' }, ...postingGroups.map((g) => ({ value: g.code, label: `${g.code} → ${g.gl_account_code}` }))]} />
-            <Field name="glAccountId" label="G/L control account (if no posting group)" type="select" defaultValue="" options={acctOpts(accounts, '(from posting group)')} />
+            <GlAccountField name="glAccountId" label="G/L control account (if no posting group)" accounts={accounts} defaultValue="" placeholder="Search account… (blank = from posting group)" />
           </div>
           <div className="grid g3">
             <Field name="externalBankCode" label="External bank" type="select" defaultValue={a?.external_bank_code ?? ''} options={[{ value: '', label: '(none)' }, ...externalBanks.map((b) => ({ value: b.code, label: b.name }))]} />
@@ -105,7 +106,7 @@ export function CurrencyFormButton({ currency, accounts, className = 'btn', chil
           <div className="hint" style={{ marginTop: 8 }}>Exchange gain / loss accounts (required for a non-base currency)</div>
           <div className="grid g3">
             {CCY_ACCTS.map((f) => (
-              <Field key={f.name} name={f.name} label={f.label} type="select" defaultValue={c ? String((c[f.key] as number | null) ?? '') : ''} options={acctOpts(accounts)} />
+              <GlAccountField key={f.name} name={f.name} label={f.label} accounts={accounts} defaultValue={c ? String((c[f.key] as number | null) ?? '') : ''} />
             ))}
           </div>
         </FormModal>
@@ -168,8 +169,8 @@ export function CashMgmtSetupButton({ setup, banks, accounts, charges, products,
             </div>
           </div>
           <div className="grid g2">
-            <Field name="bankChargesAccountId" label="Bank charges account" type="select" defaultValue={String(setup.bank_charges_account_id ?? '')} options={acctOpts(accounts)} />
-            <Field name="bankInterestIncomeAccountId" label="Bank interest income account" type="select" defaultValue={String(setup.bank_interest_income_account_id ?? '')} options={acctOpts(accounts)} />
+            <GlAccountField name="bankChargesAccountId" label="Bank charges account" accounts={accounts} defaultValue={setup.bank_charges_account_id ?? ''} />
+            <GlAccountField name="bankInterestIncomeAccountId" label="Bank interest income account" accounts={accounts} defaultValue={setup.bank_interest_income_account_id ?? ''} />
           </div>
           <div className="grid g3">
             <Field name="defaultReceiptBankAccountId" label="Default receipt bank" type="select" defaultValue={String(setup.default_receipt_bank_account_id ?? '')} options={[{ value: '', label: '(none)' }, ...banks.map((b) => ({ value: String(b.id), label: b.code }))]} />
@@ -207,7 +208,7 @@ export function BankAccPostingGroupButton({ row, accounts, className = 'btn', ch
           submitLabel={r ? 'Save' : 'Create'} successTitle="Bank posting group saved">
           <Field name="code" label="Code" required defaultValue={r?.code} disabled={!!r} />
           <Field name="description" label="Description" required defaultValue={r?.description} />
-          <Field name="glAccountId" label="G/L control account" type="select" required defaultValue={String(r?.gl_account_id ?? '')} options={acctOpts(accounts, '…')} />
+          <GlAccountField name="glAccountId" label="G/L control account" required accounts={accounts} defaultValue={r?.gl_account_id ?? ''} />
         </FormModal>
       ) : null}
     </>

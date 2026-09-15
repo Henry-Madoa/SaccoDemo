@@ -129,6 +129,13 @@ export async function getSalesDocument(no: string): Promise<SalesDocumentDetail 
   return { ...header, lines, outstanding_amount: outstanding, shipped_not_invoiced: shippedNotInvoiced };
 }
 
+/** The posted document a source header became, if it has been posted — posting deletes the
+ *  header, but the posted row keeps its number as source_no. Lets a link to the document (an
+ *  approval notification, say) still land somewhere useful after posting. Newest first, since
+ *  an order can be invoiced more than once. */
+export const findPostedDocumentBySource = (sourceNo: string): Promise<{ no: string } | undefined> =>
+  one<{ no: string }>('SELECT no FROM posted_sales_document WHERE source_no = ? ORDER BY id DESC LIMIT 1', sourceNo);
+
 export const hasAnySalesDocuments = (documentType?: SalesDocumentType): Promise<boolean> =>
   hasAnyRow('sales_header sh', documentType ? `sh.document_type = '${documentType}'` : undefined);
 
@@ -755,20 +762,22 @@ export interface PostedInvoiceOption {
 
 /**
  * Posted sales invoices a credit memo can be raised against, newest first — Business Central's
- * "Copy Document" / "Create Corrective Credit Memo" source list. Narrowed to one customer once
- * the memo has one, so the picker offers that customer's invoices rather than the whole ledger.
+ * "Copy Document" / "Create Corrective Credit Memo" source list. The customer is chosen first, so
+ * the list is always one customer's, and only invoices still open on the customer ledger are
+ * offered — the same set BC's Applies-to Doc. No. lookup shows. No customer, nothing to list.
  */
 export const listPostedInvoicesForCredit = (customerId?: number | null): Promise<PostedInvoiceOption[]> =>
-  all<PostedInvoiceOption>(
+  !customerId ? Promise.resolve([]) : all<PostedInvoiceOption>(
     `SELECT d.no, d.posting_date, d.customer_id, c.no AS customer_no, c.name AS customer_name,
             d.amount, COALESCE(e.remaining_amount, 0) AS remaining_amount
      FROM posted_sales_document d
      JOIN customer c ON c.id = d.customer_id
      LEFT JOIN cust_ledger_entry e ON e.id = d.cust_ledger_entry_id
-     WHERE d.document_type = 'Invoice' ${customerId ? 'AND d.customer_id = @customerId' : ''}
+     WHERE d.document_type = 'Invoice' AND d.customer_id = @customerId
+       AND COALESCE(e.remaining_amount, 0) <> 0
      ORDER BY d.id DESC
      LIMIT 200`,
-    customerId ? { customerId } : {},
+    { customerId },
   );
 
 /** A posted invoice reshaped into the header + line drafts a credit memo starts from. */

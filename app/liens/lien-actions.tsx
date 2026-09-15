@@ -245,6 +245,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteLienRequest(no), {
         confirm: { title: 'Delete this lien?', message: 'It is removed permanently. Only an open lien can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/liens',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

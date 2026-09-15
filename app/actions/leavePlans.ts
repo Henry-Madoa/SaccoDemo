@@ -1,7 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireAction, requireUser } from '@/lib/session';
+import { requireAction, requireAnyAction, requireUser } from '@/lib/session';
+import { resolveActingEmployee } from '@/lib/selfService';
 import { actionResult } from '@/lib/errors';
 import {
   createLeavePlan, setPlanLines, deleteLeavePlan, submitLeavePlan, cancelLeavePlanApproval,
@@ -11,14 +12,14 @@ import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
 import type { ActionResult } from '@/lib/types';
 
 const revalidate = (no?: string) => {
-  for (const p of ['/leave-plans', '/approvals']) revalidatePath(p);
+  for (const p of ['/leave-plans', '/approvals', '/self-service', '/self-service/leave-plans', '/dashboard']) revalidatePath(p);
   if (no) revalidatePath(`/leave-plans/view/${no}`);
 };
 
 export async function requestLeavePlan(employeeId: number): Promise<ActionResult<{ no: string }>> {
   return actionResult(async () => {
-    const user = await requireAction('LEAVE_PLANS_CREATE');
-    const res = await createLeavePlan(employeeId, user);
+    const user = await requireAnyAction('LEAVE_PLANS_CREATE', 'SELF_SERVICE_LEAVE_PLANS_CREATE');
+    const res = await createLeavePlan(await resolveActingEmployee(user, 'LEAVE_PLANS_CREATE', employeeId || null), user);
     revalidate();
     return res;
   });
@@ -26,7 +27,7 @@ export async function requestLeavePlan(employeeId: number): Promise<ActionResult
 
 export async function setPlanLinesRequest(no: string, lines: { startDate: string; endDate: string }[]): Promise<ActionResult<{ saved: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('LEAVE_PLANS_CREATE');
+    const user = await requireAnyAction('LEAVE_PLANS_CREATE', 'SELF_SERVICE_LEAVE_PLANS_CREATE');
     await setPlanLines(no, lines, user);
     revalidate(no);
     return { saved: true };
@@ -35,7 +36,7 @@ export async function setPlanLinesRequest(no: string, lines: { startDate: string
 
 export async function deleteLeavePlanRequest(no: string): Promise<ActionResult<{ deleted: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('LEAVE_PLANS_CREATE');
+    const user = await requireAnyAction('LEAVE_PLANS_CREATE', 'SELF_SERVICE_LEAVE_PLANS_CREATE');
     await deleteLeavePlan(no, user);
     revalidate();
     return { deleted: true };
@@ -44,7 +45,7 @@ export async function deleteLeavePlanRequest(no: string): Promise<ActionResult<{
 
 export async function submitLeavePlanRequest(no: string): Promise<ActionResult<{ updated: true; autoApproved: boolean }>> {
   return actionResult(async () => {
-    const user = await requireAction('LEAVE_PLANS_CREATE');
+    const user = await requireAnyAction('LEAVE_PLANS_CREATE', 'SELF_SERVICE_LEAVE_PLANS_CREATE');
     const { autoApproved } = await submitLeavePlan(no, user);
     revalidate(no);
     return { updated: true, autoApproved };
@@ -53,7 +54,7 @@ export async function submitLeavePlanRequest(no: string): Promise<ActionResult<{
 
 export async function cancelLeavePlanApprovalRequest(no: string): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
-    const user = await requireAction('LEAVE_PLANS_CREATE');
+    const user = await requireAnyAction('LEAVE_PLANS_CREATE', 'SELF_SERVICE_LEAVE_PLANS_CREATE');
     await cancelLeavePlanApproval(no, user);
     revalidate(no);
     return { updated: true };

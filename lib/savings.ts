@@ -207,6 +207,9 @@ export interface DepositInput {
   accountId: number;
   amount: Cents;
   channel?: Channel;
+  /** Debit this G/L account instead of the channel's — payroll paying net salary into the
+   *  member's FOSA account debits the Net Pay Payable the payroll journal just credited. */
+  contraGlAccount?: number | string | null;
   valueDate?: IsoDate;
   description?: string;
   reference?: string | null;
@@ -223,7 +226,7 @@ export interface PostingResult {
 
 export async function deposit({
   accountId, amount, channel = 'TELLER', valueDate, description,
-  reference = null, user = null, idempotencyKey = null,
+  reference = null, user = null, idempotencyKey = null, contraGlAccount = null,
 }: DepositInput): Promise<PostingResult> {
   amount = Math.round(amount);
   if (!(amount > 0)) throw new PostingError('Deposit amount must be greater than zero', 'INVALID_AMOUNT');
@@ -251,7 +254,7 @@ export async function deposit({
       user,
       idempotencyKey,
       lines: [
-        { account: CHANNEL_GL[channel] || CHANNEL_GL.TELLER, debit: amount, credit: 0 },
+        { account: contraGlAccount ?? (CHANNEL_GL[channel] || CHANNEL_GL.TELLER), debit: amount, credit: 0 },
         { account: acct.gl_control_id, debit: 0, credit: amount },
       ],
     });

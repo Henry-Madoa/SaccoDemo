@@ -351,6 +351,7 @@ export function DeleteButton({ no, className = 'btn sm ghost' }: { no: string; c
       onClick={() => run(() => deleteChequeDepositRequest(no), {
         confirm: { title: 'Delete this cheque deposit?', message: 'It is removed permanently. Only an open cheque deposit can be deleted.', confirmLabel: 'Delete' },
         successTitle: 'Deleted',
+        redirectTo: '/cheque-deposits',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

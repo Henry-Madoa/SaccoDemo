@@ -2417,6 +2417,8 @@ export interface Journal {
   global_dimension_2_id: number | null;
   currency_code: string;
   currency_factor: number;
+  /** BC closing date ("C31/12/2025"): posted by Close Income Statement — see lib/accounting.ts. */
+  closing_entry: number;
 }
 
 export interface JournalListRow extends Journal {
@@ -2485,6 +2487,11 @@ export interface PostJournalOptions {
   currencyCode?: string | null;
   /** LCY per 1 unit of `currencyCode`. Omitted → resolved from currency_exchange_rate at valueDate. */
   currencyFactor?: number | null;
+  /** Business Central's closing date: the journal is dated `valueDate` (a fiscal year's last day)
+   *  but sits after it — outside a "..valueDate" filter, inside "..the day after". Only Close
+   *  Income Statement sets it; a closed accounting period does not block it, since it changes no
+   *  period's result. */
+  closingEntry?: boolean;
 }
 
 export interface PostedJournal {
@@ -2499,6 +2506,7 @@ export interface LedgerLine extends JournalLine {
   journal_no: string;
   reference: string | null;
   value_date: IsoDate;
+  closing_entry: number;
   description: string | null;
   source_module: string;
   global_dimension_1_code: string | null;
@@ -2510,7 +2518,14 @@ export interface AccountingPeriod {
   code: string; // YYYY-MM
   start_date: IsoDate;
   end_date: IsoDate;
+  /** Whether postings are accepted — BC's Allow Posting gate, independent of the fiscal close. */
   status: 'OPEN' | 'CLOSED';
+  /** BC "New Fiscal Year": this period starts a fiscal year. */
+  new_fiscal_year: number;
+  /** BC "Closed": set by Close Year on every period of the year; never cleared. */
+  fiscally_closed: number;
+  /** BC "Date Locked": set alongside fiscally_closed. */
+  date_locked: number;
 }
 
 /* ------------------------------------------------- find entries / navigate */
@@ -3927,7 +3942,8 @@ export type WorkflowDocumentType =
   | 'PURCHASE_DOCUMENT'
   | 'RECEIPT' | 'PAYMENT_VOUCHER'
   | 'EMPLOYEE_ONBOARDING' | 'EMPLOYEE_EDIT' | 'EMPLOYEE_CONTRACT_CHANGE' | 'EMPLOYEE_EXIT'
-  | 'LEAVE_APPLICATION' | 'LEAVE_ADJUSTMENT' | 'LEAVE_RECALL' | 'LEAVE_PLAN' | 'PAYROLL_PERIOD';
+  | 'LEAVE_APPLICATION' | 'LEAVE_ADJUSTMENT' | 'LEAVE_RECALL' | 'LEAVE_PLAN' | 'PAYROLL_PERIOD'
+  | 'COMPANY_JOB';
 export type WorkflowApproverType = 'USER' | 'DIRECT_APPROVER' | 'USER_GROUP';
 export type WorkflowConditionOperator = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'BETWEEN';
 export type WorkflowTaskStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
@@ -4091,6 +4107,8 @@ export interface ApprovalUserSetup {
   /** Time-of-day refinement on the two boundary dates only — see the schema's own doc comment. */
   allow_posting_from_time: string | null;
   allow_posting_to_time: string | null;
+  /** AL User Setup "Employee No." — the employee this login is; Self Service hangs off it. */
+  employee_id: number | null;
 }
 
 /** One row of the Approval User Setup grid — the user plus their configured setup, if any. */
@@ -4104,6 +4122,9 @@ export interface ApprovalUserSetupRow {
   approver_name: string | null;
   substitute_id: number | null;
   substitute_name: string | null;
+  employee_id: number | null;
+  employee_no: string | null;
+  employee_name: string | null;
   is_approval_administrator: Flag;
   can_reverse_journal: Flag;
   allow_posting_from: IsoDate | null;
@@ -5425,6 +5446,8 @@ export interface PurchaseHeader {
   vendor_posting_group_code: string | null;
   vat_bus_posting_group_code: string | null;
   vendor_invoice_no: string | null;
+  /** BC "Applies-to Doc. No." — the posted invoice a credit memo settles when it posts. */
+  applies_to_doc_no: string | null;
   purchaser: string | null;
   currency_code: string;
   currency_factor: number;
@@ -5496,6 +5519,7 @@ export interface PostedPurchaseDocument {
   /** The open document this was posted from — what its approval trail is recorded against. */
   source_no: string | null;
   vendor_invoice_no: string | null;
+  applies_to_doc_no: string | null;
   payment_terms_code: string | null;
   vat_bus_posting_group_code: string | null;
   currency_code: string;
@@ -6242,8 +6266,30 @@ export interface WhtAnalysisRow {
  * ================================================================================================ */
 
 /** Collapses AL's two overlapping status fields into one lifecycle. */
+/** AL Payroll Salary Card "Payment Mode". */
+export type PaymentMode = 'Bank Transfer' | 'Cheque' | 'Cash' | 'FOSA';
+export const PAYMENT_MODES: PaymentMode[] = ['Bank Transfer', 'Cheque', 'Cash', 'FOSA'];
+
 export type EmployeeStatus =
   | 'NEW' | 'PENDING_APPROVAL' | 'ACTIVE' | 'ON_LEAVE' | 'PENDING_FINAL_PAYMENT' | 'INACTIVE' | 'TERMINATED';
+
+/** AL Tab52203636 "Salary Scale Pointers" — a notch on a job grade's salary scale. */
+export interface HrSalaryScale {
+  id: number; job_grade_id: number; code: string; name: string | null; basic_pay_cents: Cents;
+  sequence: number; status: 'ACTIVE' | 'INACTIVE'; created_at: IsoDateTime | null; created_by: string | null;
+}
+/** AL Tab52203627 "Income/Deduction Configuration" — one earning / deduction a notch confers. */
+export interface HrSalaryScaleBenefit {
+  id: number; salary_scale_id: number; transaction_code_id: number; amount_cents: Cents; notes: string | null;
+}
+export interface HrSalaryScaleBenefitView extends HrSalaryScaleBenefit {
+  transaction_code: string; transaction_name: string; transaction_type: PayrollTransactionType;
+}
+export interface HrSalaryScaleView extends HrSalaryScale {
+  job_grade_code: string; job_grade_name: string;
+  employee_count: number;
+  benefits: HrSalaryScaleBenefitView[];
+}
 
 export interface HrJobGrade {
   id: number; code: string; name: string;
@@ -6288,6 +6334,8 @@ export interface Employee {
   sub_county_id: number | null;
   job_title: string | null;
   job_grade_id: number | null;
+  /** AL Employee."Job Code" — the Company Job (position) held; drives the organogram. */
+  company_job_id: number | null;
   contract_type_id: number | null;
   nature_of_employment: 'PERMANENT' | 'CONTRACT' | 'BOARD' | 'SECONDED';
   employee_type: 'STAFF' | 'DRIVER' | 'INTERN' | 'NYSC';
@@ -6305,6 +6353,23 @@ export interface Employee {
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
   member_id: number | null;
+  salary_scale_id: number | null;
+  basic_pay_cents: Cents;
+  /** AL Tab52203623 "Payroll Salary Card" — how the employee is paid (basic pay is the contract's). */
+  payment_mode: PaymentMode;
+  payroll_currency_code: string | null;
+  pays_nssf: boolean;
+  pays_shif: boolean;
+  pays_paye: boolean;
+  payslip_message: string | null;
+  suspend_pay: boolean;
+  suspension_date: IsoDate | null;
+  suspension_reasons: string | null;
+  stop_relief: boolean;
+  insurance_certificate: boolean;
+  /** Passport photo / specimen signature — Cloudinary public_ids, or null. */
+  photo_image: string | null;
+  signature_image: string | null;
   photo_url: string | null;
   disabled: boolean;
   disability_notes: string | null;
@@ -6319,6 +6384,11 @@ export interface Employee {
 
 export interface EmployeeView extends Employee {
   job_grade_name: string | null;
+  company_job_code: string | null; company_job_name: string | null;
+  posting_group_code: string | null;
+  posting_group_name: string | null;
+  member_no: string | null;
+  member_name: string | null;
   contract_type_name: string | null;
   manager_first_name: string | null;
   manager_last_name: string | null;
@@ -6397,11 +6467,35 @@ export interface EmployeeEditRequest {
   sub_county_id: number | null;
   job_title: string | null;
   job_grade_id: number | null;
+  /** AL Employee."Job Code" — the Company Job (position) held; drives the organogram. */
+  company_job_id: number | null;
   bank_code: string | null;
   bank_branch: string | null;
   bank_account_no: string | null;
   global_dimension_1_id: number | null;
   global_dimension_2_id: number | null;
+  /** SACCO Member No. (AL Employee."Member No.") — proposed with the Payroll Salary Card. */
+  member_id: number | null;
+  posting_group_id: number | null;
+  /** AL "J-G Steps" — the salary-scale notch within the job grade; null = off-scale. */
+  salary_scale_id: number | null;
+  /** Payroll Salary Card "Basic Pay" — kept in step with the current contract's salary. */
+  basic_pay_cents: Cents;
+  /** AL Tab52203623 "Payroll Salary Card" — how the employee is paid (basic pay is the contract's). */
+  payment_mode: PaymentMode;
+  payroll_currency_code: string | null;
+  pays_nssf: boolean;
+  pays_shif: boolean;
+  pays_paye: boolean;
+  payslip_message: string | null;
+  suspend_pay: boolean;
+  suspension_date: IsoDate | null;
+  suspension_reasons: string | null;
+  stop_relief: boolean;
+  insurance_certificate: boolean;
+  /** Proposed passport photo / specimen signature (Cloudinary public_ids), applied with the rest. */
+  photo_image: string | null;
+  signature_image: string | null;
   status: DocumentStatus;
   decision_reason: string | null;
   created_at: IsoDateTime | null;
@@ -6409,8 +6503,11 @@ export interface EmployeeEditRequest {
 }
 
 export interface EmployeeEditRequestView extends EmployeeEditRequest {
+  company_job_code: string | null; company_job_name: string | null;
   employee_no: string; employee_first_name: string; employee_last_name: string;
   job_grade_name: string | null; county_name: string | null; sub_county_name: string | null;
+  posting_group_code: string | null; posting_group_name: string | null;
+  member_no: string | null; member_name: string | null;
   global_dimension_1_code: string | null; global_dimension_1_name: string | null;
   global_dimension_2_code: string | null; global_dimension_2_name: string | null;
 }
@@ -6581,10 +6678,17 @@ export interface HrLeavePlanLine { id: number; plan_no: string; start_date: IsoD
 export interface HrPayrollSetup {
   id: 1;
   personal_relief_cents: Cents; insurance_relief_pct: number; max_relief_cents: Cents;
+  /** Owner-occupier interest cap per month — P9 column F (KES 30,000 from 27 Dec 2024). */
   mortgage_relief_cents: Cents; shif_pct: number; shif_based_on: 'GROSS' | 'BASIC' | 'TAXABLE';
   nssf_employer_factor: number; housing_levy_enabled: boolean; housing_levy_pct: number;
   housing_levy_based_on: 'GROSS' | 'BASIC' | 'TAXABLE'; minimum_relief_threshold_cents: Cents;
   secondary_tax_pct: number; monthly_working_days: number;
+  /** P9 column E3 — the fixed monthly cap on the defined-contribution deduction. */
+  pension_deduction_cap_cents: Cents;
+  /** P9 column J — cap on the post-retirement medical fund deduction. */
+  prmf_cap_cents: Cents;
+  /** Whether SHIF (col. I) and the Affordable Housing Levy (col. H) are deducted before tax. */
+  shif_deductible: boolean; housing_levy_deductible: boolean;
   updated_at: IsoDateTime | null; updated_by: string | null;
 }
 
@@ -6607,11 +6711,23 @@ export type PayrollTransactionType = 'INCOME' | 'DEDUCTION' | 'COMPANY_DEDUCTION
 export type PayrollBalanceType = 'NONE' | 'INCREASING' | 'REDUCING';
 export type PayrollSpecialType =
   | 'NONE' | 'BASIC_SALARY' | 'HOUSE_ALLOWANCE' | 'TRANSPORT_ALLOWANCE' | 'OVERTIME' | 'ACTING_ALLOWANCE'
-  | 'LEAVE_ALLOWANCE' | 'GRATUITY' | 'PENSION' | 'MORTGAGE' | 'INSURANCE' | 'LOAN' | 'SALARY_ARREARS' | 'DIRECTORS_FEE';
+  | 'LEAVE_ALLOWANCE' | 'GRATUITY' | 'PENSION' | 'MORTGAGE' | 'INSURANCE' | 'LOAN' | 'SALARY_ARREARS' | 'DIRECTORS_FEE'
+  /** Taxable but not paid in cash — P9 columns B and C; kept off the journal and the net pay. */
+  | 'NON_CASH_BENEFIT' | 'VALUE_OF_QUARTERS'
+  /** Post-retirement medical fund — an allowable deduction, P9 column J. */
+  | 'PRMF';
+
+export type PayrollAmountPreference = 'FORMULA' | 'HIGHER' | 'LOWER';
 
 export interface PayrollTransactionCode {
   id: number; code: string; name: string; type: PayrollTransactionType; taxable: boolean;
-  is_formula: boolean; formula: string | null; fixed_amount_cents: Cents; upper_limit_cents: Cents | null;
+  /** AL "Is Formula" / Formula: the amount is computed from the employee's period transactions,
+   *  e.g. `[BPAY]*0.15`; "Amount Preference" picks between it and the line's own amount. */
+  is_formula: boolean; formula: string | null; amount_preference: PayrollAmountPreference;
+  /** Employer-side contribution on a deduction (AL "Include Employer Deduction"): a multiple of
+   *  the employee's amount (2 = the employer pays double), or a formula that overrides it. */
+  employer_factor: number; employer_formula: string | null;
+  fixed_amount_cents: Cents; upper_limit_cents: Cents | null;
   balance_type: PayrollBalanceType; special_type: PayrollSpecialType;
   gl_account_id: number | null; employer_gl_account_id: number | null; for_every_employee: boolean;
   status: string; created_at: IsoDateTime | null; created_by: string | null;
@@ -6629,18 +6745,38 @@ export interface EmployeePayrollTransaction {
   id: number; employee_id: number; transaction_code_id: number; payroll_period_id: number;
   amount_cents: Cents; original_amount_cents: Cents | null; balance_cents: Cents | null;
   no_of_periods: number | null; executed_periods: number; stopped: boolean; temporary: boolean;
-  notes: string | null; created_at: IsoDateTime | null; created_by: string | null;
+  notes: string | null;
+  /** AL "Loan Number" — set on rows the run pulled from the Credit module. */
+  loan_id: number | null;
+  /** The window the line is in force (either side open when null). */
+  start_date: IsoDate | null; end_date: IsoDate | null;
+  /** The salary-scale notch that conferred this line, when it did. */
+  salary_scale_id: number | null;
+  created_at: IsoDateTime | null; created_by: string | null;
 }
 export interface EmployeePayrollTransactionView extends EmployeePayrollTransaction {
   transaction_code_name: string; transaction_type: PayrollTransactionType;
 }
 
-export interface PayrollPeriodLine {
-  id: number; payroll_period_id: number; employee_id: number; transaction_code_id: number;
-  section: string; sort_order: number; amount_cents: Cents; gl_account_id: number | null; is_debit: boolean;
+/** AL Tab52203619 "Payroll Period Transaction" — one computed line of an employee's payroll for
+ *  a period. Basic pay, the tax workings, statutories and net pay carry the run's own codes and
+ *  no transaction_code_id; only Earnings & Deductions lines point at a code. */
+export interface PayrollPeriodTransaction {
+  id: number; payroll_period_id: number; employee_id: number;
+  transaction_code: string; transaction_code_id: number | null; transaction_name: string;
+  transaction_type: 'INCOME' | 'DEDUCTION' | 'COMPANY_DEDUCTION' | 'MEMO' | 'NET';
+  group_text: string; group_order: number; sub_group_order: number; payslip_order: number;
+  amount_cents: Cents; balance_cents: Cents | null; original_amount_cents: Cents | null; no_of_units: number | null;
+  gl_account_id: number | null; post_as: 'DEBIT' | 'CREDIT' | null; post_to_journal: boolean;
+  journal_account_type: 'GL' | 'SAVINGS' | 'CREDIT' | 'EMPLOYEE'; company_deduction: boolean;
+  member_id: number | null; loan_id: number | null; imprest_no: string | null;
+  posting_group_id: number | null; payment_mode: string | null; salary_scale_id: number | null;
+  global_dimension_1_id: number | null; global_dimension_2_id: number | null;
+  staff_name: string | null; bank_code: string | null; bank_branch: string | null; bank_account_no: string | null;
+  created_at: IsoDateTime | null;
 }
-export interface PayrollPeriodLineView extends PayrollPeriodLine {
-  transaction_code_name: string; employee_no: string; employee_first_name: string; employee_last_name: string;
+export interface PayrollPeriodTransactionView extends PayrollPeriodTransaction {
+  employee_no: string; employee_first_name: string; employee_last_name: string;
 }
 
 export interface PayrollP9Line {
@@ -6648,6 +6784,9 @@ export interface PayrollP9Line {
   basic_pay_cents: Cents; gross_pay_cents: Cents; taxable_pay_cents: Cents; tax_charged_cents: Cents;
   insurance_relief_cents: Cents; personal_relief_cents: Cents; paye_cents: Cents; nssf_cents: Cents;
   shif_cents: Cents; housing_levy_cents: Cents; deductions_cents: Cents; net_pay_cents: Cents;
+  /** P9 columns B, C, the staff pension inside E2, E (lowest of E1/E2/E3), F and J. */
+  benefits_cents: Cents; quarters_cents: Cents; pension_cents: Cents; defined_contribution_cents: Cents;
+  owner_occupier_interest_cents: Cents; prmf_cents: Cents;
   created_at: IsoDateTime | null;
 }
 
@@ -6829,4 +6968,45 @@ export interface DividendWithdrawnMember {
 export interface DividendDetail extends DividendListRow {
   params: DividendParamView[];
   withdrawn: DividendWithdrawnMember[];
+}
+
+/* ------------------------------------------------------------------ Company Organogram */
+
+export type CompanyJobStatus = 'Open' | 'Pending Approval' | 'Approved' | 'Retired';
+export const JOB_QUALIFICATION_TYPES = ['ACADEMIC', 'PROFESSIONAL', 'EXPERIENCE', 'SKILL', 'MEMBERSHIP', 'OTHER'] as const;
+export type JobQualificationType = (typeof JOB_QUALIFICATION_TYPES)[number];
+export const JOB_QUALIFICATION_PRIORITIES = ['MANDATORY', 'DESIRABLE', 'ADDED_ADVANTAGE'] as const;
+export type JobQualificationPriority = (typeof JOB_QUALIFICATION_PRIORITIES)[number];
+export const JOB_COMPETENCY_LEVELS = ['BASIC', 'INTERMEDIATE', 'ADVANCED', 'EXPERT'] as const;
+export type JobCompetencyLevel = (typeof JOB_COMPETENCY_LEVELS)[number];
+/** AL "Primary / 2nd / 3rd Skills Category". */
+export const JOB_SKILLS_CATEGORIES = ['Auditors', 'Consultants', 'Training', 'Certification', 'Administration', 'Marketing', 'Management', 'Business Development', 'Finance', 'ICT', 'Credit', 'Operations', 'Other'] as const;
+
+/** AL Tab52203769 "Company Jobs" — a position in the establishment. */
+export interface HrCompanyJob {
+  id: number; job_id: string; name: string; objective: string | null;
+  reports_to_job_id: number | null; job_grade_id: number | null;
+  global_dimension_1_id: number | null; global_dimension_2_id: number | null;
+  no_of_posts: number; is_management: boolean; profession: string | null;
+  skills_category: string | null; skills_category_2: string | null; skills_category_3: string | null;
+  status: CompanyJobStatus; decision_reason: string | null;
+  created_at: IsoDateTime | null; created_by: string | null; approved_at: IsoDateTime | null; approved_by: string | null;
+}
+export interface HrCompanyJobView extends HrCompanyJob {
+  reports_to_job_code: string | null; reports_to_job_name: string | null;
+  job_grade_code: string | null; job_grade_name: string | null;
+  global_dimension_1_name: string | null; global_dimension_2_name: string | null;
+  /** AL "Occupied Position" (active employees on the job) and "Vacant Positions" (posts − occupied). */
+  occupied: number; vacant: number;
+}
+export interface HrCompanyJobResponsibility { id: number; job_id: number; line_no: number; description: string }
+export interface HrCompanyJobRequirement { id: number; job_id: number; line_no: number; description: string }
+export interface HrCompanyJobQualification {
+  id: number; job_id: number; qualification_type: JobQualificationType; qualification: string; description: string | null;
+  priority: JobQualificationPriority; competency_level: JobCompetencyLevel | null;
+}
+/** An employee placed on a job, as the organogram shows them. */
+export interface CompanyJobHolder {
+  id: number; employee_no: string; first_name: string; last_name: string; status: string; photo_image: string | null;
+  employment_date: IsoDate | null; manager_id: number | null;
 }

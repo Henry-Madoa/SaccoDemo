@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { initials } from '@/lib/format';
@@ -9,6 +9,7 @@ import { useNav } from './nav-context';
 import type { OrgBrand, SessionUser } from '@/lib/types';
 
 const COLLAPSED_GROUPS_KEY = 'nav-collapsed-groups';
+const SCROLL_KEY = 'nav-scroll-top';
 
 export interface SidebarProps {
   org: OrgBrand;
@@ -41,13 +42,43 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
   // user has collapsed it. Everything starts expanded (matching the server render), then this
   // reconciles from localStorage right after mount.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [hydrated, setHydrated] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
 
-  useEffect(() => {
+  // A layout effect so the remembered collapse state is applied before the first paint — this
+  // column remounts on every cross-area navigation (see below), and a plain effect would show
+  // every collapsed group snapping shut each time.
+  useLayoutEffect(() => {
     try {
       const saved = localStorage.getItem(COLLAPSED_GROUPS_KEY);
       if (saved) setCollapsed(new Set(JSON.parse(saved)));
     } catch { /* ignore malformed/unavailable storage */ }
+    setHydrated(true);
   }, []);
+
+  // Every top-level route has its own layout wrapping AppShell, so crossing from e.g. /loans to
+  // /members unmounts this column and mounts a fresh <aside> scrolled to the top. Put the scroll
+  // back where the user left it, then nudge only as far as needed to keep the current page's link
+  // on screen. Runs once the collapse state is in so it measures the real layout.
+  useLayoutEffect(() => {
+    if (!hydrated) return;
+    const el = asideRef.current;
+    if (!el) return;
+    try {
+      const saved = sessionStorage.getItem(SCROLL_KEY);
+      if (saved) el.scrollTop = Number(saved);
+    } catch { /* unavailable storage: still keep the active link visible */ }
+    const active = el.querySelector<HTMLElement>('.nav a.active');
+    if (!active) return;
+    const a = active.getBoundingClientRect();
+    const c = el.getBoundingClientRect();
+    if (a.top < c.top) el.scrollTop -= c.top - a.top + 8;
+    else if (a.bottom > c.bottom) el.scrollTop += a.bottom - c.bottom + 8;
+  }, [hydrated, pathname]);
+
+  const rememberScroll = () => {
+    try { sessionStorage.setItem(SCROLL_KEY, String(asideRef.current?.scrollTop ?? 0)); } catch { /* ignore */ }
+  };
 
   const toggleGroup = (group: string) => {
     setCollapsed((prev) => {
@@ -115,7 +146,8 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
           clicks on the desktop layout. */}
       {open ? <div className="nav-backdrop" onClick={close} aria-hidden="true" /> : null}
 
-      <aside id="app-sidebar" className={`sidebar ${open ? 'open' : ''}`}>
+      <aside id="app-sidebar" ref={asideRef} onScroll={rememberScroll}
+        className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-head">
           <Link href="/dashboard" className="sidebar-brand" onClick={close}>
             {org.logo ? <img src={org.logo} alt="" /> : <div className="mark">{initials(name)}</div>}

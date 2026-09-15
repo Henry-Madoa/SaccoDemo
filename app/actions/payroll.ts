@@ -5,7 +5,7 @@ import { requireAction, requireUser } from '@/lib/session';
 import { actionResult } from '@/lib/errors';
 import {
   createPayrollPeriod, submitPayrollPeriod, cancelPayrollPeriodApproval, approvePayrollPeriod,
-  rejectPayrollPeriod, closePayrollPeriod, runPayrollForEmployee, runPayrollForPeriod,
+  rejectPayrollPeriod, reopenPayrollPeriod, closePayrollPeriod, runPayrollForEmployee, runPayrollForPeriod,
   addEmployeeTransaction, removeEmployeeTransaction, stopEmployeeTransaction, type EmployeeTransactionInput,
 } from '@/lib/payroll';
 import { findPendingRoutedTask, decideWorkflowTask } from '@/lib/workflow';
@@ -63,6 +63,15 @@ export async function cancelPayrollPeriodApprovalRequest(id: number): Promise<Ac
   });
 }
 
+export async function reopenPayrollPeriodRequest(id: number, reason: string): Promise<ActionResult<{ updated: true }>> {
+  return actionResult(async () => {
+    const user = await requireAction('PAYROLL_PERIODS_APPROVE');
+    await reopenPayrollPeriod(id, reason, user);
+    revalidate(id);
+    return { updated: true };
+  });
+}
+
 export async function approvePayrollPeriodRequest(id: number): Promise<ActionResult<{ updated: true }>> {
   return actionResult(async () => {
     const routed = await findPendingRoutedTask('PAYROLL_PERIOD', String(id));
@@ -93,11 +102,15 @@ export async function rejectPayrollPeriodRequest(id: number, reason: string): Pr
   });
 }
 
-export async function closePayrollPeriodRequest(id: number, values: FormValues): Promise<ActionResult<{ nextPeriodId: number; journalNo: string }>> {
+export async function closePayrollPeriodRequest(id: number, values: FormValues): Promise<ActionResult<{ nextPeriodId: number; journalNo: string; nextPeriodName: string }>> {
   return actionResult(async () => {
     const user = await requireAction('PAYROLL_PERIODS_CLOSE');
+    // The next period is derived from the current one (+1M, AL fnClosePayrollPeriod); the
+    // dialog only passes an override when the user changed the suggestion.
     const res = await closePayrollPeriod(id, {
-      periodName: String(values.periodName || ''), startDate: String(values.startDate || ''), endDate: String(values.endDate || ''),
+      periodName: values.periodName ? String(values.periodName) : undefined,
+      startDate: values.startDate ? String(values.startDate) : undefined,
+      endDate: values.endDate ? String(values.endDate) : undefined,
     }, user);
     revalidate(id);
     return res;
