@@ -23,7 +23,7 @@ const revalidate = (id?: number) => {
 
 function toInput(values: FormValues): EmployeeInput {
   const body: EmployeeInput = { ...values } as EmployeeInput;
-  for (const k of ['county_id', 'sub_county_id', 'job_grade_id', 'contract_type_id', 'manager_id', 'overview_manager_id', 'global_dimension_1_id', 'global_dimension_2_id'] as const) {
+  for (const k of ['county_id', 'sub_county_id', 'job_grade_id', 'contract_type_id', 'manager_id', 'overview_manager_id', 'global_dimension_1_id', 'global_dimension_2_id', 'company_job_id'] as const) {
     if (values[k] !== undefined) (body as Record<string, unknown>)[k] = values[k] ? Number(values[k]) : null;
   }
   return body;

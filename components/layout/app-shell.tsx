@@ -7,6 +7,8 @@ import { NAV, isSubMenu } from '@/lib/nav';
 import { Sidebar } from '@/components/layout/sidebar';
 import { NavProvider } from '@/components/layout/nav-context';
 import { PrintPreviewMode } from '@/components/ui/print-preview-mode';
+import { GlobalSearchProvider } from '@/components/layout/global-search';
+import { buildSearchIndex } from '@/lib/globalSearch';
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -27,13 +29,18 @@ export async function AppShell({ children }: { children: ReactNode }) {
     ? { pendingApprovals: await myPendingWorkflowTaskCount(user.id, user.username) }
     : {};
 
+  // Business Central "Tell Me": every page this user may open, searchable from the top bar (Alt+Q).
+  const searchIndex = buildSearchIndex(user);
+
   return (
     <NavProvider>
       <PrintPreviewMode />
-      <div className="shell">
-        <Sidebar org={org} user={user} allowedPaths={allowedPaths} badges={badges} />
-        <div className="main">{children}</div>
-      </div>
+      <GlobalSearchProvider entries={searchIndex}>
+        <div className="shell">
+          <Sidebar org={org} user={user} allowedPaths={allowedPaths} badges={badges} />
+          <div className="main">{children}</div>
+        </div>
+      </GlobalSearchProvider>
     </NavProvider>
   );
 }

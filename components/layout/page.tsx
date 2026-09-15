@@ -5,6 +5,7 @@ import { SignOutButton } from './sign-out-button';
 import { NavToggle } from './nav-toggle';
 import { ThemeToggle } from './theme-toggle';
 import { NotificationBell } from './notification-bell';
+import { GlobalSearchButton } from './global-search';
 import type { SessionUser } from '@/lib/types';
 
 export interface PageProps {
@@ -32,6 +33,7 @@ export function Page({ title, crumb, user, children }: PageProps) {
         </div>
         <div className="spacer" />
         <div className="usermenu">
+          <GlobalSearchButton />
           <NotificationBell />
           <Link href="/my-settings" className="theme-toggle" aria-label="My Settings" title="My Settings">
             <span aria-hidden="true">⚙️</span>
