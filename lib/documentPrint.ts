@@ -811,7 +811,8 @@ function documentStyles(doc: PrintDocument): string {
     /* The @page margin above is the paper's margin — the sheet drops its screen padding. The
        screen-only overflow clip has to go too: a clipped box that spans pages loses the pages
        after the first. */
-    .dp { max-width: none; font-size: 11px; padding: 0; box-shadow: none; border-radius: 0;
+    /* components/ui/print-sheets.tsx scales the sheet to the screen; paper gets it full size. */
+    .dp { max-width: none; width: auto !important; zoom: 1 !important; font-size: 11px; padding: 0; box-shadow: none; border-radius: 0;
       overflow: visible; }
     /* A slip keeps its width on paper and sits at the left margin, as the RDL lays it out. */
     .dp.dp-slip { max-width: ${SLIP_WIDTH_MM}mm; margin: 0; font-size: 10px; }

@@ -31,6 +31,7 @@ import { imprestLookups } from '../../imprest/lookups';
 import { requisitionLookups } from '../../requisitions/lookups';
 import { SelfServiceDashboard } from '../dashboard';
 import type { SessionUser } from '@/lib/types';
+import { PrintSheets } from '@/components/ui/print-sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -185,7 +186,7 @@ async function PayslipsTab({ me, period }: { me: SelfEmployee; period?: string }
         <Spacer />
         {slip ? <a className="btn sm" href={`/print/payslip/${me.id}-${periodId}`} target="_blank" rel="noreferrer">Print / Save as PDF</a> : null}
       </Toolbar>
-      {slip ? <div dangerouslySetInnerHTML={{ __html: renderDocument(slip) }} />
+      {slip ? <PrintSheets html={renderDocument(slip)} />
         : <Card><EmptyState icon="🧾" title="No payslip for this period" sub="Payroll has not been run for you in this period yet." /></Card>}
     </>
   );
@@ -204,7 +205,7 @@ async function P9Tab({ me, year }: { me: SelfEmployee; year?: string }) {
         <Spacer />
         {doc ? <a className="btn sm" href={`/print/p9/${me.id}-${y}`} target="_blank" rel="noreferrer">Print / Save as PDF</a> : null}
       </Toolbar>
-      {doc ? <div dangerouslySetInnerHTML={{ __html: renderDocument(doc) }} />
+      {doc ? <PrintSheets html={renderDocument(doc)} />
         : <Card><EmptyState icon="📄" title={`No P9 for ${y}`} sub="No payroll has been posted for you in that year." /></Card>}
     </>
   );

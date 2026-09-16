@@ -6,13 +6,15 @@
  * doesn't have: a screen-only "Print / Save as PDF" button, plus the auto-open of the browser's
  * print dialog that every slip in the app has always done on load.
  */
+import { PrintSheets } from './print-sheets';
+
 export function Printable({ html }: { html: string }) {
   return (
     <>
       <div className="no-print" style={{ maxWidth: '214mm', margin: '16px auto 12px', textAlign: 'right' }}>
         <button type="button" className="btn" data-print>Print / Save as PDF</button>
       </div>
-      <div style={{ paddingBottom: 24 }} dangerouslySetInnerHTML={{ __html: html }} />
+      <PrintSheets style={{ paddingBottom: 24 }} html={html} />
       <script
         dangerouslySetInnerHTML={{
           __html: "document.querySelector('[data-print]')?.addEventListener('click',function(){window.print();});"

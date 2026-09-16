@@ -10,6 +10,7 @@ import { DateFilterExpressionInput } from '@/components/ui/filters';
 import { MultiSelectFilter, BoolToggle } from '@/components/ui/multi-select-filter';
 import { DocumentActionsMenu } from '@/components/ui/document-actions';
 import type { PrintDocument } from '@/lib/documentPrint';
+import { PrintSheets } from '@/components/ui/print-sheets';
 
 const parseIds = (raw?: string): number[] =>
   (raw ? raw.split(',') : []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
@@ -89,7 +90,7 @@ export default async function MemberStatementsPage({ searchParams }: {
       ) : (
         // One sheet per member — renderDocuments() emits the shared stylesheet once and breaks
         // the page between documents.
-        <div dangerouslySetInnerHTML={{ __html: renderDocuments(docs) }} />
+        <PrintSheets html={renderDocuments(docs)} />
       )}
     </Page>
   );

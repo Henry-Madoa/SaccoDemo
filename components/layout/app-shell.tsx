@@ -9,6 +9,8 @@ import { NavProvider } from '@/components/layout/nav-context';
 import { PrintPreviewMode } from '@/components/ui/print-preview-mode';
 import { GlobalSearchProvider } from '@/components/layout/global-search';
 import { buildSearchIndex } from '@/lib/globalSearch';
+import { RoleExplorerProvider } from '@/components/layout/role-explorer';
+import { buildRoleExplorer } from '@/lib/roleExplorer';
 
 export async function AppShell({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -31,15 +33,19 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   // Business Central "Tell Me": every page this user may open, searchable from the top bar (Alt+Q).
   const searchIndex = buildSearchIndex(user);
+  // Business Central "Explore all" (the ☰ button): every Role Centre profile as an area.
+  const explorerAreas = await buildRoleExplorer(user);
 
   return (
     <NavProvider>
       <PrintPreviewMode />
       <GlobalSearchProvider entries={searchIndex}>
-        <div className="shell">
-          <Sidebar org={org} user={user} allowedPaths={allowedPaths} badges={badges} />
-          <div className="main">{children}</div>
-        </div>
+        <RoleExplorerProvider areas={explorerAreas} orgName={org.short_name || org.name || 'SACCO'}>
+          <div className="shell">
+            <Sidebar org={org} user={user} allowedPaths={allowedPaths} badges={badges} />
+            <div className="main">{children}</div>
+          </div>
+        </RoleExplorerProvider>
       </GlobalSearchProvider>
     </NavProvider>
   );

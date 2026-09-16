@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { initials } from '@/lib/format';
 import { NAV, isSubMenu, groupInRoleCentre, type NavItem } from '@/lib/nav';
 import { useNav } from './nav-context';
+import { ExploreAllLink } from './role-explorer';
 import type { OrgBrand, SessionUser } from '@/lib/types';
 
 const COLLAPSED_GROUPS_KEY = 'nav-collapsed-groups';
@@ -175,6 +176,12 @@ export function Sidebar({ org, user, allowedPaths, badges = {} }: SidebarProps) 
             <span className="chev" aria-hidden="true">›</span>
           </Link>
         ) : null}
+
+        <ExploreAllLink className="nav-explore">
+          <span className="ico" aria-hidden="true">☰</span>
+          Explore all
+          <span className="chev" aria-hidden="true">›</span>
+        </ExploreAllLink>
 
         <nav className="nav">
           {visibleGroups.map((group) => {

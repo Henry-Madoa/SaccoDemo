@@ -76,6 +76,7 @@ html, body {
    Business-Central-style "Print/Send" split button: Preview, Print, Export to
    Excel in one dropdown, offered per-document instead of scattered buttons. */
 .doc-actions { position: relative; display: inline-flex; }
+.doc-actions > .btn { white-space: nowrap; }
 .doc-actions-caret { font-size: 10px; margin-left: 2px; }
 .doc-actions-menu {
   position: absolute; top: calc(100% + 6px); right: 0; min-width: 190px;
@@ -1060,3 +1061,103 @@ body.print-preview .card { border: none; padding: 0; }
 .tell-me-foot { display: flex; gap: 14px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-muted); }
 .tell-me-foot kbd { margin-right: 3px; }
 @media print { .tell-me-btn, .tell-me-back { display: none !important; } }
+
+/* ------------------------------------------------------------------ role explorer (explore all) */
+/* Business Central's ☰ "Explore all" (components/layout/role-explorer.tsx): a full-screen map of
+   every Role Centre's navigation. The ☰ trigger sits in the top bar's right-hand cluster next to
+   the search box on desktop; on phones the sidebar's "Explore all" row is the entry point. */
+.explore-btn {
+  flex: none; width: 34px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); color: inherit; cursor: pointer;
+}
+.explore-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.explore-btn .bars, .rx-brand .bars { display: block; width: 18px; height: 14px; position: relative; }
+.explore-btn .bars i, .rx-brand .bars i { position: absolute; left: 0; width: 100%; height: 2px; border-radius: 2px; background: currentColor; }
+.explore-btn .bars i:nth-child(1), .rx-brand .bars i:nth-child(1) { top: 0; }
+.explore-btn .bars i:nth-child(2), .rx-brand .bars i:nth-child(2) { top: 6px; }
+.explore-btn .bars i:nth-child(3), .rx-brand .bars i:nth-child(3) { top: 12px; }
+@media (max-width: 900px) { .explore-btn { display: none; } }
+
+.nav-explore {
+  display: flex; align-items: center; gap: 10px; width: calc(100% - var(--sp) * 2);
+  margin: 6px var(--sp) 0; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: none; border: 1px solid transparent; color: var(--sidebar-fg); cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 500; text-align: left;
+}
+.nav-explore:hover { background: rgba(255,255,255,.1); color: var(--sidebar-fg-active); }
+.nav-explore .ico { width: 16px; text-align: center; }
+.nav-explore .chev { margin-left: auto; opacity: .55; }
+
+.rx-back { position: fixed; inset: 0; z-index: 130; background: var(--bg, var(--surface)); color: var(--text); display: flex; flex-direction: column; }
+.rx-head {
+  display: flex; align-items: center; gap: calc(var(--sp) * 2); padding: 0 calc(var(--sp) * 3); min-height: 60px;
+  background: var(--topbar-bg); color: var(--topbar-fg); border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap;
+}
+.rx-brand { display: flex; align-items: center; gap: 12px; padding-right: calc(var(--sp) * 2); border-right: 1px solid var(--border); }
+.rx-org { font-size: 17px; font-weight: 600; white-space: nowrap; }
+.rx-tabs { display: flex; gap: 2px; align-self: stretch; }
+.rx-tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 12px; color: var(--text-muted);
+  font: inherit; font-size: 13.5px; cursor: pointer;
+}
+.rx-tabs button:hover { color: var(--text); }
+.rx-tabs button.active { color: var(--brand-primary); border-bottom-color: var(--brand-primary); font-weight: 600; }
+.rx-find {
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; width: 240px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.rx-find:focus-within { border-color: var(--brand-primary); }
+.rx-find input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 13.5px; }
+.rx-clear { border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 12px; }
+.rx-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.rx-close {
+  width: 34px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  color: inherit; cursor: pointer; font-size: 14px;
+}
+.rx-close:hover { border-color: var(--danger); color: var(--danger); }
+
+.rx-body { flex: 1; overflow-y: auto; padding: calc(var(--sp) * 3) calc(var(--sp) * 4); }
+.rx-columns { columns: 3 320px; column-gap: calc(var(--sp) * 5); }
+.rx-area {
+  break-inside: avoid; padding: calc(var(--sp) * 2) 0 calc(var(--sp) * 2.5); margin-bottom: calc(var(--sp) * 2);
+  border-top: 1px solid var(--border);
+}
+.rx-area.mine { background: color-mix(in srgb, var(--brand-primary) 8%, transparent); border-top-color: transparent; border-radius: var(--radius); padding-left: 14px; padding-right: 14px; }
+.rx-mine { font-size: 13px; color: var(--text-muted); margin-bottom: 2px; }
+.rx-title { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.rx-title-ico { font-size: 18px; }
+.rx-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.rx-explore {
+  display: inline-flex; align-items: center; gap: 4px; margin: 6px 0 4px; padding: 0; border: 0; background: none;
+  color: var(--brand-primary); font: inherit; font-size: 14px; cursor: pointer;
+}
+.rx-explore:hover { text-decoration: underline; }
+.rx-explore .chev { font-size: 16px; line-height: 1; }
+.rx-group { margin-top: 4px; }
+.rx-group-head {
+  display: block; width: 100%; padding: 5px 0; border: 0; background: none; text-align: left;
+  color: var(--text); font: inherit; font-size: 15px; font-weight: 650; cursor: pointer;
+}
+.rx-group-head:hover { color: var(--brand-primary); }
+.rx-count { font-weight: 400; color: var(--text-muted); }
+.rx-pages { list-style: none; margin: 0 0 6px; padding: 0 0 0 14px; border-left: 2px solid var(--border); }
+.rx-section { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin: 6px 0 2px; }
+.rx-pages li a { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--text); text-decoration: none; font-size: 13.5px; }
+.rx-pages li a:hover { color: var(--brand-primary); text-decoration: underline; }
+.rx-ico { width: 18px; text-align: center; flex: none; opacity: .9; }
+.rx-collapse {
+  display: block; margin-top: 6px; padding: 0 4px; border: 0; background: none; color: var(--text-muted);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.rx-collapse:hover { color: var(--brand-primary); }
+.rx-empty { padding: 60px 0; text-align: center; color: var(--text-muted); }
+.rx-foot { display: flex; gap: 14px; align-items: center; padding: 8px calc(var(--sp) * 3); border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); flex: none; }
+.rx-foot kbd { font: inherit; font-size: 10.5px; padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); margin-right: 3px; }
+@media (max-width: 900px) {
+  .rx-head { padding: 8px calc(var(--sp) * 1.5); gap: var(--sp); }
+  .rx-brand { border-right: 0; padding-right: 0; }
+  .rx-find { width: 100%; order: 5; }
+  .rx-body { padding: calc(var(--sp) * 2); }
+}
+@media print { .explore-btn, .rx-back { display: none !important; } }

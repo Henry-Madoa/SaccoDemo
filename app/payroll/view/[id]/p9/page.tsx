@@ -4,6 +4,7 @@ import { requireAction } from '@/lib/session';
 import { buildP9Document, renderDocument } from '@/lib/payrollPrint';
 import { Page } from '@/components/layout/page';
 import { Toolbar, Spacer } from '@/components/ui/primitives';
+import { PrintSheets } from '@/components/ui/print-sheets';
 
 export default async function P9Page({ params, searchParams }: {
   params: Promise<{ id: string }>;
@@ -36,7 +37,7 @@ export default async function P9Page({ params, searchParams }: {
           ))}
         </div>
       </Toolbar>
-      <div dangerouslySetInnerHTML={{ __html: renderDocument(doc) }} />
+      <PrintSheets html={renderDocument(doc)} />
     </Page>
   );
 }

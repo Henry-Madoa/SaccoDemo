@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAction } from '@/lib/session';
 import { buildBankersChequeScheduleDocument, renderDocument } from '@/lib/bankersChequeSchedule';
+import { PrintSheets } from '@/components/ui/print-sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +29,7 @@ export default async function BankersChequeSchedulePage({ searchParams }: {
           <Link href="/bankers-cheques" className="btn sm ghost">← Back</Link>
         </form>
       </div>
-      <div style={{ paddingBottom: 24 }} dangerouslySetInnerHTML={{ __html: renderDocument(doc) }} />
+      <PrintSheets style={{ paddingBottom: 24 }} html={renderDocument(doc)} />
       <script
         dangerouslySetInnerHTML={{
           __html: "document.querySelector('[data-print]')?.addEventListener('click',function(){window.print();});"

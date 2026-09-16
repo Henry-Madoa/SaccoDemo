@@ -5,7 +5,8 @@ import { SignOutButton } from './sign-out-button';
 import { NavToggle } from './nav-toggle';
 import { ThemeToggle } from './theme-toggle';
 import { NotificationBell } from './notification-bell';
-import { GlobalSearchButton } from './global-search';
+import { GlobalSearchButton } from './global-search';
+import { RoleExplorerButton } from './role-explorer';
 import type { SessionUser } from '@/lib/types';
 
 export interface PageProps {
@@ -49,6 +50,7 @@ export function Page({ title, crumb, user, children }: PageProps) {
             {initials(user.full_name)}
           </div>
           <SignOutButton />
+          <RoleExplorerButton />
         </div>
       </header>
       <main className="content">{children}</main>
