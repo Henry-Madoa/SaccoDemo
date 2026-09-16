@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { ExcelIcon } from './export-button';
 
@@ -53,6 +53,17 @@ export function DocumentActionsMenu({ excel, className = 'btn ghost', label = 'P
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  // The menu hangs off the button's right edge. When the button sits near the left of a narrow
+  // screen (the toolbar wraps on phones) that would push the menu off-screen, so it hangs off the
+  // left edge instead — whichever side has the room.
+  const [alignLeft, setAlignLeft] = useState(false);
+  useLayoutEffect(() => {
+    if (!open || !boxRef.current) return;
+    const box = boxRef.current.getBoundingClientRect();
+    const menu = boxRef.current.querySelector<HTMLElement>('.doc-actions-menu');
+    const width = menu?.offsetWidth ?? 190;
+    setAlignLeft(box.right - width < 8 && box.left + width <= window.innerWidth - 8);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -91,7 +102,7 @@ export function DocumentActionsMenu({ excel, className = 'btn ghost', label = 'P
         <PrinterIcon /> {label} <span className="doc-actions-caret" aria-hidden="true">▾</span>
       </button>
       {open ? (
-        <div className="doc-actions-menu" role="menu">
+        <div className={`doc-actions-menu ${alignLeft ? 'align-left' : ''}`} role="menu">
           <button type="button" className="doc-actions-item" role="menuitem" onClick={preview}>
             <EyeIcon /> Preview
           </button>
