@@ -198,6 +198,7 @@ export const PAGES: PageObject[] = [
   { code: 'ADMIN_CHANGELOG', label: 'Change Log Management', route: '/admin/security/changelog' },
   { code: 'ADMIN_DATA', label: 'Data Management', route: '/admin/data' },
   { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/pool/general/automation' },
+  { code: 'ADMIN_WEB_SERVICES', label: 'Web Services (Integration)', route: '/admin/integration/web-services' },
   { code: 'EMPLOYEES', label: 'Employees', route: '/employees' },
   { code: 'COMPANY_JOBS', label: 'Company Jobs', route: '/company-jobs' },
   { code: 'ORGANOGRAM', label: 'Organogram', route: '/organogram' },
@@ -1258,6 +1259,20 @@ export const ACTIONS = {
   // JOB_HANDLERS) that the in-process scheduler (instrumentation.ts) polls and runs unattended.
   // One grant covers the whole screen, including manually running an entry on demand — same
   // shape ACCOUNT_ACTIVATION_APPROVE bundles its own posting rights under a single action.
+  // Business Central Web Services (Admin Centre → Integration): registering objects
+  // as OData/SOAP services, issuing users' Web Service Access Keys, reading the call log.
+  WEB_SERVICES_READ: {
+    page: 'ADMIN_WEB_SERVICES',
+    tables: [['web_service', 'read'], ['web_service_access_key', 'read'], ['web_service_log', 'read'], ['app_user', 'read']],
+  },
+  WEB_SERVICES_MANAGE: {
+    page: 'ADMIN_WEB_SERVICES',
+    tables: [
+      ['web_service', 'insert'], ['web_service', 'modify'], ['web_service', 'delete'],
+      ['web_service_access_key', 'insert'], ['web_service_access_key', 'modify'], ['web_service_access_key', 'delete'],
+      ['web_service_log', 'delete'],
+    ],
+  },
   ADMIN_JOB_QUEUE_MANAGE: {
     page: 'ADMIN_JOB_QUEUE',
     tables: [

@@ -78,10 +78,16 @@ export async function userFromToken(token: string | undefined): Promise<SessionU
     return null;
   }
 
+  return sessionUserById(session.user_id);
+}
+
+/** The signed-in user's full session shape — permissions and profiles resolved — for an active
+ *  account. Shared by the cookie session and the web services' Basic authentication. */
+export async function sessionUserById(userId: number): Promise<SessionUser | null> {
   const row = await one<AppUser & { role_name: string; is_system: 0 | 1 }>(
     `SELECT u.*, r.name AS role_name, r.is_system AS is_system
      FROM app_user u JOIN role r ON r.id = u.role_id WHERE u.id = ?`,
-    session.user_id,
+    userId,
   );
   if (!row || row.status !== 'ACTIVE') return null;
 

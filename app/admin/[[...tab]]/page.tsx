@@ -136,15 +136,16 @@ import {
   JobQueueEntryFormButton, ToggleJobQueueStatusButton, RunJobQueueEntryButton, DeleteJobQueueEntryButton,
 } from '../job-queue-form';
 import { CHARGE_TRANSACTION_TYPES, JOB_QUEUE_TYPES } from '@/lib/constants';
+import { WebServicesTab, WebServiceKeysTab, WebServiceLogTab } from '../web-services-tabs';
 import {
-  type AdminTab, hasTabAccess, POOL_GROUPS, ADMIN_TABS, WORKFLOW_TABS, SECURITY_TABS,
+  type AdminTab, hasTabAccess, POOL_GROUPS, ADMIN_TABS, WORKFLOW_TABS, SECURITY_TABS, INTEGRATION_TABS,
 } from '@/lib/adminNav';
 
 const TABS = ADMIN_TABS;
 
 export default async function AdminPage({ params, searchParams }: {
   params: Promise<{ tab?: string[] }>;
-  searchParams: Promise<{ q?: string; filters?: string; sort?: string; grade?: string }>;
+  searchParams: Promise<{ q?: string; filters?: string; sort?: string; grade?: string; service?: string }>;
 }) {
   const user = await requireUser();
   const { tab: segments } = await params;
@@ -184,6 +185,12 @@ export default async function AdminPage({ params, searchParams }: {
   const poolScreen = poolGroup
     ? (poolGroup.screens.find((s) => s.key === poolScreenSub) ?? poolGroup.screens[0])
     : undefined;
+
+  const integrationAllowed = INTEGRATION_TABS.filter((t) => hasTabAccess(user, t));
+  const integrationSub = segments?.[1];
+  if (tab === 'integration' && integrationSub && !INTEGRATION_TABS.some((t) => t.key === integrationSub)) notFound();
+  const integrationTab = tab === 'integration' && integrationAllowed.some((t) => t.key === integrationSub)
+    ? integrationSub! : integrationAllowed[0]?.key;
 
   const workflowAllowed = WORKFLOW_TABS.filter((t) => hasTabAccess(user, t));
   const workflowSub = segments?.[1];
@@ -275,6 +282,14 @@ export default async function AdminPage({ params, searchParams }: {
         </>
       ) : null}
       {tab === 'data' ? <DataManagementTab /> : null}
+      {tab === 'integration' ? (
+        <>
+          <Tabs tabs={integrationAllowed} active={integrationTab} hrefFor={(k) => `/admin/integration/${k}`} />
+          {integrationTab === 'web-services' ? <WebServicesTab service={searchParamsAll.service} /> : null}
+          {integrationTab === 'web-service-keys' ? <WebServiceKeysTab /> : null}
+          {integrationTab === 'web-service-log' ? <WebServiceLogTab /> : null}
+        </>
+      ) : null}
     </Page>
   );
 }

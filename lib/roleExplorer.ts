@@ -10,7 +10,7 @@
  * screens, one group per Setup Pool category.
  */
 import { NAV, isSubMenu, groupInRoleCentre, type NavItem } from './nav.ts';
-import { ADMIN_TABS, POOL_GROUPS, WORKFLOW_TABS, SECURITY_TABS, hasTabAccess } from './adminNav.ts';
+import { ADMIN_TABS, POOL_GROUPS, WORKFLOW_TABS, SECURITY_TABS, INTEGRATION_TABS, hasTabAccess } from './adminNav.ts';
 import { canNav } from './permissions.ts';
 import { listProfiles } from './profiles.ts';
 import type { SessionUser } from './types.ts';
@@ -87,6 +87,8 @@ function administrationArea(user: SessionUser): ExplorerArea | null {
   if (wf.length) groups.push({ name: 'Workflow Management', icon: '🔁', pages: wf });
   const sec = SECURITY_TABS.filter((t) => hasTabAccess(user, t)).map((t) => ({ label: t.label, path: `/admin/security/${t.key}`, icon: '🔐', kind: 'admin' as const }));
   if (sec.length) groups.push({ name: 'System Security', icon: '🔐', pages: sec });
+  const integ = INTEGRATION_TABS.filter((t) => hasTabAccess(user, t)).map((t) => ({ label: t.label, path: `/admin/integration/${t.key}`, icon: '🔌', kind: 'admin' as const }));
+  if (integ.length) groups.push({ name: 'Integration', icon: '🔌', pages: integ });
   if (!groups.length) return null;
   return { key: 'administration', title: 'System Administration', description: 'Setup, security, workflows and data', icon: '⚙', groups, mine: false };
 }

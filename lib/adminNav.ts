@@ -109,6 +109,14 @@ export const ADMIN_TABS: AdminTab[] = [
     page: ['ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES', 'ADMIN_PROFILES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
   },
   { key: 'data', label: 'Data Management', page: 'ADMIN_DATA' },
+  { key: 'integration', label: 'Integration', page: 'ADMIN_WEB_SERVICES' },
+];
+
+/** Integration's own sub-navigation — Business Central Web Services. */
+export const INTEGRATION_TABS: AdminTab[] = [
+  { key: 'web-services', label: 'Web Services', page: 'ADMIN_WEB_SERVICES' },
+  { key: 'web-service-keys', label: 'Web Service Access Keys', page: 'ADMIN_WEB_SERVICES' },
+  { key: 'web-service-log', label: 'Web Service Log', page: 'ADMIN_WEB_SERVICES' },
 ];
 
 /** Workflow Management's own sub-navigation. */
