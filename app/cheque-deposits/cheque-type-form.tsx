@@ -57,7 +57,7 @@ export function ExternalChequeTypeFormButton({
             {!inHouse ? (
               <Field name="maturityDays" label="Maturity period (days)" type="number" step="1" min={1}
                 defaultValue={row?.maturity_days ?? 3}
-                hint="Business days added to the deposit date (weekends skipped, AL Tab52204124)" />
+                hint="Business days added to the deposit date (weekends skipped)" />
             ) : <input type="hidden" name="maturityDays" value="0" />}
           </div>
 

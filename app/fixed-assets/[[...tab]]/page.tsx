@@ -295,7 +295,7 @@ async function DepreciationTab() {
     <Card>
       <CardHead
         title="Calculate Depreciation"
-        sub="Business Central Report 5692 — drafts Open Depreciation FA Journal lines for a whole book up to a date"
+        sub="Drafts Open Depreciation FA Journal lines for a whole book up to a date"
       />
       {!books.length ? (
         <EmptyState icon="📉" title="No depreciation book" sub="Add one on the Books & Setup tab first." />
@@ -480,7 +480,7 @@ async function ClassesTab() {
   return (
     <>
       <Card>
-        <CardHead title="FA Classes" sub="Business Central Table 5628">
+        <CardHead title="FA Classes" sub="The broad categories fixed assets are grouped into">
           {canManage ? <FaClassFormButton>Add class</FaClassFormButton> : null}
         </CardHead>
         {classes.length ? (
@@ -499,7 +499,7 @@ async function ClassesTab() {
       </Card>
 
       <Card>
-        <CardHead title="FA Subclasses" sub="Business Central Table 5629">
+        <CardHead title="FA Subclasses" sub="Finer groupings within an FA class">
           {canManage ? <FaSubclassFormButton classes={classes}>Add subclass</FaSubclassFormButton> : null}
         </CardHead>
         {subclasses.length ? (
@@ -558,7 +558,7 @@ async function PostingGroupsTab() {
   ]);
   return (
     <Card>
-      <CardHead title="FA Posting Groups" sub="Business Central Table 5606 — the G/L accounts every FA posting resolves its debit and credit from">
+      <CardHead title="FA Posting Groups" sub="The G/L accounts every FA posting resolves its debit and credit from">
         {canManage ? <FaPostingGroupFormButton accounts={accounts}>Add group</FaPostingGroupFormButton> : null}
       </CardHead>
       {groups.length ? (
@@ -599,7 +599,7 @@ async function BooksAndSetupTab() {
   return (
     <>
       <Card>
-        <CardHead title="FA Setup" sub="Business Central Table 5603 — module-wide defaults and the FA posting-date window">
+        <CardHead title="FA Setup" sub="Module-wide defaults and the FA posting-date window">
           {canManage ? <FaSetupFormButton setup={setup} books={books} groups={groups}>Edit setup</FaSetupFormButton> : null}
         </CardHead>
         <TableWrap>
@@ -613,7 +613,7 @@ async function BooksAndSetupTab() {
       </Card>
 
       <Card>
-        <CardHead title="Depreciation Books" sub="Business Central Table 5611 — this port always integrates to the G/L">
+        <CardHead title="Depreciation Books" sub="Depreciation books always integrate to the G/L">
           {canManage ? <DepreciationBookFormButton>Add book</DepreciationBookFormButton> : null}
         </CardHead>
         {books.length ? (

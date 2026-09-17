@@ -22,6 +22,9 @@ async function baseUrl(): Promise<string> {
 
 const SCREEN = '/admin/integration/web-services';
 
+/** How an object type reads on screen. */
+const objectTypeLabel = (t: string) => (t === 'PAGE' ? 'Page' : t === 'QUERY' ? 'Query' : 'Codeunit');
+
 export const odataUrl = (base: string, s: { object_type: string; service_name: string }) =>
   s.object_type === 'CODEUNIT' ? `${base}/ODataV4/${s.service_name}_<Procedure>` : `${base}/ODataV4/${s.service_name}`;
 export const soapUrl = (base: string, s: { object_type: string; service_name: string }) =>
@@ -33,7 +36,7 @@ export async function WebServicesTab({ service }: { service?: string }) {
   if (service) return <WebServiceCard id={Number(service)} />;
   const [rows, unregistered, canManage, base] = await Promise.all([listWebServices(), listUnregisteredObjects(), currentCanAction('WEB_SERVICES_MANAGE'), baseUrl()]);
   const objects: PublishableObject[] = unregistered.map((o) => ({
-    value: `${o.kind}:${o.id}`, type: o.kind === 'PAGE' ? 'Page' : o.kind === 'QUERY' ? 'Query' : 'Codeunit', id: o.id, name: o.name, caption: o.caption,
+    value: `${o.kind}:${o.id}`, type: objectTypeLabel(o.kind), id: o.id, name: o.name, caption: o.caption,
     defaultServiceName: o.kind === 'CODEUNIT' ? o.name.replace(/[^A-Za-z0-9]+/g, '') : o.entitySetName,
   }));
   return (
@@ -43,7 +46,7 @@ export async function WebServicesTab({ service }: { service?: string }) {
         {canManage ? <WebServiceFormButton objects={objects}>New web service</WebServiceFormButton> : null}
       </Toolbar>
       <Card>
-        <CardHead title="Web Services" sub="Business Central Page 810 — objects published as OData V4 entity sets/actions and SOAP services. Callers authenticate with HTTP Basic (username + Web Service Access Key) and act with that user's permissions." />
+        <CardHead title="Web Services" sub="Objects published as OData V4 entity sets/actions and SOAP services. Callers authenticate with HTTP Basic (username + Web Service Access Key) and act with that user's permissions." />
         {rows.length ? (
           <TableWrap>
             <thead>
@@ -52,7 +55,7 @@ export async function WebServicesTab({ service }: { service?: string }) {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.object_type === 'PAGE' ? 'Page' : r.object_type === 'QUERY' ? 'Query' : 'Codeunit'}</td>
+                  <td>{objectTypeLabel(r.object_type)}</td>
                   <td className="num mono">{r.object_id}</td>
                   <td>{r.object_name}</td>
                   <td className="mono"><Link href={`${SCREEN}?service=${r.id}`}>{r.service_name}</Link></td>
@@ -73,7 +76,7 @@ export async function WebServicesTab({ service }: { service?: string }) {
           ['SOAP system service', <span className="mono" key="ss">{base}/WS/SystemService?wsdl</span>],
           ['Authentication', 'HTTP Basic — user name and the user\'s Web Service Access Key (Admin Centre → Integration → Web Service Access Keys). A signed-in browser session also works for trying URLs.'],
           ['Permissions', 'A call may read a page/query only if the user has Read on its tables; create/update/delete need Insert/Modify/Delete; a codeunit procedure needs the same action grant as the screen that does the same thing.'],
-          ['Company', "BC-style /ODataV4/Company('Name')/… and /WS/Name/Page/… prefixes are accepted; this system has one company, so they can also be left out."],
+          ['Company', "/ODataV4/Company('Name')/… and /WS/Name/Page/… company prefixes are accepted; this system has one company, so they can also be left out."],
           ['Logging', 'Every request is written to the Web Service Log with the caller, status and duration.'],
         ]} />
       </CollapsibleCard>
@@ -95,7 +98,7 @@ async function WebServiceCard({ id }: { id: number }) {
     ? `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <ReadMultiple xmlns="urn:microsoft-dynamics-schemas/page/${s.service_name.toLowerCase()}">
+    <ReadMultiple xmlns="urn:sacco-erp-schemas/page/${s.service_name.toLowerCase()}">
       <filter><Field>${entity.fields[1]?.name ?? key!.name}</Field><Criteria>*</Criteria></filter>
       <setSize>50</setSize>
     </ReadMultiple>
@@ -104,7 +107,7 @@ async function WebServiceCard({ id }: { id: number }) {
     : `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <${firstProc?.name ?? 'Procedure'} xmlns="urn:microsoft-dynamics-schemas/codeunit/${s.service_name}">
+    <${firstProc?.name ?? 'Procedure'} xmlns="urn:sacco-erp-schemas/codeunit/${s.service_name}">
 ${(firstProc?.params ?? []).map((p) => `      <${p.name}>…</${p.name}>`).join('\n')}
     </${firstProc?.name ?? 'Procedure'}>
   </soap:Body>
@@ -123,12 +126,12 @@ curl -u USERNAME:ACCESS_KEY "${odata}?$filter=${entity.fields.find((f) => f.name
         {canManage ? <PublishToggleButton service={s} className="btn ghost" /> : null}
         {canManage ? <DeleteWebServiceButton service={s} className="btn ghost" /> : null}
       </Toolbar>
-      <CollapsibleCard title={`${s.service_name}`} sub={`${s.object_type === 'PAGE' ? 'Page' : s.object_type === 'QUERY' ? 'Query' : 'Codeunit'} ${s.object_id} — ${s.object_name}`}>
+      <CollapsibleCard title={`${s.service_name}`} sub={`${objectTypeLabel(s.object_type)} ${s.object_id} — ${s.object_name}`}>
         <div className="grid g2 dl-groups">
           <section className="dl-group">
             <div className="dl-caption">Registration</div>
             <DefinitionList items={[
-              ['Object', `${s.object_type === 'PAGE' ? 'Page' : s.object_type === 'QUERY' ? 'Query' : 'Codeunit'} ${s.object_id} · ${s.object_name}`],
+              ['Object', `${objectTypeLabel(s.object_type)} ${s.object_id} · ${s.object_name}`],
               ['Service Name', <span className="mono" key="n">{s.service_name}</span>],
               ['Published', <Pill tone={s.published ? 'ok' : ''} key="p">{s.published ? 'Published' : 'Not published'}</Pill>],
               ['Description', s.description || '—'],
@@ -223,7 +226,7 @@ export async function WebServiceKeysTab() {
         {canManage ? <GenerateKeyButton users={users.filter((u) => u.status === 'ACTIVE').map((u) => ({ id: u.id, username: u.username, full_name: u.full_name, hasKey: withKey.has(u.id) }))}>Generate key</GenerateKeyButton> : null}
       </Toolbar>
       <Card>
-        <CardHead title="Web Service Access Keys" sub="BC User Card → Web Service Access Key: the password an integration presents with the user's name in HTTP Basic authentication. One active key per user; generating a new one replaces the old." />
+        <CardHead title="Web Service Access Keys" sub="The password an integration presents with the user's name in HTTP Basic authentication. One active key per user; generating a new one replaces the old." />
         {keys.length ? (
           <TableWrap>
             <thead><tr><th>User</th><th>Key</th><th>Status</th><th>Expires</th><th>Issued</th><th>Last used</th><th className="num" /></tr></thead>

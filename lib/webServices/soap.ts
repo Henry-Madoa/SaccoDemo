@@ -77,8 +77,8 @@ const xsdType = (t: WsType | 'Json'): string => ({
   Code: 'string', Text: 'string', Integer: 'int', Decimal: 'decimal', Money: 'decimal', Boolean: 'boolean', Date: 'date', DateTime: 'dateTime', Json: 'string',
 } as Record<string, string>)[t];
 
-export const pageNamespace = (service: string) => `urn:microsoft-dynamics-schemas/page/${service.toLowerCase()}`;
-export const codeunitNamespace = (service: string) => `urn:microsoft-dynamics-schemas/codeunit/${service}`;
+export const pageNamespace = (service: string) => `urn:sacco-erp-schemas/page/${service.toLowerCase()}`;
+export const codeunitNamespace = (service: string) => `urn:sacco-erp-schemas/codeunit/${service}`;
 
 const PAGE_OPS = ['Read', 'ReadMultiple', 'Create', 'Update', 'Delete', 'IsUpdated'] as const;
 
@@ -202,7 +202,7 @@ export function soapFault(status: number, code: string, message: string, detail?
     xml: envelope(`    <Soap:Fault>
       <faultcode>${status >= 500 ? 'Soap:Server' : 'Soap:Client'}</faultcode>
       <faultstring>${xml(message)}</faultstring>
-      <detail><string xmlns="urn:microsoft-dynamics-schemas/error">${xml(detail ?? code)}</string></detail>
+      <detail><string xmlns="urn:sacco-erp-schemas/error">${xml(detail ?? code)}</string></detail>
     </Soap:Fault>`),
   };
 }

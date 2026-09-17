@@ -341,7 +341,7 @@ export async function getAccountLedger(
        WHERE jl.gl_account_id = @id
          ${journalDateWindowSql('j')}
          ${gdClause}
-       -- A closing entry sorts after every ordinary entry of its date (BC's "C" date).
+       -- A closing entry sorts after every ordinary entry of its date (the "C" closing date).
        ORDER BY j.value_date, j.closing_entry, j.id`,
       params,
     ),

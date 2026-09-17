@@ -83,7 +83,7 @@ export function SaccoSetupForm({ org, charges }: { org: Organisation; charges: T
       <Card>
         <h3>Cash &amp; Tellering</h3>
         <div className="card-sub">
-          Business Central&apos;s General Ledger Setup &ldquo;Validate Cash Denomination&rdquo;, applied to the
+          The General Ledger Setup &ldquo;Validate Cash Denomination&rdquo; rule, applied to the
           FOSA counter.
         </div>
         <Field name="validate_cash_denomination" label="Validate cash denomination" type="checkbox"

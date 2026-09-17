@@ -401,7 +401,7 @@ async function RemindersTab({ kind, search }: { kind: 'Reminder' | 'Finance Char
     <>
       {canManage ? (
         <Card>
-          <CardHead title={kind === 'Reminder' ? 'Create Reminders' : 'Create Finance Charge Memos'} sub="Business Central Report 188 / 190 — drafts one document per customer with overdue open entries" />
+          <CardHead title={kind === 'Reminder' ? 'Create Reminders' : 'Create Finance Charge Memos'} sub="Drafts one document per customer with overdue open entries" />
           <ReminderBatchPanel customers={customers} kind={kind === 'Reminder' ? 'reminder' : 'finance-charge'} />
         </Card>
       ) : null}
@@ -540,7 +540,7 @@ async function StatementTab({ customerNo, from, to }: { customerNo?: string; fro
   const customers = await listActiveCustomers();
   return (
     <Card>
-      <CardHead title="Customer Statement" sub="Business Central Report 116 — opening balance, movements and closing balance for a date range" />
+      <CardHead title="Customer Statement" sub="Opening balance, movements and closing balance for a date range" />
       <CustomerStatementPanel customers={customers} customerNo={customerNo} from={from} to={to} />
     </Card>
   );
@@ -556,7 +556,7 @@ async function ReminderTermsTab() {
   return (
     <>
       <Card>
-        <CardHead title="Reminder Terms" sub="Business Central Tables 293 / 294 — reminder levels with grace period, interest and fee">
+        <CardHead title="Reminder Terms" sub="Reminder levels with grace period, interest and fee">
           {canManage ? <ReminderTermsFormButton>New terms</ReminderTermsFormButton> : null}
         </CardHead>
         {terms.length ? (
@@ -576,7 +576,7 @@ async function ReminderTermsTab() {
         ) : <EmptyState icon="⏰" title="No reminder terms yet" />}
       </Card>
       <Card>
-        <CardHead title="Finance Charge Terms" sub="Business Central Table 5">
+        <CardHead title="Finance Charge Terms" sub="Interest and fees charged on overdue balances">
           {canManage ? <FinanceChargeTermsFormButton>New terms</FinanceChargeTermsFormButton> : null}
         </CardHead>
         {fcTerms.length ? (

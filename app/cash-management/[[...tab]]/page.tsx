@@ -288,7 +288,7 @@ async function CurrenciesTab() {
     <>
       <Toolbar><Spacer />{canManage ? <CurrencyFormButton accounts={accounts}>New currency</CurrencyFormButton> : null}</Toolbar>
       <Card>
-        <CardHead title="Currencies" sub="Business Central Table 4 — the base currency plus every foreign currency the SACCO transacts in" />
+        <CardHead title="Currencies" sub="The base currency plus every foreign currency the SACCO transacts in" />
         <TableWrap>
           <thead><tr><th>Code</th><th>Description</th><th>Base</th><th className="num">Latest rate</th><th className="num">Rates</th><th>Status</th><th /></tr></thead>
           <tbody>
@@ -355,7 +355,7 @@ async function PostingGroupsTab() {
   ]);
   return (
     <Card>
-      <CardHead title="Bank Acc. Posting Groups" sub="Business Central Table 277 — the G/L control account a bank account resolves through">
+      <CardHead title="Bank Acc. Posting Groups" sub="The G/L control account a bank account resolves through">
         {canManage ? <BankAccPostingGroupButton accounts={accounts}>New group</BankAccPostingGroupButton> : null}
       </CardHead>
       <TableWrap>

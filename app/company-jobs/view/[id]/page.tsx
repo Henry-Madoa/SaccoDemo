@@ -84,7 +84,7 @@ export default async function CompanyJobDetailPage({ params }: { params: Promise
       <QualificationsPanel jobId={id} rows={qualifications} canManage={canManage} />
       <ResponsibilitiesPanel jobId={id} rows={responsibilities} canManage={canManage} />
 
-      <CollapsibleCard title="Holders" sub={`AL "No. of Holders" — ${job.occupied} active of ${job.no_of_posts} post${job.no_of_posts === 1 ? '' : 's'}, ${job.vacant} vacant`}>
+      <CollapsibleCard title="Holders" sub={`${job.occupied} active of ${job.no_of_posts} post${job.no_of_posts === 1 ? '' : 's'}, ${job.vacant} vacant`}>
         {holders.length ? (
           <TableWrap>
             <thead><tr><th>Employee</th><th>Employee No.</th><th>Employed since</th><th>Status</th></tr></thead>

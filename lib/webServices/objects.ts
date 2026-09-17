@@ -15,6 +15,7 @@ import { createCustomer, updateCustomer, type CustomerInput } from '../customers
 import { createVendor, updateVendor, type VendorInput } from '../vendors.ts';
 import type { Actor, SessionUser, WebServiceObjectType, Channel, CustomerBlocked } from '../types.ts';
 import type { ActionKey } from '../permissions.ts';
+import { CHANNELS_INTEGRATION } from './channels.ts';
 
 export type WsType = 'Code' | 'Text' | 'Integer' | 'Decimal' | 'Money' | 'Boolean' | 'Date' | 'DateTime';
 
@@ -498,7 +499,7 @@ export const CODEUNITS: WsCodeunit[] = [
     kind: 'CODEUNIT', id: 50301, name: 'System Service', caption: 'System Service',
     procedures: [
       {
-        name: 'Companies', caption: 'The companies on this server (BC SystemService.Companies)', params: [], returns: 'Json',
+        name: 'Companies', caption: 'The companies on this server', params: [], returns: 'Json',
         run: async () => {
           const org = await one<{ name: string; short_name: string | null }>('SELECT name, short_name FROM organisation LIMIT 1').catch(() => undefined);
           return [org?.name ?? 'SACCO'];
@@ -512,7 +513,7 @@ export const CODEUNITS: WsCodeunit[] = [
   },
 ];
 
-export const ALL_OBJECTS: WsObject[] = [...PAGES, ...QUERIES, ...CODEUNITS];
+export const ALL_OBJECTS: WsObject[] = [...PAGES, ...QUERIES, ...CODEUNITS, CHANNELS_INTEGRATION];
 
 export function findObject(type: WebServiceObjectType, id: number): WsObject | undefined {
   return ALL_OBJECTS.find((o) => o.kind === type && o.id === id);

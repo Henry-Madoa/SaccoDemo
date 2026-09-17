@@ -26,7 +26,7 @@ export async function SalesReceivablesSetupCard() {
     <Card>
       <CardHead
         title="Sales & Receivables Setup"
-        sub="Business Central Table 311 — module-wide defaults and the receivables posting-date window"
+        sub="Module-wide defaults and the receivables posting-date window"
       >
         {canManage ? (
           <SalesReceivablesSetupButton
@@ -60,7 +60,7 @@ export async function PurchasesPayablesSetupCard() {
     <Card>
       <CardHead
         title="Purchases & Payables Setup"
-        sub="Business Central Table 312 — module-wide defaults and the payables posting-date window"
+        sub="Module-wide defaults and the payables posting-date window"
       >
         {canManage ? (
           <PurchasesPayablesSetupButton setup={setup} postingGroups={postingGroups} paymentTerms={paymentTerms}>

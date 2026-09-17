@@ -150,7 +150,7 @@ export function PaymentTermsFormButton({ row, className = 'btn', children }: { r
             <Field name="description" label="Description" required defaultValue={r?.description} />
           </div>
           <div className="grid g3">
-            <Field name="due_date_calculation" label="Due Date Calculation" defaultValue={r?.due_date_calculation ?? ''} placeholder="e.g. 30D, CM, CM+10D" hint="Business Central date formula" />
+            <Field name="due_date_calculation" label="Due Date Calculation" defaultValue={r?.due_date_calculation ?? ''} placeholder="e.g. 30D, CM, CM+10D" hint="Date formula" />
             <Field name="discount_date_calculation" label="Discount Date Calculation" defaultValue={r?.discount_date_calculation ?? ''} placeholder="e.g. 8D" />
             <Field name="discount_pct" label="Discount %" type="number" step="0.01" min={0} max={100} defaultValue={r?.discount_pct ?? 0} />
           </div>

@@ -20,7 +20,7 @@ import {
 import { keyField, type WsField, type WsPage, type WsQuery, type WsCodeunit, type WsType, type WsContext } from './objects.ts';
 import type { SessionUser } from '../types.ts';
 
-const NS = 'NAV';
+const NS = 'SaccoERP';
 const edmType = (t: WsType | 'Json'): string => ({
   Code: 'Edm.String', Text: 'Edm.String', Integer: 'Edm.Int32', Decimal: 'Edm.Decimal', Money: 'Edm.Decimal',
   Boolean: 'Edm.Boolean', Date: 'Edm.Date', DateTime: 'Edm.DateTimeOffset', Json: 'Edm.String',

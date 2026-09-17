@@ -332,7 +332,7 @@ export function coerceArgs(p: WsProcedure, raw: Record<string, unknown>): Record
 export function statusOfError(e: unknown): { status: number; code: string; message: string } {
   if (e instanceof WsError) return { status: e.status, code: e.code, message: e.message };
   if (e instanceof AppError) {
-    const status = e.code === 'NOT_FOUND' ? 404 : e.code === 'DUPLICATE' ? 409 : e.code === 'VALIDATION' ? 400 : 400;
+    const status = e.code === 'NOT_FOUND' ? 404 : e.code === 'DUPLICATE' ? 409 : e.code === 'FORBIDDEN' ? 403 : 400;
     return { status, code: e.code, message: e.message };
   }
   const anyE = e as { name?: string; message?: string; code?: string };

@@ -132,7 +132,7 @@ export function JobDetailsCard({ job, lookups, canEdit }: { job: HrCompanyJobVie
   };
 
   return (
-    <CollapsibleCard title="General" sub="AL Company Job card — the position, where it sits and how many posts it carries"
+    <CollapsibleCard title="General" sub="The position, where it sits and how many posts it carries"
       actions={canEdit && !editing ? <button type="button" className="btn sm ghost" onClick={() => setEditing(true)}>Edit</button> : null}>
       {!editing ? (
         <div className="grid g2 dl-groups">
@@ -186,7 +186,7 @@ const emptyText = (): TextRow => ({ description: '' });
 
 export function ResponsibilitiesPanel({ jobId, rows, canManage }: { jobId: number; rows: HrCompanyJobResponsibility[]; canManage: boolean }) {
   return (
-    <LineRowsPanel title="Job responsibilities" sub="AL Tab52203780 — what the holder is answerable for" icon="📌"
+    <LineRowsPanel title="Job responsibilities" sub="What the holder is answerable for" icon="📌"
       rows={rows.map((r) => ({ description: r.description }))} columns={TEXT_COLUMNS}
       edit={{ can: canManage, emptyRow: emptyText, onSave: (r) => setJobResponsibilitiesRequest(jobId, r), successTitle: 'Responsibilities saved' }} />
   );
@@ -194,7 +194,7 @@ export function ResponsibilitiesPanel({ jobId, rows, canManage }: { jobId: numbe
 
 export function RequirementsPanel({ jobId, rows, canManage }: { jobId: number; rows: HrCompanyJobRequirement[]; canManage: boolean }) {
   return (
-    <LineRowsPanel title="Job requirements" sub="AL Tab52203772 — what the position demands of its holder" icon="📋"
+    <LineRowsPanel title="Job requirements" sub="What the position demands of its holder" icon="📋"
       rows={rows.map((r) => ({ description: r.description }))} columns={TEXT_COLUMNS}
       edit={{ can: canManage, emptyRow: emptyText, onSave: (r) => setJobRequirementsRequest(jobId, r), successTitle: 'Requirements saved' }} />
   );
@@ -212,7 +212,7 @@ const emptyQual = (): QualRow => ({ qualification_type: 'ACADEMIC', qualificatio
 
 export function QualificationsPanel({ jobId, rows, canManage }: { jobId: number; rows: HrCompanyJobQualification[]; canManage: boolean }) {
   return (
-    <LineRowsPanel title="Qualifications & competencies" sub="AL Tab52203785 — academic, professional and experience requirements" icon="🎓"
+    <LineRowsPanel title="Qualifications & competencies" sub="Academic, professional and experience requirements" icon="🎓"
       rows={rows.map(({ id: _id, job_id: _j, ...r }) => r)} columns={QUAL_COLUMNS}
       edit={{
         can: canManage, emptyRow: emptyQual, successTitle: 'Qualifications saved',

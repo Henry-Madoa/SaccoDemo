@@ -377,7 +377,7 @@ export function ColumnLayoutLineButton({ layoutName, line, columnNos, className 
               hint={`Columns available: ${columnNos.filter((c) => c !== l?.column_no).join(', ') || '—'} — e.g. (TY-LY)/LY*100`} />
           ) : (
             <Field name="comparisonDateFormula" label="Comparison date formula" defaultValue={l?.comparison_date_formula ?? ''}
-              hint="Business Central DateFormula — e.g. -1Y for a prior-year column, -1M for prior month" />
+              hint="Date formula — e.g. -1Y for a prior-year column, -1M for prior month" />
           )}
           <div className="grid g2">
             <Field name="show" label="Show" type="select" defaultValue={l?.show ?? 'ALWAYS'} options={COLUMN_SHOW} />

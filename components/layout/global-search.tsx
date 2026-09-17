@@ -50,7 +50,7 @@ export function GlobalSearchButton() {
   return (
     <button type="button" className="tell-me-btn" onClick={ctx.open} aria-label="Search pages (Alt+Q)" title="Search pages (Alt+Q)">
       <span aria-hidden="true">🔍</span>
-      <span className="tell-me-btn-label">Tell me what you want to do…</span>
+      <span className="tell-me-btn-label">Search pages…</span>
       <kbd className="tell-me-kbd" aria-hidden="true">Alt+Q</kbd>
     </button>
   );
@@ -142,7 +142,7 @@ function SearchPalette({ entries, onClose }: { entries: SearchEntry[]; onClose: 
       <div className="tell-me" role="dialog" aria-modal="true" aria-label="Search pages" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <div className="tell-me-input">
           <span aria-hidden="true">🔍</span>
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tell me what you want to do…"
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search for a page or setup screen…"
             aria-label="Search pages" autoComplete="off" spellCheck={false} />
           <button type="button" className="btn ghost sm" onClick={onClose} aria-label="Close">Esc</button>
         </div>

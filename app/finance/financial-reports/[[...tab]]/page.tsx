@@ -35,7 +35,7 @@ export default async function FinancialReportsPage({ params }: { params: Promise
   return (
     <Page
       title="Financial Reports"
-      crumb="Business Central Account Schedules — configure and print statements from the ledger"
+      crumb="Configure and print financial statements from the ledger"
       user={user}
     >
       <Tabs tabs={TABS} active={tab}
@@ -116,7 +116,7 @@ async function RowDefinitionsTab({ canManage }: { canManage: boolean }) {
   return (
     <>
       <Toolbar>
-        <span className="tiny muted-cell">Business Central Table 85/86 — the rows of a report and the accounts or formula behind each.</span>
+        <span className="tiny muted-cell">The rows of a report and the accounts or formula behind each.</span>
         <Spacer />
         {canManage ? <AccScheduleNameButton columnLayouts={layouts}>New row definition</AccScheduleNameButton> : null}
       </Toolbar>
@@ -191,7 +191,7 @@ async function ColumnLayoutsTab({ canManage }: { canManage: boolean }) {
   return (
     <>
       <Toolbar>
-        <span className="tiny muted-cell">Business Central Table 333/334 — the columns of a report and the period each one measures.</span>
+        <span className="tiny muted-cell">The columns of a report and the period each one measures.</span>
         <Spacer />
         {canManage ? <ColumnLayoutNameButton>New column layout</ColumnLayoutNameButton> : null}
       </Toolbar>

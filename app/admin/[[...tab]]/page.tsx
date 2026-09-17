@@ -798,7 +798,7 @@ async function TerminationReasonsTab() {
         <TerminationReasonFormButton>Add termination reason</TerminationReasonFormButton>
       </Toolbar>
       <Card>
-        <CardHead title="Termination reasons" sub="AL's Grounds for Termination — whether an exit on this ground auto-adds a gratuity due line" />
+        <CardHead title="Termination reasons" sub="Grounds for termination — whether an exit on this ground auto-adds a gratuity due line" />
         {rows.length ? (
           <TableWrap>
             <thead><tr><th>Code</th><th>Description</th><th>Pays gratuity</th><th className="num" /></tr></thead>
@@ -1515,7 +1515,7 @@ async function AccountInstructionsTab() {
       </Toolbar>
       <Card>
         <CardHead title="Account Instructions"
-          sub="AL Tab52204129 — predefined operating instructions for member accounts" />
+          sub="Predefined operating instructions for member accounts" />
         {rows.length ? (
           <TableWrap>
             <thead>
@@ -1562,7 +1562,7 @@ async function PaymentTermsTab() {
   return (
     <Card>
       <CardHead title="Payment Terms"
-        sub="Business Central Table 3 — when an invoice falls due, and any settlement discount. Due Date and Discount Date use a BC date formula (30D, CM, CM+10D). Referenced by the Customer and Vendor cards and every sales and purchase document.">
+        sub="When an invoice falls due, and any settlement discount. Due Date and Discount Date use a date formula (30D, CM, CM+10D). Referenced by the Customer and Vendor cards and every sales and purchase document.">
         {canManage ? <PaymentTermsFormButton>New terms</PaymentTermsFormButton> : null}
       </CardHead>
       {rows.length ? (
@@ -1592,7 +1592,7 @@ async function PaymentMethodsTab() {
   return (
     <Card>
       <CardHead title="Payment Methods"
-        sub="Business Central Table 289 — how money actually moves: cash, cheque, M-Pesa, EFT. Referenced by the Customer and Vendor cards, and chosen on every Receipt and Payment Voucher.">
+        sub="How money actually moves: cash, cheque, M-Pesa, EFT. Referenced by the Customer and Vendor cards, and chosen on every Receipt and Payment Voucher.">
         {canManage ? <PaymentMethodFormButton banks={banks.map((b) => ({ code: b.code, name: b.name }))}>New method</PaymentMethodFormButton> : null}
       </CardHead>
       {rows.length ? (
@@ -1620,7 +1620,7 @@ async function CustomerPostingGroupsTab() {
   return (
     <Card>
       <CardHead title="Customer Posting Groups"
-        sub="Business Central Table 92 — the G/L accounts every customer posting resolves against. Each customer card names one, and it is what decides which receivables account their invoices land in.">
+        sub="The G/L accounts every customer posting resolves against. Each customer card names one, and it is what decides which receivables account their invoices land in.">
         {canManage ? <CustomerPostingGroupFormButton accounts={accounts}>New group</CustomerPostingGroupFormButton> : null}
       </CardHead>
       {rows.length ? (
@@ -1651,7 +1651,7 @@ async function VendorPostingGroupsTab() {
   return (
     <Card>
       <CardHead title="Vendor Posting Groups"
-        sub="Business Central Table 93 — the G/L accounts every vendor posting resolves against. Each vendor card names one, and it is what decides which payables account their invoices land in.">
+        sub="The G/L accounts every vendor posting resolves against. Each vendor card names one, and it is what decides which payables account their invoices land in.">
         {canManage ? <VendorPostingGroupFormButton accounts={accounts}>New group</VendorPostingGroupFormButton> : null}
       </CardHead>
       {rows.length ? (
@@ -1719,7 +1719,7 @@ async function CurrenciesAdminTab() {
     <>
       <Toolbar><Spacer /><CurrencyFormButton accounts={accounts}>New currency</CurrencyFormButton></Toolbar>
       <Card>
-        <CardHead title="Currencies" sub="Business Central Table 4 — base currency plus every foreign currency, with its exchange gain/loss accounts" />
+        <CardHead title="Currencies" sub="Base currency plus every foreign currency, with its exchange gain/loss accounts" />
         <TableWrap>
           <thead><tr><th>Code</th><th>Description</th><th>Base</th><th className="num">Latest rate</th><th>Status</th><th className="num" /></tr></thead>
           <tbody>
@@ -1756,7 +1756,7 @@ async function ImprestPurposesTab() {
   const [rows, canManage] = await Promise.all([listImprestPurposes(), currentCanAction('ADMIN_POOL_IMPREST_PURPOSES_MANAGE')]);
   return (
     <Card>
-      <CardHead title="Imprest Purposes" sub="AL Tab52203660 — the standard reasons an imprest is requested for; picked on the request and printed on the form.">
+      <CardHead title="Imprest Purposes" sub="The standard reasons an imprest is requested for; picked on the request and printed on the form.">
         {canManage ? <ImprestPurposeFormButton>New purpose</ImprestPurposeFormButton> : null}
       </CardHead>
       {rows.length ? (
@@ -1790,7 +1790,7 @@ async function VatPostingSetupTab() {
         </tbody></TableWrap>
       </Card>
       <Card>
-        <CardHead title="VAT Posting Setup" sub="Business Central Table 325 — the % and G/L account for each business × product combination"><VatPostingSetupRowButton busGroups={busGroups} prodGroups={prodGroups} accounts={accounts}>New row</VatPostingSetupRowButton></CardHead>
+        <CardHead title="VAT Posting Setup" sub="The % and G/L account for each business × product combination"><VatPostingSetupRowButton busGroups={busGroups} prodGroups={prodGroups} accounts={accounts}>New row</VatPostingSetupRowButton></CardHead>
         <TableWrap><thead><tr><th>Business</th><th>Product</th><th>Type</th><th className="num">Rate %</th><th>Calc</th><th>Tax account</th><th className="num" /></tr></thead><tbody>
           {setup.map((s) => (
             <tr key={s.id}>
@@ -2012,7 +2012,7 @@ async function DenominationsTab() {
         <DenominationFormButton>Add denomination</DenominationFormButton>
       </Toolbar>
       <Card>
-        <CardHead title="Cash Denominations" sub="AL Denominations Setup — the note & coin rows in the teller breakdown grid" />
+        <CardHead title="Cash Denominations" sub="The note & coin rows in the teller breakdown grid" />
         {rows.length ? (
           <TableWrap>
             <thead>
@@ -2053,7 +2053,7 @@ async function TellerSetupTab() {
         <TellerSetupFormButton userOptions={userOptions} accountOptions={accountOptions}>Add teller setup</TellerSetupFormButton>
       </Toolbar>
       <Card>
-        <CardHead title="Teller Setup" sub="AL Table 52204042 — which cash account each user operates, and its capacity / approval limits" />
+        <CardHead title="Teller Setup" sub="Which cash account each user operates, and its capacity / approval limits" />
         {rows.length ? (
           <TableWrap>
             <thead>

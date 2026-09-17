@@ -541,7 +541,7 @@ async function PeriodsTab({ search, filtersRaw, sortRaw }: { search: string; fil
       <Card>
       <CardHead
         title="Accounting periods"
-        sub="A closed period rejects every posting, including automated ones. Close Year marks a whole fiscal year closed (Business Central's fiscal close, needed before Close Income Statement) and cannot be undone."
+        sub="A closed period rejects every posting, including automated ones. Close Year marks a whole fiscal year closed (the fiscal year close, needed before Close Income Statement) and cannot be undone."
       />
       {rows.length ? (
       <TableWrap>

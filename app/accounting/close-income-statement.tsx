@@ -126,7 +126,7 @@ export function CloseIncomeStatementScreen({ context, canPost }: { context: Clos
             name="retainedEarningsAccountCode" label="Retained earnings account" required items={balanceSheetAccounts}
             value={retained} onChange={setRetained} getValue={(a) => a.code} getLabel={(a) => `${a.code} — ${a.name}`}
             placeholder="Search balance sheet account…" emptyText="No matching balance sheet accounts"
-            hint="Must be a balance sheet account (BC's Retained Earnings Acc.)."
+            hint="Must be a balance sheet account (the Retained Earnings account)."
           />
 
           <div className="field">
