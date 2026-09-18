@@ -1096,7 +1096,8 @@ body.print-preview .card { border: none; padding: 0; }
   background: var(--topbar-bg); color: var(--topbar-fg); border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap;
 }
 .rx-brand { display: flex; align-items: center; gap: 12px; padding-right: calc(var(--sp) * 2); border-right: 1px solid var(--border); }
-.rx-org { font-size: 17px; font-weight: 600; white-space: nowrap; }
+.rx-org { font-size: 17px; font-weight: 600; white-space: nowrap; color: inherit; text-decoration: none; border-radius: 6px; padding: 2px 4px; }
+.rx-org:hover { color: var(--brand-primary); text-decoration: underline; }
 .rx-tabs { display: flex; gap: 2px; align-self: stretch; }
 .rx-tabs button {
   background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 12px; color: var(--text-muted);

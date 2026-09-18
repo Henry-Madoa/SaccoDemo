@@ -113,7 +113,7 @@ function RoleExplorer({ areas, orgName, onClose }: { areas: ExplorerArea[]; orgN
       <header className="rx-head">
         <div className="rx-brand">
           <span className="bars" aria-hidden="true"><i /><i /><i /></span>
-          <span className="rx-org">{orgName}</span>
+          <Link href="/dashboard" className="rx-org" onClick={onClose} title="Go to my Role Centre">{orgName}</Link>
         </div>
         <nav className="rx-tabs" aria-label="Explorer views">
           {TABS.map((t) => (
