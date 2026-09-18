@@ -75,7 +75,7 @@ export function DeleteWebServiceButton({ service, className = 'btn sm ghost' }: 
     <button type="button" className={className} disabled={busy}
       onClick={() => run(() => deleteWebServiceRequest(service.id), {
         confirm: { title: `Delete web service ${service.service_name}?`, message: 'Integrations calling this endpoint will start getting 404 Not Found.', confirmLabel: 'Delete', danger: true },
-        successTitle: 'Deleted', redirectTo: '/admin/integration/web-services',
+        successTitle: 'Deleted', redirectTo: '/admin/data/web-services',
       })}>
       {busy ? 'Working…' : 'Delete'}
     </button>

@@ -199,14 +199,14 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 0 calc(var(--sp) * 3); min-height: 60px; display: flex; align-items: center; gap: calc(var(--sp) * 2);
   position: sticky; top: 0; z-index: 20;
 }
-.topbar .titles { min-width: 0; }
+.topbar .titles { min-width: 0; flex: 1 1 auto; }
 .topbar h1 { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .crumb { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .spacer { flex: 1; }
 /* The right-hand cluster never shrinks or wraps — the page title is what gives way (it has
    min-width: 0 and an ellipsis), then the search box steps down to an icon (see the tell-me
    rules) before the name hides at the mobile breakpoint. */
-.usermenu { display: flex; align-items: center; gap: 10px; flex: none; }
+.usermenu { display: flex; align-items: center; gap: 8px; flex: none; }
 .usermenu .whoami { text-align: right; white-space: nowrap; }
 .usermenu .btn { white-space: nowrap; flex: none; height: 34px; display: inline-flex; align-items: center; }
 .avatar {
@@ -1025,7 +1025,7 @@ body.print-preview .card { border: none; padding: 0; }
 /* Business Central's Alt+Q palette (components/layout/global-search.tsx). The trigger sits in
    the top bar as a search-box lookalike on desktop and shrinks to an icon on phones. */
 .tell-me-btn {
-  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; width: 260px; flex: none;
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; width: 240px; flex: none;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--text-muted); cursor: pointer; font: inherit; font-size: 12.5px; line-height: 1;
 }
@@ -1035,8 +1035,8 @@ body.print-preview .card { border: none; padding: 0; }
   font: inherit; font-size: 10.5px; padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px;
   border-radius: 4px; background: var(--surface-2); color: var(--text-muted);
 }
-@media (max-width: 1280px) { .tell-me-btn { width: 200px; } }
-@media (max-width: 1100px) { .tell-me-btn { width: 34px; padding: 0; justify-content: center; } .tell-me-btn-label, .tell-me-kbd { display: none; } }
+@media (max-width: 1500px) { .tell-me-btn { width: 190px; } .tell-me-kbd { display: none; } }
+@media (max-width: 1280px) { .tell-me-btn { width: 34px; padding: 0; justify-content: center; } .tell-me-btn-label { display: none; } }
 
 .tell-me-back { position: fixed; inset: 0; z-index: 120; background: rgba(10, 15, 20, .45); display: flex; justify-content: center; align-items: flex-start; padding: 8vh 16px 16px; }
 .tell-me {
@@ -1171,3 +1171,49 @@ body.print-preview .card { border: none; padding: 0; }
   .toasts { left: 12px; right: 12px; bottom: 12px; max-width: none; pointer-events: none; }
   .toasts > * { pointer-events: auto; }
 }
+
+/* ------------------------------------------------------------------ company badge */
+/* Which company this browser is working in (components/layout/company-badge.tsx); a copy is
+   marked TEST in the warning tone so nobody mistakes it for the live company. */
+.company-badge-wrap { position: relative; flex: none; }
+.company-badge {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; max-width: 220px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);
+  cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 500;
+}
+.company-badge:hover { border-color: var(--brand-primary); text-decoration: none; }
+a.company-badge { text-decoration: none; }
+.company-badge.test { background: color-mix(in srgb, var(--warning) 12%, transparent); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.company-badge-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-badge-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 1px 6px; border-radius: 10px; background: var(--warning); color: #fff; }
+.company-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 260px; z-index: 30; padding: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+}
+.company-menu .doc-actions-item.active { background: color-mix(in srgb, var(--brand-primary) 10%, transparent); }
+@media (max-width: 1500px) { .company-badge { max-width: 170px; } }
+@media (max-width: 1100px) { .company-badge-name { display: none; } .company-badge { padding: 0 8px; } .company-menu { left: auto; right: 0; } }
+
+/* ------------------------------------------------------------------ user menu */
+/* The avatar and the menu under it (components/layout/user-menu.tsx): My Settings, theme, Sign out. */
+.user-menu { position: relative; flex: none; }
+.user-menu-btn {
+  display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 4px 0 8px;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm); color: inherit; cursor: pointer; font: inherit;
+}
+.user-menu-btn:hover, .user-menu-btn[aria-expanded="true"] { border-color: var(--border); background: var(--surface); }
+.user-menu-btn .whoami { display: flex; flex-direction: column; align-items: flex-end; text-align: right; white-space: nowrap; max-width: 180px; }
+.user-menu-btn .who { font-size: 13px; font-weight: 500; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.user-menu-btn .role { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.user-menu-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 220px; z-index: 30; padding: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+}
+.user-menu-head { padding: 8px 10px 6px; }
+.user-menu-head .who { font-size: 13px; font-weight: 600; }
+.user-menu-head .role { font-size: 11px; color: var(--text-muted); }
+.user-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.user-menu-panel form { display: contents; }
+@media (max-width: 1280px) { .user-menu-btn .whoami { display: none; } }

@@ -20,7 +20,7 @@ async function baseUrl(): Promise<string> {
   return `${proto}://${host}`;
 }
 
-const SCREEN = '/admin/integration/web-services';
+const SCREEN = '/admin/data/web-services';
 
 /** How an object type reads on screen. */
 const objectTypeLabel = (t: string) => (t === 'PAGE' ? 'Page' : t === 'QUERY' ? 'Query' : 'Codeunit');
@@ -74,7 +74,7 @@ export async function WebServicesTab({ service }: { service?: string }) {
           ['Service document', <span className="mono" key="sd">{base}/ODataV4</span>],
           ['Metadata (EDMX)', <span className="mono" key="md">{base}/ODataV4/$metadata</span>],
           ['SOAP system service', <span className="mono" key="ss">{base}/WS/SystemService?wsdl</span>],
-          ['Authentication', 'HTTP Basic — user name and the user\'s Web Service Access Key (Admin Centre → Integration → Web Service Access Keys). A signed-in browser session also works for trying URLs.'],
+          ['Authentication', 'HTTP Basic — user name and the user\'s Web Service Access Key (Admin Centre → Data Management → Web Service Access Keys). A signed-in browser session also works for trying URLs.'],
           ['Permissions', 'A call may read a page/query only if the user has Read on its tables; create/update/delete need Insert/Modify/Delete; a codeunit procedure needs the same action grant as the screen that does the same thing.'],
           ['Company', "/ODataV4/Company('Name')/… and /WS/Name/Page/… company prefixes are accepted; this system has one company, so they can also be left out."],
           ['Logging', 'Every request is written to the Web Service Log with the caller, status and duration.'],

@@ -6,7 +6,7 @@
  * live under one sidebar entry.
  */
 import { NAV, isSubMenu } from './nav.ts';
-import { ADMIN_TABS, POOL_GROUPS, WORKFLOW_TABS, SECURITY_TABS, INTEGRATION_TABS, hasTabAccess } from './adminNav.ts';
+import { ADMIN_TABS, POOL_GROUPS, WORKFLOW_TABS, SECURITY_TABS, DATA_TABS, COMPANY_TABS, hasTabAccess } from './adminNav.ts';
 import { canNav, canPage } from './permissions.ts';
 import type { SessionUser } from './types.ts';
 
@@ -48,15 +48,16 @@ export function buildSearchIndex(user: SessionUser): SearchEntry[] {
 
   // Admin Centre: its tabs, then every Setup Pool screen and the Workflow / Security sub-tabs.
   const admin = 'Admin Centre';
-  for (const t of ADMIN_TABS) if (hasTabAccess(user, t)) add({ label: t.label, path: `/admin/${t.key}`, trail: admin, icon: '⚙' });
+  for (const t of ADMIN_TABS) if (hasTabAccess(user, t)) add({ label: t.label, path: `/admin/${t.key}`, trail: admin, icon: '⚙', keywords: t.key === 'data' ? 'configuration package import export' : undefined });
   for (const g of POOL_GROUPS) {
     for (const s of g.screens) {
       if (hasTabAccess(user, s)) add({ label: s.label, path: `/admin/pool/${g.key}/${s.key}`, trail: `${admin} › Setup Pool › ${g.label}`, icon: '🗂' });
     }
   }
+  for (const t of COMPANY_TABS) if (t.key !== 'information' && hasTabAccess(user, t)) add({ label: t.label, path: `/admin/company/${t.key}`, trail: `${admin} › Company Information`, icon: '🏢', keywords: 'copy company new company test company' });
   for (const t of WORKFLOW_TABS) if (hasTabAccess(user, t)) add({ label: t.label, path: `/admin/workflows/${t.key}`, trail: `${admin} › Workflow Management`, icon: '🔁' });
   for (const t of SECURITY_TABS) if (hasTabAccess(user, t)) add({ label: t.label, path: `/admin/security/${t.key}`, trail: `${admin} › System Security`, icon: '🔐' });
-  for (const t of INTEGRATION_TABS) if (hasTabAccess(user, t)) add({ label: t.label, path: `/admin/integration/${t.key}`, trail: `${admin} › Integration`, icon: '🔌', keywords: 'odata soap web service api' });
+  for (const t of DATA_TABS) if (t.key !== 'management' && hasTabAccess(user, t)) add({ label: t.label, path: `/admin/data/${t.key}`, trail: `${admin} › Data Management`, icon: '🔌', keywords: 'integration odata soap web service api' });
 
   for (const e of EXTRA) if (canPage(user, e.page)) add({ label: e.label, path: e.path, trail: e.trail, keywords: e.keywords, icon: '📄' });
 

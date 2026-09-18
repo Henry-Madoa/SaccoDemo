@@ -3,8 +3,9 @@
  * POST. Authenticates with HTTP Basic (username + Web Service Access Key) or the session cookie;
  * WSDL is served without authentication so tooling can import it. Every call is logged.
  */
-import { authenticateRequest, logCall } from '@/lib/webServices';
+import { authenticateRequest, logCall, WsError } from '@/lib/webServices';
 import { handleSoap, faultFor } from '@/lib/webServices/soap';
+import { companyRegistry, withCompany } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +19,20 @@ async function serve(request: Request, ctx: Ctx): Promise<Response> {
   let username: string | null = null;
   let result;
   try {
-    const user = await authenticateRequest(request);
-    username = user?.username ?? null;
-    result = await handleSoap(request, path, user, `${url.origin}/WS`);
+    // /WS/<Company>/Page/… names the company the call runs in (BC's URL shape); a segment that
+    // is not a known company code is treated as no company (the live one).
+    const kindIdx = path.findIndex((s) => /^(page|codeunit|systemservice)$/i.test(s));
+    const code = kindIdx > 0 ? decodeURIComponent(path[0]) : null;
+    const company = code ? (await companyRegistry()).find((c) => c.code.toUpperCase() === code.toUpperCase()) : null;
+    if (code && !company) {
+      result = faultFor(new WsError(404, 'NotFound', `Company '${code}' does not exist`));
+    } else {
+      result = await withCompany(company?.schema_name ?? 'public', async () => {
+        const user = await authenticateRequest(request);
+        username = user?.username ?? null;
+        return handleSoap(request, path, user, company ? `${url.origin}/WS/${company.code}` : `${url.origin}/WS`);
+      });
+    }
   } catch (e) {
     result = faultFor(e);
   }

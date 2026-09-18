@@ -10,7 +10,7 @@
  * screens, one group per Setup Pool category.
  */
 import { NAV, isSubMenu, groupInRoleCentre, type NavItem } from './nav.ts';
-import { ADMIN_TABS, POOL_GROUPS, WORKFLOW_TABS, SECURITY_TABS, INTEGRATION_TABS, hasTabAccess } from './adminNav.ts';
+import { ADMIN_TABS, POOL_GROUPS, WORKFLOW_TABS, SECURITY_TABS, DATA_TABS, COMPANY_TABS, hasTabAccess } from './adminNav.ts';
 import { canNav } from './permissions.ts';
 import { listProfiles } from './profiles.ts';
 import type { SessionUser } from './types.ts';
@@ -78,6 +78,8 @@ function administrationArea(user: SessionUser): ExplorerArea | null {
   const top = ADMIN_TABS.filter((t) => t.key !== 'pool' && hasTabAccess(user, t))
     .map((t) => ({ label: t.label, path: `/admin/${t.key}`, icon: '⚙', kind: 'admin' as const }));
   if (top.length) groups.push({ name: 'Admin Centre', icon: '⚙', pages: top });
+  const comp = COMPANY_TABS.filter((t) => t.key !== 'information' && hasTabAccess(user, t)).map((t) => ({ label: t.label, path: `/admin/company/${t.key}`, icon: '🏢', kind: 'admin' as const }));
+  if (comp.length) groups.push({ name: 'Companies', icon: '🏢', pages: comp });
   for (const g of POOL_GROUPS) {
     const pages = g.screens.filter((s) => hasTabAccess(user, s))
       .map((s) => ({ label: s.label, path: `/admin/pool/${g.key}/${s.key}`, icon: '🗂', kind: 'admin' as const, section: 'Setup Pool' }));
@@ -87,7 +89,7 @@ function administrationArea(user: SessionUser): ExplorerArea | null {
   if (wf.length) groups.push({ name: 'Workflow Management', icon: '🔁', pages: wf });
   const sec = SECURITY_TABS.filter((t) => hasTabAccess(user, t)).map((t) => ({ label: t.label, path: `/admin/security/${t.key}`, icon: '🔐', kind: 'admin' as const }));
   if (sec.length) groups.push({ name: 'System Security', icon: '🔐', pages: sec });
-  const integ = INTEGRATION_TABS.filter((t) => hasTabAccess(user, t)).map((t) => ({ label: t.label, path: `/admin/integration/${t.key}`, icon: '🔌', kind: 'admin' as const }));
+  const integ = DATA_TABS.filter((t) => t.key !== 'management' && hasTabAccess(user, t)).map((t) => ({ label: t.label, path: `/admin/data/${t.key}`, icon: '🔌', kind: 'admin' as const }));
   if (integ.length) groups.push({ name: 'Integration', icon: '🔌', pages: integ });
   if (!groups.length) return null;
   return { key: 'administration', title: 'System Administration', description: 'Setup, security, workflows and data', icon: '⚙', groups, mine: false };

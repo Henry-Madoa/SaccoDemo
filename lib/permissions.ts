@@ -197,8 +197,9 @@ export const PAGES: PageObject[] = [
   { code: 'ADMIN_AUDIT', label: 'Audit Trail', route: '/admin/security/audit' },
   { code: 'ADMIN_CHANGELOG', label: 'Change Log Management', route: '/admin/security/changelog' },
   { code: 'ADMIN_DATA', label: 'Data Management', route: '/admin/data' },
+  { code: 'ADMIN_COMPANIES', label: 'Companies', route: '/admin/company/companies' },
   { code: 'ADMIN_JOB_QUEUE', label: 'System Automation', route: '/admin/pool/general/automation' },
-  { code: 'ADMIN_WEB_SERVICES', label: 'Web Services (Integration)', route: '/admin/integration/web-services' },
+  { code: 'ADMIN_WEB_SERVICES', label: 'Web Services (Integration)', route: '/admin/data/web-services' },
   { code: 'EMPLOYEES', label: 'Employees', route: '/employees' },
   { code: 'COMPANY_JOBS', label: 'Company Jobs', route: '/company-jobs' },
   { code: 'ORGANOGRAM', label: 'Organogram', route: '/organogram' },
@@ -1261,6 +1262,10 @@ export const ACTIONS = {
   // shape ACCOUNT_ACTIVATION_APPROVE bundles its own posting rights under a single action.
   // Business Central Web Services (Admin Centre → Integration): registering objects
   // as OData/SOAP services, issuing users' Web Service Access Keys, reading the call log.
+  // Companies (Admin Centre → Companies): copying the live company into a test company, deleting
+  // a copy. Switching between companies needs no grant — a copy holds the same users and rights.
+  COMPANIES_READ: { page: 'ADMIN_COMPANIES', tables: [['company', 'read']] },
+  COMPANIES_MANAGE: { page: 'ADMIN_COMPANIES', tables: [['company', 'insert'], ['company', 'modify'], ['company', 'delete']] },
   WEB_SERVICES_READ: {
     page: 'ADMIN_WEB_SERVICES',
     tables: [['web_service', 'read'], ['web_service_access_key', 'read'], ['web_service_log', 'read'], ['app_user', 'read']],

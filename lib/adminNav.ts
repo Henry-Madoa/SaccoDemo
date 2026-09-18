@@ -97,7 +97,7 @@ export const POOL_PAGES: string[] = POOL_GROUPS.flatMap((g) =>
   g.screens.flatMap((s) => (Array.isArray(s.page) ? s.page : [s.page])));
 
 export const ADMIN_TABS: AdminTab[] = [
-  { key: 'company', label: 'Company Information', page: 'ADMIN_COMPANY' },
+  { key: 'company', label: 'Company Information', page: ['ADMIN_COMPANY', 'ADMIN_COMPANIES'] },
   { key: 'appearance', label: 'Appearance & Theme', page: 'ADMIN_APPEARANCE' },
   { key: 'pool', label: 'Setup Pool', page: POOL_PAGES },
   {
@@ -108,12 +108,18 @@ export const ADMIN_TABS: AdminTab[] = [
     key: 'security', label: 'System Security',
     page: ['ADMIN_USERS', 'ADMIN_WORKFLOWS_SETUP', 'ADMIN_ROLES', 'ADMIN_PROFILES', 'ADMIN_AUDIT', 'ADMIN_CHANGELOG'],
   },
-  { key: 'data', label: 'Data Management', page: 'ADMIN_DATA' },
-  { key: 'integration', label: 'Integration', page: 'ADMIN_WEB_SERVICES' },
+  { key: 'data', label: 'Data Management', page: ['ADMIN_DATA', 'ADMIN_WEB_SERVICES'] },
 ];
 
-/** Integration's own sub-navigation — Business Central Web Services. */
-export const INTEGRATION_TABS: AdminTab[] = [
+/** Company Information's own sub-navigation: this company's details, and the list of companies. */
+export const COMPANY_TABS: AdminTab[] = [
+  { key: 'information', label: 'Company Information', page: 'ADMIN_COMPANY' },
+  { key: 'companies', label: 'Companies', page: 'ADMIN_COMPANIES' },
+];
+
+/** Data Management's own sub-navigation: import/export, then the Integration (web service) screens. */
+export const DATA_TABS: AdminTab[] = [
+  { key: 'management', label: 'Configuration Package', page: 'ADMIN_DATA' },
   { key: 'web-services', label: 'Web Services', page: 'ADMIN_WEB_SERVICES' },
   { key: 'web-service-keys', label: 'Web Service Access Keys', page: 'ADMIN_WEB_SERVICES' },
   { key: 'web-service-log', label: 'Web Service Log', page: 'ADMIN_WEB_SERVICES' },

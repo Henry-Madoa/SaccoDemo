@@ -1,12 +1,10 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
-import { initials } from '@/lib/format';
-import { SignOutButton } from './sign-out-button';
 import { NavToggle } from './nav-toggle';
-import { ThemeToggle } from './theme-toggle';
+import { UserMenu } from './user-menu';
 import { NotificationBell } from './notification-bell';
 import { GlobalSearchButton } from './global-search';
 import { RoleExplorerButton } from './role-explorer';
+import { CompanyBadge } from './company-badge';
 import type { SessionUser } from '@/lib/types';
 
 export interface PageProps {
@@ -34,22 +32,10 @@ export function Page({ title, crumb, user, children }: PageProps) {
         </div>
         <div className="spacer" />
         <div className="usermenu">
+          <CompanyBadge />
           <GlobalSearchButton />
           <NotificationBell />
-          <Link href="/my-settings" className="theme-toggle" aria-label="My Settings" title="My Settings">
-            <span aria-hidden="true">⚙️</span>
-          </Link>
-          <ThemeToggle />
-          {/* Name and role are the first thing to go when width runs out —
-              the avatar still identifies who is signed in. */}
-          <div className="whoami">
-            <div className="who">{user.full_name}</div>
-            <div className="role">{user.role_name}</div>
-          </div>
-          <div className="avatar" title={`${user.full_name} — ${user.role_name}`}>
-            {initials(user.full_name)}
-          </div>
-          <SignOutButton />
+          <UserMenu fullName={user.full_name} roleName={user.role_name} />
           <RoleExplorerButton />
         </div>
       </header>

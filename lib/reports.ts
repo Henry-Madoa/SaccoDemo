@@ -26,15 +26,15 @@ export async function getDashboard(userId: number, username: string): Promise<Da
     ]),
     one<DashboardData['members']>(
       `SELECT COUNT(*) total,
-              SUM(CASE WHEN status='ACTIVE' THEN 1 ELSE 0 END) active,
-              SUM(CASE WHEN status='DORMANT' THEN 1 ELSE 0 END) dormant
+              COALESCE(SUM(CASE WHEN status='ACTIVE' THEN 1 ELSE 0 END),0) active,
+              COALESCE(SUM(CASE WHEN status='DORMANT' THEN 1 ELSE 0 END),0) dormant
        FROM member`,
     ),
     one<DashboardData['loans']>(
       `SELECT COUNT(*) total,
-              SUM(CASE WHEN status='PENDING APPROVAL' THEN 1 ELSE 0 END) pending,
-              SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) approved,
-              SUM(CASE WHEN status='DISBURSED' THEN 1 ELSE 0 END) active,
+              COALESCE(SUM(CASE WHEN status='PENDING APPROVAL' THEN 1 ELSE 0 END),0) pending,
+              COALESCE(SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END),0) approved,
+              COALESCE(SUM(CASE WHEN status='DISBURSED' THEN 1 ELSE 0 END),0) active,
               COALESCE(SUM(CASE WHEN status='DISBURSED' THEN principal_balance ELSE 0 END),0) portfolio,
               COALESCE(SUM(CASE WHEN status='DISBURSED' THEN arrears_amount ELSE 0 END),0) arrears
        FROM loan`,

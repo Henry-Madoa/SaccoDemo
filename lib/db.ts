@@ -28,14 +28,34 @@ setDefaultResultOrder('ipv4first');
  * avoid opening a new pool per reload.
  */
 
-const globalForDb = globalThis as typeof globalThis & { __saccoPrisma?: PrismaClient };
+const globalForDb = globalThis as typeof globalThis & { __saccoPrisma?: PrismaClient; __saccoCompanyClients?: Map<string, PrismaClient> };
 
-function connect(): PrismaClient {
+/*
+ * Companies (lib/companies.ts): a company is a PostgreSQL schema holding its own copy of every
+ * business table, while users, sessions, roles, permissions and profiles live only in "public".
+ * The default company IS "public". Any other company gets its own client whose connections
+ * start with search_path = <schema>, public — so every query in the application resolves the
+ * business tables in the company's schema and the shared tables in public, with no SQL changed.
+ * Those clients use the direct (non-pooled) endpoint: a transaction-mode pooler would not keep
+ * a per-connection search_path.
+ */
+export const DEFAULT_SCHEMA = 'public';
+export const COMPANY_COOKIE = 'sacco_company';
+const SCHEMA_NAME = /^co_[a-z0-9_]{1,40}$/;
+
+function directUrl(url: string): string {
+  return process.env.DIRECT_DATABASE_URL ?? url.replace('-pooler.', '.');
+}
+
+function connect(schema: string = DEFAULT_SCHEMA): PrismaClient {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set — the application cannot reach its database.');
+  const company = schema !== DEFAULT_SCHEMA;
+  if (company && !SCHEMA_NAME.test(schema)) throw new Error(`Invalid company schema ${schema}`);
   return new PrismaClient({
     adapter: new PrismaPg({
-      connectionString: url,
+      connectionString: company ? directUrl(url) : url,
+      ...(company ? { options: `-c search_path=${schema},public` } : {}),
       // node-postgres otherwise waits indefinitely: a connection that goes
       // stale without a clean close (Neon's pooler reclaiming it, a laptop
       // sleeping through a network change) leaves a query hanging forever
@@ -49,11 +69,91 @@ function connect(): PrismaClient {
 }
 
 const db: PrismaClient = globalForDb.__saccoPrisma ?? (globalForDb.__saccoPrisma = connect());
+const companyClients = globalForDb.__saccoCompanyClients ?? (globalForDb.__saccoCompanyClients = new Map());
 
-/** The client for the current call: the open transaction if there is one. */
+function clientFor(schema: string): PrismaClient {
+  if (schema === DEFAULT_SCHEMA) return db;
+  let c = companyClients.get(schema);
+  if (!c) { c = connect(schema); companyClients.set(schema, c); }
+  return c;
+}
+
+/** Forget a company's client (after the company is deleted). */
+export async function dropCompanyClient(schema: string): Promise<void> {
+  const c = companyClients.get(schema);
+  if (!c) return;
+  companyClients.delete(schema);
+  await c.$disconnect().catch(() => undefined);
+}
+
+/**
+ * Which company a call runs in: an explicit withCompany() scope (route handlers, jobs), else
+ * the request's company cookie, else the default. The cookie is only honoured for a company
+ * that exists — the registry is read straight from public and cached briefly.
+ */
+const companyStore = new AsyncLocalStorage<string>();
+export function withCompany<T>(schema: string, fn: () => Promise<T>): Promise<T> {
+  return companyStore.run(schema, fn);
+}
+
+interface CompanyRow { code: string; schema_name: string }
+let registryCache: { at: number; rows: CompanyRow[] } | null = null;
+export async function companyRegistry(): Promise<CompanyRow[]> {
+  if (registryCache && Date.now() - registryCache.at < 15_000) return registryCache.rows;
+  try {
+    const rows = normalise<CompanyRow[]>(await db.$queryRawUnsafe('SELECT code, schema_name FROM public.company'));
+    registryCache = { at: Date.now(), rows };
+    return rows;
+  } catch {
+    // Before the companies migration has run there is only the default company.
+    return [{ code: 'MAIN', schema_name: DEFAULT_SCHEMA }];
+  }
+}
+export function invalidateCompanyRegistry(): void { registryCache = null; }
+
+/** The company an administrator pinned the signed-in user to, by session token (cached briefly). */
+const assignedCache = new Map<string, { at: number; code: string | null }>();
+async function assignedCompanyCode(sessionToken: string): Promise<string | null> {
+  const hit = assignedCache.get(sessionToken);
+  if (hit && Date.now() - hit.at < 15_000) return hit.code;
+  let code: string | null = null;
+  try {
+    const rows = normalise<{ company_code: string | null }[]>(await db.$queryRawUnsafe(
+      'SELECT u.company_code FROM public.session s JOIN public.app_user u ON u.id = s.user_id WHERE s.token = $1', sessionToken));
+    code = rows[0]?.company_code ?? null;
+  } catch { /* before the migration — nobody is assigned */ }
+  if (assignedCache.size > 5000) assignedCache.clear();
+  assignedCache.set(sessionToken, { at: Date.now(), code });
+  return code;
+}
+export function invalidateAssignedCompanies(): void { assignedCache.clear(); }
+
+async function cookieSchema(): Promise<string | null> {
+  try {
+    const { cookies } = await import('next/headers');
+    const store = await cookies();
+    // A user pinned to a company by an administrator always works there, whatever the cookie says.
+    const session = store.get('sacco_session')?.value;
+    const assigned = session ? await assignedCompanyCode(session) : null;
+    const code = assigned ?? store.get(COMPANY_COOKIE)?.value;
+    if (!code) return null;
+    const row = (await companyRegistry()).find((r) => r.code.toUpperCase() === code.toUpperCase());
+    return row?.schema_name ?? null;
+  } catch {
+    return null; // outside a request (scripts, the job queue) — the default company
+  }
+}
+
+export async function currentSchema(): Promise<string> {
+  return companyStore.getStore() ?? (await cookieSchema()) ?? DEFAULT_SCHEMA;
+}
+
+/** The client for the current call: the open transaction if there is one, else the company's. */
 type RawClient = Pick<PrismaClient, '$queryRawUnsafe' | '$executeRawUnsafe'>;
 const txStore = new AsyncLocalStorage<RawClient>();
-const client = (): RawClient => txStore.getStore() ?? db;
+async function client(): Promise<RawClient> {
+  return txStore.getStore() ?? clientFor(await currentSchema());
+}
 
 /* ------------------------------------------------------------- translation */
 
@@ -134,7 +234,7 @@ function normalise<T>(rows: unknown): T {
 
 export async function all<T>(sql: string, ...args: unknown[]): Promise<T[]> {
   const { text, values } = bind(sql, args);
-  return normalise<T[]>(await client().$queryRawUnsafe(text, ...values));
+  return normalise<T[]>(await (await client()).$queryRawUnsafe(text, ...values));
 }
 
 export async function one<T>(sql: string, ...args: unknown[]): Promise<T | undefined> {
@@ -170,11 +270,12 @@ export async function run(sql: string, ...args: unknown[]): Promise<RunResult> {
 
   // An INSERT with RETURNING is a query, not a command — $executeRaw discards
   // the row and would lose the new id.
+  const c = await client();
   if (wantsId || /\breturning\b/i.test(sql)) {
-    const rows = normalise<{ id?: number }[]>(await client().$queryRawUnsafe(text, ...values));
+    const rows = normalise<{ id?: number }[]>(await c.$queryRawUnsafe(text, ...values));
     return { changes: rows.length, lastInsertRowid: Number(rows[0]?.id ?? 0) };
   }
-  const changes = await client().$executeRawUnsafe(text, ...values);
+  const changes = await c.$executeRawUnsafe(text, ...values);
   return { changes, lastInsertRowid: 0 };
 }
 
@@ -197,7 +298,8 @@ export interface TxOptions {
 
 export async function tx<T>(fn: () => Promise<T>, options: TxOptions = {}): Promise<T> {
   if (txStore.getStore()) return fn();
-  return db.$transaction(
+  const base = clientFor(await currentSchema());
+  return base.$transaction(
     (client) => txStore.run(client as RawClient, fn),
     // The seed posts thousands of journals inside one transaction.
     { timeout: options.timeout ?? 120_000, maxWait: 15_000 },

@@ -104,7 +104,7 @@ export async function updateRole(
 export async function listUsers(): Promise<UserListRow[]> {
   const [rows, profileLinks, overrides, extraSets] = await Promise.all([
     all<Omit<UserListRow, 'profile_codes' | 'override_count' | 'extra_permission_set_names'>>(
-      `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at,
+      `SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at, u.company_code,
               r.name AS role_name, r.id AS role_id
        FROM app_user u JOIN role r ON r.id = u.role_id
        ORDER BY u.full_name`,
@@ -145,13 +145,15 @@ export interface UserInput {
   /** Role Centre Profiles to assign (My Settings then lets the user switch between them).
    *  `undefined` leaves the current set alone; `[]` clears it. */
   profileIds?: number[];
+  /** Pin the user to one company (null/'' = not assigned — the user picks on My Settings). */
+  company_code?: string | null;
   /** Additional Permission Sets granted on top of the primary role (BC "User Permission Sets").
    *  `undefined` leaves the current set alone; `[]` clears it. Effective rights are the union. */
   permissionSetIds?: number[];
 }
 
 export async function createUser(
-  { username, full_name, email, phone, password, role_id, profileIds, permissionSetIds }: UserInput,
+  { username, full_name, email, phone, password, role_id, profileIds, permissionSetIds, company_code }: UserInput,
   user: Actor,
 ): Promise<{ id: number }> {
   if (!username || !full_name || !password || !role_id) {
@@ -165,10 +167,10 @@ export async function createUser(
   }
   return tx(async () => {
     const info = await run(
-      `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, created_at)
-       VALUES (?,?,?,?,?,?,?)`,
+      `INSERT INTO app_user (username, full_name, email, phone, password_hash, role_id, created_at, company_code)
+       VALUES (?,?,?,?,?,?,?,?)`,
       username, full_name, email || null, phone || null, hashPassword(password),
-      role_id, new Date().toISOString(),
+      role_id, new Date().toISOString(), company_code || null,
     );
     const newId = Number(info.lastInsertRowid);
     if (profileIds !== undefined) await setUserProfiles(newId, profileIds, user);
@@ -180,7 +182,7 @@ export async function createUser(
 
 export async function updateUser(
   id: number,
-  { full_name, email, phone, role_id, status, password, profileIds, permissionSetIds }: UserInput,
+  { full_name, email, phone, role_id, status, password, profileIds, permissionSetIds, company_code }: UserInput,
   user: Actor,
 ): Promise<{ updated: true }> {
   if (Number(id) === user.id && status && status !== 'ACTIVE') {
@@ -200,10 +202,14 @@ export async function updateUser(
       full_name ?? null, email ?? null, phone ?? null, role_id ?? null, status ?? null,
       password ? hashPassword(password) : null, id,
     );
+    // The company pin is the one field where '' means "clear" — undefined leaves it alone.
+    if (company_code !== undefined) await run('UPDATE app_user SET company_code = ?::text WHERE id = ?', company_code || null, id);
     if (profileIds !== undefined) await setUserProfiles(id, profileIds, user);
     if (permissionSetIds !== undefined) await setUserPermissionSets(id, permissionSetIds, user);
   });
-  await audit(user, 'USER_UPDATE', 'app_user', id, { role_id, status, passwordReset: !!password });
+  const { invalidateAssignedCompanies } = await import('./db.ts');
+  invalidateAssignedCompanies();
+  await audit(user, 'USER_UPDATE', 'app_user', id, { role_id, status, passwordReset: !!password, company_code });
   return { updated: true };
 }
 

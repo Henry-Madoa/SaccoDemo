@@ -9,10 +9,12 @@ import { USER_STATUSES } from '@/lib/constants';
 import { PASSWORD_RULES } from '@/lib/password';
 import type { Profile, RoleWithUsage, UserListRow } from '@/lib/types';
 
-export function UserFormButton({ user, roles, profiles, className = 'btn', children }: {
+export function UserFormButton({ user, roles, profiles, companies = [], className = 'btn', children }: {
   user?: UserListRow | null;
   roles: RoleWithUsage[];
   profiles: Profile[];
+  /** The companies an administrator may pin this user to. */
+  companies?: { code: string; display_name: string; is_default: boolean }[];
   className?: string;
   children: React.ReactNode;
 }) {
@@ -62,6 +64,11 @@ export function UserFormButton({ user, roles, profiles, className = 'btn', child
               onChange={(e) => setUsername(e.target.value)} />
             <Field name="email" label="Email" type="email" defaultValue={u?.email} />
             <Field name="phone" label="Phone" defaultValue={u?.phone} type="phone" />
+            {companies.length > 1 ? (
+              <Field name="company_code" label="Company" type="select" defaultValue={u?.company_code ?? ''}
+                options={[{ value: '', label: 'Not assigned — the user chooses on My Settings' }, ...companies.map((c) => ({ value: c.code, label: `${c.display_name} (${c.code})${c.is_default ? '' : ' — test copy'}` }))]}
+                hint="An assigned user always works in that company and cannot switch" />
+            ) : null}
             <SearchableSelect name="role_id" label="Primary role (permission set)" required
               items={roles} getValue={(r) => String(r.id)} getLabel={(r) => r.name}
               value={roleId} onChange={setRoleId} placeholder="Search role…" emptyText="No matching roles" />

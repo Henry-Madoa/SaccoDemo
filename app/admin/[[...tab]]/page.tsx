@@ -137,8 +137,10 @@ import {
 } from '../job-queue-form';
 import { CHARGE_TRANSACTION_TYPES, JOB_QUEUE_TYPES } from '@/lib/constants';
 import { WebServicesTab, WebServiceKeysTab, WebServiceLogTab } from '../web-services-tabs';
+import { CompaniesTab } from '../companies-tab';
+import { listCompanies } from '@/lib/companies';
 import {
-  type AdminTab, hasTabAccess, POOL_GROUPS, ADMIN_TABS, WORKFLOW_TABS, SECURITY_TABS, INTEGRATION_TABS,
+  type AdminTab, hasTabAccess, POOL_GROUPS, ADMIN_TABS, WORKFLOW_TABS, SECURITY_TABS, DATA_TABS, COMPANY_TABS,
 } from '@/lib/adminNav';
 
 const TABS = ADMIN_TABS;
@@ -186,11 +188,15 @@ export default async function AdminPage({ params, searchParams }: {
     ? (poolGroup.screens.find((s) => s.key === poolScreenSub) ?? poolGroup.screens[0])
     : undefined;
 
-  const integrationAllowed = INTEGRATION_TABS.filter((t) => hasTabAccess(user, t));
-  const integrationSub = segments?.[1];
-  if (tab === 'integration' && integrationSub && !INTEGRATION_TABS.some((t) => t.key === integrationSub)) notFound();
-  const integrationTab = tab === 'integration' && integrationAllowed.some((t) => t.key === integrationSub)
-    ? integrationSub! : integrationAllowed[0]?.key;
+  const companyAllowed = COMPANY_TABS.filter((t) => hasTabAccess(user, t));
+  const companySub = segments?.[1];
+  if (tab === 'company' && companySub && !COMPANY_TABS.some((t) => t.key === companySub)) notFound();
+  const companyTab = tab === 'company' && companyAllowed.some((t) => t.key === companySub) ? companySub! : companyAllowed[0]?.key;
+
+  const dataAllowed = DATA_TABS.filter((t) => hasTabAccess(user, t));
+  const dataSub = segments?.[1];
+  if (tab === 'data' && dataSub && !DATA_TABS.some((t) => t.key === dataSub)) notFound();
+  const dataTab = tab === 'data' && dataAllowed.some((t) => t.key === dataSub) ? dataSub! : dataAllowed[0]?.key;
 
   const workflowAllowed = WORKFLOW_TABS.filter((t) => hasTabAccess(user, t));
   const workflowSub = segments?.[1];
@@ -207,7 +213,13 @@ export default async function AdminPage({ params, searchParams }: {
   return (
     <Page title="Admin Centre" crumb="Configuration, security and appearance" user={user}>
       <Tabs tabs={allowed} active={tab} hrefFor={(k) => `/admin/${k}`} />
-      {tab === 'company' ? <CompanyTab /> : null}
+      {tab === 'company' ? (
+        <>
+          <Tabs tabs={companyAllowed} active={companyTab} hrefFor={(k) => (k === 'information' ? '/admin/company' : `/admin/company/${k}`)} />
+          {companyTab === 'information' ? <CompanyTab /> : null}
+          {companyTab === 'companies' ? <CompaniesTab /> : null}
+        </>
+      ) : null}
       {tab === 'appearance' ? <AppearanceTab /> : null}
       {tab === 'pool' && poolGroup && poolScreen ? (
         <>
@@ -281,13 +293,13 @@ export default async function AdminPage({ params, searchParams }: {
           {securityTab === 'changelog' ? <ChangeLogTab search={q} filtersRaw={filtersRaw} sortRaw={sortRaw} /> : null}
         </>
       ) : null}
-      {tab === 'data' ? <DataManagementTab /> : null}
-      {tab === 'integration' ? (
+      {tab === 'data' ? (
         <>
-          <Tabs tabs={integrationAllowed} active={integrationTab} hrefFor={(k) => `/admin/integration/${k}`} />
-          {integrationTab === 'web-services' ? <WebServicesTab service={searchParamsAll.service} /> : null}
-          {integrationTab === 'web-service-keys' ? <WebServiceKeysTab /> : null}
-          {integrationTab === 'web-service-log' ? <WebServiceLogTab /> : null}
+          <Tabs tabs={dataAllowed} active={dataTab} hrefFor={(k) => (k === 'management' ? '/admin/data' : `/admin/data/${k}`)} />
+          {dataTab === 'management' ? <DataManagementTab /> : null}
+          {dataTab === 'web-services' ? <WebServicesTab service={searchParamsAll.service} /> : null}
+          {dataTab === 'web-service-keys' ? <WebServiceKeysTab /> : null}
+          {dataTab === 'web-service-log' ? <WebServiceLogTab /> : null}
         </>
       ) : null}
     </Page>
@@ -322,13 +334,13 @@ async function AppearanceTab() {
 }
 
 async function UsersTab() {
-  const [users, roles, profiles] = await Promise.all([listUsers(), listRoles(), listProfiles()]);
+  const [users, roles, profiles, companies] = await Promise.all([listUsers(), listRoles(), listProfiles(), listCompanies()]);
 
   return (
     <>
       <Toolbar>
         <Spacer />
-        <UserFormButton roles={roles} profiles={profiles}>Add user</UserFormButton>
+        <UserFormButton roles={roles} profiles={profiles} companies={companies}>Add user</UserFormButton>
       </Toolbar>
       <Card>
         <CardHead title={`${users.length} system users`}
@@ -337,7 +349,7 @@ async function UsersTab() {
           <thead>
             <tr>
               <th>User</th><th>Username</th><th>Roles &amp; permissions</th><th>Role Centres</th>
-              <th>Last sign-in</th><th>Status</th><th className="num" />
+              {companies.length > 1 ? <th>Company</th> : null}<th>Last sign-in</th><th>Status</th><th className="num" />
             </tr>
           </thead>
           <tbody>
@@ -362,12 +374,15 @@ async function UsersTab() {
                     ? profiles.filter((p) => u.profile_codes.includes(p.code)).map((p) => p.name).join(', ')
                     : <span className="muted-cell">Super (default)</span>}
                 </td>
+                {companies.length > 1 ? (
+                  <td className="tiny">{u.company_code ? (companies.find((c) => c.code === u.company_code)?.display_name ?? u.company_code) : <span className="muted-cell">Not assigned</span>}</td>
+                ) : null}
                 <td>{u.last_login_at ? formatDateTime(u.last_login_at) : 'never'}</td>
                 <td><Pill status={u.status} /></td>
                 <td className="num">
                   <span className="inline" style={{ gap: 4, justifyContent: 'flex-end' }}>
                     <UserPermissionsButton user={u} pages={PAGES}>Permissions</UserPermissionsButton>
-                    <UserFormButton user={u} roles={roles} profiles={profiles} className="btn sm ghost">
+                    <UserFormButton user={u} roles={roles} profiles={profiles} companies={companies} className="btn sm ghost">
                       Edit
                     </UserFormButton>
                   </span>

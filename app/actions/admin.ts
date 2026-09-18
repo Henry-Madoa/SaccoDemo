@@ -77,6 +77,7 @@ export async function saveUser(id: number | null, values: FormValues): Promise<A
       password: String(values.password || '') || null,
       profileIds: csvIds(values.profileIds),
       permissionSetIds: csvIds(values.permissionSetIds),
+      company_code: values.company_code === undefined ? undefined : String(values.company_code || '') || null,
     };
     const result = id ? await admin.updateUser(id, body, user) : await admin.createUser(body, user);
     revalidatePath('/admin/users');

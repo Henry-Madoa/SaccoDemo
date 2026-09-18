@@ -256,6 +256,9 @@ export interface AppUser {
   /** BC's "Work Date" (My Settings) — this user's own suggested default date, in place of the
    *  real system date, for new documents. Null = use today(). See lib/postingDates.ts. */
   work_date: IsoDate | null;
+  /** The company an administrator pinned this user to (lib/companies.ts). Null = the user picks
+   *  their own on My Settings. */
+  company_code: string | null;
   /** The Role Centre landing page this user currently sees. Points at one of their assigned
    *  Profiles; null falls back to the default (Super) profile. Grants no permissions. */
   active_profile_id: number | null;
@@ -322,6 +325,7 @@ export interface UserListRow {
   role_id: number;
   /** Codes of the Role Centre Profiles assigned to this user (for the admin list). */
   profile_codes: string[];
+  company_code: string | null;
   /** Names of the additional Permission Sets granted on top of the primary role. */
   extra_permission_set_names: string[];
   /** How many per-user permission overrides this user carries (0 = plain role). */
@@ -7054,4 +7058,18 @@ export interface WebServiceLogEntry {
   duration_ms: number;
   ip: string | null;
   error: string | null;
+}
+
+/* ------------------------------------------------------------ companies */
+
+/** A company — its own schema of business data; the default company is the live data in public. */
+export interface Company {
+  id: number;
+  code: string;
+  schema_name: string;
+  display_name: string;
+  is_default: boolean;
+  copied_from: string | null;
+  created_at: IsoDateTime;
+  created_by: string | null;
 }

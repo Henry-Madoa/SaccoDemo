@@ -10,7 +10,7 @@ import {
 import type { ActionResult, FormValues, WebServiceObjectType } from '@/lib/types';
 
 const revalidate = () => {
-  for (const p of ['/admin/integration/web-services', '/admin/integration/web-service-keys', '/admin/integration/web-service-log']) revalidatePath(p);
+  for (const p of ['/admin/data/web-services', '/admin/data/web-service-keys', '/admin/data/web-service-log']) revalidatePath(p);
 };
 
 /** The New form posts "PAGE:50100" as the object; split it back into its type and number. */

@@ -4,6 +4,7 @@
  * OData JSON, and logs every call to the Web Service Log.
  */
 import { authenticateRequest, logCall, statusOfError } from '@/lib/webServices';
+import { companyRegistry, withCompany } from '@/lib/db';
 import { handleOData, odataError } from '@/lib/webServices/odata';
 
 export const dynamic = 'force-dynamic';
@@ -19,13 +20,21 @@ async function serve(request: Request, ctx: Ctx): Promise<Response> {
   let username: string | null = null;
   let result;
   try {
-    const user = await authenticateRequest(request);
-    // $metadata and the service document are public in BC only with auth too — keep it uniform.
-    if (!user) {
-      result = odataError(401, 'Unauthorized', 'Authentication required: HTTP Basic with your username and Web Service Access Key');
+    // Company('CODE') as the first segment (or ?company=CODE) selects the company the call runs
+    // in; without it the call runs in the live company.
+    const m = decodeURIComponent(path[0] ?? '').match(/^Company(['"]?(.+?)['"]?)$/i);
+    const code = m?.[1] ?? url.searchParams.get('company');
+    const company = code ? (await companyRegistry()).find((c) => c.code.toUpperCase() === code.toUpperCase()) : null;
+    if (code && !company) {
+      result = odataError(404, 'NotFound', `Company '${code}' does not exist`);
     } else {
-      username = user.username;
-      result = await handleOData(request, path, user, baseUrl);
+      const segs = m ? path.slice(1) : path;
+      result = await withCompany(company?.schema_name ?? 'public', async () => {
+        const user = await authenticateRequest(request);
+        if (!user) return odataError(401, 'Unauthorized', 'Authentication required: HTTP Basic with your username and Web Service Access Key');
+        username = user.username;
+        return handleOData(request, segs, user, m ? `${baseUrl}/${path[0]}` : baseUrl);
+      });
     }
   } catch (e) {
     const { status, code, message } = statusOfError(e);
