@@ -9,11 +9,23 @@ import { signOut } from '@/app/actions/auth';
 type Mode = 'light' | 'dark';
 const STORAGE_KEY = 'theme-mode';
 
+/* The usual sign-out mark: you step out through the door frame, so the arrow points away from it. */
+function SignOutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
+  );
+}
+
 function SignOutItem() {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" className="doc-actions-item" role="menuitem" disabled={pending}>
-      <span aria-hidden="true">⎋</span> {pending ? 'Signing out…' : 'Sign out'}
+    <button type="submit" className="doc-actions-item sign-out-item" role="menuitem" disabled={pending}>
+      <SignOutIcon /> {pending ? 'Signing out…' : 'Sign out'}
     </button>
   );
 }

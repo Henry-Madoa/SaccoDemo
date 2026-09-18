@@ -1217,4 +1217,11 @@ a.company-badge { text-decoration: none; }
 .user-menu-head .role { font-size: 11px; color: var(--text-muted); }
 .user-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
 .user-menu-panel form { display: contents; }
+/* Sign out sits with the other menu rows and only warms to red on hover, so it is easy to find
+   without shouting at everyone who opens the menu. */
+.sign-out-item { font-weight: 500; transition: background .15s ease, color .15s ease; }
+.sign-out-item:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.sign-out-item:focus-visible { outline: 2px solid var(--danger); outline-offset: -2px; }
+.sign-out-item:disabled { opacity: .6; cursor: progress; }
+.sign-out-item svg { flex: none; opacity: .8; }
 @media (max-width: 1280px) { .user-menu-btn .whoami { display: none; } }
